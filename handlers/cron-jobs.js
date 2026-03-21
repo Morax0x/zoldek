@@ -2,7 +2,7 @@ const { createRandomDropGiveaway } = require('./giveaway-handler.js');
 // 🔥 استدعاء دوال الملوك من الملف الجديد الصحيح 🔥
 const { autoUpdateKingsBoard, rewardDailyKings } = require('./kings-stats-handler.js'); 
 const { checkLoanPayments } = require('./loan-handler.js'); 
-const { checkFarmIncome } = require('./farm-income.js'); // تم تغيير اسم الملف إذا كان farm-income.js
+const { checkFarmIncome } = require('./farm-income.js'); 
 const handleMarketCrash = require('./market-crash-handler.js');
 const { checkDailyStreaks, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("../streak-handler.js");
 const { checkUnjailTask } = require('./report-handler.js'); 
@@ -15,7 +15,10 @@ module.exports = (client, db) => {
     async function updateMarketPrices() {
         try {
             if (!client.marketLocks) client.marketLocks = new Set();
-            const res = await db.query('SELECT * FROM market_items');
+            let res;
+            try { res = await db.query('SELECT * FROM market_items'); }
+            catch(e) { return; }
+            
             const allItems = res.rows;
             if (allItems.length === 0) return;
 
@@ -26,7 +29,10 @@ module.exports = (client, db) => {
                 const itemId = item.id || item.itemID;
                 if (client.marketLocks.has(itemId)) continue;
 
-                const resOwned = await db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE "itemID" = $1`, [itemId]);
+                let resOwned;
+                try { resOwned = await db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE "itemID" = $1`, [itemId]); }
+                catch(e) { resOwned = await db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE itemid = $1`, [itemId]).catch(()=>({rows:[{total: 0}]})); }
+                
                 const totalOwned = resOwned.rows[0].total || 0;
 
                 let randomPercent = (Math.random() * 0.20) - 0.10;
@@ -49,20 +55,24 @@ module.exports = (client, db) => {
                 const changeAmount = newPrice - oldPrice;
                 const displayPercent = oldPrice > 0 ? ((changeAmount / oldPrice) * 100).toFixed(2) : 0;
                 
-                await db.query(`UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2, "lastChange" = $3 WHERE "id" = $4`, [newPrice, displayPercent, changeAmount, itemId]);
+                try { await db.query(`UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2, "lastChange" = $3 WHERE "id" = $4`, [newPrice, displayPercent, changeAmount, itemId]); }
+                catch(e) { await db.query(`UPDATE market_items SET currentprice = $1, lastchangepercent = $2, lastchange = $3 WHERE id = $4`, [newPrice, displayPercent, changeAmount, itemId]).catch(()=>{}); }
             }
             await db.query('COMMIT');
         } catch (err) {
-            console.error("[Cron - Market Error]:", err);
             await db.query('ROLLBACK').catch(()=>{});
         }
     }
 
-    // 2. فحص الرتب المؤقتة المنتهية (تم إصلاح عمود expiresAt)
+    // 2. فحص الرتب المؤقتة المنتهية 
     async function checkTemporaryRoles() {
         const now = Date.now();
         try {
-            const expiredRoles = (await db.query(`SELECT * FROM temporary_roles WHERE "expiresAt" <= $1`, [now])).rows;
+            let expiredRolesRes;
+            try { expiredRolesRes = await db.query(`SELECT * FROM temporary_roles WHERE "expiresAt" <= $1`, [now]); }
+            catch(e) { expiredRolesRes = await db.query(`SELECT * FROM temporary_roles WHERE expiresat <= $1`, [now]).catch(()=>({rows:[]})); }
+            
+            const expiredRoles = expiredRolesRes.rows;
             if (expiredRoles.length === 0) return;
 
             await db.query('BEGIN');
@@ -70,7 +80,8 @@ module.exports = (client, db) => {
                 const uId = record.userID || record.userid;
                 const gId = record.guildID || record.guildid;
                 const rId = record.roleID || record.roleid;
-                await db.query(`DELETE FROM temporary_roles WHERE "userID" = $1 AND "guildID" = $2 AND "roleID" = $3`, [uId, gId, rId]);
+                try { await db.query(`DELETE FROM temporary_roles WHERE "userID" = $1 AND "guildID" = $2 AND "roleID" = $3`, [uId, gId, rId]); }
+                catch(e) { await db.query(`DELETE FROM temporary_roles WHERE userid = $1 AND guildid = $2 AND roleid = $3`, [uId, gId, rId]).catch(()=>{}); }
             }
             await db.query('COMMIT');
 
@@ -88,12 +99,11 @@ module.exports = (client, db) => {
                 }
             }
         } catch (err) {
-            console.error("[Cron - Temp Roles Error]:", err);
             await db.query('ROLLBACK').catch(()=>{});
         }
     }
 
-    // 3. حساب فوائد البنك (محسنة بنظام الدفعات Batching)
+    // 3. حساب فوائد البنك 
     const calculateInterest = async () => {
         const now = Date.now();
         const INTEREST_RATE = 0.0005; 
@@ -101,7 +111,10 @@ module.exports = (client, db) => {
         const INACTIVITY_LIMIT = 7 * 24 * 60 * 60 * 1000; 
         
         try {
-            const allUsersRes = await db.query(`SELECT "user", "guild", "bank", "lastInterest", "lastDaily", "lastWork" FROM levels WHERE "bank" > 0`);
+            let allUsersRes;
+            try { allUsersRes = await db.query(`SELECT "user", "guild", "bank", "lastInterest", "lastDaily", "lastWork" FROM levels WHERE "bank" > 0`); }
+            catch(e) { allUsersRes = await db.query(`SELECT userid as "user", guildid as "guild", bank, lastinterest as "lastInterest", lastdaily as "lastDaily", lastwork as "lastWork" FROM levels WHERE bank > 0`).catch(()=>({rows:[]})); }
+            
             const allUsers = allUsersRes.rows;
             if (allUsers.length === 0) return;
 
@@ -122,14 +135,17 @@ module.exports = (client, db) => {
                         const timeSinceWork = now - lastWork;
                         
                         if (timeSinceDaily > INACTIVITY_LIMIT && timeSinceWork > INACTIVITY_LIMIT) {
-                            await db.query(`UPDATE levels SET "lastInterest" = $1 WHERE "user" = $2 AND "guild" = $3`, [now, userId, guildId]);
+                            try { await db.query(`UPDATE levels SET "lastInterest" = $1 WHERE "user" = $2 AND "guild" = $3`, [now, userId, guildId]); }
+                            catch(e) { await db.query(`UPDATE levels SET lastinterest = $1 WHERE userid = $2 AND guildid = $3`, [now, userId, guildId]).catch(()=>{}); }
                         } else {
                             const bankBalance = Number(user.bank || 0);
                             const interestAmount = Math.floor(bankBalance * INTEREST_RATE);
                             if (interestAmount > 0) {
-                                await db.query(`UPDATE levels SET "bank" = "bank" + $1, "lastInterest" = $2, "totalInterestEarned" = COALESCE("totalInterestEarned", 0) + $3 WHERE "user" = $4 AND "guild" = $5`, [interestAmount, now, interestAmount, userId, guildId]);
+                                try { await db.query(`UPDATE levels SET "bank" = "bank" + $1, "lastInterest" = $2, "totalInterestEarned" = COALESCE("totalInterestEarned", 0) + $3 WHERE "user" = $4 AND "guild" = $5`, [interestAmount, now, interestAmount, userId, guildId]); }
+                                catch(e) { await db.query(`UPDATE levels SET bank = bank + $1, lastinterest = $2, totalinterestearned = COALESCE(totalinterestearned, 0) + $3 WHERE userid = $4 AND guildid = $5`, [interestAmount, now, interestAmount, userId, guildId]).catch(()=>{}); }
                             } else {
-                                await db.query(`UPDATE levels SET "lastInterest" = $1 WHERE "user" = $2 AND "guild" = $3`, [now, userId, guildId]);
+                                try { await db.query(`UPDATE levels SET "lastInterest" = $1 WHERE "user" = $2 AND "guild" = $3`, [now, userId, guildId]); }
+                                catch(e) { await db.query(`UPDATE levels SET lastinterest = $1 WHERE userid = $2 AND guildid = $3`, [now, userId, guildId]).catch(()=>{}); }
                             }
                         }
                     }
@@ -138,7 +154,6 @@ module.exports = (client, db) => {
                 if (i + batchSize < allUsers.length) await new Promise(r => setTimeout(r, 500)); 
             }
         } catch (err) {
-            console.error("[Cron - Interest Error]:", err);
             await db.query('ROLLBACK').catch(()=>{});
         }
     };
@@ -149,7 +164,10 @@ module.exports = (client, db) => {
         const KSA_OFFSET = 3 * 60 * 60 * 1000; 
         for (const guild of guilds) {
             try {
-                const settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]);
+                let settingsRes;
+                try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]); }
+                catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guild.id]).catch(()=>({rows:[]})); }
+                
                 const settings = settingsRes.rows[0];
                 if (!settings) continue;
 
@@ -207,7 +225,7 @@ module.exports = (client, db) => {
                 if (!guild) continue;
                 const role = guild.roles.cache.get(rId);
                 if (role) await role.edit({ color: randomColor }).catch(() => {});
-                else await db.query(`DELETE FROM rainbow_roles WHERE "roleID" = $1`, [rId]);
+                else await db.query(`DELETE FROM rainbow_roles WHERE "roleID" = $1`, [rId]).catch(()=>{});
             }
         } catch (e) {}
     }
@@ -222,7 +240,6 @@ module.exports = (client, db) => {
       
     setInterval(() => checkLoanPayments(client, db), 60 * 60 * 1000); 
     
-    // 🔥 الحماية هنا، في حال كانت الدالة موجودة استدعيها
     if (checkFarmIncome) {
         setInterval(() => checkFarmIncome(client, db), 60 * 60 * 1000); 
         checkFarmIncome(client, db); 
@@ -242,10 +259,15 @@ module.exports = (client, db) => {
     updateTimerChannels(); 
     setInterval(() => updateRainbowRoles(), 180000); 
 
+    // إشعار النشر
     setInterval(async () => {
         const now = Date.now();
         try {
-            const guildsToNotify = (await db.query(`SELECT * FROM settings WHERE "nextBumpTime" > 0 AND "nextBumpTime" <= $1`, [now])).rows;
+            let guildsToNotifyRes;
+            try { guildsToNotifyRes = await db.query(`SELECT * FROM settings WHERE "nextBumpTime" > 0 AND "nextBumpTime" <= $1`, [now]); }
+            catch(e) { guildsToNotifyRes = await db.query(`SELECT * FROM settings WHERE nextbumptime > 0 AND nextbumptime <= $1`, [now]).catch(()=>({rows:[]})); }
+            
+            const guildsToNotify = guildsToNotifyRes.rows;
             for (const row of guildsToNotify) {
                 const guild = client.guilds.cache.get(row.guild);
                 const bChannel = row.bumpchannelid || row.bumpChannelID;
@@ -263,7 +285,8 @@ module.exports = (client, db) => {
                         channel.setName('˖✶⁺〢🔥・انشر・الان').catch(()=>{});
                     }
                 }
-                await db.query(`UPDATE settings SET "nextBumpTime" = 0 WHERE "guild" = $1`, [row.guild]);
+                try { await db.query(`UPDATE settings SET "nextBumpTime" = 0 WHERE "guild" = $1`, [row.guild]); }
+                catch(e) { await db.query(`UPDATE settings SET nextbumptime = 0 WHERE guild = $1`, [row.guild]).catch(()=>{}); }
             }
         } catch(e) {}
     }, 60 * 1000); 
@@ -271,23 +294,30 @@ module.exports = (client, db) => {
     setInterval(async () => {
         const now = Date.now();
         try {
-            const expired = (await db.query(`SELECT * FROM auto_responses WHERE "expiresAt" < $1`, [now])).rows;
+            let expiredRes;
+            try { expiredRes = await db.query(`SELECT * FROM auto_responses WHERE "expiresAt" < $1`, [now]); }
+            catch(e) { expiredRes = await db.query(`SELECT * FROM auto_responses WHERE expiresat < $1`, [now]).catch(()=>({rows:[]})); }
+            
+            const expired = expiredRes.rows;
             for (const reply of expired) {
-                await db.query(`DELETE FROM auto_responses WHERE "id" = $1`, [reply.id]);
+                try { await db.query(`DELETE FROM auto_responses WHERE "id" = $1`, [reply.id]); }
+                catch(e) { await db.query(`DELETE FROM auto_responses WHERE id = $1`, [reply.id]).catch(()=>{}); }
             }
         } catch (err) {}
     }, 60 * 60 * 1000);
 
+    // ⌚ نظام التوقيت السعودي الدقيق للمهام اليومية 
     setInterval(() => { 
         const KSA_TIMEZONE = 'Asia/Riyadh'; 
         const nowKSA = new Date().toLocaleString('en-US', { timeZone: KSA_TIMEZONE }); 
         const ksaDate = new Date(nowKSA); 
         const ksaHour = ksaDate.getHours(); 
         
+        // التوزيع في الساعة 00:00 منتصف الليل بتوقيت السعودية
         if (ksaHour === 0 && client.lastUpdateSentHour !== ksaHour) { 
             sendDailyMediaUpdate(client, db); 
             
-            // 🔥 استدعاء دالة التوزيع بشكل سليم 🔥
+            // 🔥 توزيع الملوك 
             if (rewardDailyKings) rewardDailyKings(client, db);
             
             client.lastUpdateSentHour = ksaHour; 
@@ -304,6 +334,7 @@ module.exports = (client, db) => {
         } else if (ksaHour !== 15) client.lastReminderSentHour = -1; 
     }, 60000); 
       
+    // مسابقات الدروب العشوائية
     setInterval(async () => { 
         const today = new Date().toISOString().split('T')[0]; 
         const now = Date.now(); 
@@ -328,6 +359,7 @@ module.exports = (client, db) => {
         } 
     }, 30 * 60 * 1000); 
       
+    // تنظيف الميموري لتخفيف استهلاك الرام
     setInterval(() => {
         try {
             if (client.activePlayers) client.activePlayers.clear();
@@ -337,8 +369,8 @@ module.exports = (client, db) => {
         } catch (e) {}
     }, 30 * 60 * 1000); 
 
+    // 🔥 تحديث لوحة الملوك بشكل سليم كل دقيقة
     setInterval(() => {
-        // 🔥 تحديث لوحة الملوك بشكل سليم كل دقيقة 🔥
         if (autoUpdateKingsBoard) autoUpdateKingsBoard(client, db).catch(() => {});
     }, 60 * 1000);
 
