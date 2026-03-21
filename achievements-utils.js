@@ -2,6 +2,15 @@ const { EmbedBuilder, Colors } = require('discord.js');
 const path = require('path');
 const questsConfig = require(path.join(process.cwd(), 'json', 'quests-config.json'));
 
+let addXPAndCheckLevel;
+try {
+    ({ addXPAndCheckLevel } = require('../handlers/handler-utils.js'));
+} catch (e) {
+    try {
+        ({ addXPAndCheckLevel } = require('./handler-utils.js'));
+    } catch (err) {}
+}
+
 const ROWS_PER_PAGE_ACH = 5;
 
 async function checkAchievements(client, member, levelData, totalStats) {
@@ -13,7 +22,6 @@ async function checkAchievements(client, member, levelData, totalStats) {
     const guildID = member.guild.id;
     const userID = member.id;
 
-    // 🔥 تم تصحيح عمود "guildID" و "userID" بوضعها داخل علامات تنصيص
     let streakData = null;
     try {
         const streakRes = await db.query(`SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, [guildID, userID]);
@@ -96,13 +104,17 @@ async function grantAchievementReward(client, member, achievement, db, isRepeata
     let moraReward = achievement.reward.mora || 0;
     let roleReward = achievement.reward.role || null;
 
-    let userData = await client.getLevel(member.id, member.guild.id);
-    if (userData) {
-        userData.xp += xpReward;
-        userData.totalxp = (userData.totalxp || userData.totalXP || 0) + xpReward;
-        userData.totalXP = userData.totalxp;
-        userData.mora += moraReward;
-        await client.setLevel(userData);
+    if (addXPAndCheckLevel) {
+        await addXPAndCheckLevel(client, member, db, xpReward, moraReward, false);
+    } else {
+        let userData = await client.getLevel(member.id, member.guild.id);
+        if (userData) {
+            userData.xp += xpReward;
+            userData.totalxp = (userData.totalxp || userData.totalXP || 0) + xpReward;
+            userData.totalXP = userData.totalxp;
+            userData.mora += moraReward;
+            await client.setLevel(userData);
+        }
     }
 
     if (roleReward) {
@@ -154,7 +166,6 @@ async function getAchievementPageData(db, member, levelData, totalStats, complet
 
     const achievements = questsConfig.achievements;
      
-    // 🔥 تم تصحيح هذه الاستعلامات أيضاً لمنع خطأ "guildid does not exist"
     let streakData = null;
     try {
         const streakRes = await db.query(`SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, [member.guild.id, member.id]);
