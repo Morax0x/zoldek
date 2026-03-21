@@ -1082,4 +1082,4 @@ async function updateGuildStat(client, guildId, userId, statName, valueToAdd) {
     }
 }
 
-module.exports = { handleQuestPanel, handleGuildBoard: handleQuestPanel, autoUpdateKingsBoard, updateGuildStat, rewardDailyKings };
+module.exports = { handleQuestPanel, handleGuildBoard: handleQuestPanel, autoUpdateKingsBoard, updateGuildStat, rewardDailyKings, processStatsQueue };
