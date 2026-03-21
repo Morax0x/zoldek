@@ -90,7 +90,7 @@ module.exports = {
                     },
                     { 
                         name: '👑 ألقاب الملوك (8 ألقاب)', 
-                        value: `🎰 **الكازينو:** ${getRl(settings.roleCasinoKing || settings.rolecasinoking)} | 🌑 **الهاوية:** ${getRl(settings.roleAbyss || settings.roleabyss)}\n🗣️ **البلاغة:** ${getRl(settings.roleChatter || settings.rolechatter)} | 🤝 **الكرم:** ${getRl(settings.rolePhilanthropist || settings.rolephilanthropist)}\n🎙️ **سيد المجالس:** ${getRl(settings.roleVoice || settings.rolevoice)} | 🎣 **القنص:** ${getRl(settings.roleFisherKing || settings.rolefisherking)}\n⚔️ **النزاع:** ${getRl(settings.rolePvPKing || settings.rolepvpking)} | 🥷 **سيد الظلال:** ${getRl(settings.roleThief || settings.rolethief)}`, 
+                        value: `🎰 **الكازينو:** ${getRl(settings.roleCasinoKing || settings.rolecasinoking)} | 🌑 **الهاوية:** ${getRl(settings.roleAbyss || settings.roleabyss)}\n🗣️ **البلاغة:** ${getRl(settings.roleChatter || settings.rolechatter)} | 🤝 **الكرم:** ${getRl(settings.rolePhilanthropist || settings.rolephilanthropist)}\n🎙️ **ملك الصوت:** ${getRl(settings.roleVoice || settings.rolevoice)} | 🎣 **القنص:** ${getRl(settings.roleFisherKing || settings.rolefisherking)}\n⚔️ **النزاع:** ${getRl(settings.rolePvPKing || settings.rolepvpking)} | 🥷 **ملك اللصوص:** ${getRl(settings.roleThief || settings.rolethief)}`, 
                         inline: false 
                     },
                     { 
@@ -128,10 +128,10 @@ module.exports = {
                         { label: 'رتبة ملك الهاوية', value: 'edit_roleAbyss', emoji: '🌑' },
                         { label: 'رتبة ملك البلاغة', value: 'edit_roleChatter', emoji: '🗣️' },
                         { label: 'رتبة ملك الكرم', value: 'edit_rolePhilanthropist', emoji: '🤝' },
-                        { label: 'رتبة سيد المجالس (الصوت)', value: 'edit_roleVoice', emoji: '🎙️' },
+                        { label: 'رتبة ملك الصوت', value: 'edit_roleVoice', emoji: '🎙️' },
                         { label: 'رتبة ملك القنص', value: 'edit_roleFisherKing', emoji: '🎣' },
                         { label: 'رتبة ملك النزاع', value: 'edit_rolePvPKing', emoji: '⚔️' },
-                        { label: 'رتبة سيد الظلال (اللصوص)', value: 'edit_roleThief', emoji: '🥷' }
+                        { label: 'رتبة ملك اللصوص', value: 'edit_roleThief', emoji: '🥷' }
                     ])
             );
 
@@ -385,15 +385,16 @@ module.exports = {
                             return { title, emoji, displayName: 'مغامر مجهول', avatarUrl: null, valueText: `${parseInt(dataObj[valueKey] || dataObj[valueKey.toLowerCase()] || 0).toLocaleString()} ${suffix}` };
                         }
 
+                        // 🔥 التعديل الجوهري للأسماء هنا لكي تطبع في اللوحة بنجاح 🔥
                         const kingsArray = [
                             await getKingInfo(casinoData, 'totalProfit', 'مورا', 'ملك الكازينو', '🎰'),
                             await getKingInfo(abyssData, 'dungeon_floor', 'طابق', 'ملك الهاوية', '🌑'),
                             await getKingInfo(chatterData, 'messages', 'رسالة', 'ملك البلاغة', '🗣️'), 
                             await getKingInfo(philanData, 'mora_donated', 'مورا', 'ملك الكرم', '🤝'),
-                            await getKingInfo(voiceData, 'voice_time', 'دقيقة', 'سيد المجالس', '🎙️'),
+                            await getKingInfo(voiceData, 'voice_time', 'دقيقة', 'ملك الصوت', '🎙️'),
                             await getKingInfo(fisherData, 'fish_caught', 'سمكة', 'ملك القنص', '🎣'),
                             await getKingInfo(pvpData, 'pvp_wins', 'انتصار', 'ملك النزاع', '⚔️'),
-                            await getKingInfo(thiefData, 'mora_stolen', 'مورا', 'سيد الظلال', '🥷')
+                            await getKingInfo(thiefData, 'mora_stolen', 'مورا', 'ملك اللصوص', '🥷')
                         ];
 
                         const oldKingsMsgID = settings.kingsBoardMessageID || settings.kingsboardmessageid;
