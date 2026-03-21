@@ -104,6 +104,8 @@ module.exports = {
         const db = client.sql;
         if (!db || !message.guild) return; 
 
+        if (!client.talkedRecently) client.talkedRecently = new Collection(); // حماية لمنع الانهيار
+
         if (message.author.bot && message.author.id !== DISBOARD_BOT_ID) return;
 
         const settings = await getSettings(db, message.guild.id);
@@ -123,7 +125,7 @@ module.exports = {
                 catch(e) { conflictRulesRes = await db.query(`SELECT role_id, anti_roles FROM role_settings WHERE anti_roles IS NOT NULL AND anti_roles != ''`).catch(()=>({rows:[]})); }
                 
                 const conflictRules = conflictRulesRes.rows;
-                if (conflictRules.length > 0) {
+                if (conflictRules && conflictRules.length > 0) {
                     const memberRoleIds = message.member.roles.cache.map(r => r.id);
                     for (const rule of conflictRules) {
                         if (memberRoleIds.includes(rule.role_id)) {
@@ -143,7 +145,7 @@ module.exports = {
             try { afkDataRes = await db.query(`SELECT * FROM afk WHERE "userID" = $1 AND "guildID" = $2`, [message.author.id, message.guild.id]); }
             catch(e) { afkDataRes = await db.query(`SELECT * FROM afk WHERE userid = $1 AND guildid = $2`, [message.author.id, message.guild.id]).catch(()=>({rows:[]})); }
             
-            const afkData = afkDataRes.rows[0];
+            const afkData = afkDataRes.rows ? afkDataRes.rows[0] : null;
 
             if (afkData) {
                 const content = message.content.trim();
@@ -191,8 +193,8 @@ module.exports = {
                     ghostModeUsers.delete(ghostKey);
 
                     try {
-                        const currentName = message.member.displayName;
-                        if (currentName.includes("[AFK] ")) {
+                        const currentName = message.member?.displayName;
+                        if (currentName && currentName.includes("[AFK] ")) {
                             message.member.setNickname(currentName.replace("[AFK] ", "")).catch(()=>{});
                         }
                     } catch (e) {}
@@ -220,7 +222,7 @@ module.exports = {
                     if (subscribers.length > 0) {
                         const everyoneRole = message.guild.roles.everyone;
                         const perms = message.channel.permissionsFor(everyoneRole);
-                        if (perms.has(PermissionsBitField.Flags.ViewChannel)) {
+                        if (perms && perms.has(PermissionsBitField.Flags.ViewChannel)) {
                             const pings = subscribers.map(id => `<@${id}>`).join(' ');
                             message.channel.send(`🔔 **✶ تنبيـه:** ${message.author} عاد من وضع  الغيـاب المؤقـت!\n${pings}`).catch(()=>{});
                         } 
@@ -243,7 +245,7 @@ module.exports = {
                     try { targetAfkDataRes = await db.query(`SELECT * FROM afk WHERE "userID" = $1 AND "guildID" = $2`, [targetID, message.guild.id]); }
                     catch(e) { targetAfkDataRes = await db.query(`SELECT * FROM afk WHERE userid = $1 AND guildid = $2`, [targetID, message.guild.id]).catch(()=>({rows:[]})); }
                     
-                    const targetAfkData = targetAfkDataRes.rows[0];
+                    const targetAfkData = targetAfkDataRes.rows ? targetAfkDataRes.rows[0] : null;
 
                     if (targetAfkData) {
                         try { await db.query(`UPDATE afk SET "mentionsCount" = "mentionsCount" + 1 WHERE "userID" = $1 AND "guildID" = $2`, [targetID, message.guild.id]); }
@@ -332,7 +334,7 @@ module.exports = {
                 try { scRes = await db.query(`SELECT 1 FROM command_shortcuts WHERE "guildID" = $1 AND "channelID" = $2 AND "shortcutWord" = $3`, [message.guild.id, message.channel.id, firstWord]); }
                 catch(e) { scRes = await db.query(`SELECT 1 FROM command_shortcuts WHERE guildid = $1 AND channelid = $2 AND shortcutword = $3`, [message.guild.id, message.channel.id, firstWord]).catch(()=>({rows:[]})); }
                 
-                if(scRes.rows.length > 0) isShortcut = true;
+                if(scRes && scRes.rows.length > 0) isShortcut = true;
             } catch(e) {}
 
             if (!isCommand && !isShortcut) {
@@ -353,7 +355,7 @@ module.exports = {
 
                 let isWisdomKing = false;
                 try {
-                    if (settings && (settings.roleAdvisor || settings.roleadvisor) && message.member.roles.cache.has(settings.roleAdvisor || settings.roleadvisor)) {
+                    if (settings && (settings.roleAdvisor || settings.roleadvisor) && message.member?.roles.cache.has(settings.roleAdvisor || settings.roleadvisor)) {
                         isWisdomKing = true;
                     }
                 } catch(e) {}
@@ -437,7 +439,7 @@ module.exports = {
                         message.guild.id, 
                         message.channel.id, 
                         cleanContent, 
-                        message.member.displayName,
+                        message.member?.displayName || message.author.username,
                         imageAttachment, 
                         isNsfw,
                         message 
@@ -499,7 +501,7 @@ module.exports = {
                 try { isChannelIgnoredRes = await db.query(`SELECT * FROM xp_ignore WHERE "guildID" = $1 AND "id" = $2`, [message.guild.id, message.channel.id]); }
                 catch(e) { isChannelIgnoredRes = await db.query(`SELECT * FROM xp_ignore WHERE guildid = $1 AND id = $2`, [message.guild.id, message.channel.id]).catch(()=>({rows:[]})); }
                 
-                if (isChannelIgnoredRes.rows.length > 0) return; 
+                if (isChannelIgnoredRes.rows && isChannelIgnoredRes.rows.length > 0) return; 
             } catch (e) {}
         }
 
@@ -534,7 +536,7 @@ module.exports = {
                     try { dailyDataCheckRes = await db.query(`SELECT "main_chat_messages", "chatter_badge_given" FROM user_daily_stats WHERE "id" = $1`, [dailyIdForBadge]); }
                     catch(e) { dailyDataCheckRes = await db.query(`SELECT main_chat_messages, chatter_badge_given FROM user_daily_stats WHERE id = $1`, [dailyIdForBadge]).catch(()=>({rows:[]})); }
                     
-                    const dailyDataCheck = dailyDataCheckRes.rows[0];
+                    const dailyDataCheck = dailyDataCheckRes.rows ? dailyDataCheckRes.rows[0] : null;
                     
                     if (dailyDataCheck && Number(dailyDataCheck.main_chat_messages) >= 100 && Number(dailyDataCheck.chatter_badge_given || 0) === 0) {
                         try { await db.query(`ALTER TABLE user_daily_stats ADD COLUMN IF NOT EXISTS "chatter_badge_given" INTEGER DEFAULT 0`); } catch(e){}
@@ -543,7 +545,7 @@ module.exports = {
                         catch(e) { await db.query(`UPDATE user_daily_stats SET chatter_badge_given = 1 WHERE id = $1`, [dailyIdForBadge]).catch(()=>{}); }
                         
                         let roleToGive = settings.roleChatterBadge || settings.rolechatterbadge || settings.roleChatter || settings.rolechatter;
-                        if (roleToGive) message.member.roles.add(roleToGive).catch(()=>{});
+                        if (roleToGive && message.member) message.member.roles.add(roleToGive).catch(()=>{});
 
                         if (settings.guildAnnounceChannelID || settings.guildannouncechannelid) {
                             const announceChannel = message.guild.channels.cache.get(settings.guildAnnounceChannelID || settings.guildannouncechannelid);
@@ -597,7 +599,7 @@ module.exports = {
             try { isMediaChannelRes = await db.query(`SELECT * FROM media_streak_channels WHERE "guildID" = $1 AND "channelID" = $2`, [guildID, message.channel.id]); }
             catch(e) { isMediaChannelRes = await db.query(`SELECT * FROM media_streak_channels WHERE guildid = $1 AND channelid = $2`, [guildID, message.channel.id]).catch(()=>({rows:[]})); }
             
-            if (isMediaChannelRes.rows.length > 0) {
+            if (isMediaChannelRes.rows && isMediaChannelRes.rows.length > 0) {
                 if (message.attachments.size > 0 || message.content.includes('http')) {
                     handleMediaStreakMessage(message).catch(()=>{}); 
                 }
@@ -618,13 +620,13 @@ module.exports = {
                         let updatedLevelRes;
                         try { updatedLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID]); }
                         catch(e) { updatedLevelRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
-                        client.checkAchievements(client, message.member, updatedLevelRes.rows[0], null).catch(()=>{});
+                        client.checkAchievements(client, message.member, updatedLevelRes.rows ? updatedLevelRes.rows[0] : null, null).catch(()=>{});
                     }
                 }
 
                 let buff = await calculateBuffMultiplier(message.member, db);
 
-                if (settings && (settings.roleChatter || settings.rolechatter) && message.member.roles.cache.has(settings.roleChatter || settings.rolechatter)) {
+                if (settings && (settings.roleChatter || settings.rolechatter) && message.member?.roles.cache.has(settings.roleChatter || settings.rolechatter)) {
                     buff += 0.50; 
                 }
 
@@ -673,6 +675,7 @@ module.exports = {
 
         } catch (err) {}
 
+        // 🔥 بداية إصلاح ثغرة الأوامر 🔥
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -681,9 +684,12 @@ module.exports = {
                 if (command) {
                     args.prefix = Prefix;
                     let isAllowed = false;
-                    if (message.member.permissions.has(PermissionsBitField.Flags.Administrator)) { isAllowed = true; } 
-                    else if (settings && ((settings.casinoChannelID || settings.casinochannelid) === message.channel.id || (settings.casinoChannelID2 || settings.casinochannelid2) === message.channel.id) && command.category === 'Economy') { isAllowed = true; }
-                    else {
+
+                    if (message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) { 
+                        isAllowed = true; 
+                    } else if (settings && ((settings.casinoChannelID || settings.casinochannelid) === message.channel.id || (settings.casinoChannelID2 || settings.casinochannelid2) === message.channel.id) && command.category === 'Economy') { 
+                        isAllowed = true; 
+                    } else {
                         try {
                             let channelPermRes;
                             try { channelPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2 AND "channelID" = $3`, [message.guild.id, command.name, message.channel.id]); }
@@ -694,28 +700,45 @@ module.exports = {
                                 try { categoryPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2 AND "channelID" = $3`, [message.guild.id, command.name, message.channel.parentId]); }
                                 catch(e) { categoryPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2 AND channelid = $3`, [message.guild.id, command.name, message.channel.parentId]).catch(()=>({rows:[]})); }
                             }
+
+                            // 👑 الإضافة الذهبية: التحقق من عدم وجود قيود أصلاً
+                            let hasRestrictionsRes;
+                            try { hasRestrictionsRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2`, [message.guild.id, command.name]); }
+                            catch(e) { hasRestrictionsRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2`, [message.guild.id, command.name]).catch(()=>({rows:[]})); }
                             
-                            if (channelPermRes.rows.length > 0 || categoryPermRes.rows.length > 0) { isAllowed = true; }
-                        } catch (err) { isAllowed = false; }
+                            if (hasRestrictionsRes && hasRestrictionsRes.rows.length === 0) {
+                                isAllowed = true; // الأمر مجاني وغير مقيد
+                            } else if ((channelPermRes && channelPermRes.rows.length > 0) || (categoryPermRes && categoryPermRes.rows.length > 0)) { 
+                                isAllowed = true; // القناة مسموح لها
+                            }
+                        } catch (err) { isAllowed = true; } // في حال تعطلت الداتابيز، لا نعاقب اللاعب ونسمح له باللعب!
                     }
+
                     if (isAllowed) {
                         try {
                             let isBlacklistedRes;
                             try { isBlacklistedRes = await db.query(`SELECT 1 FROM blacklistTable WHERE "id" = $1`, [message.author.id]); }
                             catch(e) { isBlacklistedRes = await db.query(`SELECT 1 FROM blacklistTable WHERE id = $1`, [message.author.id]).catch(()=>({rows:[]})); }
-                            if (isBlacklistedRes.rows.length > 0) return; 
+                            if (isBlacklistedRes && isBlacklistedRes.rows.length > 0) return; 
                         } catch(e) {}
                         
                         if (await checkPermissions(message, command)) {
                             const cooldownMsg = await checkCooldown(message, command);
-                            if (cooldownMsg) { if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); } 
-                            else { try { await command.execute(message, args); } catch (error) { message.reply("❌ حدث خطأ."); } }
+                            if (cooldownMsg) { 
+                                if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); 
+                            } else { 
+                                try { await command.execute(message, args); } catch (error) { message.reply("❌ حدث خطأ داخلي أثناء تنفيذ الأمر."); } 
+                            }
                         }
+                    } else {
+                        // تنبيه العضو بأنه لا يملك صلاحية (لكي لا يظن أن البوت معطل)
+                        message.reply({ content: "❌ **لا يمكنك استخدام هذا الأمر في هذه القناة.**" }).catch(()=>{});
                     }
                     return; 
                 }
             }
         }
+        // 🔥 نهاية الإصلاح 🔥
 
         try {
             const argsRaw = message.content.trim().split(/ +/);
