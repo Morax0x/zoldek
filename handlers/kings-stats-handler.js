@@ -10,7 +10,7 @@ try {
     console.error("يرجى التأكد من إضافة ملف kings-reward-generator.js");
 }
 
-const OWNER_ID = "1145327691772481577"; // 👑 الإمبراطور
+const OWNER_ID = "1145327691772481577"; // 👑 الإمبراطور مستثنى من المنافسة
 
 function getTodayDateString() { 
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date());
@@ -48,51 +48,53 @@ async function autoUpdateKingsBoard(client, db) {
     for (const guild of client.guilds.cache.values()) {
         const guildId = guild.id;
         try {
-            const settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]);
+            let settingsRes;
+            try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]); }
+            catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]); }
             const settings = settingsRes.rows[0];
             if (!settings || !settings.guildBoardChannelID || !settings.kingsBoardMessageID) continue; 
 
             const todayStr = getTodayDateString();
 
-            // دروع الحماية المنيعة لكل استعلام
+            // 🔥 استعلامات الملوك مع نظام فك التعادل (Tie-Breaker) وحماية السحابة 🔥
             let casinoDataRes;
-            try { casinoDataRes = await db.query(`SELECT "userID", SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
-            catch(e) { casinoDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(casino_profit, 0) + COALESCE(mora_earned, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(casino_profit, 0) + COALESCE(mora_earned, 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]).catch(()=>({rows:[]})); }
+            try { casinoDataRes = await db.query(`SELECT "userID", SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) > 0 ORDER BY val DESC, "userID" ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
+            catch(e) { casinoDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(casino_profit, 0) + COALESCE(mora_earned, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(casino_profit, 0) + COALESCE(mora_earned, 0)) > 0 ORDER BY val DESC, userid ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
             const casinoData = casinoDataRes.rows[0];
             
             let abyssDataRes;
-            try { abyssDataRes = await db.query(`SELECT "userID", "dungeon_floor" as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 AND "dungeon_floor" > 0 ORDER BY "dungeon_floor" DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
-            catch(e) { abyssDataRes = await db.query(`SELECT userid as "userID", dungeon_floor as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 AND dungeon_floor > 0 ORDER BY dungeon_floor DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]).catch(()=>({rows:[]})); }
+            try { abyssDataRes = await db.query(`SELECT "userID", "dungeon_floor" as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 AND "dungeon_floor" > 0 ORDER BY "dungeon_floor" DESC, "userID" ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
+            catch(e) { abyssDataRes = await db.query(`SELECT userid as "userID", dungeon_floor as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 AND dungeon_floor > 0 ORDER BY dungeon_floor DESC, userid ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
             const abyssData = abyssDataRes.rows[0];
             
             let chatterDataRes;
-            try { chatterDataRes = await db.query(`SELECT "userID", SUM(COALESCE("messages", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("messages", 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
-            catch(e) { chatterDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(messages, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(messages, 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]).catch(()=>({rows:[]})); }
+            try { chatterDataRes = await db.query(`SELECT "userID", SUM(COALESCE("messages", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("messages", 0)) > 0 ORDER BY val DESC, "userID" ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
+            catch(e) { chatterDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(messages, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(messages, 0)) > 0 ORDER BY val DESC, userid ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
             const chatterData = chatterDataRes.rows[0];
             
             let philanDataRes;
-            try { philanDataRes = await db.query(`SELECT "userID", SUM(COALESCE("mora_donated", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("mora_donated", 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
-            catch(e) { philanDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(mora_donated, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(mora_donated, 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]).catch(()=>({rows:[]})); }
+            try { philanDataRes = await db.query(`SELECT "userID", SUM(COALESCE("mora_donated", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("mora_donated", 0)) > 0 ORDER BY val DESC, "userID" ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
+            catch(e) { philanDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(mora_donated, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(mora_donated, 0)) > 0 ORDER BY val DESC, userid ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
             const philanData = philanDataRes.rows[0];
             
             let voiceDataRes;
-            try { voiceDataRes = await db.query(`SELECT "userID", SUM(COALESCE("vc_minutes", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("vc_minutes", 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
-            catch(e) { voiceDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(vc_minutes, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(vc_minutes, 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]).catch(()=>({rows:[]})); }
+            try { voiceDataRes = await db.query(`SELECT "userID", SUM(COALESCE("vc_minutes", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("vc_minutes", 0)) > 0 ORDER BY val DESC, "userID" ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
+            catch(e) { voiceDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(vc_minutes, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(vc_minutes, 0)) > 0 ORDER BY val DESC, userid ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
             const voiceData = voiceDataRes.rows[0];
             
             let fisherDataRes;
-            try { fisherDataRes = await db.query(`SELECT "userID", SUM(COALESCE("fish_caught", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("fish_caught", 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
-            catch(e) { fisherDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(fish_caught, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(fish_caught, 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]).catch(()=>({rows:[]})); }
+            try { fisherDataRes = await db.query(`SELECT "userID", SUM(COALESCE("fish_caught", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("fish_caught", 0)) > 0 ORDER BY val DESC, "userID" ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
+            catch(e) { fisherDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(fish_caught, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(fish_caught, 0)) > 0 ORDER BY val DESC, userid ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
             const fisherData = fisherDataRes.rows[0];
             
             let pvpDataRes;
-            try { pvpDataRes = await db.query(`SELECT "userID", SUM(COALESCE("pvp_wins", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("pvp_wins", 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
-            catch(e) { pvpDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(pvp_wins, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(pvp_wins, 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]).catch(()=>({rows:[]})); }
+            try { pvpDataRes = await db.query(`SELECT "userID", SUM(COALESCE("pvp_wins", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("pvp_wins", 0)) > 0 ORDER BY val DESC, "userID" ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
+            catch(e) { pvpDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(pvp_wins, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(pvp_wins, 0)) > 0 ORDER BY val DESC, userid ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
             const pvpData = pvpDataRes.rows[0];
             
             let thiefDataRes;
-            try { thiefDataRes = await db.query(`SELECT "userID", SUM(COALESCE("mora_stolen", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("mora_stolen", 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
-            catch(e) { thiefDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(mora_stolen, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(mora_stolen, 0)) > 0 ORDER BY val DESC LIMIT 1`, [guildId, todayStr, OWNER_ID]).catch(()=>({rows:[]})); }
+            try { thiefDataRes = await db.query(`SELECT "userID", SUM(COALESCE("mora_stolen", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("mora_stolen", 0)) > 0 ORDER BY val DESC, "userID" ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
+            catch(e) { thiefDataRes = await db.query(`SELECT userid as "userID", SUM(COALESCE(mora_stolen, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(mora_stolen, 0)) > 0 ORDER BY val DESC, userid ASC LIMIT 1`, [guildId, todayStr, OWNER_ID]); }
             const thiefData = thiefDataRes.rows[0];
 
             const currentHashArray = [
@@ -149,7 +151,7 @@ async function autoUpdateKingsBoard(client, db) {
 
                     const kingsBoardBuffer = await generateKingsBoardImage(kingsArray);
                     const kingsBoardAttachment = new AttachmentBuilder(kingsBoardBuffer, { name: `kings-board-${Date.now()}.png` });
-                    await kingsMsg.edit({ files: [kingsBoardAttachment] });
+                    await kingsMsg.edit({ files: [kingsBoardAttachment] }).catch(()=>{});
 
                     if (oldHash) {
                         const oldParts = oldHash.split('|');
@@ -159,11 +161,12 @@ async function autoUpdateKingsBoard(client, db) {
                         const roleCols = ['roleCasinoKing', 'roleAbyss', 'roleChatter', 'rolePhilanthropist', 'roleVoice', 'roleFisherKing', 'rolePvPKing', 'roleThief'];
 
                         for (let i = 0; i < 8; i++) {
-                            if (oldParts[i] !== currentHashArray[i] && currentHashArray[i] !== 'none') {
+                            // 🛡️ درع منع السبام: لن يرسل إشعاراً إذا كانت الحالة القديمة "none" لعدم إزعاج الرومات عند التشغيل الأول
+                            if (oldParts[i] !== currentHashArray[i] && currentHashArray[i] !== 'none' && oldParts[i] !== 'none') {
                                 const [newUserId, newVal] = currentHashArray[i].split(':');
-                                const [oldUserId] = oldParts[i] === 'none' ? [null] : oldParts[i].split(':');
+                                const [oldUserId] = oldParts[i].split(':');
 
-                                if (newUserId !== oldUserId) {
+                                if (newUserId !== oldUserId && newUserId !== 'none') {
                                     
                                     const roleId = settings[roleCols[i]];
                                     if (roleId) {
@@ -172,54 +175,50 @@ async function autoUpdateKingsBoard(client, db) {
                                             targetRole.members.forEach(async (member) => {
                                                 if (member.id !== newUserId) await member.roles.remove(targetRole).catch(() => {});
                                             });
-                                            if (newUserId !== 'none') {
-                                                const newKingMem = await guild.members.fetch(newUserId).catch(() => null);
-                                                if (newKingMem && !newKingMem.roles.cache.has(roleId)) await newKingMem.roles.add(targetRole).catch(() => {});
-                                            }
+                                            const newKingMem = await guild.members.fetch(newUserId).catch(() => null);
+                                            if (newKingMem && !newKingMem.roles.cache.has(roleId)) await newKingMem.roles.add(targetRole).catch(() => {});
                                         }
                                     }
 
-                                    if (newUserId !== 'none') {
-                                        let notifDataRes;
-                                        try { notifDataRes = await db.query(`SELECT "kingsNotif" FROM quest_notifications WHERE "id" = $1`, [`${newUserId}-${guildId}`]); }
-                                        catch(e) { notifDataRes = await db.query(`SELECT kingsnotif as "kingsNotif" FROM quest_notifications WHERE id = $1`, [`${newUserId}-${guildId}`]).catch(()=>({rows:[]})); }
+                                    let notifDataRes;
+                                    try { notifDataRes = await db.query(`SELECT "kingsNotif" FROM quest_notifications WHERE "id" = $1`, [`${newUserId}-${guildId}`]); }
+                                    catch(e) { notifDataRes = await db.query(`SELECT kingsnotif as "kingsNotif" FROM quest_notifications WHERE id = $1`, [`${newUserId}-${guildId}`]).catch(()=>({rows:[]})); }
+                                    
+                                    const notifData = notifDataRes.rows[0];
+                                    if (!notifData || Number(notifData.kingsNotif) !== 0) {
+                                        const kingMsgContent = announcementsTexts.getKingMessage(`<@${newUserId}>`, titles[i], `${parseInt(newVal).toLocaleString()} ${suffixes[i]}`, client);
                                         
-                                        const notifData = notifDataRes.rows[0];
-                                        if (!notifData || Number(notifData.kingsNotif) !== 0) {
-                                            const kingMsgContent = announcementsTexts.getKingMessage(`<@${newUserId}>`, titles[i], `${parseInt(newVal).toLocaleString()} ${suffixes[i]}`, client);
-                                            
-                                            if (announceChannel) {
-                                                let files = [];
-                                                if (announceChannel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.AttachFiles)) {
-                                                    try {
-                                                        const newKingUser = await client.users.fetch(newUserId).catch(()=>null);
-                                                        let oldUserObj = 'EMPTY';
-                                                        if (oldUserId && oldUserId !== 'none') {
-                                                            const oldMem = await guild.members.fetch(oldUserId).catch(()=>null);
-                                                            if (oldMem) oldUserObj = oldMem.user;
-                                                        }
-                                                        
-                                                        const description = oldUserObj === 'EMPTY' ? `اعتلى العرش بكل جدارة!` : `انتزع التاج بقوة واعتلى القمة!`;
+                                        if (announceChannel) {
+                                            let files = [];
+                                            if (announceChannel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.AttachFiles)) {
+                                                try {
+                                                    const newKingUser = await client.users.fetch(newUserId).catch(()=>null);
+                                                    let oldUserObj = 'EMPTY';
+                                                    if (oldUserId) {
+                                                        const oldMem = await guild.members.fetch(oldUserId).catch(()=>null);
+                                                        if (oldMem) oldUserObj = oldMem.user;
+                                                    }
+                                                    
+                                                    const description = oldUserObj === 'EMPTY' ? `اعتلى العرش بكل جدارة!` : `انتزع التاج بقوة واعتلى القمة!`;
 
-                                                        if (newKingUser) {
-                                                            const buffer = await generateEpicAnnouncement(newKingUser, '👑 انـتـزاع عـرش 👑', titles[i], description, `الرقم القياسي: ${parseInt(newVal).toLocaleString()} ${suffixes[i]}`, colors[i], oldUserObj, true);
-                                                            files.push(new AttachmentBuilder(buffer, { name: `new-king-${Date.now()}.png` }));
-                                                        }
-                                                    } catch(e) {}
-                                                }
-                                                await announceChannel.send({ content: kingMsgContent, files: files }).catch(()=>{});
+                                                    if (newKingUser) {
+                                                        const buffer = await generateEpicAnnouncement(newKingUser, '👑 انـتـزاع عـرش 👑', titles[i], description, `الرقم القياسي: ${parseInt(newVal).toLocaleString()} ${suffixes[i]}`, colors[i], oldUserObj, true);
+                                                        files.push(new AttachmentBuilder(buffer, { name: `new-king-${Date.now()}.png` }));
+                                                    }
+                                                } catch(e) {}
                                             }
+                                            await announceChannel.send({ content: kingMsgContent, files: files }).catch(()=>{});
                                         }
                                     }
                                 }
                             }
                         }
-                    } // تم إضافة قوس الإغلاق الخاص بـ if (oldHash) هنا ✅
-                } catch (err) { console.error("Error inside boardChannel try block:", err); }
+                    } 
+                } catch (err) {}
                 
                 lastKingsHash.set(guildId, currentHash);
             } 
-        } catch (err) { console.error("Error in guild loop:", err); }
+        } catch (err) {} 
     }
 }
 
@@ -228,7 +227,10 @@ async function rewardDailyKings(client, db) {
     try {
         await ensureKingTrackerTable(db); 
 
-        const targetDateStr = getTodayDateString(); 
+        // نحسب تاريخ الأمس بتوقيت السعودية لأن دالة التوزيع تعمل في الساعة 00:00 لليوم الجديد
+        const yesterdayKSA = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
+        yesterdayKSA.setDate(yesterdayKSA.getDate() - 1);
+        const targetDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(yesterdayKSA);
 
         let isPaidRes;
         try { isPaidRes = await db.query(`SELECT * FROM kings_daily_payout WHERE "dateStr" = $1`, [targetDateStr]); }
@@ -238,119 +240,121 @@ async function rewardDailyKings(client, db) {
 
         for (const guild of client.guilds.cache.values()) {
             const guildId = guild.id;
-            let settingsRes;
-            try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]); }
-            catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]).catch(()=>({rows:[]})); }
-            
-            const settings = settingsRes.rows[0];
-            if (!settings || (!settings.guildAnnounceChannelID && !settings.guildannouncechannelid)) continue;
-
-            let casinoDataRes;
-            try { casinoDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) > 0 ORDER BY SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
-            catch(e) { casinoDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(casino_profit, 0) + COALESCE(mora_earned, 0)) > 0 ORDER BY SUM(COALESCE(casino_profit, 0) + COALESCE(mora_earned, 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]).catch(()=>({rows:[]})); }
-            const casinoData = casinoDataRes.rows[0];
-            
-            let abyssDataRes;
-            try { abyssDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 AND "dungeon_floor" > 0 ORDER BY "dungeon_floor" DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
-            catch(e) { abyssDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 AND dungeon_floor > 0 ORDER BY dungeon_floor DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]).catch(()=>({rows:[]})); }
-            const abyssData = abyssDataRes.rows[0];
-            
-            let chatterDataRes;
-            try { chatterDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("messages", 0)) > 0 ORDER BY SUM(COALESCE("messages", 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
-            catch(e) { chatterDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(messages, 0)) > 0 ORDER BY SUM(COALESCE(messages, 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]).catch(()=>({rows:[]})); }
-            const chatterData = chatterDataRes.rows[0];
-            
-            let philanDataRes;
-            try { philanDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("mora_donated", 0)) > 0 ORDER BY SUM(COALESCE("mora_donated", 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
-            catch(e) { philanDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(mora_donated, 0)) > 0 ORDER BY SUM(COALESCE(mora_donated, 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]).catch(()=>({rows:[]})); }
-            const philanData = philanDataRes.rows[0];
-            
-            let voiceDataRes;
-            try { voiceDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("vc_minutes", 0)) > 0 ORDER BY SUM(COALESCE("vc_minutes", 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
-            catch(e) { voiceDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(vc_minutes, 0)) > 0 ORDER BY SUM(COALESCE(vc_minutes, 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]).catch(()=>({rows:[]})); }
-            const voiceData = voiceDataRes.rows[0];
-            
-            let fisherDataRes;
-            try { fisherDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("fish_caught", 0)) > 0 ORDER BY SUM(COALESCE("fish_caught", 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
-            catch(e) { fisherDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(fish_caught, 0)) > 0 ORDER BY SUM(COALESCE(fish_caught, 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]).catch(()=>({rows:[]})); }
-            const fisherData = fisherDataRes.rows[0];
-            
-            let pvpDataRes;
-            try { pvpDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("pvp_wins", 0)) > 0 ORDER BY SUM(COALESCE("pvp_wins", 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
-            catch(e) { pvpDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(pvp_wins, 0)) > 0 ORDER BY SUM(COALESCE(pvp_wins, 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]).catch(()=>({rows:[]})); }
-            const pvpData = pvpDataRes.rows[0];
-            
-            let thiefDataRes;
-            try { thiefDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("mora_stolen", 0)) > 0 ORDER BY SUM(COALESCE("mora_stolen", 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
-            catch(e) { thiefDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(mora_stolen, 0)) > 0 ORDER BY SUM(COALESCE(mora_stolen, 0)) DESC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]).catch(()=>({rows:[]})); }
-            const thiefData = thiefDataRes.rows[0];
-
-            const winnersRaw = [
-                { id: casinoData?.userID, title: 'ملك الكازينو', rep: 5, roleCol: 'roleCasinoKing' },
-                { id: abyssData?.userID, title: 'ملك الهاوية', rep: 4, roleCol: 'roleAbyss' },
-                { id: chatterData?.userID, title: 'ملك البلاغة', rep: 7, roleCol: 'roleChatter' },
-                { id: philanData?.userID, title: 'ملك الكرم', rep: 1, roleCol: 'rolePhilanthropist' },
-                { id: voiceData?.userID, title: 'ملك الصوت', rep: 4, roleCol: 'roleVoice' },
-                { id: fisherData?.userID, title: 'ملك القنص', rep: 2, roleCol: 'roleFisherKing' },
-                { id: pvpData?.userID, title: 'ملك النزاع', rep: 3, roleCol: 'rolePvPKing' },
-                { id: thiefData?.userID, title: 'ملك اللصوص', rep: 3, roleCol: 'roleThief' }
-            ].filter(w => w.id && w.id !== 'none');
-
-            if (winnersRaw.length === 0) continue;
-
-            let kingsToAnnounce = [];
-
-            for (const w of winnersRaw) {
-                const targetRoleCol = settings[w.roleCol] || settings[w.roleCol.toLowerCase()];
-                if (targetRoleCol) {
-                    const oldRole = guild.roles.cache.get(targetRoleCol);
-                    if (oldRole) {
-                        for (const member of oldRole.members.values()) {
-                            await member.roles.remove(oldRole, "تجريد العرش اليومي").catch(()=>{});
-                        }
-                    }
-                }
-
-                const member = await guild.members.fetch(w.id).catch(()=>null);
-                const user = member ? member.user : await client.users.fetch(w.id).catch(()=>null);
+            try {
+                let settingsRes;
+                try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]); }
+                catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]); }
                 
-                if (member && targetRoleCol) {
-                    member.roles.add(targetRoleCol, `تتويج بلقب ${w.title}`).catch(()=>{});
-                }
+                const settings = settingsRes.rows[0];
+                if (!settings || (!settings.guildAnnounceChannelID && !settings.guildannouncechannelid)) continue;
 
-                if (user) {
-                    try {
-                        await db.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3) ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = user_reputation."rep_points" + $4`, [w.id, guildId, w.rep, w.rep]);
-                    } catch(e) {
-                        await db.query(`INSERT INTO user_reputation (userid, guildid, rep_points) VALUES ($1, $2, $3) ON CONFLICT(userid, guildid) DO UPDATE SET rep_points = user_reputation.rep_points + $4`, [w.id, guildId, w.rep, w.rep]).catch(()=>{});
-                    }
-                    kingsToAnnounce.push({
-                        title: w.title,
-                        name: member ? member.displayName : user.username,
-                        rep: w.rep
-                    });
-                }
-            }
+                let casinoDataRes;
+                try { casinoDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) > 0 ORDER BY SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) DESC, "userID" ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                catch(e) { casinoDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(casino_profit, 0) + COALESCE(mora_earned, 0)) > 0 ORDER BY SUM(COALESCE(casino_profit, 0) + COALESCE(mora_earned, 0)) DESC, userid ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                const casinoData = casinoDataRes.rows[0];
+                
+                let abyssDataRes;
+                try { abyssDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 AND "dungeon_floor" > 0 ORDER BY "dungeon_floor" DESC, "userID" ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                catch(e) { abyssDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 AND dungeon_floor > 0 ORDER BY dungeon_floor DESC, userid ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                const abyssData = abyssDataRes.rows[0];
+                
+                let chatterDataRes;
+                try { chatterDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("messages", 0)) > 0 ORDER BY SUM(COALESCE("messages", 0)) DESC, "userID" ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                catch(e) { chatterDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(messages, 0)) > 0 ORDER BY SUM(COALESCE(messages, 0)) DESC, userid ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                const chatterData = chatterDataRes.rows[0];
+                
+                let philanDataRes;
+                try { philanDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("mora_donated", 0)) > 0 ORDER BY SUM(COALESCE("mora_donated", 0)) DESC, "userID" ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                catch(e) { philanDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(mora_donated, 0)) > 0 ORDER BY SUM(COALESCE(mora_donated, 0)) DESC, userid ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                const philanData = philanDataRes.rows[0];
+                
+                let voiceDataRes;
+                try { voiceDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("vc_minutes", 0)) > 0 ORDER BY SUM(COALESCE("vc_minutes", 0)) DESC, "userID" ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                catch(e) { voiceDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(vc_minutes, 0)) > 0 ORDER BY SUM(COALESCE(vc_minutes, 0)) DESC, userid ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                const voiceData = voiceDataRes.rows[0];
+                
+                let fisherDataRes;
+                try { fisherDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("fish_caught", 0)) > 0 ORDER BY SUM(COALESCE("fish_caught", 0)) DESC, "userID" ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                catch(e) { fisherDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(fish_caught, 0)) > 0 ORDER BY SUM(COALESCE(fish_caught, 0)) DESC, userid ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                const fisherData = fisherDataRes.rows[0];
+                
+                let pvpDataRes;
+                try { pvpDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("pvp_wins", 0)) > 0 ORDER BY SUM(COALESCE("pvp_wins", 0)) DESC, "userID" ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                catch(e) { pvpDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(pvp_wins, 0)) > 0 ORDER BY SUM(COALESCE(pvp_wins, 0)) DESC, userid ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                const pvpData = pvpDataRes.rows[0];
+                
+                let thiefDataRes;
+                try { thiefDataRes = await db.query(`SELECT "userID" FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 AND "userID" != $3 GROUP BY "userID" HAVING SUM(COALESCE("mora_stolen", 0)) > 0 ORDER BY SUM(COALESCE("mora_stolen", 0)) DESC, "userID" ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                catch(e) { thiefDataRes = await db.query(`SELECT userid as "userID" FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 GROUP BY userid HAVING SUM(COALESCE(mora_stolen, 0)) > 0 ORDER BY SUM(COALESCE(mora_stolen, 0)) DESC, userid ASC LIMIT 1`, [guildId, targetDateStr, OWNER_ID]); }
+                const thiefData = thiefDataRes.rows[0];
 
-            const announceChannelId = settings.guildAnnounceChannelID || settings.guildannouncechannelid;
-            const announceChannel = guild.channels.cache.get(announceChannelId);
-            
-            if (announceChannel && kingsToAnnounce.length > 0) {
-                const perms = announceChannel.permissionsFor(guild.members.me);
-                if (perms && perms.has(PermissionsBitField.Flags.SendMessages) && perms.has(PermissionsBitField.Flags.AttachFiles)) {
-                    try {
-                        if (generateKingsAnnouncementImage) {
-                            const buffer = await generateKingsAnnouncementImage(kingsToAnnounce, targetDateStr);
-                            const attachment = new AttachmentBuilder(buffer, { name: 'kings-board.png' });
-                            
-                            await announceChannel.send({
-                                content: `👑 تـتـويـج مـلـوك الإمـبـراطـوريـة 👑`,
-                                files: [attachment]
-                            }).catch(()=>{});
+                const winnersRaw = [
+                    { id: casinoData?.userID, title: 'ملك الكازينو', rep: 5, roleCol: 'roleCasinoKing' },
+                    { id: abyssData?.userID, title: 'ملك الهاوية', rep: 4, roleCol: 'roleAbyss' },
+                    { id: chatterData?.userID, title: 'ملك البلاغة', rep: 7, roleCol: 'roleChatter' },
+                    { id: philanData?.userID, title: 'ملك الكرم', rep: 1, roleCol: 'rolePhilanthropist' },
+                    { id: voiceData?.userID, title: 'ملك الصوت', rep: 4, roleCol: 'roleVoice' },
+                    { id: fisherData?.userID, title: 'ملك القنص', rep: 2, roleCol: 'roleFisherKing' },
+                    { id: pvpData?.userID, title: 'ملك النزاع', rep: 3, roleCol: 'rolePvPKing' },
+                    { id: thiefData?.userID, title: 'ملك اللصوص', rep: 3, roleCol: 'roleThief' }
+                ].filter(w => w.id && w.id !== 'none');
+
+                if (winnersRaw.length === 0) continue;
+
+                let kingsToAnnounce = [];
+
+                for (const w of winnersRaw) {
+                    const targetRoleCol = settings[w.roleCol] || settings[w.roleCol.toLowerCase()];
+                    if (targetRoleCol) {
+                        const oldRole = guild.roles.cache.get(targetRoleCol);
+                        if (oldRole) {
+                            for (const member of oldRole.members.values()) {
+                                await member.roles.remove(oldRole, "تجريد العرش اليومي").catch(()=>{});
+                            }
                         }
-                    } catch(e) { console.error("Error generating kings image:", e); }
+                    }
+
+                    const member = await guild.members.fetch(w.id).catch(()=>null);
+                    const user = member ? member.user : await client.users.fetch(w.id).catch(()=>null);
+                    
+                    if (member && targetRoleCol) {
+                        member.roles.add(targetRoleCol, `تتويج بلقب ${w.title}`).catch(()=>{});
+                    }
+
+                    if (user) {
+                        try {
+                            await db.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3) ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = user_reputation."rep_points" + $4`, [w.id, guildId, w.rep, w.rep]);
+                        } catch(e) {
+                            await db.query(`INSERT INTO user_reputation (userid, guildid, rep_points) VALUES ($1, $2, $3) ON CONFLICT(userid, guildid) DO UPDATE SET rep_points = user_reputation.rep_points + $4`, [w.id, guildId, w.rep, w.rep]).catch(()=>{});
+                        }
+                        kingsToAnnounce.push({
+                            title: w.title,
+                            name: member ? member.displayName : user.username,
+                            rep: w.rep
+                        });
+                    }
                 }
-            }
+
+                const announceChannelId = settings.guildAnnounceChannelID || settings.guildannouncechannelid;
+                const announceChannel = guild.channels.cache.get(announceChannelId);
+                
+                if (announceChannel && kingsToAnnounce.length > 0) {
+                    const perms = announceChannel.permissionsFor(guild.members.me);
+                    if (perms && perms.has(PermissionsBitField.Flags.SendMessages) && perms.has(PermissionsBitField.Flags.AttachFiles)) {
+                        try {
+                            if (generateKingsAnnouncementImage) {
+                                const buffer = await generateKingsAnnouncementImage(kingsToAnnounce, targetDateStr);
+                                const attachment = new AttachmentBuilder(buffer, { name: 'kings-board.png' });
+                                
+                                await announceChannel.send({
+                                    content: `👑 تـتـويـج مـلـوك الإمـبـراطـوريـة 👑`,
+                                    files: [attachment]
+                                }).catch(()=>{});
+                            }
+                        } catch(e) {}
+                    }
+                }
+            } catch (err) {} 
         }
 
         try { await db.query(`INSERT INTO kings_daily_payout ("dateStr") VALUES ($1)`, [targetDateStr]); }
@@ -441,7 +445,6 @@ async function processStatsQueue(client) {
         }
 
         await Promise.allSettled(queries);
-
         await autoUpdateKingsBoard(client, db).catch(()=>{});
 
     } catch (error) {
