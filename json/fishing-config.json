@@ -45,7 +45,7 @@
   "boats": [
     { "level": 1, "name": "قـارب خـشيـبـي", "price": 0, "location_id": "beach", "speed_bonus": 0 },
     { "level": 2, "name": "قـارب بـمحـرك", "price": 50000, "location_id": "shallow", "speed_bonus": 60000 },
-    { "level": 3, "name": "يـخـت الصيـد", "price": 10000, "location_id": "deep", "speed_bonus": 120000 },
+    { "level": 3, "name": "يـخـت الصيـد", "price": 100000, "location_id": "deep", "speed_bonus": 120000 },
     { "level": 4, "name": "سفيـنة", "price": 500000, "location_id": "bermuda", "speed_bonus": 180000 },
     { "level": 5, "name": "غـواصــة", "price": 150000, "location_id": "trench", "speed_bonus": 240000 },
     { "level": 6, "name": "غـواصــة أطلانتس", "price": 200000, "location_id": "atlantis", "speed_bonus": 300000 },
