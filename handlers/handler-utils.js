@@ -6,29 +6,23 @@ try {
     console.error("Error loading levelup-card-generator:", e);
 }
 
-// 🔥 1. الدالة المركزية لحساب الـ XP (معادلة تصاعدية قوية MMORPG Style) 🔥
 function calculateRequiredXP(level) {
     const lvl = Number(level) || 0;
     
     if (lvl < 15) {
-        // اللفلات الابتدائية: سريعة وسهلة جداً (تحفيز)
         return Math.floor(15 * (lvl ** 2) + (100 * lvl) + 150);
     } 
     else if (lvl < 35) {
-        // اللفلات المتوسطة: تبدأ تزداد الصعوبة تدريجياً
         return Math.floor(35 * (lvl ** 2) + (300 * lvl) + 1000);
     } 
     else if (lvl < 60) {
-        // اللفلات الصعبة: قفزة كبيرة في الـ XP المطلوب (الـ 5000 XP بالكاد ترفع جزء بسيط)
-        return Math.floor(85 * (lvl ** 2.2) + (800 * lvl) + 5000);
+        return Math.floor(55 * (lvl ** 2) + (600 * lvl) + 4000);
     } 
     else {
-        // لفلات الزعماء (60+): تحتاج أسابيع من الجهد، أرقام فلكية لضمان عدم وصول أي شخص بسهولة
-        return Math.floor(250 * (lvl ** 2.5) + (2000 * lvl) + 20000);
+        return Math.floor(120 * (lvl ** 2.1) + (1500 * lvl) + 10000);
     }
 }
 
-// 🔥 2. دالة حساب رصيد المورا الحر (بدون القروض) 🔥
 async function getFreeBalance(member, db) {
     if (!db) return 0;
     
@@ -48,7 +42,6 @@ async function getFreeBalance(member, db) {
     return Math.max(0, freeBalance);
 }
 
-// 🔥 3. الدالة السحرية المركزية 🔥
 async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, isMessageEvent = false) {
     if (!member || !db) return;
     const userId = member.id;
@@ -73,11 +66,9 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
         let leveledUp = false;
         let oldLevel = userData.level;
 
-        // 🛑 التعديل السحري: لن نتحقق من التلفيل ولن نرفع اللفل إلا إذا كان هذا الحدث ناتج عن "رسالة بالشات" 🛑
         if (isMessageEvent) {
             let nextXP = calculateRequiredXP(userData.level);
             
-            // سيستمر بالدوران ورفع اللفل طالما الخبرة المتراكمة أكبر من المطلوب
             while (userData.xp >= nextXP) {
                 userData.xp -= nextXP;
                 userData.level++;
@@ -86,7 +77,6 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
             }
         }
 
-        // التحديث الآمن في الداتابيز
         try {
             await db.query(`
                 INSERT INTO levels ("user", "guild", "xp", "totalXP", "level", "mora") 
@@ -116,7 +106,6 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
     }
 }
 
-// 🔥 4. دالة إرسال التلفيل بالصورة الفخمة 🔥
 async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpData, db) {
      try {
          let channelRes;
