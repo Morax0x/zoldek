@@ -29,6 +29,11 @@ function getNextResetTime() {
     return Math.floor(resetDate.getTime() / 1000);
 }
 
+// 🔥 الإصلاح هنا: هذه الدالة تطابق تماماً الدالة الموجودة في messageCreate.js لضمان توحيد الوقت والصيغة 🔥
+function getTodayDateString() { 
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date());
+}
+
 module.exports = {
     name: 'rep',
     description: 'منح نقطة سمعة لمغامر آخر',
@@ -39,6 +44,7 @@ module.exports = {
         const db = message.client.sql;
         const senderId = message.author.id;
         const guildId = message.guild.id;
+        const todayStr = getTodayDateString();
 
         try {
             await db.query(`CREATE TABLE IF NOT EXISTS user_reputation ("userID" TEXT, "guildID" TEXT, "rep_points" INTEGER DEFAULT 0, "last_rep_given" TEXT, "daily_reps_given" INTEGER DEFAULT 0, "weekly_reps_given" INTEGER DEFAULT 0, PRIMARY KEY ("userID", "guildID"))`);
@@ -56,7 +62,7 @@ module.exports = {
         try {
             const yesterdayKSA = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
             yesterdayKSA.setDate(yesterdayKSA.getDate() - 1);
-            const yesterdayStr = yesterdayKSA.toLocaleDateString('en-CA');
+            const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(yesterdayKSA);
 
             let voiceKingRes;
             try { 
@@ -96,10 +102,9 @@ module.exports = {
             }
         }
 
-        const todayDateStr = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Riyadh' });
-        
+        // توحيد تاريخ اليوم للتحقق من السمعة
         let currentDailyReps = 0;
-        if (senderRep && (senderRep.last_rep_given === todayDateStr || senderRep.last_rep_given === todayDateStr)) {
+        if (senderRep && (senderRep.last_rep_given === todayStr || senderRep.last_rep_given === todayStr)) {
             currentDailyReps = parseInt(senderRep.daily_reps_given || senderRep.daily_reps_given, 10) || 0;
         }
 
@@ -127,7 +132,7 @@ module.exports = {
             return message.reply({ embeds: [selfEmbed] });
         }
 
-        // 🔥 الفحص الأول (والأهم): هل يمتلك رصيد شهادات أصلاً؟ 🔥
+        // الفحص الأول: هل يمتلك رصيد شهادات؟
         if (senderId !== OWNER_ID && remainingVotes <= 0) {
             const nextRepTime = getNextResetTime();
             const cooldownEmbed = new EmbedBuilder()
@@ -138,7 +143,7 @@ module.exports = {
             return message.reply({ embeds: [cooldownEmbed] });
         }
 
-        // 🔥 الفحص الثاني: اللفل والتفاعل (فقط إذا كان يملك رصيد شهادات) 🔥
+        // الفحص الثاني: اللفل (10 فما فوق)
         let senderLevel = 1;
         try {
             const senderLevelRes = await db.query(`SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [senderId, guildId]);
@@ -157,23 +162,23 @@ module.exports = {
             return message.reply({ embeds: [lvlEmbed] });
         }
         
+        // 🔥 الفحص الثالث: التفاعل (الرسائل اليومية المصلّح) 🔥
         if (senderId !== OWNER_ID) {
             try {
                 let todayMessages = 0;
-                const todayDateKSA = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
                 
                 try {
-                    const dailyStatsRes = await db.query(`SELECT "messages" FROM user_daily_stats WHERE "userID" = $1 AND "guildID" = $2 AND "date" = $3`, [senderId, guildId, todayDateKSA]);
-                    todayMessages = dailyStatsRes.rows.length > 0 ? (Number(dailyStatsRes.rows[0].messages) || 0) : 0;
+                    const msgStatRes = await db.query(`SELECT SUM(COALESCE("messages", 0)) as total_msgs FROM kings_board_tracker WHERE "userID" = $1 AND "guildID" = $2 AND "date" = $3`, [senderId, guildId, todayStr]);
+                    todayMessages = msgStatRes.rows.length > 0 ? (Number(msgStatRes.rows[0].total_msgs) || 0) : 0;
                 } catch(e) {
-                    const dailyStatsRes = await db.query(`SELECT messages FROM user_daily_stats WHERE userid = $1 AND guildid = $2 AND date = $3`, [senderId, guildId, todayDateKSA]).catch(()=>({rows:[]}));
-                    todayMessages = dailyStatsRes.rows.length > 0 ? (Number(dailyStatsRes.rows[0].messages) || 0) : 0;
+                    const msgStatRes = await db.query(`SELECT SUM(COALESCE(messages, 0)) as total_msgs FROM kings_board_tracker WHERE userid = $1 AND guildid = $2 AND date = $3`, [senderId, guildId, todayStr]).catch(()=>({rows:[]}));
+                    todayMessages = msgStatRes.rows.length > 0 ? (Number(msgStatRes.rows[0].total_msgs) || 0) : 0;
                 }
 
                 if (todayMessages < 20) {
                     const msgEmbed = new EmbedBuilder()
                         .setTitle('✥ لا تسـتوفـي شـروط التزكيـة ..')
-                        .setDescription('✦ يجـب ان تكـون متفـاعـل بالدردشـة لهـذا اليوم')
+                        .setDescription(`✦ يجـب ان تكـون متفـاعـل بالدردشـة لهـذا اليوم\n(أرسلت ${todayMessages} / 20 رسالة)`)
                         .setThumbnail('https://i.postimg.cc/mrLwL056/ayqwnt-(3).png')
                         .setColor(getRandomColor());
                     return message.reply({ embeds: [msgEmbed] });
@@ -224,10 +229,10 @@ module.exports = {
             await db.query("BEGIN");
             try {
                 await db.query(`UPDATE user_reputation SET "rep_points" = "rep_points" + $1 WHERE "userID" = $2 AND "guildID" = $3`, [repToAdd, targetId, guildId]);
-                await db.query(`UPDATE user_reputation SET "last_rep_given" = $1, "daily_reps_given" = $2, "weekly_reps_given" = "weekly_reps_given" + 1 WHERE "userID" = $3 AND "guildID" = $4`, [todayDateStr, newDailyRepsGiven, senderId, guildId]);
+                await db.query(`UPDATE user_reputation SET "last_rep_given" = $1, "daily_reps_given" = $2, "weekly_reps_given" = "weekly_reps_given" + 1 WHERE "userID" = $3 AND "guildID" = $4`, [todayStr, newDailyRepsGiven, senderId, guildId]);
             } catch(e) {
                 await db.query(`UPDATE user_reputation SET rep_points = rep_points + $1 WHERE userid = $2 AND guildid = $3`, [repToAdd, targetId, guildId]);
-                await db.query(`UPDATE user_reputation SET last_rep_given = $1, daily_reps_given = $2, weekly_reps_given = weekly_reps_given + 1 WHERE userid = $3 AND guildid = $4`, [todayDateStr, newDailyRepsGiven, senderId, guildId]);
+                await db.query(`UPDATE user_reputation SET last_rep_given = $1, daily_reps_given = $2, weekly_reps_given = weekly_reps_given + 1 WHERE userid = $3 AND guildid = $4`, [todayStr, newDailyRepsGiven, senderId, guildId]);
             }
             await db.query("COMMIT");
         } catch (e) {
