@@ -1,4 +1,5 @@
 const { createRandomDropGiveaway } = require('./giveaway-handler.js');
+// 🔥 استدعاء دوال الملوك من الملف الجديد الصحيح 🔥
 const { autoUpdateKingsBoard, rewardDailyKings } = require('./kings-stats-handler.js'); 
 const { checkLoanPayments } = require('./loan-handler.js'); 
 const { checkFarmIncome } = require('./farm-income.js'); 
