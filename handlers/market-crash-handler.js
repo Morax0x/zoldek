@@ -12,20 +12,18 @@ module.exports = async function handleMarketCrash(client, db, item) {
     try {
         console.log(`[Market Crash] Stock ${item.id} crashed! Processing...`);
 
-        // 🔥 حماية تحديث سعر السهم المنهار وإعادة ضبطه
         try {
             await db.query(`UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = 0, "lastChange" = 0 WHERE "id" = $2`, [RESET_PRICE, item.id]);
         } catch(e) {
             await db.query(`UPDATE market_items SET currentprice = $1, lastchangepercent = 0, lastchange = 0 WHERE id = $2`, [RESET_PRICE, item.id]).catch(console.error);
         }
 
-        // 🔥 حماية جلب جميع المستثمرين في هذا السهم
         let investors = [];
         try {
             const investorsRes = await db.query(`SELECT "userID", "quantity" FROM user_portfolio WHERE "itemID" = $1`, [item.id]);
             investors = investorsRes.rows;
         } catch(e) {
-            const investorsRes = await db.query(`SELECT userid, quantity FROM user_portfolio WHERE itemid = $1`, [item.id]).catch(()=>({rows:[]}));
+            const investorsRes = await db.query(`SELECT userid as "userID", quantity FROM user_portfolio WHERE itemid = $1`, [item.id]).catch(()=>({rows:[]}));
             investors = investorsRes.rows;
         }
 
@@ -35,13 +33,12 @@ module.exports = async function handleMarketCrash(client, db, item) {
             return;
         }
 
-        // 🔥 حماية جلب قناة الكازينو لإرسال البيانات
         let settings;
         try {
             const settingsRes = await db.query(`SELECT "casinoChannelID" FROM settings WHERE "casinoChannelID" IS NOT NULL LIMIT 1`);
             settings = settingsRes.rows[0];
         } catch(e) {
-            const settingsRes = await db.query(`SELECT casinochannelid FROM settings WHERE casinochannelid IS NOT NULL LIMIT 1`).catch(()=>({rows:[]}));
+            const settingsRes = await db.query(`SELECT casinochannelid as "casinoChannelID" FROM settings WHERE casinochannelid IS NOT NULL LIMIT 1`).catch(()=>({rows:[]}));
             settings = settingsRes.rows[0];
         }
         
@@ -57,14 +54,12 @@ module.exports = async function handleMarketCrash(client, db, item) {
                 const qty = Number(inv.quantity);
                 const refundAmount = qty * CRASH_PRICE_TRIGGER; 
                 
-                // 🔥 حماية إضافة التعويض لرصيد العضو
                 try {
                     await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2`, [refundAmount, uID]);
                 } catch(e) {
                     await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2`, [refundAmount, uID]).catch(()=>{});
                 }
                 
-                // 🔥 حماية حذف السهم من محفظة العضو
                 try {
                     await db.query(`DELETE FROM user_portfolio WHERE "userID" = $1 AND "itemID" = $2`, [uID, item.id]);
                 } catch(e) {
@@ -109,11 +104,11 @@ module.exports = async function handleMarketCrash(client, db, item) {
 
                     } catch (err) {
                         console.error(`[Crash Notification Error] User: ${uID}`, err);
-                    }
-
-                    if (index === investors.length - 1) {
-                        client.marketLocks.delete(item.id);
-                        console.log(`[Market Crash] All notifications sent for ${item.id}. Stock unlocked.`);
+                    } finally {
+                        if (index === investors.length - 1) {
+                            client.marketLocks.delete(item.id);
+                            console.log(`[Market Crash] All notifications sent for ${item.id}. Stock unlocked.`);
+                        }
                     }
 
                 }, index * MESSAGE_DELAY); 
