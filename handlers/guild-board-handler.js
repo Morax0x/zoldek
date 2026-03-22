@@ -626,14 +626,22 @@ async function getKingLeader(db, guildId, todayStr, col1, col2 = null) {
             fallbackQuery = `SELECT userid as "userID", ${col1} as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 AND userid != $3 AND ${col1} > 0 ORDER BY val DESC, userid ASC LIMIT 1`;
         }
         
-        let res = await db.query(query, [guildId, todayStr, OWNER_ID]).catch(() => db.query(fallbackQuery, [guildId, todayStr, OWNER_ID]));
+        let res;
+        try {
+            res = await db.query(query, [guildId, todayStr, OWNER_ID]);
+        } catch(e) {
+            res = await db.query(fallbackQuery, [guildId, todayStr, OWNER_ID]);
+        }
         
         if (res && res.rows[0]) {
             const row = res.rows[0];
             return { userID: row.userID || row.userid, val: row.val };
         }
         return null;
-    } catch(e) { return null; }
+    } catch(e) { 
+        console.error("getKingLeader Error:", e);
+        return null; 
+    }
 }
 
 // 🔥 التحديث التلقائي للوحة الملوك وإرسال الإشعارات 🔥
@@ -643,23 +651,30 @@ async function autoUpdateKingsBoard(client, db) {
     for (const guild of client.guilds.cache.values()) {
         const guildId = guild.id;
         try {
-            let settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]).catch(() => db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]));
+            let settingsRes;
+            try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]); }
+            catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]).catch(()=>({rows:[]})); }
+            
             const settings = settingsRes?.rows[0];
             
+            // قراءة الآيديات مع حماية ضد الـ Case Sensitivity
             const boardChannelId = settings?.guildBoardChannelID || settings?.guildboardchannelid;
-            const kingsMsgId = settings?.kingsBoardMessageID || settings?.kingsboardmessageid;
+            const kingsBoardMessageId = settings?.kingsBoardMessageID || settings?.kingsboardmessageid;
             const announceChannelId = settings?.guildAnnounceChannelID || settings?.guildannouncechannelid;
 
-            if (!settings || !boardChannelId || !kingsMsgId) continue; 
+            if (!settings || !boardChannelId || !kingsBoardMessageId) continue; 
 
             const todayStr = getTodayDateString();
 
-            // سحب الملوك بالدالة المدرعة (بما فيهم ملك الصوت)
+            // سحب الملوك بالدالة المدرعة (بما فيهم ملك الصوت بحماية مضاعفة)
             const casinoData = await getKingLeader(db, guildId, todayStr, 'casino_profit', 'mora_earned');
             const abyssData = await getKingLeader(db, guildId, todayStr, 'dungeon_floor');
             const chatterData = await getKingLeader(db, guildId, todayStr, 'messages');
             const philanData = await getKingLeader(db, guildId, todayStr, 'mora_donated');
-            const voiceData = await getKingLeader(db, guildId, todayStr, 'vc_minutes'); // تأكيد vc_minutes
+            
+            let voiceData = await getKingLeader(db, guildId, todayStr, 'vc_minutes'); 
+            if (!voiceData) voiceData = await getKingLeader(db, guildId, todayStr, 'voice_time'); // تأمين مزدوج لعمود الصوت
+
             const fisherData = await getKingLeader(db, guildId, todayStr, 'fish_caught');
             const pvpData = await getKingLeader(db, guildId, todayStr, 'pvp_wins');
             const thiefData = await getKingLeader(db, guildId, todayStr, 'mora_stolen');
@@ -686,8 +701,8 @@ async function autoUpdateKingsBoard(client, db) {
 
             if (boardChannel) {
                 try {
-                    const kingsMsg = await boardChannel.messages.fetch(kingsMsgId).catch(() => null);
-                    if (!kingsMsg) continue; 
+                    const kingsMsg = await boardChannel.messages.fetch(kingsBoardMessageId).catch(() => null);
+                    if (!kingsMsg) continue; // تخطي التحديث إذا انحذفت الرسالة
                     
                     async function getKingInfo(dataObj, suffix, title, emoji) {
                         if (!dataObj || !dataObj.userID) return { title, emoji, displayName: 'لا أحد حتى الآن', avatarUrl: null, valueText: `0 ${suffix}` };
@@ -720,7 +735,9 @@ async function autoUpdateKingsBoard(client, db) {
 
                     const kingsBoardBuffer = await generateKingsBoardImage(kingsArray);
                     const kingsBoardAttachment = new AttachmentBuilder(kingsBoardBuffer, { name: `kings-board-${Date.now()}.png` });
-                    await kingsMsg.edit({ files: [kingsBoardAttachment] }).catch(()=>{});
+                    
+                    // 🔥 إضافة السطر السحري لمسح الصور القديمة قبل رفع الجديدة 🔥
+                    await kingsMsg.edit({ files: [kingsBoardAttachment], attachments: [] }).catch((e)=>{ console.error("EDIT IMAGE ERROR:", e); });
 
                     // 🔥 إرسال الإشعارات والرتب (يتم فقط إذا تغير الملك فعلياً) 🔥
                     if (oldHash) {
@@ -736,7 +753,7 @@ async function autoUpdateKingsBoard(client, db) {
                                 const oldUserId = oldParts[i] !== 'none' ? oldParts[i].split(':')[0] : null;
 
                                 // نتأكد أن الملك تغير فعلاً وليس مجرد زيادة في النقاط
-                                if (newUserId !== oldUserId) {
+                                if (newUserId !== oldUserId && newUserId !== 'none') {
                                     
                                     const roleColName = roleCols[i];
                                     const roleId = settings[roleColName] || settings[roleColName.toLowerCase()];
@@ -747,14 +764,15 @@ async function autoUpdateKingsBoard(client, db) {
                                             targetRole.members.forEach(async (member) => {
                                                 if (member.id !== newUserId) await member.roles.remove(targetRole).catch(() => {});
                                             });
-                                            if (newUserId !== 'none') {
-                                                const newKingMem = await guild.members.fetch(newUserId).catch(() => null);
-                                                if (newKingMem && !newKingMem.roles.cache.has(roleId)) await newKingMem.roles.add(targetRole).catch(() => {});
-                                            }
+                                            const newKingMem = await guild.members.fetch(newUserId).catch(() => null);
+                                            if (newKingMem && !newKingMem.roles.cache.has(roleId)) await newKingMem.roles.add(targetRole).catch(() => {});
                                         }
                                     }
 
-                                    let notifDataRes = await db.query(`SELECT "kingsNotif" FROM quest_notifications WHERE "id" = $1`, [`${newUserId}-${guildId}`]).catch(() => db.query(`SELECT kingsnotif as "kingsNotif" FROM quest_notifications WHERE id = $1`, [`${newUserId}-${guildId}`]));
+                                    let notifDataRes;
+                                    try { notifDataRes = await db.query(`SELECT "kingsNotif" FROM quest_notifications WHERE "id" = $1`, [`${newUserId}-${guildId}`]); }
+                                    catch(e) { notifDataRes = await db.query(`SELECT kingsnotif as "kingsNotif" FROM quest_notifications WHERE id = $1`, [`${newUserId}-${guildId}`]).catch(()=>({rows:[]})); }
+                                    
                                     const notifData = notifDataRes?.rows[0];
                                     
                                     if (!notifData || Number(notifData.kingsNotif) !== 0) {
@@ -801,12 +819,18 @@ async function rewardDailyKings(client, db) {
         yesterdayKSA.setDate(yesterdayKSA.getDate() - 1);
         const yesterdayStr = yesterdayKSA.toLocaleDateString('en-CA');
 
-        let isPaidRes = await db.query(`SELECT * FROM kings_daily_payout WHERE "dateStr" = $1`, [yesterdayStr]).catch(() => db.query(`SELECT * FROM kings_daily_payout WHERE datestr = $1`, [yesterdayStr]));
+        let isPaidRes;
+        try { isPaidRes = await db.query(`SELECT * FROM kings_daily_payout WHERE "dateStr" = $1`, [yesterdayStr]); }
+        catch(e) { isPaidRes = await db.query(`SELECT * FROM kings_daily_payout WHERE datestr = $1`, [yesterdayStr]).catch(()=>({rows:[]})); }
+        
         if (isPaidRes?.rows.length > 0) return; 
 
         for (const guild of client.guilds.cache.values()) {
             const guildId = guild.id;
-            let settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]).catch(() => db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]));
+            let settingsRes;
+            try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]); }
+            catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]).catch(()=>({rows:[]})); }
+            
             const settings = settingsRes?.rows[0];
             
             const announceChannelId = settings?.guildAnnounceChannelID || settings?.guildannouncechannelid;
@@ -816,7 +840,10 @@ async function rewardDailyKings(client, db) {
             const abyssData = await getKingLeader(db, guildId, yesterdayStr, 'dungeon_floor');
             const chatterData = await getKingLeader(db, guildId, yesterdayStr, 'messages');
             const philanData = await getKingLeader(db, guildId, yesterdayStr, 'mora_donated');
-            const voiceData = await getKingLeader(db, guildId, yesterdayStr, 'vc_minutes');
+            
+            let voiceData = await getKingLeader(db, guildId, yesterdayStr, 'vc_minutes');
+            if (!voiceData) voiceData = await getKingLeader(db, guildId, yesterdayStr, 'voice_time');
+
             const fisherData = await getKingLeader(db, guildId, yesterdayStr, 'fish_caught');
             const pvpData = await getKingLeader(db, guildId, yesterdayStr, 'pvp_wins');
             const thiefData = await getKingLeader(db, guildId, yesterdayStr, 'mora_stolen');
@@ -881,14 +908,15 @@ async function rewardDailyKings(client, db) {
                             await announceChannel.send({
                                 content: `👑 تـتـويـج مـلـوك الإمـبـراطـوريـة 👑`,
                                 files: [attachment]
-                            }).catch(()=>{});
+                            }).catch((e) => console.error("Daily Kings Announce Error:", e));
                         }
-                    } catch(e) { console.error("Error generating kings image:", e); }
+                    } catch(e) {}
                 }
             }
         }
 
-        await db.query(`INSERT INTO kings_daily_payout ("dateStr") VALUES ($1)`).catch(() => db.query(`INSERT INTO kings_daily_payout (datestr) VALUES ($1)`, [yesterdayStr]));
+        try { await db.query(`INSERT INTO kings_daily_payout ("dateStr") VALUES ($1)`, [yesterdayStr]); }
+        catch(e) { await db.query(`INSERT INTO kings_daily_payout (datestr) VALUES ($1)`, [yesterdayStr]).catch(()=>{}); }
 
     } catch (e) { console.error("Reward Daily Kings Error:", e); }
 }
