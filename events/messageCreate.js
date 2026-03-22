@@ -104,7 +104,7 @@ module.exports = {
         const db = client.sql;
         if (!db || !message.guild) return; 
 
-        if (!client.talkedRecently) client.talkedRecently = new Collection(); // حماية لمنع الانهيار
+        if (!client.talkedRecently) client.talkedRecently = new Collection(); 
 
         if (message.author.bot && message.author.id !== DISBOARD_BOT_ID) return;
 
@@ -547,8 +547,9 @@ module.exports = {
                         let roleToGive = settings.roleChatterBadge || settings.rolechatterbadge || settings.roleChatter || settings.rolechatter;
                         if (roleToGive && message.member) message.member.roles.add(roleToGive).catch(()=>{});
 
-                        if (settings.guildAnnounceChannelID || settings.guildannouncechannelid) {
-                            const announceChannel = message.guild.channels.cache.get(settings.guildAnnounceChannelID || settings.guildannouncechannelid);
+                        // 🔥 التعديل هنا: توجيه إشعار ثرثار الحانة إلى روم المهام (questChannelID) بدلاً من الملوك 🔥
+                        if (settings.questChannelID || settings.questchannelid) {
+                            const announceChannel = message.guild.channels.cache.get(settings.questChannelID || settings.questchannelid);
                             if (announceChannel) {
                                 const badgeEmbed = new EmbedBuilder()
                                     .setTitle('🗣️ انـجـاز يـومـي: ثـرثـار الـحـانـة!')
@@ -675,7 +676,6 @@ module.exports = {
 
         } catch (err) {}
 
-        // 🔥 بداية إصلاح ثغرة الأوامر 🔥
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -701,17 +701,16 @@ module.exports = {
                                 catch(e) { categoryPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2 AND channelid = $3`, [message.guild.id, command.name, message.channel.parentId]).catch(()=>({rows:[]})); }
                             }
 
-                            // 👑 الإضافة الذهبية: التحقق من عدم وجود قيود أصلاً
                             let hasRestrictionsRes;
                             try { hasRestrictionsRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2`, [message.guild.id, command.name]); }
                             catch(e) { hasRestrictionsRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2`, [message.guild.id, command.name]).catch(()=>({rows:[]})); }
                             
                             if (hasRestrictionsRes && hasRestrictionsRes.rows.length === 0) {
-                                isAllowed = true; // الأمر مجاني وغير مقيد
+                                isAllowed = true; 
                             } else if ((channelPermRes && channelPermRes.rows.length > 0) || (categoryPermRes && categoryPermRes.rows.length > 0)) { 
-                                isAllowed = true; // القناة مسموح لها
+                                isAllowed = true; 
                             }
-                        } catch (err) { isAllowed = true; } // في حال تعطلت الداتابيز، لا نعاقب اللاعب ونسمح له باللعب!
+                        } catch (err) { isAllowed = true; }
                     }
 
                     if (isAllowed) {
@@ -731,14 +730,12 @@ module.exports = {
                             }
                         }
                     } else {
-                        // تنبيه العضو بأنه لا يملك صلاحية (لكي لا يظن أن البوت معطل)
                         message.reply({ content: "❌ **لا يمكنك استخدام هذا الأمر في هذه القناة.**" }).catch(()=>{});
                     }
                     return; 
                 }
             }
         }
-        // 🔥 نهاية الإصلاح 🔥
 
         try {
             const argsRaw = message.content.trim().split(/ +/);
