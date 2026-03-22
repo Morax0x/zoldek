@@ -56,13 +56,14 @@ async function getUserRace(member, db) {
 
 async function getGearSummaryEmbed(userID, guildID, db, targetUser) {
     let levelsRes;
-    try { levelsRes = await db.query(`SELECT "rodLevel", "boatLevel", "currentLocation" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID]); }
-    catch(e) { levelsRes = await db.query(`SELECT rodlevel, boatlevel, currentlocation FROM levels WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
+    try { levelsRes = await db.query(`SELECT "rodLevel", "boatLevel", "currentLocation", "max_dungeon_floor" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID]); }
+    catch(e) { levelsRes = await db.query(`SELECT rodlevel, boatlevel, currentlocation, max_dungeon_floor FROM levels WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
     
-    const levelsData = levelsRes.rows[0] || { rodLevel: 1, boatLevel: 1, currentLocation: 'beach' };
+    const levelsData = levelsRes.rows[0] || { rodLevel: 1, boatLevel: 1, currentLocation: 'beach', max_dungeon_floor: 0 };
     const rodLvl = levelsData.rodLevel || levelsData.rodlevel || 1;
     const boatLvl = levelsData.boatLevel || levelsData.boatlevel || 1;
     const cLoc = levelsData.currentLocation || levelsData.currentlocation || 'beach'; 
+    const maxFloor = levelsData.max_dungeon_floor || 0;
 
     let weaponRes;
     try { weaponRes = await db.query(`SELECT "raceName", "weaponLevel" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
@@ -94,6 +95,7 @@ async function getGearSummaryEmbed(userID, guildID, db, targetUser) {
         .addFields(
             { name: '⚔️ السلاح الحالي', value: weaponText, inline: true },
             { name: '🎣 معدات الصيد', value: `السنارة: **Lv.${rodLvl}**\nالقارب: **Lv.${boatLvl}**\nالموقع: **${cLoc}**`, inline: true },
+            { name: '⛺ الدانجون', value: `أعلى طابق: **${maxFloor}**`, inline: true },
             { name: '✨ المهارات القتالية', value: skillsText, inline: false }
         );
 
@@ -216,7 +218,6 @@ module.exports = {
                     await modalSubmit.editReply({ content: `✅ تم تعديل اقتصاد ${targetUser} بنجاح.` });
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
             }
-            // 🔥 دالة التبديل الذكي (تشمل تحديث الذاكرة فوراً) 🔥
             else if (val === 'swap_accounts') {
                 const modalId = `mod_swap_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('تبديل ونقل الحسابات');
@@ -234,7 +235,6 @@ module.exports = {
 
                     if (id1 === id2) return modalSubmit.editReply("❌ الآيديات متطابقة.");
 
-                    // جلب الداتا الحالية قبل التبديل عشان نعكسها في الذاكرة (Cache)
                     const ud1 = await client.getLevel(id1, guildID);
                     const ud2 = await client.getLevel(id2, guildID);
 
@@ -272,7 +272,6 @@ module.exports = {
 
                     await db.query('BEGIN');
                     
-                    // هنا يتم تبديل السطر بالكامل (الليفل، الاكس بي، المورا متضمنة في جدول levels)
                     await swapAnyColumn('levels', 'user', 'guild', 1);
                     await swapAnyColumn('user_inventory', 'userID');
                     await swapAnyColumn('user_portfolio', 'userID');
@@ -284,7 +283,6 @@ module.exports = {
                     await swapAnyColumn('user_skills', 'userID');
                     await swapAnyColumn('dungeon_stats', 'userID');
                     
-                    // يتم تبديل الستريك بشكل كامل هنا
                     await swapAnyColumn('streaks', 'userID', 'guildID', 1);
                     await swapAnyColumn('media_streaks', 'userID', 'guildID', 1);
                     
@@ -297,7 +295,6 @@ module.exports = {
 
                     await db.query('COMMIT');
                     
-                    // 🔥 تحديث فوري للذاكرة المؤقتة (Cache) لضمان تغير اللفل والاكس بي والمورا بدون ريستارت 🔥
                     if (client.levelCache) {
                         client.levelCache.delete(`${guildID}-${id1}`);
                         client.levelCache.delete(`${guildID}-${id2}`);
@@ -508,6 +505,43 @@ module.exports = {
                         catch(e) { await db.query(`INSERT INTO dungeon_stats (guildid, userid, tickets, last_reset) VALUES ($1, $2, $3, $4)`, [guildID, userID, amount, todayStr]).catch(()=>{}); }
                     }
                     await modalSubmit.editReply({ content: `✅ تم إضافة **${amount}** 🎟️ تذاكر لـ ${targetUser}.` });
+                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+            }
+            // 🔥 الإصلاح: برمجة خيمة الدانجون هنا 🔥
+            else if (val === 'dungeon_tent') {
+                const modalId = `mod_tent_${Date.now()}`;
+                const modal = new ModalBuilder().setCustomId(modalId).setTitle('إعداد طابق الدانجون (الخيمة)');
+                const floorInput = new TextInputBuilder()
+                    .setCustomId('tent_floor')
+                    .setLabel('رقم الطابق المراد حفظه كـ (Checkpoint)')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+                modal.addComponents(new ActionRowBuilder().addComponents(floorInput));
+                await interaction.showModal(modal);
+
+                try {
+                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+                    const floor = parseInt(modalSubmit.fields.getTextInputValue('tent_floor'));
+                    if (isNaN(floor) || floor < 0) return modalSubmit.editReply({ content: "❌ الرجاء إدخال رقم طابق صحيح." });
+
+                    // التحديث في جدول levels حيث يتم حفظ أعلى طابق
+                    try {
+                        await db.query(`
+                            INSERT INTO levels ("user", "guild", "xp", "totalXP", "level", "mora", "max_dungeon_floor") 
+                            VALUES ($1, $2, 0, 0, 1, 0, $3) 
+                            ON CONFLICT ("user", "guild") DO UPDATE SET "max_dungeon_floor" = $3
+                        `, [userID, guildID, floor]);
+                    } catch(e) {
+                        await db.query(`
+                            INSERT INTO levels (userid, guildid, xp, totalxp, level, mora, max_dungeon_floor) 
+                            VALUES ($1, $2, 0, 0, 1, 0, $3) 
+                            ON CONFLICT (userid, guildid) DO UPDATE SET max_dungeon_floor = $3
+                        `, [userID, guildID, floor]).catch(()=>{});
+                    }
+
+                    await modalSubmit.editReply({ content: `✅ تم نصب خيمة الحفظ لـ ${targetUser} في **الطابق ${floor}** من الدانجون ⛺.` });
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
             }
             else if (val === 'combat_gear') {
