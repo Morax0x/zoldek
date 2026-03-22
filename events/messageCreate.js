@@ -7,7 +7,8 @@ const { askMorax } = require('../handlers/ai-handler');
 const aiConfig = require('../utils/aiConfig'); 
 const aiLimitHandler = require('../utils/aiLimitHandler');
 
-const { updateGuildStat } = require('../handlers/guild-board-handler.js');
+// 🔥 تصحيح مسار استدعاء الملوك إلى الملف الجديد 🔥
+const { updateGuildStat } = require('../handlers/kings-stats-handler.js');
 
 let addXPAndCheckLevel;
 try {
@@ -316,6 +317,7 @@ module.exports = {
             return message.reply("نـعـم .. ؟").catch(() => {});
         }
 
+        // 🔥 احتكار الذكاء الاصطناعي لك فقط أو للقنوات المسموحة 🔥
         if (message.mentions.has(client.user) && !message.author.bot && !message.content.startsWith(Prefix)) {
             
             if (message.reference) {
@@ -353,20 +355,14 @@ module.exports = {
                 const OWNER_ID = "1145327691772481577"; 
                 const isOwnerMentioning = message.author.id === OWNER_ID;
 
-                let isWisdomKing = false;
-                try {
-                    if (settings && (settings.roleAdvisor || settings.roleadvisor) && message.member?.roles.cache.has(settings.roleAdvisor || settings.roleadvisor)) {
-                        isWisdomKing = true;
-                    }
-                } catch(e) {}
-
+                // 👑 قاعدة الإمبراطور للذكاء الاصطناعي:
                 if (!aiChannelData) {
                     if (message.channel.parentId && aiConfig.isRestrictedCategory(message.channel.parentId)) {
                         const paidStatus = aiConfig.getPaidChannelStatus(message.channel.id);
                         if (paidStatus) {
                             aiChannelData = { nsfw: paidStatus.mode === 'NSFW' ? 1 : 0 };
                         } else {
-                            if (isOwnerMentioning || isWisdomKing) {
+                            if (isOwnerMentioning) {
                                 aiChannelData = { nsfw: 0 };
                             } else {
                                 if (paymentCooldowns.has(message.channel.id)) return; 
@@ -377,12 +373,14 @@ module.exports = {
                             }
                         }
                     } else {
-                        return; 
+                        // قناة عادية جداً ليست مخصصة للذكاء
+                        if (!isOwnerMentioning) return; // يتم تجاهل العضو العادي بصمت
+                        aiChannelData = { nsfw: 0 }; // السماح للإمبراطور
                     }
                 }
 
                 let canChat = true;
-                let isTrackedUser = !isOwnerMentioning && !isWisdomKing;
+                let isTrackedUser = !isOwnerMentioning;
 
                 if (isTrackedUser) {
                     const usageStatus = await aiLimitHandler.checkUserUsage(message.member);
@@ -547,7 +545,6 @@ module.exports = {
                         let roleToGive = settings.roleChatterBadge || settings.rolechatterbadge || settings.roleChatter || settings.rolechatter;
                         if (roleToGive && message.member) message.member.roles.add(roleToGive).catch(()=>{});
 
-                        // 🔥 التعديل هنا: توجيه إشعار ثرثار الحانة إلى روم المهام (questChannelID) بدلاً من الملوك 🔥
                         if (settings.questChannelID || settings.questchannelid) {
                             const announceChannel = message.guild.channels.cache.get(settings.questChannelID || settings.questchannelid);
                             if (announceChannel) {
@@ -676,6 +673,7 @@ module.exports = {
 
         } catch (err) {}
 
+        // 🔥 احتكار أوامر البريفكس للإمبراطور أو للقنوات المسموحة 🔥
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -684,13 +682,16 @@ module.exports = {
                 if (command) {
                     args.prefix = Prefix;
                     let isAllowed = false;
+                    const OWNER_ID = "1145327691772481577";
 
-                    if (message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) { 
+                    // 👑 قاعدة الإمبراطور للأوامر:
+                    if (message.author.id === OWNER_ID) { 
                         isAllowed = true; 
                     } else if (settings && ((settings.casinoChannelID || settings.casinochannelid) === message.channel.id || (settings.casinoChannelID2 || settings.casinochannelid2) === message.channel.id) && command.category === 'Economy') { 
-                        isAllowed = true; 
+                        isAllowed = true; // السماح في الكازينو
                     } else {
                         try {
+                            // التحقق مما إذا كانت القناة مسموحة يدوياً
                             let channelPermRes;
                             try { channelPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2 AND "channelID" = $3`, [message.guild.id, command.name, message.channel.id]); }
                             catch(e) { channelPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2 AND channelid = $3`, [message.guild.id, command.name, message.channel.id]).catch(()=>({rows:[]})); }
@@ -701,16 +702,10 @@ module.exports = {
                                 catch(e) { categoryPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2 AND channelid = $3`, [message.guild.id, command.name, message.channel.parentId]).catch(()=>({rows:[]})); }
                             }
 
-                            let hasRestrictionsRes;
-                            try { hasRestrictionsRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2`, [message.guild.id, command.name]); }
-                            catch(e) { hasRestrictionsRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2`, [message.guild.id, command.name]).catch(()=>({rows:[]})); }
-                            
-                            if (hasRestrictionsRes && hasRestrictionsRes.rows.length === 0) {
-                                isAllowed = true; 
-                            } else if ((channelPermRes && channelPermRes.rows.length > 0) || (categoryPermRes && categoryPermRes.rows.length > 0)) { 
-                                isAllowed = true; 
+                            if ((channelPermRes && channelPermRes.rows.length > 0) || (categoryPermRes && categoryPermRes.rows.length > 0)) { 
+                                isAllowed = true; // السماح إذا تمت إضافتها عبر الصلاحيات
                             }
-                        } catch (err) { isAllowed = true; }
+                        } catch (err) {}
                     }
 
                     if (isAllowed) {
@@ -726,11 +721,12 @@ module.exports = {
                             if (cooldownMsg) { 
                                 if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); 
                             } else { 
-                                try { await command.execute(message, args); } catch (error) { message.reply("❌ حدث خطأ داخلي أثناء تنفيذ الأمر."); } 
+                                try { await command.execute(message, args); } catch (error) { console.error(error); } 
                             }
                         }
                     } else {
-                        message.reply({ content: "❌ **لا يمكنك استخدام هذا الأمر في هذه القناة.**" }).catch(()=>{});
+                        // التجاهل الصامت التام لأي عضو يحاول استخدام الأوامر (لا يوجد رسالة رفض)
+                        return; 
                     }
                     return; 
                 }
