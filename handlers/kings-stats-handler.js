@@ -43,8 +43,8 @@ async function ensureKingTrackerTable(db) {
 }
 
 const lastKingsHash = new Map();
+let forceUpdateCounter = 0; // 🔥 إجبار تحديث الصورة كل 10 دقائق
 
-// 🔥 دالة البحث المدرعة للحصول على ملك التصنيف 🔥
 async function getKingLeader(db, guildId, todayStr, col1, col2 = null) {
     try {
         let query, fallbackQuery;
@@ -64,27 +64,31 @@ async function getKingLeader(db, guildId, todayStr, col1, col2 = null) {
 
 async function autoUpdateKingsBoard(client, db) {
     if (!db) return;
+    
+    forceUpdateCounter++;
+    const shouldForceUpdate = forceUpdateCounter >= 10;
+    if (shouldForceUpdate) forceUpdateCounter = 0;
 
     for (const guild of client.guilds.cache.values()) {
         const guildId = guild.id;
         try {
-            let settingsRes;
-            try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]); }
-            catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]).catch(()=>({rows:[]})); }
-            const settings = settingsRes.rows[0];
-            if (!settings || (!settings.guildBoardChannelID && !settings.guildboardchannelid) || (!settings.kingsBoardMessageID && !settings.kingsboardmessageid)) continue; 
+            let settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]).catch(() => db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]));
+            const settings = settingsRes?.rows[0];
+            
+            const boardChannelId = settings?.guildBoardChannelID || settings?.guildboardchannelid;
+            const kingsBoardMessageId = settings?.kingsBoardMessageID || settings?.kingsboardmessageid;
+            const announceChannelId = settings?.guildAnnounceChannelID || settings?.guildannouncechannelid;
+
+            if (!settings || !boardChannelId || !kingsBoardMessageId) continue; 
 
             const todayStr = getTodayDateString();
 
-            // 🔥 استخدام البحث المدرع 🔥
             const casinoData = await getKingLeader(db, guildId, todayStr, 'casino_profit', 'mora_earned');
             const abyssData = await getKingLeader(db, guildId, todayStr, 'dungeon_floor');
             const chatterData = await getKingLeader(db, guildId, todayStr, 'messages');
             const philanData = await getKingLeader(db, guildId, todayStr, 'mora_donated');
-            
             let voiceData = await getKingLeader(db, guildId, todayStr, 'vc_minutes'); 
             if (!voiceData) voiceData = await getKingLeader(db, guildId, todayStr, 'voice_time');
-
             const fisherData = await getKingLeader(db, guildId, todayStr, 'fish_caught');
             const pvpData = await getKingLeader(db, guildId, todayStr, 'pvp_wins');
             const thiefData = await getKingLeader(db, guildId, todayStr, 'mora_stolen');
@@ -103,118 +107,108 @@ async function autoUpdateKingsBoard(client, db) {
             const currentHash = currentHashArray.join('|');
             const oldHash = lastKingsHash.get(guildId);
 
-            if (oldHash === currentHash) continue; 
+            // 🔥 إذا الهاش نفسه وما جاء وقت التحديث الإجباري، نتخطى
+            if (oldHash === currentHash && !shouldForceUpdate) continue; 
 
-            const boardChannel = guild.channels.cache.get(settings.guildBoardChannelID || settings.guildboardchannelid);
-            const announceChannel = settings.guildAnnounceChannelID || settings.guildannouncechannelid ? guild.channels.cache.get(settings.guildAnnounceChannelID || settings.guildannouncechannelid) : null;
+            const boardChannel = guild.channels.cache.get(boardChannelId);
+            const announceChannel = announceChannelId ? guild.channels.cache.get(announceChannelId) : null;
 
             if (boardChannel) {
-                try {
-                    const kingsMsg = await boardChannel.messages.fetch(settings.kingsBoardMessageID || settings.kingsboardmessageid).catch(()=>null);
-                    if (!kingsMsg) continue;
-                    
-                    async function getKingInfo(dataObj, suffix, title, emoji) {
-                        if (!dataObj || !dataObj.userID) return { title, emoji, displayName: 'لا أحد حتى الآن', avatarUrl: null, valueText: `0 ${suffix}` };
-                        try {
-                            const uID = dataObj.userID;
-                            let member = await guild.members.fetch(uID).catch(()=>null);
-                            let user = member ? member.user : await client.users.fetch(uID).catch(()=>null);
-                            if (user) {
-                                return {
-                                    title, emoji,
-                                    displayName: member ? member.displayName : user.username,
-                                    avatarUrl: user.displayAvatarURL({ extension: 'png', size: 128 }),
-                                    valueText: `${parseInt(dataObj.val).toLocaleString()} ${suffix}`
-                                };
-                            }
-                        } catch (e) {}
-                        return { title, emoji, displayName: 'مغامر مجهول', avatarUrl: null, valueText: `${parseInt(dataObj.val).toLocaleString()} ${suffix}` };
-                    }
+                const kingsMsg = await boardChannel.messages.fetch(kingsBoardMessageId).catch(() => null);
+                if (!kingsMsg) {
+                    console.log(`[Kings Board] الرسالة غير موجودة في السيرفر: ${guild.name}`);
+                    continue;
+                }
+                
+                async function getKingInfo(dataObj, suffix, title, emoji) {
+                    if (!dataObj || !dataObj.userID) return { title, emoji, displayName: 'لا أحد حتى الآن', avatarUrl: null, valueText: `0 ${suffix}` };
+                    try {
+                        let member = await guild.members.fetch(dataObj.userID).catch(()=>null);
+                        let user = member ? member.user : await client.users.fetch(dataObj.userID).catch(()=>null);
+                        if (user) {
+                            return { title, emoji, displayName: member ? member.displayName : user.username, avatarUrl: user.displayAvatarURL({ extension: 'png', size: 128 }), valueText: `${parseInt(dataObj.val).toLocaleString()} ${suffix}` };
+                        }
+                    } catch (e) {}
+                    return { title, emoji, displayName: 'مغامر مجهول', avatarUrl: null, valueText: `${parseInt(dataObj.val).toLocaleString()} ${suffix}` };
+                }
 
-                    const kingsArray = [
-                        await getKingInfo(casinoData, 'مورا', 'ملك الكازينو', '🎰'),
-                        await getKingInfo(abyssData, 'طابق', 'ملك الهاوية', '🌑'),
-                        await getKingInfo(chatterData, 'رسالة', 'ملك البلاغة', '🗣️'), 
-                        await getKingInfo(philanData, 'مورا', 'ملك الكرم', '🤝'),
-                        await getKingInfo(voiceData, 'دقيقة', 'ملك الصوت', '🎙️'),
-                        await getKingInfo(fisherData, 'سمكة', 'ملك القنص', '🎣'),
-                        await getKingInfo(pvpData, 'انتصار', 'ملك النزاع', '⚔️'),
-                        await getKingInfo(thiefData, 'مورا', 'ملك اللصوص', '🥷')
-                    ];
+                const kingsArray = [
+                    await getKingInfo(casinoData, 'مورا', 'ملك الكازينو', '🎰'),
+                    await getKingInfo(abyssData, 'طابق', 'ملك الهاوية', '🌑'),
+                    await getKingInfo(chatterData, 'رسالة', 'ملك البلاغة', '🗣️'), 
+                    await getKingInfo(philanData, 'مورا', 'ملك الكرم', '🤝'),
+                    await getKingInfo(voiceData, 'دقيقة', 'ملك الصوت', '🎙️'),
+                    await getKingInfo(fisherData, 'سمكة', 'ملك القنص', '🎣'),
+                    await getKingInfo(pvpData, 'انتصار', 'ملك النزاع', '⚔️'),
+                    await getKingInfo(thiefData, 'مورا', 'ملك اللصوص', '🥷')
+                ];
 
-                    const kingsBoardBuffer = await generateKingsBoardImage(kingsArray);
-                    const kingsBoardAttachment = new AttachmentBuilder(kingsBoardBuffer, { name: `kings-board-${Date.now()}.png` });
-                    
-                    // 🔥 مسح الصورة القديمة وإرسال الجديدة 🔥
-                    await kingsMsg.edit({ files: [kingsBoardAttachment], attachments: [] }).catch(()=>{});
+                const kingsBoardBuffer = await generateKingsBoardImage(kingsArray);
+                const kingsBoardAttachment = new AttachmentBuilder(kingsBoardBuffer, { name: `kings-board-${Date.now()}.png` });
+                
+                // 🔥 تحديث الصورة المدرع (يمسح القديم غصباً عن الكاش) 🔥
+                await kingsMsg.edit({ files: [kingsBoardAttachment], attachments: [] }).catch((e)=> console.error(`[Board Edit Error in ${guild.name}]:`, e));
 
-                    if (oldHash) {
-                        const oldParts = oldHash.split('|');
-                        const titles = ['ملك الكازينو', 'ملك الهاوية', 'ملك البلاغة', 'ملك الكرم', 'ملك الصوت', 'ملك القنص', 'ملك النزاع', 'ملك اللصوص'];
-                        const suffixes = ['مورا', 'طابق', 'رسالة', 'مورا', 'دقيقة', 'سمكة', 'انتصار', 'مورا'];
-                        const colors = ['#FFD700', '#9D00FF', '#00BFFF', '#FF8C00', '#00FF88', '#00CED1', '#DC143C', '#32CD32'];
-                        const roleCols = ['roleCasinoKing', 'roleAbyss', 'roleChatter', 'rolePhilanthropist', 'roleVoice', 'roleFisherKing', 'rolePvPKing', 'roleThief'];
+                // إرسال إشعارات التغيير الحية (فقط إذا تغير الهاش)
+                if (oldHash && oldHash !== currentHash) {
+                    const oldParts = oldHash.split('|');
+                    const titles = ['ملك الكازينو', 'ملك الهاوية', 'ملك البلاغة', 'ملك الكرم', 'ملك الصوت', 'ملك القنص', 'ملك النزاع', 'ملك اللصوص'];
+                    const suffixes = ['مورا', 'طابق', 'رسالة', 'مورا', 'دقيقة', 'سمكة', 'انتصار', 'مورا'];
+                    const colors = ['#FFD700', '#9D00FF', '#00BFFF', '#FF8C00', '#00FF88', '#00CED1', '#DC143C', '#32CD32'];
+                    const roleCols = ['roleCasinoKing', 'roleAbyss', 'roleChatter', 'rolePhilanthropist', 'roleVoice', 'roleFisherKing', 'rolePvPKing', 'roleThief'];
 
-                        for (let i = 0; i < 8; i++) {
-                            if (currentHashArray[i] !== 'none' && currentHashArray[i] !== oldParts[i] && oldParts[i] !== 'none') {
-                                const [newUserId, newVal] = currentHashArray[i].split(':');
-                                const [oldUserId] = oldParts[i].split(':');
+                    for (let i = 0; i < 8; i++) {
+                        if (currentHashArray[i] !== 'none' && currentHashArray[i] !== oldParts[i] && oldParts[i] !== 'none') {
+                            const [newUserId, newVal] = currentHashArray[i].split(':');
+                            const [oldUserId] = oldParts[i].split(':');
 
-                                if (newUserId !== oldUserId && newUserId !== 'none') {
-                                    
-                                    const roleColName = roleCols[i];
-                                    const roleId = settings[roleColName] || settings[roleColName.toLowerCase()];
-                                    
-                                    if (roleId) {
-                                        const targetRole = guild.roles.cache.get(roleId);
-                                        if (targetRole) {
-                                            targetRole.members.forEach(async (member) => {
-                                                if (member.id !== newUserId) await member.roles.remove(targetRole).catch(() => {});
-                                            });
-                                            const newKingMem = await guild.members.fetch(newUserId).catch(() => null);
-                                            if (newKingMem && !newKingMem.roles.cache.has(roleId)) await newKingMem.roles.add(targetRole).catch(() => {});
-                                        }
+                            if (newUserId !== oldUserId && newUserId !== 'none') {
+                                const roleId = settings[roleCols[i]] || settings[roleCols[i].toLowerCase()];
+                                if (roleId) {
+                                    const targetRole = guild.roles.cache.get(roleId);
+                                    if (targetRole) {
+                                        targetRole.members.forEach(async (m) => { if (m.id !== newUserId) await m.roles.remove(targetRole).catch(()=>{}); });
+                                        const newKingMem = await guild.members.fetch(newUserId).catch(()=>null);
+                                        if (newKingMem && !newKingMem.roles.cache.has(roleId)) await newKingMem.roles.add(targetRole).catch(()=>{});
                                     }
+                                }
 
-                                    let notifDataRes = await db.query(`SELECT "kingsNotif" FROM quest_notifications WHERE "id" = $1`, [`${newUserId}-${guildId}`]).catch(() => db.query(`SELECT kingsnotif as "kingsNotif" FROM quest_notifications WHERE id = $1`, [`${newUserId}-${guildId}`]));
-                                    const notifData = notifDataRes?.rows[0];
-                                    
-                                    if (!notifData || Number(notifData.kingsNotif) !== 0) {
-                                        const kingMsgContent = announcementsTexts.getKingMessage(`<@${newUserId}>`, titles[i], `${parseInt(newVal).toLocaleString()} ${suffixes[i]}`, client);
-                                        
-                                        if (announceChannel && announceChannel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.AttachFiles)) {
-                                            try {
-                                                const newKingUser = await client.users.fetch(newUserId).catch(()=>null);
-                                                let oldUserObj = 'EMPTY';
-                                                if (oldUserId && oldUserId !== 'none') {
-                                                    const oldMem = await guild.members.fetch(oldUserId).catch(()=>null);
-                                                    if (oldMem) oldUserObj = oldMem.user;
-                                                }
-                                                
-                                                const description = oldUserObj === 'EMPTY' ? `اعتلى العرش بكل جدارة!` : `انتزع التاج بقوة واعتلى القمة!`;
-
-                                                if (newKingUser) {
-                                                    const buffer = await generateEpicAnnouncement(newKingUser, '👑 انـتـزاع عـرش 👑', titles[i], description, `الرقم القياسي: ${parseInt(newVal).toLocaleString()} ${suffixes[i]}`, colors[i], oldUserObj, true);
-                                                    await announceChannel.send({ content: kingMsgContent, files: [new AttachmentBuilder(buffer, { name: `new-king-${Date.now()}.png` })] }).catch(()=>{});
-                                                }
-                                            } catch(e) {}
-                                        }
+                                let notifDataRes = await db.query(`SELECT "kingsNotif" FROM quest_notifications WHERE "id" = $1`, [`${newUserId}-${guildId}`]).catch(() => db.query(`SELECT kingsnotif as "kingsNotif" FROM quest_notifications WHERE id = $1`, [`${newUserId}-${guildId}`]));
+                                const notifData = notifDataRes?.rows[0];
+                                
+                                if (!notifData || Number(notifData.kingsNotif) !== 0) {
+                                    if (announceChannel && announceChannel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.AttachFiles)) {
+                                        try {
+                                            const newKingUser = await client.users.fetch(newUserId).catch(()=>null);
+                                            let oldUserObj = 'EMPTY';
+                                            if (oldUserId && oldUserId !== 'none') {
+                                                const oldMem = await guild.members.fetch(oldUserId).catch(()=>null);
+                                                if (oldMem) oldUserObj = oldMem.user;
+                                            }
+                                            const description = oldUserObj === 'EMPTY' ? `اعتلى العرش بكل جدارة!` : `انتزع التاج بقوة واعتلى القمة!`;
+                                            if (newKingUser) {
+                                                const epicBuffer = await generateEpicAnnouncement(newKingUser, '👑 انـتـزاع عـرش 👑', titles[i], description, `الرقم القياسي: ${parseInt(newVal).toLocaleString()} ${suffixes[i]}`, colors[i], oldUserObj, true);
+                                                const kingMsgContent = announcementsTexts.getKingMessage(`<@${newUserId}>`, titles[i], `${parseInt(newVal).toLocaleString()} ${suffixes[i]}`, client);
+                                                await announceChannel.send({ content: kingMsgContent, files: [new AttachmentBuilder(epicBuffer, { name: `new-king-${Date.now()}.png` })] }).catch(()=>{});
+                                            }
+                                        } catch(e) { console.error("Mid-day Announce Error:", e); }
                                     }
                                 }
                             }
                         }
                     }
-                } catch (err) {}
-                lastKingsHash.set(guildId, currentHash);
-            } 
-        } catch (err) {} 
+                }
+            }
+            lastKingsHash.set(guildId, currentHash);
+        } catch (err) { console.error("Loop Error in autoUpdateKingsBoard:", err); }
     }
 }
 
+// 🔥 دالة تتويج الملوك المدرعة (خالية من الانهيارات) 🔥
 async function rewardDailyKings(client, db) {
     if (!db) return;
     try {
-        await ensureKingTrackerTable(db); 
+        await ensureKingTrackerTable(db);
 
         const yesterdayKSA = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
         yesterdayKSA.setDate(yesterdayKSA.getDate() - 1);
@@ -228,16 +222,17 @@ async function rewardDailyKings(client, db) {
             try {
                 let settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]).catch(() => db.query(`SELECT * FROM settings WHERE guild = $1`, [guildId]));
                 const settings = settingsRes?.rows[0];
-                if (!settings || (!settings.guildAnnounceChannelID && !settings.guildannouncechannelid)) continue;
+                if (!settings) continue;
+
+                const announceChannelId = settings.guildAnnounceChannelID || settings.guildannouncechannelid;
+                if (!announceChannelId) continue;
 
                 const casinoData = await getKingLeader(db, guildId, targetDateStr, 'casino_profit', 'mora_earned');
                 const abyssData = await getKingLeader(db, guildId, targetDateStr, 'dungeon_floor');
                 const chatterData = await getKingLeader(db, guildId, targetDateStr, 'messages');
                 const philanData = await getKingLeader(db, guildId, targetDateStr, 'mora_donated');
-                
                 let voiceData = await getKingLeader(db, guildId, targetDateStr, 'vc_minutes');
                 if (!voiceData) voiceData = await getKingLeader(db, guildId, targetDateStr, 'voice_time');
-
                 const fisherData = await getKingLeader(db, guildId, targetDateStr, 'fish_caught');
                 const pvpData = await getKingLeader(db, guildId, targetDateStr, 'pvp_wins');
                 const thiefData = await getKingLeader(db, guildId, targetDateStr, 'mora_stolen');
@@ -268,28 +263,28 @@ async function rewardDailyKings(client, db) {
                         }
                     }
 
+                    // 🔥 الحماية من انهيار السيرفر بسبب لاعب مغادر
                     const member = await guild.members.fetch(w.id).catch(()=>null);
                     const user = member ? member.user : await client.users.fetch(w.id).catch(()=>null);
+                    
+                    let safeName = "مغامر مجهول";
+                    if (member) safeName = member.displayName;
+                    else if (user) safeName = user.username;
                     
                     if (member && targetRoleCol) {
                         member.roles.add(targetRoleCol, `تتويج بلقب ${w.title}`).catch(()=>{});
                     }
 
-                    if (user) {
+                    if (user || member) {
                         try {
                             await db.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3) ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = user_reputation."rep_points" + $4`, [w.id, guildId, w.rep, w.rep]);
                         } catch(e) {
                             await db.query(`INSERT INTO user_reputation (userid, guildid, rep_points) VALUES ($1, $2, $3) ON CONFLICT(userid, guildid) DO UPDATE SET rep_points = user_reputation.rep_points + $4`, [w.id, guildId, w.rep, w.rep]).catch(()=>{});
                         }
-                        kingsToAnnounce.push({
-                            title: w.title,
-                            name: member ? member.displayName : user.username,
-                            rep: w.rep
-                        });
+                        kingsToAnnounce.push({ title: w.title, name: safeName, rep: w.rep });
                     }
                 }
 
-                const announceChannelId = settings.guildAnnounceChannelID || settings.guildannouncechannelid;
                 const announceChannel = guild.channels.cache.get(announceChannelId);
                 
                 if (announceChannel && kingsToAnnounce.length > 0) {
@@ -303,18 +298,20 @@ async function rewardDailyKings(client, db) {
                                 await announceChannel.send({
                                     content: `👑 تـتـويـج مـلـوك الإمـبـراطـوريـة 👑`,
                                     files: [attachment]
-                                }).catch(()=>{});
+                                }).catch((e)=> console.error("Send Daily Kings Error:", e));
                             }
-                        } catch(e) {}
+                        } catch(e) { console.error("Generate Daily Image Error:", e); }
                     }
                 }
-            } catch (err) {} 
+            } catch (err) {
+                console.error(`Guild ${guildId} Daily Kings Error:`, err);
+            } 
         }
 
         try { await db.query(`INSERT INTO kings_daily_payout ("dateStr") VALUES ($1)`, [targetDateStr]); }
         catch(e) { await db.query(`INSERT INTO kings_daily_payout (datestr) VALUES ($1)`, [targetDateStr]).catch(()=>{}); }
 
-    } catch (e) { console.error("Reward Daily Kings Error:", e); }
+    } catch (e) { console.error("Reward Daily Kings Fatal Error:", e); }
 }
 
 const statsQueue = new Map();
@@ -330,7 +327,6 @@ async function processStatsQueue(client) {
 
     try {
         await ensureKingTrackerTable(db);
-        
         const queries = [];
 
         for (const [key, stats] of currentBatch.entries()) {
