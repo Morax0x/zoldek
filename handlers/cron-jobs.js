@@ -1,35 +1,29 @@
 const { createRandomDropGiveaway } = require('./giveaway-handler.js');
-// 🔥 استدعاء دوال الملوك من الملف الجديد الصحيح 🔥
 const { autoUpdateKingsBoard, rewardDailyKings } = require('./kings-stats-handler.js'); 
 const { checkLoanPayments } = require('./loan-handler.js'); 
 const { checkFarmIncome } = require('./farm-income.js'); 
 const handleMarketCrash = require('./market-crash-handler.js');
 const { checkDailyStreaks, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("../streak-handler.js");
 const { checkUnjailTask } = require('./report-handler.js'); 
-const marketConfig = require('../json/market-items.json');
 
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 
 module.exports = (client, db) => {
-    // 1. تحديث أسعار السوق
+    // 1. تحديث أسعار السوق (معزول ومحمي بالكامل)
     async function updateMarketPrices() {
         try {
             if (!client.marketLocks) client.marketLocks = new Set();
-            let res;
-            try { res = await db.query('SELECT * FROM market_items'); }
-            catch(e) { return; }
-            
-            const allItems = res.rows;
-            if (allItems.length === 0) return;
+            let res = await db.query('SELECT * FROM market_items').catch(() => null);
+            if (!res || res.rows.length === 0) return;
 
-            // 🔥 سحب حالة السوق من الإعدادات 🔥
+            const allItems = res.rows;
             let marketStatus = 'normal';
+            
             try {
-                let statusRes = await db.query(`SELECT "marketStatus" FROM settings WHERE "marketStatus" IS NOT NULL LIMIT 1`).catch(() => db.query(`SELECT marketstatus as "marketStatus" FROM settings WHERE marketstatus IS NOT NULL LIMIT 1`));
-                if (statusRes && statusRes.rows[0]) {
-                    marketStatus = statusRes.rows[0].marketStatus || 'normal';
-                }
-            } catch(e) {}
+                let statusRes = await db.query(`SELECT "marketStatus" FROM settings WHERE "marketStatus" IS NOT NULL LIMIT 1`)
+                    .catch(() => db.query(`SELECT marketstatus as "marketStatus" FROM settings WHERE marketstatus IS NOT NULL LIMIT 1`));
+                if (statusRes && statusRes.rows[0]) marketStatus = statusRes.rows[0].marketStatus || 'normal';
+            } catch(e) { console.error("Market Status Read Error:", e); }
 
             await db.query('BEGIN');
             const CRASH_PRICE = 10; 
@@ -38,20 +32,16 @@ module.exports = (client, db) => {
                 const itemId = item.id || item.itemID;
                 if (client.marketLocks.has(itemId)) continue;
 
-                let resOwned;
-                try { resOwned = await db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE "itemID" = $1`, [itemId]); }
-                catch(e) { resOwned = await db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE itemid = $1`, [itemId]).catch(()=>({rows:[{total: 0}]})); }
-                
-                const totalOwned = (resOwned && resOwned.rows && resOwned.rows[0] && resOwned.rows[0].total) ? Number(resOwned.rows[0].total) : 0;
+                let totalOwned = 0;
+                try { 
+                    let resOwned = await db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE "itemID" = $1`, [itemId])
+                        .catch(() => db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE itemid = $1`, [itemId]));
+                    totalOwned = (resOwned && resOwned.rows[0]?.total) ? Number(resOwned.rows[0].total) : 0;
+                } catch(e) {}
 
                 let randomPercent = (Math.random() * 0.20) - 0.10;
-                
-                // 🔥 تطبيق تأثير حالة السوق 🔥
-                if (marketStatus === 'boom') {
-                    randomPercent = (Math.random() * 0.20) - 0.05; 
-                } else if (marketStatus === 'recession') {
-                    randomPercent = (Math.random() * 0.20) - 0.15; 
-                }
+                if (marketStatus === 'boom') randomPercent = (Math.random() * 0.20) - 0.05; 
+                else if (marketStatus === 'recession') randomPercent = (Math.random() * 0.20) - 0.15; 
 
                 const saturationPenalty = (totalOwned / 2000) * 0.02;
                 let finalChangePercent = randomPercent - saturationPenalty;
@@ -63,7 +53,8 @@ module.exports = (client, db) => {
                 let newPrice = Math.floor(oldPrice * (1 + finalChangePercent));
 
                 if (newPrice <= CRASH_PRICE) {
-                    setTimeout(() => handleMarketCrash(client, db, item), 0); 
+                    // فصل انهيار السوق لتجنب إيقاف الـ Loop
+                    setTimeout(() => handleMarketCrash(client, db, item).catch(console.error), 0); 
                     continue; 
                 }
                 
@@ -72,11 +63,15 @@ module.exports = (client, db) => {
                 const changeAmount = newPrice - oldPrice;
                 const displayPercent = oldPrice > 0 ? ((changeAmount / oldPrice) * 100).toFixed(2) : 0;
                 
-                try { await db.query(`UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2, "lastChange" = $3 WHERE "id" = $4`, [newPrice, displayPercent, changeAmount, itemId]); }
-                catch(e) { await db.query(`UPDATE market_items SET currentprice = $1, lastchangepercent = $2, lastchange = $3 WHERE id = $4`, [newPrice, displayPercent, changeAmount, itemId]).catch(()=>{}); }
+                try { 
+                    await db.query(`UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2, "lastChange" = $3 WHERE "id" = $4`, [newPrice, displayPercent, changeAmount, itemId]); 
+                } catch(e) { 
+                    await db.query(`UPDATE market_items SET currentprice = $1, lastchangepercent = $2, lastchange = $3 WHERE id = $4`, [newPrice, displayPercent, changeAmount, itemId]).catch(()=>{}); 
+                }
             }
             await db.query('COMMIT');
         } catch (err) {
+            console.error("[CRITICAL] Market Prices Update Failed:", err);
             await db.query('ROLLBACK').catch(()=>{});
         }
     }
@@ -85,35 +80,27 @@ module.exports = (client, db) => {
     async function checkTemporaryRoles() {
         const now = Date.now();
         try {
-            let expiredRolesRes;
-            try { expiredRolesRes = await db.query(`SELECT * FROM temporary_roles WHERE "expiresAt" <= $1`, [now]); }
-            catch(e) { expiredRolesRes = await db.query(`SELECT * FROM temporary_roles WHERE expiresat <= $1`, [now]).catch(()=>({rows:[]})); }
+            let expiredRolesRes = await db.query(`SELECT * FROM temporary_roles WHERE "expiresAt" <= $1`, [now])
+                .catch(() => db.query(`SELECT * FROM temporary_roles WHERE expiresat <= $1`, [now]));
             
-            const expiredRoles = expiredRolesRes.rows;
-            if (expiredRoles.length === 0) return;
+            if (!expiredRolesRes || expiredRolesRes.rows.length === 0) return;
 
             await db.query('BEGIN');
-            for (const record of expiredRoles) {
+            for (const record of expiredRolesRes.rows) {
                 const uId = record.userID || record.userid;
                 const gId = record.guildID || record.guildid;
                 const rId = record.roleID || record.roleid;
-                try { await db.query(`DELETE FROM temporary_roles WHERE "userID" = $1 AND "guildID" = $2 AND "roleID" = $3`, [uId, gId, rId]); }
-                catch(e) { await db.query(`DELETE FROM temporary_roles WHERE userid = $1 AND guildid = $2 AND roleid = $3`, [uId, gId, rId]).catch(()=>{}); }
+                await db.query(`DELETE FROM temporary_roles WHERE "userID" = $1 AND "guildID" = $2 AND "roleID" = $3`, [uId, gId, rId])
+                    .catch(() => db.query(`DELETE FROM temporary_roles WHERE userid = $1 AND guildid = $2 AND roleid = $3`, [uId, gId, rId]).catch(()=>{}));
             }
             await db.query('COMMIT');
 
-            for (const record of expiredRoles) {
-                const gId = record.guildID || record.guildid;
-                const uId = record.userID || record.userid;
-                const rId = record.roleID || record.roleid;
-
-                const guild = client.guilds.cache.get(gId);
+            for (const record of expiredRolesRes.rows) {
+                const guild = client.guilds.cache.get(record.guildID || record.guildid);
                 if (!guild) continue;
-                const member = await guild.members.fetch(uId).catch(() => null);
-                const role = guild.roles.cache.get(rId);
-                if (member && role) {
-                    member.roles.remove(role).catch(() => {});
-                }
+                const member = await guild.members.fetch(record.userID || record.userid).catch(() => null);
+                const role = guild.roles.cache.get(record.roleID || record.roleid);
+                if (member && role) member.roles.remove(role).catch(() => {});
             }
         } catch (err) {
             await db.query('ROLLBACK').catch(()=>{});
@@ -128,47 +115,39 @@ module.exports = (client, db) => {
         const INACTIVITY_LIMIT = 7 * 24 * 60 * 60 * 1000; 
         
         try {
-            let allUsersRes;
-            try { allUsersRes = await db.query(`SELECT "user", "guild", "bank", "lastInterest", "lastDaily", "lastWork" FROM levels WHERE "bank" > 0`); }
-            catch(e) { allUsersRes = await db.query(`SELECT userid as "user", guildid as "guild", bank, lastinterest as "lastInterest", lastdaily as "lastDaily", lastwork as "lastWork" FROM levels WHERE bank > 0`).catch(()=>({rows:[]})); }
+            let allUsersRes = await db.query(`SELECT "user", "guild", "bank", "lastInterest", "lastDaily", "lastWork" FROM levels WHERE "bank" > 0`)
+                .catch(() => db.query(`SELECT userid as "user", guildid as "guild", bank, lastinterest as "lastInterest", lastdaily as "lastDaily", lastwork as "lastWork" FROM levels WHERE bank > 0`));
             
-            const allUsers = allUsersRes.rows;
-            if (allUsers.length === 0) return;
+            if (!allUsersRes || allUsersRes.rows.length === 0) return;
 
             const batchSize = 100; 
-            for (let i = 0; i < allUsers.length; i += batchSize) {
-                const batch = allUsers.slice(i, i + batchSize);
+            for (let i = 0; i < allUsersRes.rows.length; i += batchSize) {
+                const batch = allUsersRes.rows.slice(i, i + batchSize);
                 await db.query('BEGIN');
                 
                 for (const user of batch) {
                     const lastInterest = Number(user.lastInterest || 0);
-                    const lastDaily = Number(user.lastDaily || 0);
-                    const lastWork = Number(user.lastWork || 0);
-                    const userId = user.user;
-                    const guildId = user.guild;
-
                     if ((now - lastInterest) >= COOLDOWN) {
-                        const timeSinceDaily = now - lastDaily;
-                        const timeSinceWork = now - lastWork;
+                        const timeSinceDaily = now - Number(user.lastDaily || 0);
+                        const timeSinceWork = now - Number(user.lastWork || 0);
                         
                         if (timeSinceDaily > INACTIVITY_LIMIT && timeSinceWork > INACTIVITY_LIMIT) {
-                            try { await db.query(`UPDATE levels SET "lastInterest" = $1 WHERE "user" = $2 AND "guild" = $3`, [now, userId, guildId]); }
-                            catch(e) { await db.query(`UPDATE levels SET lastinterest = $1 WHERE userid = $2 AND guildid = $3`, [now, userId, guildId]).catch(()=>{}); }
+                            await db.query(`UPDATE levels SET "lastInterest" = $1 WHERE "user" = $2 AND "guild" = $3`, [now, user.user, user.guild])
+                                .catch(() => db.query(`UPDATE levels SET lastinterest = $1 WHERE userid = $2 AND guildid = $3`, [now, user.user, user.guild]).catch(()=>{}));
                         } else {
-                            const bankBalance = Number(user.bank || 0);
-                            const interestAmount = Math.floor(bankBalance * INTEREST_RATE);
+                            const interestAmount = Math.floor(Number(user.bank || 0) * INTEREST_RATE);
                             if (interestAmount > 0) {
-                                try { await db.query(`UPDATE levels SET "bank" = "bank" + $1, "lastInterest" = $2, "totalInterestEarned" = COALESCE("totalInterestEarned", 0) + $3 WHERE "user" = $4 AND "guild" = $5`, [interestAmount, now, interestAmount, userId, guildId]); }
-                                catch(e) { await db.query(`UPDATE levels SET bank = bank + $1, lastinterest = $2, totalinterestearned = COALESCE(totalinterestearned, 0) + $3 WHERE userid = $4 AND guildid = $5`, [interestAmount, now, interestAmount, userId, guildId]).catch(()=>{}); }
+                                await db.query(`UPDATE levels SET "bank" = "bank" + $1, "lastInterest" = $2, "totalInterestEarned" = COALESCE("totalInterestEarned", 0) + $3 WHERE "user" = $4 AND "guild" = $5`, [interestAmount, now, interestAmount, user.user, user.guild])
+                                    .catch(() => db.query(`UPDATE levels SET bank = bank + $1, lastinterest = $2, totalinterestearned = COALESCE(totalinterestearned, 0) + $3 WHERE userid = $4 AND guildid = $5`, [interestAmount, now, interestAmount, user.user, user.guild]).catch(()=>{}));
                             } else {
-                                try { await db.query(`UPDATE levels SET "lastInterest" = $1 WHERE "user" = $2 AND "guild" = $3`, [now, userId, guildId]); }
-                                catch(e) { await db.query(`UPDATE levels SET lastinterest = $1 WHERE userid = $2 AND guildid = $3`, [now, userId, guildId]).catch(()=>{}); }
+                                await db.query(`UPDATE levels SET "lastInterest" = $1 WHERE "user" = $2 AND "guild" = $3`, [now, user.user, user.guild])
+                                    .catch(() => db.query(`UPDATE levels SET lastinterest = $1 WHERE userid = $2 AND guildid = $3`, [now, user.user, user.guild]).catch(()=>{}));
                             }
                         }
                     }
                 }
                 await db.query('COMMIT');
-                if (i + batchSize < allUsers.length) await new Promise(r => setTimeout(r, 500)); 
+                if (i + batchSize < allUsersRes.rows.length) await new Promise(r => setTimeout(r, 500)); 
             }
         } catch (err) {
             await db.query('ROLLBACK').catch(()=>{});
@@ -181,11 +160,8 @@ module.exports = (client, db) => {
         const KSA_OFFSET = 3 * 60 * 60 * 1000; 
         for (const guild of guilds) {
             try {
-                let settingsRes;
-                try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]); }
-                catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guild.id]).catch(()=>({rows:[]})); }
-                
-                const settings = settingsRes.rows[0];
+                let settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]).catch(() => db.query(`SELECT * FROM settings WHERE guild = $1`, [guild.id]));
+                const settings = settingsRes?.rows[0];
                 if (!settings) continue;
 
                 const now = new Date();
@@ -193,38 +169,24 @@ module.exports = (client, db) => {
 
                 const endOfDay = new Date(nowKSA); endOfDay.setHours(24, 0, 0, 0);
                 const msUntilDaily = endOfDay - nowKSA;
-                const hDaily = Math.floor(msUntilDaily / (1000 * 60 * 60));
-                const mDaily = Math.floor((msUntilDaily % (1000 * 60 * 60)) / (1000 * 60));
-                const dailyText = `${hDaily} سـ ${mDaily} د`;
+                const dailyText = `${Math.floor(msUntilDaily / (1000 * 60 * 60))} سـ ${Math.floor((msUntilDaily % (1000 * 60 * 60)) / (1000 * 60))} د`;
 
-                const dayOfWeek = nowKSA.getDay(); 
-                const daysUntilFriday = (5 + 7 - dayOfWeek) % 7; 
+                const daysUntilFriday = (5 + 7 - nowKSA.getDay()) % 7; 
                 const endOfWeek = new Date(nowKSA);
                 endOfWeek.setDate(nowKSA.getDate() + daysUntilFriday + (daysUntilFriday === 0 && nowKSA.getHours() >= 0 ? 7 : 0));
                 endOfWeek.setHours(24, 0, 0, 0); 
                 const msUntilWeekly = endOfWeek - nowKSA;
-                const dWeekly = Math.floor(msUntilWeekly / (1000 * 60 * 60 * 24));
-                const hWeekly = Math.floor((msUntilWeekly % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                const weeklyText = `${dWeekly} يـ ${hWeekly} سـ`;
+                const weeklyText = `${Math.floor(msUntilWeekly / (1000 * 60 * 60 * 24))} يـ ${Math.floor((msUntilWeekly % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))} سـ`;
 
                 const updateChannel = async (channelId, prefix, timeText) => {
                     if (!channelId) return;
-                    try {
-                        const channel = guild.channels.cache.get(channelId);
-                        if (channel) {
-                            const newName = `${prefix} ${timeText}`;
-                            if (channel.name !== newName) await channel.setName(newName);
-                        }
-                    } catch (e) {}
+                    const channel = guild.channels.cache.get(channelId);
+                    if (channel && channel.name !== `${prefix} ${timeText}`) await channel.setName(`${prefix} ${timeText}`).catch(()=>{});
                 };
 
-                const sTimer = settings.streaktimerchannelid || settings.streakTimerChannelID;
-                const dTimer = settings.dailytimerchannelid || settings.dailyTimerChannelID;
-                const wTimer = settings.weeklytimerchannelid || settings.weeklyTimerChannelID;
-
-                await updateChannel(sTimer, '🔥〢الـستـريـك:', dailyText);
-                await updateChannel(dTimer, '🏆〢مهام اليومية:', dailyText);
-                await updateChannel(wTimer, '🔮〢مهام اسبوعية:', weeklyText);
+                await updateChannel(settings.streaktimerchannelid || settings.streakTimerChannelID, '🔥〢الـستـريـك:', dailyText);
+                await updateChannel(settings.dailytimerchannelid || settings.dailyTimerChannelID, '🏆〢مهام اليومية:', dailyText);
+                await updateChannel(settings.weeklytimerchannelid || settings.weeklyTimerChannelID, '🔮〢مهام اسبوعية:', weeklyText);
             } catch (err) {}
         }
     }
@@ -232,60 +194,61 @@ module.exports = (client, db) => {
     // 5. تحديث ألوان رتب قوس قزح
     async function updateRainbowRoles() {
         try {
-            const rainbowRoles = (await db.query('SELECT * FROM rainbow_roles')).rows;
-            if (rainbowRoles.length === 0) return;
+            const rainbowRoles = (await db.query('SELECT * FROM rainbow_roles').catch(()=>({rows:[]})))?.rows;
+            if (!rainbowRoles || rainbowRoles.length === 0) return;
             const randomColor = Math.floor(Math.random() * 16777215);
             for (const record of rainbowRoles) {
-                const gId = record.guildid || record.guildID;
-                const rId = record.roleid || record.roleID;
-                const guild = client.guilds.cache.get(gId);
+                const guild = client.guilds.cache.get(record.guildid || record.guildID);
                 if (!guild) continue;
-                const role = guild.roles.cache.get(rId);
+                const role = guild.roles.cache.get(record.roleid || record.roleID);
                 if (role) await role.edit({ color: randomColor }).catch(() => {});
-                else await db.query(`DELETE FROM rainbow_roles WHERE "roleID" = $1`, [rId]).catch(()=>{});
+                else await db.query(`DELETE FROM rainbow_roles WHERE "roleID" = $1`, [record.roleid || record.roleID]).catch(()=>{});
             }
         } catch (e) {}
     }
 
-    // --- تسجيل وإطلاق جميع المهام (Timers) ---
+    // --- المهام الدورية (محمية لتجنب التعطل) ---
 
-    setInterval(calculateInterest, 60 * 60 * 1000); 
-    calculateInterest(); 
+    setInterval(() => calculateInterest().catch(e => console.error("Interest Error", e)), 60 * 60 * 1000); 
+    calculateInterest().catch(()=>{}); 
 
-    setInterval(updateMarketPrices, 60 * 60 * 1000); 
-    updateMarketPrices(); 
+    // 🔥 ضمان استمرار عمل السوق حتى لو حدث خطأ داخلي 🔥
+    setInterval(() => updateMarketPrices().catch(e => console.error("Market Error", e)), 60 * 60 * 1000); 
+    updateMarketPrices().catch(()=>{}); 
       
-    setInterval(() => checkLoanPayments(client, db), 60 * 60 * 1000); 
+    setInterval(() => checkLoanPayments(client, db).catch(()=>{}), 60 * 60 * 1000); 
     
     if (checkFarmIncome) {
-        setInterval(() => checkFarmIncome(client, db), 60 * 60 * 1000); 
-        checkFarmIncome(client, db); 
+        // 🔥 ضمان استمرار عمل المزرعة 🔥
+        setInterval(() => checkFarmIncome(client, db).catch(e => console.error("Farm Error", e)), 60 * 60 * 1000); 
+        checkFarmIncome(client, db).catch(()=>{}); 
     }
 
-    setInterval(() => checkDailyStreaks(client, db), 3600000); 
-    checkDailyStreaks(client, db);
-    setInterval(() => checkDailyMediaStreaks(client, db), 3600000); 
-    checkDailyMediaStreaks(client, db);
+    setInterval(() => checkDailyStreaks(client, db).catch(()=>{}), 3600000); 
+    checkDailyStreaks(client, db).catch(()=>{});
+    
+    setInterval(() => checkDailyMediaStreaks(client, db).catch(()=>{}), 3600000); 
+    checkDailyMediaStreaks(client, db).catch(()=>{});
 
-    setInterval(() => checkUnjailTask(client, db), 5 * 60 * 1000); 
-    checkUnjailTask(client, db);
-    setInterval(() => checkTemporaryRoles(), 60000); 
-    checkTemporaryRoles();
+    setInterval(() => checkUnjailTask(client, db).catch(()=>{}), 5 * 60 * 1000); 
+    checkUnjailTask(client, db).catch(()=>{});
+    
+    setInterval(() => checkTemporaryRoles().catch(()=>{}), 60000); 
+    checkTemporaryRoles().catch(()=>{});
 
-    setInterval(() => updateTimerChannels(), 5 * 60 * 1000); 
-    updateTimerChannels(); 
-    setInterval(() => updateRainbowRoles(), 180000); 
+    setInterval(() => updateTimerChannels().catch(()=>{}), 5 * 60 * 1000); 
+    updateTimerChannels().catch(()=>{}); 
+    
+    setInterval(() => updateRainbowRoles().catch(()=>{}), 180000); 
 
     // إشعار النشر
     setInterval(async () => {
         const now = Date.now();
         try {
-            let guildsToNotifyRes;
-            try { guildsToNotifyRes = await db.query(`SELECT * FROM settings WHERE "nextBumpTime" > 0 AND "nextBumpTime" <= $1`, [now]); }
-            catch(e) { guildsToNotifyRes = await db.query(`SELECT * FROM settings WHERE nextbumptime > 0 AND nextbumptime <= $1`, [now]).catch(()=>({rows:[]})); }
+            let guildsToNotifyRes = await db.query(`SELECT * FROM settings WHERE "nextBumpTime" > 0 AND "nextBumpTime" <= $1`, [now])
+                .catch(() => db.query(`SELECT * FROM settings WHERE nextbumptime > 0 AND nextbumptime <= $1`, [now]));
             
-            const guildsToNotify = guildsToNotifyRes.rows;
-            for (const row of guildsToNotify) {
+            for (const row of (guildsToNotifyRes?.rows || [])) {
                 const guild = client.guilds.cache.get(row.guild);
                 const bChannel = row.bumpchannelid || row.bumpChannelID;
                 if (guild && bChannel) {
@@ -293,17 +256,15 @@ module.exports = (client, db) => {
                     if (channel) {
                         const bRole = row.bumpnotifyroleid || row.bumpNotifyRoleID;
                         const lBumper = row.lastbumperid || row.lastBumperID;
-                        const roleMention = bRole ? `<@&${bRole}>` : "";
-                        const userMention = lBumper ? `<@${lBumper}>` : " "; 
                         channel.send({
-                            content: `✥ ${roleMention} | ${userMention}\n\n❖ أيّها الموقر، <:2Salute:1428340456856490074> \n✶ آن أوان رفع راية الإمبراطورية من جديد السيرفر جاهز للنشر.\nأرسل الأمر التالي:\n/bump`,
+                            content: `✥ ${bRole ? `<@&${bRole}>` : ""} | ${lBumper ? `<@${lBumper}>` : " "}\n\n❖ أيّها الموقر، <:2Salute:1428340456856490074> \n✶ آن أوان رفع راية الإمبراطورية من جديد السيرفر جاهز للنشر.\nأرسل الأمر التالي:\n/bump`,
                             files: ["https://i.postimg.cc/KYZ5Ktj6/ump.jpg"]
                         }).catch(() => {});
                         channel.setName('˖✶⁺〢🔥・انشر・الان').catch(()=>{});
                     }
                 }
-                try { await db.query(`UPDATE settings SET "nextBumpTime" = 0 WHERE "guild" = $1`, [row.guild]); }
-                catch(e) { await db.query(`UPDATE settings SET nextbumptime = 0 WHERE guild = $1`, [row.guild]).catch(()=>{}); }
+                await db.query(`UPDATE settings SET "nextBumpTime" = 0 WHERE "guild" = $1`, [row.guild])
+                    .catch(() => db.query(`UPDATE settings SET nextbumptime = 0 WHERE guild = $1`, [row.guild]).catch(()=>{}));
             }
         } catch(e) {}
     }, 60 * 1000); 
@@ -311,14 +272,12 @@ module.exports = (client, db) => {
     setInterval(async () => {
         const now = Date.now();
         try {
-            let expiredRes;
-            try { expiredRes = await db.query(`SELECT * FROM auto_responses WHERE "expiresAt" < $1`, [now]); }
-            catch(e) { expiredRes = await db.query(`SELECT * FROM auto_responses WHERE expiresat < $1`, [now]).catch(()=>({rows:[]})); }
+            let expiredRes = await db.query(`SELECT * FROM auto_responses WHERE "expiresAt" < $1`, [now])
+                .catch(() => db.query(`SELECT * FROM auto_responses WHERE expiresat < $1`, [now]));
             
-            const expired = expiredRes.rows;
-            for (const reply of expired) {
-                try { await db.query(`DELETE FROM auto_responses WHERE "id" = $1`, [reply.id]); }
-                catch(e) { await db.query(`DELETE FROM auto_responses WHERE id = $1`, [reply.id]).catch(()=>{}); }
+            for (const reply of (expiredRes?.rows || [])) {
+                await db.query(`DELETE FROM auto_responses WHERE "id" = $1`, [reply.id])
+                    .catch(() => db.query(`DELETE FROM auto_responses WHERE id = $1`, [reply.id]).catch(()=>{}));
             }
         } catch (err) {}
     }, 60 * 60 * 1000);
@@ -332,21 +291,21 @@ module.exports = (client, db) => {
         
         // التوزيع في الساعة 00:00 منتصف الليل بتوقيت السعودية
         if (ksaHour === 0 && client.lastUpdateSentHour !== ksaHour) { 
-            sendDailyMediaUpdate(client, db); 
+            sendDailyMediaUpdate(client, db).catch(()=>{}); 
             
-            // 🔥 توزيع الملوك 
-            if (rewardDailyKings) rewardDailyKings(client, db);
+            // 🔥 توزيع الملوك محمي من الإيقاف 🔥
+            if (rewardDailyKings) rewardDailyKings(client, db).catch(e => console.error("Reward Kings Daily Error", e));
             
             client.lastUpdateSentHour = ksaHour; 
         } else if (ksaHour !== 0) client.lastUpdateSentHour = -1; 
         
         if (ksaHour === 12 && client.lastWarningSentHour !== ksaHour) { 
-            sendStreakWarnings(client, db); 
+            sendStreakWarnings(client, db).catch(()=>{}); 
             client.lastWarningSentHour = ksaHour; 
         } else if (ksaHour !== 12) client.lastWarningSentHour = -1; 
         
         if (ksaHour === 15 && client.lastReminderSentHour !== ksaHour) { 
-            sendMediaStreakReminders(client, db); 
+            sendMediaStreakReminders(client, db).catch(()=>{}); 
             client.lastReminderSentHour = ksaHour; 
         } else if (ksaHour !== 15) client.lastReminderSentHour = -1; 
     }, 60000); 
@@ -365,12 +324,11 @@ module.exports = (client, db) => {
             const guildTimestamps = client.recentMessageTimestamps.get(guildID) || []; 
             while (guildTimestamps.length > 0 && guildTimestamps[0] < (now - RECENT_MESSAGE_WINDOW)) { guildTimestamps.shift(); } 
             
-            const totalMessagesLast2Hours = guildTimestamps.length; 
-            if (totalMessagesLast2Hours < 200) continue; 
+            if (guildTimestamps.length < 200) continue; 
             if (Math.random() < 0.10) { 
                 try { 
                     const success = await createRandomDropGiveaway(client, guild); 
-                    if (success) { client.lastRandomGiveawayDate.set(guildID, today); } 
+                    if (success) client.lastRandomGiveawayDate.set(guildID, today);
                 } catch (err) {} 
             } 
         } 
@@ -386,10 +344,10 @@ module.exports = (client, db) => {
         } catch (e) {}
     }, 30 * 60 * 1000); 
 
-    // 🔥 تحديث لوحة الملوك بشكل سليم كل دقيقة
+    // 🔥 تحديث لوحة الملوك بشكل سليم كل دقيقة (محمي من إيقاف الـ Loop) 🔥
     setInterval(() => {
-        if (autoUpdateKingsBoard) autoUpdateKingsBoard(client, db).catch(() => {});
+        if (autoUpdateKingsBoard) autoUpdateKingsBoard(client, db).catch(e => console.error("Kings Board Auto-Update Error:", e));
     }, 60 * 1000);
 
-    sendDailyMediaUpdate(client, db);
+    sendDailyMediaUpdate(client, db).catch(()=>{});
 };
