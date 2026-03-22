@@ -107,7 +107,7 @@ async function setupDatabase(clientOrSql) {
         `CREATE TABLE IF NOT EXISTS role_campfire_limits ("guildID" TEXT, "roleID" TEXT, "limitCount" BIGINT, PRIMARY KEY ("guildID", "roleID"))`,
         `CREATE TABLE IF NOT EXISTS user_reputation ("userID" TEXT, "guildID" TEXT, "rep_points" BIGINT DEFAULT 0, "last_rep_given" TEXT DEFAULT '0', "weekly_reps_given" BIGINT DEFAULT 0, "daily_reps_given" BIGINT DEFAULT 0, PRIMARY KEY ("userID", "guildID"))`,
         
-        `CREATE TABLE IF NOT EXISTS kings_board_tracker ("id" TEXT PRIMARY KEY, "userID" TEXT, "guildID" TEXT, "date" TEXT, "casino_profit" BIGINT DEFAULT 0, "mora_earned" BIGINT DEFAULT 0, "messages" BIGINT DEFAULT 0, "mora_donated" BIGINT DEFAULT 0, "vc_minutes" BIGINT DEFAULT 0, "fish_caught" BIGINT DEFAULT 0, "pvp_wins" BIGINT DEFAULT 0, "mora_stolen" BIGINT DEFAULT 0, "dungeon_floor" BIGINT DEFAULT 0)`,
+        `CREATE TABLE IF NOT EXISTS kings_board_tracker ("id" TEXT PRIMARY KEY, "userID" TEXT, "guildID" TEXT, "date" TEXT, "casino_profit" BIGINT DEFAULT 0, "mora_earned" BIGINT DEFAULT 0, "messages" BIGINT DEFAULT 0, "mora_donated" BIGINT DEFAULT 0, "vc_minutes" BIGINT DEFAULT 0, "voice_time" BIGINT DEFAULT 0, "fish_caught" BIGINT DEFAULT 0, "pvp_wins" BIGINT DEFAULT 0, "mora_stolen" BIGINT DEFAULT 0, "dungeon_floor" BIGINT DEFAULT 0)`,
         
         `CREATE TABLE IF NOT EXISTS kings_daily_payout ("dateStr" TEXT PRIMARY KEY)`,
 
@@ -128,8 +128,11 @@ async function setupDatabase(clientOrSql) {
         await ensureColumn(db, 'user_reputation', 'daily_reps_given', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'user_reputation', 'weekly_reps_given', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'levels', 'last_dungeon', 'BIGINT DEFAULT 0');
+        
         await ensureColumn(db, 'kings_board_tracker', 'dungeon_floor', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'vc_minutes', 'BIGINT DEFAULT 0');
+        // 🔥 إضافة عمود voice_time لدعم التحديثات الجديدة 🔥
+        await ensureColumn(db, 'kings_board_tracker', 'voice_time', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'mora_stolen', 'BIGINT DEFAULT 0');
         
         const insertItem = `INSERT INTO market_items ("id", "name", "description", "currentPrice") VALUES ($1, $2, $3, $4) ON CONFLICT ("id") DO NOTHING`;
