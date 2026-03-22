@@ -1,5 +1,4 @@
 const { createRandomDropGiveaway } = require('./giveaway-handler.js');
-// 🔥 استدعاء دوال الملوك من الملف الجديد الصحيح 🔥
 const { autoUpdateKingsBoard, rewardDailyKings } = require('./kings-stats-handler.js'); 
 const { checkLoanPayments } = require('./loan-handler.js'); 
 const { checkFarmIncome } = require('./farm-income.js'); 
@@ -22,6 +21,15 @@ module.exports = (client, db) => {
             const allItems = res.rows;
             if (allItems.length === 0) return;
 
+            // 🔥 سحب حالة السوق من الإعدادات 🔥
+            let marketStatus = 'normal';
+            try {
+                let statusRes = await db.query(`SELECT "marketStatus" FROM settings WHERE "marketStatus" IS NOT NULL LIMIT 1`).catch(() => db.query(`SELECT marketstatus as "marketStatus" FROM settings WHERE marketstatus IS NOT NULL LIMIT 1`));
+                if (statusRes && statusRes.rows[0]) {
+                    marketStatus = statusRes.rows[0].marketStatus || 'normal';
+                }
+            } catch(e) {}
+
             await db.query('BEGIN');
             const CRASH_PRICE = 10; 
 
@@ -33,9 +41,17 @@ module.exports = (client, db) => {
                 try { resOwned = await db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE "itemID" = $1`, [itemId]); }
                 catch(e) { resOwned = await db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE itemid = $1`, [itemId]).catch(()=>({rows:[{total: 0}]})); }
                 
-                const totalOwned = resOwned.rows[0].total || 0;
+                const totalOwned = (resOwned && resOwned.rows && resOwned.rows[0] && resOwned.rows[0].total) ? Number(resOwned.rows[0].total) : 0;
 
                 let randomPercent = (Math.random() * 0.20) - 0.10;
+                
+                // 🔥 تطبيق تأثير حالة السوق 🔥
+                if (marketStatus === 'boom') {
+                    randomPercent = (Math.random() * 0.20) - 0.05; 
+                } else if (marketStatus === 'recession') {
+                    randomPercent = (Math.random() * 0.20) - 0.15; 
+                }
+
                 const saturationPenalty = (totalOwned / 2000) * 0.02;
                 let finalChangePercent = randomPercent - saturationPenalty;
 
