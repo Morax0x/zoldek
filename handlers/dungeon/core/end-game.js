@@ -5,7 +5,7 @@ const { EMOJI_MORA, EMOJI_XP, EMOJI_BUFF, EMOJI_NERF, WIN_IMAGES, LOSE_IMAGES } 
 let updateGuildStat, addXPAndCheckLevel;
 try { 
     ({ updateGuildStat } = require('../../guild-board-handler.js'));
-    ({ addXPAndCheckLevel } = require('../../handler-utils.js')); // 🔥 استدعاء الدالة السحرية المركزية
+    ({ addXPAndCheckLevel } = require('../../handler-utils.js')); 
 } catch (e) {
     try {
         ({ updateGuildStat } = require('../../../handlers/guild-board-handler.js'));
@@ -69,7 +69,6 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 if (p.isDead) { finalMora = Math.floor(finalMora * 0.5); finalXp = Math.floor(finalXp * 0.5); }
             }
             
-            // 🔥 إضافة الـ XP بصمت تام (بدون رسالة لفل اب) بفضل الـ false
             try {
                 const guildObj = client.guilds.cache.get(guildId);
                 const member = await guildObj.members.fetch(p.id).catch(()=>null);
@@ -86,9 +85,8 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         else if (p.retreatFloor) effectiveEndFloor = p.retreatFloor; 
         else if (p.isDead && p.deathFloor) effectiveEndFloor = p.deathFloor; 
 
-        // 🔥 التعديل الجذري: حساب السمعة يتم من الطابق 1 دائماً حتى لو كانت الجلسة مستكملة بخيمة! 🔥
         let repReward = 0;
-        for (let f = 1; f <= effectiveEndFloor; f++) {
+        for (let f = sessionStartFloor; f <= effectiveEndFloor; f++) {
             if (repMilestones[f]) repReward += repMilestones[f];
         }
 
@@ -132,7 +130,6 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
             try {
                 const guildObj = client.guilds.cache.get(guildId);
                 const mvpMem = await guildObj.members.fetch(mvpPlayer.id).catch(()=>null);
-                // 🔥 إضافة جائزة المورا (500) و(0 XP) للـ MVP بصمت تام
                 if (mvpMem && addXPAndCheckLevel) {
                     await addXPAndCheckLevel(client, mvpMem, sql, 0, 500, false);
                 } else {
