@@ -45,10 +45,7 @@ async function checkFarmIncome(client, db) {
 
     try {
         await db.query(`CREATE TABLE IF NOT EXISTS farm_last_payout ("id" TEXT PRIMARY KEY, "lastPayoutDate" BIGINT)`);
-        await db.query(`CREATE TABLE IF NOT EXISTS farm_daily_log ("id" BIGSERIAL PRIMARY KEY, "userID" TEXT, "guildID" TEXT, "actionType" TEXT, "itemName" TEXT, "count" BIGINT, "timestamp" BIGINT)`);
-    } catch (e) {
-        console.error("Error creating farm tables:", e);
-    }
+    } catch (e) {}
 
     let farmOwnersRes;
     try {
@@ -70,12 +67,14 @@ async function checkFarmIncome(client, db) {
             const payoutID = `${userID}-${guildID}`;
             let lastPayoutDataRes;
             try { lastPayoutDataRes = await db.query(`SELECT "lastPayoutDate" FROM farm_last_payout WHERE "id" = $1`, [payoutID]); }
-            catch(e) { lastPayoutDataRes = await db.query(`SELECT lastpayoutdate FROM farm_last_payout WHERE id = $1`, [payoutID]).catch(()=>({rows:[]})); }
+            catch(e) { lastPayoutDataRes = await db.query(`SELECT lastpayoutdate as "lastPayoutDate" FROM farm_last_payout WHERE id = $1`, [payoutID]).catch(()=>({rows:[]})); }
             
             const lastPayoutData = lastPayoutDataRes.rows[0];
-            const payoutTime = lastPayoutData ? (Number(lastPayoutData.lastPayoutDate || lastPayoutData.lastpayoutdate) || 0) : 0;
+            const payoutTime = lastPayoutData ? (Number(lastPayoutData.lastPayoutDate) || 0) : 0;
             
             const isDailyPayoutDue = (now - payoutTime) >= ONE_DAY;
+            
+            if (!isDailyPayoutDue) continue; // 🔥 تخطي فوري إذا لم يمر 24 ساعة لتقليل استهلاك السيرفر 🔥
             
             let workerBuffRes;
             try { workerBuffRes = await db.query(`SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userID, guildID, now]); }
@@ -83,7 +82,13 @@ async function checkFarmIncome(client, db) {
             
             const hasWorker = workerBuffRes.rows.length > 0;
 
-            // 1. نظام الحصاد المستمر للعامل (سيعمل دائماً إذا كان لديه عامل، بغض النظر عن وقت الدخل اليومي)
+            let harvestedMap = new Map();
+            let fedMap = new Map();
+            let extraMoraTotal = 0;
+            let extraXPTotal = 0;
+            let outOfStock = false;
+
+            // 1. نظام الحصاد المستمر للعامل 
             if (hasWorker) {
                 const growthMultiplier = await getGrowthMultiplier(db, userID, guildID);
                 let plantedPlotsRes;
@@ -105,30 +110,19 @@ async function checkFarmIncome(client, db) {
                         try { await db.query(`UPDATE user_lands SET "status" = 'empty', "seedID" = NULL, "plantTime" = NULL WHERE "userID" = $1 AND "guildID" = $2 AND "plotID" = $3`, [userID, guildID, plot.plotID || plot.plotid]); }
                         catch(e) { await db.query(`UPDATE user_lands SET status = 'empty', seedid = NULL, planttime = NULL WHERE userid = $1 AND guildid = $2 AND plotid = $3`, [userID, guildID, plot.plotID || plot.plotid]).catch(()=>{}); }
                         
-                        const extraMora = Number(seed.sell_price) || 0;
-                        const extraXp = Number(seed.xp_reward) || 0;
+                        extraMoraTotal += (Number(seed.sell_price) || 0);
+                        extraXPTotal += (Number(seed.xp_reward) || 0);
                         
-                        try {
-                            const guildObj = client.guilds.cache.get(guildID);
-                            const memberObj = guildObj ? await guildObj.members.fetch(userID).catch(()=>null) : null;
-                            if (memberObj && addXPAndCheckLevel) {
-                                await addXPAndCheckLevel(client, memberObj, db, extraXp, extraMora, false).catch(()=>{});
-                            } else {
-                                await db.query(`UPDATE levels SET "mora" = COALESCE(CAST("mora" AS BIGINT), 0) + $1, "xp" = COALESCE(CAST("xp" AS BIGINT), 0) + $2, "totalXP" = COALESCE(CAST("totalXP" AS BIGINT), 0) + $2 WHERE "user" = $3 AND "guild" = $4`, [extraMora, extraXp, userID, guildID]).catch(()=>{});
-                            }
-                        } catch(e) {}
+                        harvestedMap.set(seed.name, (harvestedMap.get(seed.name) || 0) + 1);
 
                         if (updateGuildStat) {
                             updateGuildStat(client, guildID, userID, 'crops_harvested', seed.sell_price);
                         }
-
-                        try { await db.query(`INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'harvest', seed.name, 1, now]); }
-                        catch(e) { await db.query(`INSERT INTO farm_daily_log (userid, guildid, actiontype, itemname, count, timestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'harvest', seed.name, 1, now]).catch(()=>{}); }
                     }
                 }
             }
 
-            // 2. معالجة الحيوانات (الموت، الجوع، الإطعام التلقائي، والدخل اليومي)
+            // 2. معالجة الحيوانات
             let userFarmRes;
             try { userFarmRes = await db.query(`SELECT * FROM user_farm WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
             catch(e) { userFarmRes = await db.query(`SELECT * FROM user_farm WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
@@ -138,7 +132,6 @@ async function checkFarmIncome(client, db) {
             let currentAnimalsCount = 0;
             let hungryAnimalsCount = 0;
             let oldDeaths = [];
-            let outOfStock = false;
 
             for (const row of userFarm) {
                 const animalId = row.animalID || row.animalid;
@@ -152,14 +145,11 @@ async function checkFarmIncome(client, db) {
 
                 // نظام الموت الطبيعي
                 if (ageInMs >= lifespanInMs) {
-                    try {
-                        await db.query(`DELETE FROM user_farm WHERE "id" = $1`, [row.id]);
-                        await db.query(`INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'death_old', animal.name, qty, now]);
-                    } catch(e) {
-                        await db.query(`DELETE FROM user_farm WHERE id = $1`, [row.id]).catch(()=>{});
-                    }
+                    try { await db.query(`DELETE FROM user_farm WHERE "id" = $1`, [row.id]); }
+                    catch(e) { await db.query(`DELETE FROM user_farm WHERE id = $1`, [row.id]).catch(()=>{}); }
+                    
                     if (!oldDeaths.includes(animal.name)) oldDeaths.push(animal.name);
-                    continue; // مات، لا تفحصه للجوع
+                    continue; 
                 }
 
                 currentAnimalsCount += qty;
@@ -169,7 +159,7 @@ async function checkFarmIncome(client, db) {
                 let timeLeft = fullUntil - now; 
                 const feedThreshold = Math.max(14 * 60 * 60 * 1000, maxHungerMs * 0.25);
 
-                // إطعام العامل التلقائي (يعمل دائماً إذا قل الوقت عن حد الجوع)
+                // إطعام العامل التلقائي
                 if (hasWorker && timeLeft <= feedThreshold) {
                     let invDataRes;
                     try { invDataRes = await db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userID, guildID, animal.feed_id]); }
@@ -185,62 +175,47 @@ async function checkFarmIncome(client, db) {
                                 await db.query(`DELETE FROM user_inventory WHERE "id" = $1`, [invData.id]);
                             }
                             await db.query(`UPDATE user_farm SET "lastFedTimestamp" = $1 WHERE "id" = $2`, [now, row.id]);
-                            await db.query(`INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'feed', animal.name, qty, now]);
                             
-                            // تم إطعامه، تحديث المتغيرات لحساب الدخل بشكل صحيح
+                            fedMap.set(animal.name, (fedMap.get(animal.name) || 0) + qty);
+                            
                             lastFed = now;
                             timeLeft = maxHungerMs;
-                        } catch(e) {
-                            console.error("Worker Feed Error:", e.message);
-                        }
+                        } catch(e) { console.error("Worker Feed Error:", e.message); }
                     } else {
                         outOfStock = true;
                     }
                 }
 
-                // حساب الدخل (فقط إذا حان وقت التوزيع اليومي)
-                if (isDailyPayoutDue) {
-                    if (timeLeft > TWELVE_HOURS) {
-                        dailyAnimalIncome += (Number(animal.income_per_day) * qty);
-                    } else {
-                        hungryAnimalsCount += qty; 
-                    }
+                // حساب الدخل
+                if (timeLeft > TWELVE_HOURS) {
+                    dailyAnimalIncome += (Number(animal.income_per_day) * qty);
+                } else {
+                    hungryAnimalsCount += qty; 
                 }
-            } // نهاية فحص الحيوانات
+            } 
 
-            // 3. التقرير والتوزيع (فقط إذا حان وقته وتم مرور 24 ساعة)
-            if (!isDailyPayoutDue) continue;
+            // 3. الدفع الفعلي وتحديث قاعدة البيانات (مورا واكس بي)
+            const finalMoraToPay = dailyAnimalIncome + extraMoraTotal;
+            const finalXPToPay = extraXPTotal;
 
-            if (dailyAnimalIncome > 0) {
+            if (finalMoraToPay > 0 || finalXPToPay > 0) {
                 try {
                     const guildObj = client.guilds.cache.get(guildID);
                     const memberObj = guildObj ? await guildObj.members.fetch(userID).catch(()=>null) : null;
+                    
                     if (memberObj && addXPAndCheckLevel) {
-                        await addXPAndCheckLevel(client, memberObj, db, 0, dailyAnimalIncome, false).catch(()=>{});
+                        await addXPAndCheckLevel(client, memberObj, db, finalXPToPay, finalMoraToPay, false).catch(()=>{});
                     } else {
-                        await db.query(`UPDATE levels SET "mora" = COALESCE(CAST("mora" AS BIGINT), 0) + $1 WHERE "user" = $2 AND "guild" = $3`, [dailyAnimalIncome, userID, guildID]).catch(()=>{});
+                        await db.query(`UPDATE levels SET "mora" = COALESCE(CAST("mora" AS BIGINT), 0) + $1, "xp" = COALESCE(CAST("xp" AS BIGINT), 0) + $2, "totalXP" = COALESCE(CAST("totalXP" AS BIGINT), 0) + $2 WHERE "user" = $3 AND "guild" = $4`, [finalMoraToPay, finalXPToPay, userID, guildID]).catch(()=>{});
                     }
                 } catch(e) {}
             }
 
-            let dailyLogsRes;
-            try { dailyLogsRes = await db.query(`SELECT * FROM farm_daily_log WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
-            catch(e) { dailyLogsRes = await db.query(`SELECT * FROM farm_daily_log WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
-            
-            let harvestedMap = new Map(), fedMap = new Map();
+            // تحديث وقت التوزيع لمنع تكرار الرسائل
+            try { await db.query(`INSERT INTO farm_last_payout ("id", "lastPayoutDate") VALUES ($1, $2) ON CONFLICT("id") DO UPDATE SET "lastPayoutDate" = $3`, [payoutID, now, now]); }
+            catch(e) { await db.query(`INSERT INTO farm_last_payout (id, lastpayoutdate) VALUES ($1, $2) ON CONFLICT(id) DO UPDATE SET lastpayoutdate = $3`, [payoutID, now, now]).catch(()=>{}); }
 
-            for (const log of dailyLogsRes.rows) {
-                const logCount = Number(log.count) || 1;
-                const aType = log.actionType || log.actiontype;
-                const iName = log.itemName || log.itemname;
-                if (aType === 'harvest') harvestedMap.set(iName, (harvestedMap.get(iName) || 0) + logCount);
-                else if (aType === 'feed') fedMap.set(iName, (fedMap.get(iName) || 0) + logCount);
-            }
-
-            await db.query(`DELETE FROM farm_daily_log WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]).catch(()=>{});
-            await db.query(`INSERT INTO farm_last_payout ("id", "lastPayoutDate") VALUES ($1, $2) ON CONFLICT("id") DO UPDATE SET "lastPayoutDate" = $3`, [payoutID, now, now]).catch(()=>{});
-
-            if (dailyAnimalIncome <= 0 && dailyLogsRes.rows.length === 0 && hungryAnimalsCount === 0 && oldDeaths.length === 0) continue;
+            if (dailyAnimalIncome <= 0 && harvestedMap.size === 0 && fedMap.size === 0 && hungryAnimalsCount === 0 && oldDeaths.length === 0) continue;
 
             const guildObj = client.guilds.cache.get(guildID);
             if (!guildObj) continue;
@@ -257,6 +232,7 @@ async function checkFarmIncome(client, db) {
             const member = await guildObj.members.fetch(userID).catch(() => null);
             if (!member) continue; 
 
+            // بناء التقرير
             let description = "";
             if (hasWorker && (fedMap.size > 0 || harvestedMap.size > 0 || outOfStock)) {
                 description += `**✶تـقـرير عـامل المزرعـة**\n\n`;
@@ -272,7 +248,7 @@ async function checkFarmIncome(client, db) {
                 description += `────────────────────\n`;
             }
 
-            description += `✶ حـققـت حيواناتك دخـل يومي بقيمـة: **${dailyAnimalIncome.toLocaleString()}** ${EMOJI_MORA}\n` +
+            description += `✶ حـققـت حيواناتك دخـل يومي بقيمـة: **${dailyAnimalIncome.toLocaleString()}** <:mora:1435647151349698621>\n` +
                            `✶ عـدد الحـيوانات الحية في مزرعتك: **${currentAnimalsCount.toLocaleString()}**`;
 
             if (hungryAnimalsCount > 0) description += `\n\n⚠️ تنبـيه: **${hungryAnimalsCount}** من حيواناتك جائـعة ولم تحقق دخلاً اليوم.`;
