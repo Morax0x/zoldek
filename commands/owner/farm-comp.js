@@ -16,7 +16,7 @@ module.exports = {
         .setDescription('تعويض المزارعين عن 3 أيام (أمر مؤقت وخاص بالإمبراطور)'),
     
     async execute(interaction) {
-        // 1. حماية إضافية: لا أحد يستطيع تشغيله غيرك
+        // حماية إضافية: لا أحد يستطيع تشغيله غيرك
         if (interaction.user.id !== OWNER_ID) {
             return interaction.reply({ content: "❌ هذا الأمر مخصص للإمبراطور فقط!", ephemeral: true });
         }
@@ -24,13 +24,30 @@ module.exports = {
         const db = interaction.client.sql;
         if (!db) return interaction.reply({ content: "❌ لا يوجد اتصال بقاعدة البيانات.", ephemeral: true });
 
-        // 2. تعليق الرد لأن العملية ستأخذ وقتاً طويلاً
+        // تعليق الرد لأن العملية ستأخذ وقتاً طويلاً
         await interaction.deferReply();
 
         try {
             const guildId = interaction.guild.id;
 
-            // 3. جلب جميع المزارعين وحيواناتهم
+            // 🔍 محاولة إيجاد روم الكازينو من الإعدادات
+            let targetChannel = interaction.channel; // الافتراضي: نفس القناة
+            try {
+                const settingsRes = await db.query(`SELECT "casinoChannelID" FROM settings WHERE "guild" = $1`, [guildId])
+                    .catch(() => db.query(`SELECT casinochannelid as "casinoChannelID" FROM settings WHERE guild = $1`, [guildId]));
+                
+                const casinoId = settingsRes?.rows[0]?.casinoChannelID;
+                if (casinoId) {
+                    const fetchedChannel = interaction.guild.channels.cache.get(casinoId);
+                    if (fetchedChannel) {
+                        targetChannel = fetchedChannel;
+                    }
+                }
+            } catch(e) {
+                console.error("لم أتمكن من جلب روم الكازينو، سأستخدم الروم الحالية.");
+            }
+
+            // جلب جميع المزارعين وحيواناتهم
             let userFarmRes;
             try { userFarmRes = await db.query(`SELECT "userID", "animalID", "quantity" FROM user_farm WHERE "guildID" = $1`, [guildId]); }
             catch(e) { userFarmRes = await db.query(`SELECT userid as "userID", animalid as "animalID", quantity FROM user_farm WHERE guildid = $1`, [guildId]).catch(()=>({rows:[]})); }
@@ -40,7 +57,7 @@ module.exports = {
                 return interaction.editReply("❌ لم أجد أي حيوانات في مزارع اللاعبين لتعويضهم.");
             }
 
-            // 4. حساب التعويض لكل لاعب (دخل 3 أيام بغض النظر عن الجوع)
+            // حساب التعويض لكل لاعب (دخل 3 أيام بغض النظر عن الجوع)
             const userIncomes = new Map();
             for (const row of userFarm) {
                 const uid = row.userID;
@@ -62,11 +79,11 @@ module.exports = {
                 return interaction.editReply("❌ لا يوجد تعويض مستحق للمزارعين.");
             }
 
-            await interaction.editReply(`⏳ **تم بدء عملية التعويض!**\nجاري إيداع المورا وإرسال الإعلانات لـ **${userIncomes.size}** مزارع.\n*(الرجاء عدم إرسال رسائل كثيرة هنا حتى ينتهي البوت لتجنب اللاج...)*`);
+            await interaction.editReply(`⏳ **تم بدء عملية التعويض!**\nجاري إيداع المورا وإرسال الإعلانات لـ **${userIncomes.size}** مزارع في روم <#${targetChannel.id}>.\n*(الرجاء الانتظار حتى تظهر رسالة الانتهاء لتجنب تعليق البوت...)*`);
 
             let successCount = 0;
 
-            // 5. حلقة التوزيع والإرسال الآمن (مضاد للباند)
+            // حلقة التوزيع والإرسال الآمن (مضاد للباند)
             for (const [uid, amount] of userIncomes.entries()) {
                 try {
                     // أ. إضافة المورا مباشرة في الرصيد
@@ -84,8 +101,8 @@ module.exports = {
                         .setThumbnail('https://i.postimg.cc/cLjcQKYN/Ganzo-pixel.jpg')
                         .setFooter({ text: 'Empire | الامبراطورية ™' });
 
-                    // ج. إرسال الرسالة مع المنشن
-                    await interaction.channel.send({ content: `<@${uid}>`, embeds: [embed] });
+                    // ج. إرسال الرسالة إلى روم الكازينو مع المنشن
+                    await targetChannel.send({ content: `<@${uid}>`, embeds: [embed] });
                     successCount++;
 
                 } catch (err) {
@@ -96,7 +113,7 @@ module.exports = {
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
-            // 6. رسالة النهاية
+            // رسالة النهاية في الروم التي استخدمت فيها الأمر
             await interaction.channel.send(`✅ **اكتمل المرسوم الإمبراطوري!**\nتم تعويض **${successCount}** مزارع بنجاح بإنتاج 3 أيام.`);
 
         } catch (error) {
