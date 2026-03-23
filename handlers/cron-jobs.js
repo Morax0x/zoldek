@@ -1,7 +1,10 @@
 const { createRandomDropGiveaway } = require('./giveaway-handler.js');
 const { autoUpdateKingsBoard, rewardDailyKings } = require('./kings-stats-handler.js'); 
 const { checkLoanPayments } = require('./loan-handler.js'); 
-const { checkFarmIncome } = require('./farm-income.js'); // تم التأكد من جلب الدالة الصحيحة
+
+// 🔥 تم تصحيح اسم الملف هنا ليتطابق مع ملف المزرعة الفعلي لديك 🔥
+const { checkFarmIncome } = require('./farm-handler.js'); 
+
 const handleMarketCrash = require('./market-crash-handler.js');
 const { checkDailyStreaks, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("../streak-handler.js");
 const { checkUnjailTask } = require('./report-handler.js'); 
