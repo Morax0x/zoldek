@@ -577,4 +577,6 @@ async function handleQuestPanel(i, client, db) {
     await i.editReply({ content: embeds.length === 0 && files.length === 0 ? "❌ لا توجد بيانات." : null, embeds: embeds, files: files, components: components }).catch(()=>{});
 }
 
-module.exports = { handleQuestPanel, handleGuildBoard: handleQuestPanel };
+// 🔥 تطبيق الجسر: استيراد دوال الإحصائيات من الملف الجديد وتصديرها مجدداً 🔥
+const { autoUpdateKingsBoard, updateGuildStat, rewardDailyKings, processStatsQueue } = require('./kings-stats-handler.js');
+module.exports = { handleQuestPanel, handleGuildBoard: handleQuestPanel, updateGuildStat, processStatsQueue };
