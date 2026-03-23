@@ -337,14 +337,14 @@ async function processStatsQueue(client) {
                 if (statName === 'max_dungeon_floor') {
                     queries.push((async () => {
                         try {
-                            const rowRes = await db.query(`SELECT "max_dungeon_floor" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
-                            const row = rowRes.rows[0];
+                            let rowRes = await db.query(`SELECT "max_dungeon_floor" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(() => db.query(`SELECT max_dungeon_floor FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]));
+                            const row = rowRes?.rows[0];
                             if (row) {
                                 if (addedVal > (Number(row.max_dungeon_floor) || 0)) {
-                                    await db.query(`UPDATE levels SET "max_dungeon_floor" = $1 WHERE "user" = $2 AND "guild" = $3`, [addedVal, userId, guildId]);
+                                    await db.query(`UPDATE levels SET "max_dungeon_floor" = $1 WHERE "user" = $2 AND "guild" = $3`, [addedVal, userId, guildId]).catch(() => db.query(`UPDATE levels SET max_dungeon_floor = $1 WHERE userid = $2 AND guildid = $3`, [addedVal, userId, guildId]));
                                 }
                             } else {
-                                await db.query(`INSERT INTO levels ("user", "guild", "xp", "level", "totalXP", "mora", "max_dungeon_floor") VALUES ($1, $2, 0, 1, 0, 0, $3)`, [userId, guildId, addedVal]);
+                                await db.query(`INSERT INTO levels ("user", "guild", "xp", "level", "totalXP", "mora", "max_dungeon_floor") VALUES ($1, $2, 0, 1, 0, 0, $3)`, [userId, guildId, addedVal]).catch(() => db.query(`INSERT INTO levels (userid, guildid, xp, level, totalxp, mora, max_dungeon_floor) VALUES ($1, $2, 0, 1, 0, 0, $3)`, [userId, guildId, addedVal]));
                             }
                         } catch(e){}
 
@@ -353,7 +353,13 @@ async function processStatsQueue(client) {
                                 INSERT INTO kings_board_tracker ("id", "userID", "guildID", "date", "dungeon_floor") 
                                 VALUES ($1, $2, $3, $4, $5)
                                 ON CONFLICT("id") DO UPDATE SET "dungeon_floor" = GREATEST(COALESCE(kings_board_tracker."dungeon_floor", 0), $6)
-                            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]);
+                            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(() => {
+                                db.query(`
+                                    INSERT INTO kings_board_tracker (id, userid, guildid, date, dungeon_floor) 
+                                    VALUES ($1, $2, $3, $4, $5)
+                                    ON CONFLICT(id) DO UPDATE SET dungeon_floor = GREATEST(COALESCE(kings_board_tracker.dungeon_floor, 0), $6)
+                                `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(()=>{});
+                            });
                         } catch(e){}
                     })());
                 } else {
@@ -363,32 +369,28 @@ async function processStatsQueue(client) {
                                 INSERT INTO kings_board_tracker ("id", "userID", "guildID", "date", "${statName}") 
                                 VALUES ($1, $2, $3, $4, $5)
                                 ON CONFLICT("id") DO UPDATE SET "${statName}" = COALESCE(kings_board_tracker."${statName}", 0) + $6
-                            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]);
-                        } catch(e) {
-                            try {
-                                await db.query(`
+                            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(() => {
+                                db.query(`
                                     INSERT INTO kings_board_tracker (id, userid, guildid, date, ${statName}) 
                                     VALUES ($1, $2, $3, $4, $5)
                                     ON CONFLICT(id) DO UPDATE SET ${statName} = COALESCE(kings_board_tracker.${statName}, 0) + $6
-                                `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]);
-                            } catch(e2) {}
-                        }
+                                `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(()=>{});
+                            });
+                        } catch(e) {}
 
                         try {
                             await db.query(`
                                 INSERT INTO user_daily_stats ("id", "userID", "guildID", "date", "${statName}") 
                                 VALUES ($1, $2, $3, $4, $5)
                                 ON CONFLICT("id") DO UPDATE SET "${statName}" = COALESCE(user_daily_stats."${statName}", 0) + $6
-                            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]);
-                        } catch(e) {
-                            try {
-                                await db.query(`
+                            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(() => {
+                                db.query(`
                                     INSERT INTO user_daily_stats (id, userid, guildid, date, ${statName}) 
                                     VALUES ($1, $2, $3, $4, $5)
                                     ON CONFLICT(id) DO UPDATE SET ${statName} = COALESCE(user_daily_stats.${statName}, 0) + $6
-                                `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]);
-                            } catch(e2) {}
-                        }
+                                `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(()=>{});
+                            });
+                        } catch(e) {}
                     })());
                 }
             }
@@ -415,40 +417,59 @@ async function updateGuildStat(client, guildId, userId, statName, valueToAdd) {
         
         if (addedVal === 0 && statName !== 'max_dungeon_floor') return;
 
-        if (statName === 'max_dungeon_floor') {
-            const rowRes = await db.query(`SELECT "max_dungeon_floor" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
-            const row = rowRes.rows[0];
-            if (row) {
-                if (addedVal > (Number(row.max_dungeon_floor) || 0)) {
-                    await db.query(`UPDATE levels SET "max_dungeon_floor" = $1 WHERE "user" = $2 AND "guild" = $3`, [addedVal, userId, guildId]);
-                }
-            } else {
-                await db.query(`INSERT INTO levels ("user", "guild", "xp", "level", "totalXP", "mora", "max_dungeon_floor") VALUES ($1, $2, 0, 1, 0, 0, $3)`, [userId, guildId, addedVal]);
-            }
+        const dailyID = `${userId}-${guildId}-${todayStr}`;
+        const colName = statName;
 
-            const dailyID = `${userId}-${guildId}-${todayStr}`;
+        if (statName === 'max_dungeon_floor') {
+            try {
+                let rowRes = await db.query(`SELECT "max_dungeon_floor" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(() => db.query(`SELECT max_dungeon_floor FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]));
+                const row = rowRes?.rows[0];
+                if (row) {
+                    if (addedVal > (Number(row.max_dungeon_floor) || 0)) {
+                        await db.query(`UPDATE levels SET "max_dungeon_floor" = $1 WHERE "user" = $2 AND "guild" = $3`, [addedVal, userId, guildId]).catch(() => db.query(`UPDATE levels SET max_dungeon_floor = $1 WHERE userid = $2 AND guildid = $3`, [addedVal, userId, guildId]));
+                    }
+                } else {
+                    await db.query(`INSERT INTO levels ("user", "guild", "xp", "level", "totalXP", "mora", "max_dungeon_floor") VALUES ($1, $2, 0, 1, 0, 0, $3)`, [userId, guildId, addedVal]).catch(() => db.query(`INSERT INTO levels (userid, guildid, xp, level, totalxp, mora, max_dungeon_floor) VALUES ($1, $2, 0, 1, 0, 0, $3)`, [userId, guildId, addedVal]));
+                }
+            } catch(e) {}
+
             await db.query(`
                 INSERT INTO kings_board_tracker ("id", "userID", "guildID", "date", "dungeon_floor") 
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT("id") DO UPDATE SET "dungeon_floor" = GREATEST(COALESCE(kings_board_tracker."dungeon_floor", 0), $6)
-            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]);
+            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(() => {
+                db.query(`
+                    INSERT INTO kings_board_tracker (id, userid, guildid, date, dungeon_floor) 
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT(id) DO UPDATE SET dungeon_floor = GREATEST(COALESCE(kings_board_tracker.dungeon_floor, 0), $6)
+                `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(()=>{});
+            });
 
         } else {
-            const dailyID = `${userId}-${guildId}-${todayStr}`;
-            const colName = statName;
-            
             await db.query(`
                 INSERT INTO kings_board_tracker ("id", "userID", "guildID", "date", "${colName}") 
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT("id") DO UPDATE SET "${colName}" = COALESCE(kings_board_tracker."${colName}", 0) + $6
-            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]);
+            `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(() => {
+                db.query(`
+                    INSERT INTO kings_board_tracker (id, userid, guildid, date, ${colName}) 
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT(id) DO UPDATE SET ${colName} = COALESCE(kings_board_tracker.${colName}, 0) + $6
+                `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(()=>{});
+            });
 
             try {
                 await db.query(`
                     INSERT INTO user_daily_stats ("id", "userID", "guildID", "date", "${colName}") 
                     VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT("id") DO UPDATE SET "${colName}" = COALESCE(user_daily_stats."${colName}", 0) + $6
-                `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]);
+                `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(() => {
+                    db.query(`
+                        INSERT INTO user_daily_stats (id, userid, guildid, date, ${colName}) 
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT(id) DO UPDATE SET ${colName} = COALESCE(user_daily_stats.${colName}, 0) + $6
+                    `, [dailyID, userId, guildId, todayStr, addedVal, addedVal]).catch(()=>{});
+                });
             } catch(e){}
         }
     } catch (error) {
