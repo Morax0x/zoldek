@@ -1,7 +1,7 @@
 const { createRandomDropGiveaway } = require('./giveaway-handler.js');
 const { autoUpdateKingsBoard, rewardDailyKings } = require('./kings-stats-handler.js'); 
 const { checkLoanPayments } = require('./loan-handler.js'); 
-const { checkFarmIncome } = require('./farm-income.js'); 
+const { checkFarmIncome } = require('./farm-income.js'); // تم التأكد من جلب الدالة الصحيحة
 const handleMarketCrash = require('./market-crash-handler.js');
 const { checkDailyStreaks, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("../streak-handler.js");
 const { checkUnjailTask } = require('./report-handler.js'); 
@@ -53,7 +53,6 @@ module.exports = (client, db) => {
                 let newPrice = Math.floor(oldPrice * (1 + finalChangePercent));
 
                 if (newPrice <= CRASH_PRICE) {
-                    // فصل انهيار السوق لتجنب إيقاف الـ Loop
                     setTimeout(() => handleMarketCrash(client, db, item).catch(console.error), 0); 
                     continue; 
                 }
@@ -209,39 +208,44 @@ module.exports = (client, db) => {
 
     // --- المهام الدورية (محمية لتجنب التعطل) ---
 
+    // 1️⃣ البنك (كل ساعة)
     setInterval(() => calculateInterest().catch(e => console.error("Interest Error", e)), 60 * 60 * 1000); 
-    calculateInterest().catch(()=>{}); 
+    setTimeout(() => calculateInterest().catch(()=>{}), 10000); 
 
-    // 🔥 ضمان استمرار عمل السوق حتى لو حدث خطأ داخلي 🔥
+    // 2️⃣ السوق (كل ساعة - محمي من الانهيار)
     setInterval(() => updateMarketPrices().catch(e => console.error("Market Error", e)), 60 * 60 * 1000); 
-    updateMarketPrices().catch(()=>{}); 
+    setTimeout(() => updateMarketPrices().catch(()=>{}), 15000); 
       
+    // 3️⃣ سداد القروض (كل ساعة)
     setInterval(() => checkLoanPayments(client, db).catch(()=>{}), 60 * 60 * 1000); 
     
-    if (checkFarmIncome) {
-        // 🔥 ضمان استمرار عمل المزرعة 🔥
+    // 4️⃣ المزرعة (كل ساعة - 🔥 إجبار التشغيل 🔥)
+    if (typeof checkFarmIncome === 'function') {
         setInterval(() => checkFarmIncome(client, db).catch(e => console.error("Farm Error", e)), 60 * 60 * 1000); 
-        checkFarmIncome(client, db).catch(()=>{}); 
+        setTimeout(() => checkFarmIncome(client, db).catch(()=>{}), 20000); // يفحص بعد 20 ثانية من التشغيل
+    } else {
+        console.error("❌ دالة المزرعة غير متصلة بشكل صحيح بـ cron-jobs.js");
     }
 
+    // 5️⃣ الستريكات والإعلانات الدورية
     setInterval(() => checkDailyStreaks(client, db).catch(()=>{}), 3600000); 
-    checkDailyStreaks(client, db).catch(()=>{});
+    setTimeout(() => checkDailyStreaks(client, db).catch(()=>{}), 25000);
     
     setInterval(() => checkDailyMediaStreaks(client, db).catch(()=>{}), 3600000); 
-    checkDailyMediaStreaks(client, db).catch(()=>{});
+    setTimeout(() => checkDailyMediaStreaks(client, db).catch(()=>{}), 30000);
 
     setInterval(() => checkUnjailTask(client, db).catch(()=>{}), 5 * 60 * 1000); 
-    checkUnjailTask(client, db).catch(()=>{});
+    setTimeout(() => checkUnjailTask(client, db).catch(()=>{}), 35000);
     
     setInterval(() => checkTemporaryRoles().catch(()=>{}), 60000); 
-    checkTemporaryRoles().catch(()=>{});
+    setTimeout(() => checkTemporaryRoles().catch(()=>{}), 40000);
 
     setInterval(() => updateTimerChannels().catch(()=>{}), 5 * 60 * 1000); 
-    updateTimerChannels().catch(()=>{}); 
+    setTimeout(() => updateTimerChannels().catch(()=>{}), 45000); 
     
     setInterval(() => updateRainbowRoles().catch(()=>{}), 180000); 
 
-    // إشعار النشر
+    // إشعار النشر للديسبورد
     setInterval(async () => {
         const now = Date.now();
         try {
@@ -269,6 +273,7 @@ module.exports = (client, db) => {
         } catch(e) {}
     }, 60 * 1000); 
 
+    // مسح الردود التلقائية المنتهية
     setInterval(async () => {
         const now = Date.now();
         try {
@@ -282,7 +287,7 @@ module.exports = (client, db) => {
         } catch (err) {}
     }, 60 * 60 * 1000);
 
-    // ⌚ نظام التوقيت السعودي الدقيق للمهام اليومية 
+    // ⌚ نظام التوقيت السعودي الدقيق للمهام اليومية والملوك 
     setInterval(() => { 
         const KSA_TIMEZONE = 'Asia/Riyadh'; 
         const nowKSA = new Date().toLocaleString('en-US', { timeZone: KSA_TIMEZONE }); 
@@ -294,7 +299,11 @@ module.exports = (client, db) => {
             sendDailyMediaUpdate(client, db).catch(()=>{}); 
             
             // 🔥 توزيع الملوك محمي من الإيقاف 🔥
-            if (rewardDailyKings) rewardDailyKings(client, db).catch(e => console.error("Reward Kings Daily Error", e));
+            if (typeof rewardDailyKings === 'function') {
+                rewardDailyKings(client, db).catch(e => console.error("Reward Kings Daily Error", e));
+            } else {
+                console.error("❌ دالة توزيع الملوك غير متصلة بشكل صحيح بـ cron-jobs.js");
+            }
             
             client.lastUpdateSentHour = ksaHour; 
         } else if (ksaHour !== 0) client.lastUpdateSentHour = -1; 
@@ -346,8 +355,15 @@ module.exports = (client, db) => {
 
     // 🔥 تحديث لوحة الملوك بشكل سليم كل دقيقة (محمي من إيقاف الـ Loop) 🔥
     setInterval(() => {
-        if (autoUpdateKingsBoard) autoUpdateKingsBoard(client, db).catch(e => console.error("Kings Board Auto-Update Error:", e));
+        if (typeof autoUpdateKingsBoard === 'function') {
+            autoUpdateKingsBoard(client, db).catch(e => console.error("Kings Board Auto-Update Error:", e));
+        }
     }, 60 * 1000);
 
-    sendDailyMediaUpdate(client, db).catch(()=>{});
+    // استدعاء أولي لتحديث اللوحة فوراً عند تشغيل البوت
+    setTimeout(() => {
+        if (typeof autoUpdateKingsBoard === 'function') {
+            autoUpdateKingsBoard(client, db).catch(()=>{});
+        }
+    }, 10000);
 };
