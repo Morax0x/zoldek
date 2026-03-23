@@ -75,7 +75,8 @@ module.exports = {
             if (payload.ephemeral) { delete payload.ephemeral; payload.flags = [MessageFlags.Ephemeral]; }
             if (isSlash) {
                 if (interactionOrMessage.deferred || interactionOrMessage.replied) return interactionOrMessage.editReply(payload);
-                return interactionOrMessage.reply({ ...payload, fetchReply: true }); 
+                const msg = await interactionOrMessage.reply({ ...payload, withResponse: true }); 
+                return msg.resource?.message || msg; 
             }
             return interactionOrMessage.reply(payload);
         };
@@ -260,6 +261,7 @@ module.exports = {
             desc += usedBaitName ? `\n🪱 **الطعم:** ${usedBaitName}` : `\n🪱 **الطعم:** لا يوجد - الأسماك الثمينة لن تقترب!`; 
             desc += extraBuffsText; 
 
+            // إرسال رسالة البداية وانتظار العضة
             const loadingMsg = await reply({ content: `**🌊 يرمي السنارة في الماء...**\n${desc}` });
             const waitTime = Math.floor(Math.random() * 3000) + 2000; 
 
@@ -275,7 +277,6 @@ module.exports = {
                     maxTension: 100 + (currentRod.level * 15), 
                 };
 
-                // 🔥 تم إضافة نظام الإصدارات وحالة اللعبة لتجنب تداخل الطلبات (Race Conditions) 🔥
                 let updateVersion = 0;
                 let isGameOver = false;
 
@@ -297,7 +298,6 @@ module.exports = {
 
                         const imgBuffer = await generateFishingCard(tensionPercent, displayDistance, gameData.statusText, locationId, currentBoat.level, currentRod.level);
                         
-                        // تجاهل تحديث الصورة إذا صدر طلب أحدث أثناء معالجة هذه الصورة
                         if (currentVersion !== updateVersion) return; 
 
                         const attachment = new AttachmentBuilder(imgBuffer, { name: 'fishing-game.png' });
@@ -321,13 +321,14 @@ module.exports = {
 
                 await sendUpdate();
 
-                const collector = (isSlash ? interactionOrMessage : loadingMsg).createMessageComponentCollector({
-                    filter: i => i.user.id === user.id && i.customId.startsWith('fish_'),
+                // 🔥 الحل الجذري: ربط الـ Collector بالقناة بدلاً من كائن الرسالة لضمان توافقه مع أوامر السلاش 🔥
+                const channel = interactionOrMessage.channel;
+                const collector = channel.createMessageComponentCollector({
+                    filter: i => i.user.id === user.id && i.customId.startsWith('fish_') && i.message.interaction?.id === (isSlash ? interactionOrMessage.id : null) || i.message.id === loadingMsg?.id,
                     time: 60000 
                 });
 
                 collector.on('collect', async i => {
-                    // إذا انتهت اللعبة، تجاهل أي ضغطات إضافية فوراً
                     if (isGameOver) {
                         await i.deferUpdate().catch(()=>{});
                         return;
