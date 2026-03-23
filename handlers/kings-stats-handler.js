@@ -45,6 +45,7 @@ async function ensureKingTrackerTable(db) {
 const lastKingsHash = new Map();
 let forceUpdateCounter = 0; // 🔥 إجبار تحديث الصورة كل 10 دقائق
 
+// 🔥 دالة البحث المدرعة للحصول على ملك التصنيف 🔥
 async function getKingLeader(db, guildId, todayStr, col1, col2 = null) {
     try {
         let query, fallbackQuery;
@@ -57,9 +58,15 @@ async function getKingLeader(db, guildId, todayStr, col1, col2 = null) {
         }
         
         let res = await db.query(query, [guildId, todayStr, OWNER_ID]).catch(() => db.query(fallbackQuery, [guildId, todayStr, OWNER_ID]));
-        if (res && res.rows[0]) return { userID: res.rows[0].userID || res.rows[0].userid, val: res.rows[0].val };
+        
+        if (res && res.rows[0]) {
+            const row = res.rows[0];
+            return { userID: row.userID || row.userid, val: row.val };
+        }
         return null;
-    } catch(e) { return null; }
+    } catch(e) { 
+        return null; 
+    }
 }
 
 async function autoUpdateKingsBoard(client, db) {
@@ -115,10 +122,7 @@ async function autoUpdateKingsBoard(client, db) {
 
             if (boardChannel) {
                 const kingsMsg = await boardChannel.messages.fetch(kingsBoardMessageId).catch(() => null);
-                if (!kingsMsg) {
-                    console.log(`[Kings Board] الرسالة غير موجودة في السيرفر: ${guild.name}`);
-                    continue;
-                }
+                if (!kingsMsg) continue; // تخطي إذا الرسالة انحذفت
                 
                 async function getKingInfo(dataObj, suffix, title, emoji) {
                     if (!dataObj || !dataObj.userID) return { title, emoji, displayName: 'لا أحد حتى الآن', avatarUrl: null, valueText: `0 ${suffix}` };
@@ -146,7 +150,7 @@ async function autoUpdateKingsBoard(client, db) {
                 const kingsBoardBuffer = await generateKingsBoardImage(kingsArray);
                 const kingsBoardAttachment = new AttachmentBuilder(kingsBoardBuffer, { name: `kings-board-${Date.now()}.png` });
                 
-                // 🔥 تحديث الصورة المدرع (يمسح القديم غصباً عن الكاش) 🔥
+                // 🔥 تحديث الصورة المدرع (يمسح المرفقات القديمة لضمان عدم الكاش) 🔥
                 await kingsMsg.edit({ files: [kingsBoardAttachment], attachments: [] }).catch((e)=> console.error(`[Board Edit Error in ${guild.name}]:`, e));
 
                 // إرسال إشعارات التغيير الحية (فقط إذا تغير الهاش)
@@ -191,7 +195,7 @@ async function autoUpdateKingsBoard(client, db) {
                                                 const kingMsgContent = announcementsTexts.getKingMessage(`<@${newUserId}>`, titles[i], `${parseInt(newVal).toLocaleString()} ${suffixes[i]}`, client);
                                                 await announceChannel.send({ content: kingMsgContent, files: [new AttachmentBuilder(epicBuffer, { name: `new-king-${Date.now()}.png` })] }).catch(()=>{});
                                             }
-                                        } catch(e) { console.error("Mid-day Announce Error:", e); }
+                                        } catch(e) {}
                                     }
                                 }
                             }
@@ -200,11 +204,10 @@ async function autoUpdateKingsBoard(client, db) {
                 }
             }
             lastKingsHash.set(guildId, currentHash);
-        } catch (err) { console.error("Loop Error in autoUpdateKingsBoard:", err); }
+        } catch (err) {}
     }
 }
 
-// 🔥 دالة تتويج الملوك المدرعة (خالية من الانهيارات) 🔥
 async function rewardDailyKings(client, db) {
     if (!db) return;
     try {
@@ -263,7 +266,6 @@ async function rewardDailyKings(client, db) {
                         }
                     }
 
-                    // 🔥 الحماية من انهيار السيرفر بسبب لاعب مغادر
                     const member = await guild.members.fetch(w.id).catch(()=>null);
                     const user = member ? member.user : await client.users.fetch(w.id).catch(()=>null);
                     
@@ -298,20 +300,18 @@ async function rewardDailyKings(client, db) {
                                 await announceChannel.send({
                                     content: `👑 تـتـويـج مـلـوك الإمـبـراطـوريـة 👑`,
                                     files: [attachment]
-                                }).catch((e)=> console.error("Send Daily Kings Error:", e));
+                                }).catch(()=>{});
                             }
-                        } catch(e) { console.error("Generate Daily Image Error:", e); }
+                        } catch(e) {}
                     }
                 }
-            } catch (err) {
-                console.error(`Guild ${guildId} Daily Kings Error:`, err);
-            } 
+            } catch (err) {} 
         }
 
         try { await db.query(`INSERT INTO kings_daily_payout ("dateStr") VALUES ($1)`, [targetDateStr]); }
         catch(e) { await db.query(`INSERT INTO kings_daily_payout (datestr) VALUES ($1)`, [targetDateStr]).catch(()=>{}); }
 
-    } catch (e) { console.error("Reward Daily Kings Fatal Error:", e); }
+    } catch (e) {}
 }
 
 const statsQueue = new Map();
