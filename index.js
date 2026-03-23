@@ -68,6 +68,45 @@ try {
     if (fs.existsSync(emojiPath)) registerFont(emojiPath, { family: 'NotoEmoji' });
 } catch (e) {}
 
+// 🔥 دالة تسجيل الأوامر مفصولة لتجنب الخنق 🔥
+async function registerCommands() {
+    const rest = new REST({ version: '10' }).setToken(botToken);
+    const commands = [];
+    const loadedCommandNames = new Set();
+
+    function getFiles(dir) {
+        const files = fs.readdirSync(dir, { withFileTypes: true });
+        let commandFiles = [];
+        for (const file of files) {
+            if (file.isDirectory()) commandFiles = [...commandFiles, ...getFiles(path.join(dir, file.name))];
+            else if (file.name.endsWith('.js')) commandFiles.push(path.join(dir, file.name));
+        }
+        return commandFiles;
+    }
+
+    const commandFiles = getFiles(path.join(__dirname, 'commands'));
+    for (const file of commandFiles) {
+        try {
+            const command = require(file);
+            const cmdName = command.data ? command.data.name : command.name;
+            if (cmdName) {
+                if (loadedCommandNames.has(cmdName)) continue;
+                loadedCommandNames.add(cmdName);
+                if (command.data) commands.push(command.data.toJSON());
+                if ('execute' in command) client.commands.set(cmdName, command);
+            }
+        } catch (err) {}
+    }
+      
+    try { 
+        await rest.put(Routes.applicationGuildCommands(client.user.id, MAIN_GUILD_ID), { body: [] });
+        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+        console.log("✅ Slash commands registered successfully!");
+    } catch (error) {
+        console.error("❌ Failed to register slash commands:", error);
+    }
+}
+
 async function bootstrap() {
     try {
         console.log("⏳ Loading and checking database tables...");
@@ -81,7 +120,6 @@ async function bootstrap() {
         console.log("✅ Database and AI Config initialized successfully!");
     } catch (err) {
         console.error("!!! Database Setup Fatal Error !!!", err);
-        // لا نغلق البوت فوراً، نحاول الانتظار قليلاً
         setTimeout(() => process.exit(1), 5000);
     }
 
@@ -103,60 +141,31 @@ async function bootstrap() {
     client.once(Events.ClientReady, async () => { 
         console.log(`✅ Logged in as ${client.user.username}`);
           
-        try { await autoJoin(client); } catch(e) { console.log("⚠️ AutoJoin skipped:", e.message); }
-        try { await initGiveaways(client); } catch(e) { console.log("⚠️ Giveaways skipped:", e.message); }
-        try { require('./handlers/voice-timer.js')(client); } catch(e) { console.log("⚠️ Voice Timer skipped:", e.message); }
-        try { startAuctionSystem(client); } catch(e) { console.log("⚠️ Auction skipped:", e.message); }
-        try { startAutoChat(client); } catch(e) { console.log("⚠️ AutoChat skipped:", e.message); }
-        try { require('./handlers/weekly-role.js')(client); } catch(e) { console.log("⚠️ Weekly Role skipped:", e.message); }
+        // 🔥 تشغيل المؤقتات (القلب النابض) فوراً بدون أي تأخير 🔥
+        try { 
+            console.log("⏳ Starting Cron Jobs...");
+            require('./handlers/cron-jobs.js')(client, client.sql); 
+            console.log("✅ Cron Jobs Started Successfully!");
+        } catch(e) { console.error("❌ Cron Jobs Failed:", e.message); }
 
-        try { await loadRoleSettings(client.sql, client.antiRolesCache); } catch(e) { console.log("⚠️ Role Settings skipped:", e.message); }
-        try { require('./handlers/cron-jobs.js')(client, client.sql); } catch(e) { console.log("⚠️ Cron Jobs skipped:", e.message); }
+        try { await autoJoin(client); } catch(e) {}
+        try { await initGiveaways(client); } catch(e) {}
+        try { require('./handlers/voice-timer.js')(client); } catch(e) {}
+        try { startAuctionSystem(client); } catch(e) {}
+        try { startAutoChat(client); } catch(e) {}
+        try { require('./handlers/weekly-role.js')(client); } catch(e) {}
 
-        // 🔥 تشغيل نظام النسخ الاحتياطي التلقائي بصمت 🔥
-        try { startAutoBackup(client); } catch(e) { console.log("⚠️ AutoBackup skipped:", e.message); }
+        try { await loadRoleSettings(client.sql, client.antiRolesCache); } catch(e) {}
+        
+        try { startAutoBackup(client); } catch(e) {}
 
-        // 🔥🔥 استدعاء إنعاش الدانجون بعد تشغيل البوت 🔥🔥
         try { 
             const { resumeActiveDungeons } = require('./handlers/dungeon-handler.js');
             if (resumeActiveDungeons) await resumeActiveDungeons(client, client.sql);
-        } catch(e) { console.log("⚠️ Resume Dungeons skipped:", e.message); }
+        } catch(e) {}
 
-        const rest = new REST({ version: '10' }).setToken(botToken);
-        const commands = [];
-        const loadedCommandNames = new Set();
-
-        function getFiles(dir) {
-            const files = fs.readdirSync(dir, { withFileTypes: true });
-            let commandFiles = [];
-            for (const file of files) {
-                if (file.isDirectory()) commandFiles = [...commandFiles, ...getFiles(path.join(dir, file.name))];
-                else if (file.name.endsWith('.js')) commandFiles.push(path.join(dir, file.name));
-            }
-            return commandFiles;
-        }
-
-        const commandFiles = getFiles(path.join(__dirname, 'commands'));
-        for (const file of commandFiles) {
-            try {
-                const command = require(file);
-                const cmdName = command.data ? command.data.name : command.name;
-                if (cmdName) {
-                    if (loadedCommandNames.has(cmdName)) continue;
-                    loadedCommandNames.add(cmdName);
-                    if (command.data) commands.push(command.data.toJSON());
-                    if ('execute' in command) client.commands.set(cmdName, command);
-                }
-            } catch (err) {}
-        }
-          
-        try { 
-            await rest.put(Routes.applicationGuildCommands(client.user.id, MAIN_GUILD_ID), { body: [] });
-            await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-            console.log("✅ Slash commands registered successfully!");
-        } catch (error) {
-            console.error("❌ Failed to register slash commands:", error);
-        }
+        // تسجيل الأوامر في الخلفية لكي لا يعيق تشغيل البوت
+        registerCommands();
     }); 
 
     try { require('./handlers/topgg-handler.js')(client, client.sql); } catch (err) {}
@@ -190,13 +199,10 @@ async function shutdownGracefully(signal) {
                     try {
                         const minutesSpent = Math.floor((now - joinInfo.timestamp) / 60000);
                         if (minutesSpent > 0 && client.addVoiceTime) {
-                            // نستخدم await هنا لضمان الحفظ قبل الإغلاق
                             await client.addVoiceTime(userId, joinInfo.guildId, minutesSpent);
                             savedCount++;
                         }
-                    } catch (e) {
-                        console.error(`خطأ أثناء حفظ فويس العضو ${userId}:`, e.message);
-                    }
+                    } catch (e) {}
                 }
                 console.log(`✅ تم إنقاذ أوقات ${savedCount} عضو من الرومات الصوتية!`);
             }
@@ -207,7 +213,6 @@ async function shutdownGracefully(signal) {
     } finally {
         console.log("👋 وداعاً... (البوت توقف الآن)");
         if (client) client.destroy();
-        // إعطاء مهلة بسيطة لقاعدة البيانات لإنهاء العمليات ثم الإغلاق
         if (db) {
             setTimeout(async () => {
                 await db.end();
@@ -224,5 +229,5 @@ process.on('SIGTERM', () => shutdownGracefully('SIGTERM'));
 
 // منع انهيار البوت من الأخطاء غير المتوقعة
 process.on('unhandledRejection', error => {
-	console.error('Unhandled promise rejection:', error);
+    console.error('Unhandled promise rejection:', error);
 });
