@@ -209,8 +209,11 @@ module.exports = {
                 });
 
                 let currentStep = 0; 
+                let isGameFinished = false; // حماية ضد الردود المزدوجة
 
                 const finishGame = async (i, reason) => {
+                    if (isGameFinished) return;
+                    isGameFinished = true;
                     clearActive(); 
                     try {
                         if (reason === 'win') {
@@ -282,8 +285,8 @@ module.exports = {
                             });
                             
                             const payload = { embeds: [winEmbed], components: allRows };
-                            if (i) await i.editReply(payload);
-                            else await gameMsg.edit(payload);
+                            if (i) await i.update(payload).catch(()=>{});
+                            else await gameMsg.edit(payload).catch(()=>{});
 
                         } else if (reason === 'lose') {
                             const loseEmbed = new EmbedBuilder()
@@ -298,8 +301,8 @@ module.exports = {
                             });
                             
                             const payload = { embeds: [loseEmbed], components: allRows };
-                            if (i) await i.editReply(payload);
-                            else await gameMsg.edit(payload);
+                            if (i) await i.update(payload).catch(()=>{});
+                            else await gameMsg.edit(payload).catch(()=>{});
 
                         } else if (reason === 'time') {
                             const loseEmbed = new EmbedBuilder()
@@ -315,9 +318,9 @@ module.exports = {
                 };
 
                 collector.on('collect', async i => {
+                    if (isGameFinished) return i.deferUpdate().catch(()=>{}); // حماية إذا انتهت اللعبة
+                    
                     if (i.user.id !== userId) return i.reply({ content: 'هذه اللعبة ليست لك!', flags: [MessageFlags.Ephemeral] });
-
-                    const deferPromise = i.deferUpdate(); 
 
                     const clickedNum = parseInt(i.customId.split('_')[1]);
                     const correctNum = sortedSolution[currentStep];
@@ -328,16 +331,14 @@ module.exports = {
 
                         if (currentStep === sortedSolution.length) {
                             collector.stop('finished');
-                            await deferPromise;
                             await finishGame(i, 'win');
                         } else {
-                            await deferPromise;
-                            await i.editReply({ components: allRows });
+                            // 🔥 التحديث الفوري (Instant Feedback) 🔥
+                            await i.update({ components: allRows }).catch(()=>{});
                         }
                     } else {
                         buttonMap[i.customId].setStyle(ButtonStyle.Danger);
                         collector.stop('finished');
-                        await deferPromise;
                         await finishGame(i, 'lose');
                     }
                 });
