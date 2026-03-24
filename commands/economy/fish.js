@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, AttachmentBuilder } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder } = require("discord.js");
 const path = require('path');
 const { generateFishingCard } = require('../../generators/fishing-card-generator.js');
 
@@ -63,7 +63,7 @@ module.exports = {
     category: "Economy",
     description: "صيد الأسماك بنظام الشد والجذب الرسومي المستند على ندرة السمكة.",
 
-    async execute(interactionOrMessage, args) {
+    async execute(interactionOrMessage) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         const user = isSlash ? interactionOrMessage.user : interactionOrMessage.author;
         const guild = interactionOrMessage.guild;
@@ -71,19 +71,12 @@ module.exports = {
         const client = interactionOrMessage.client;
         const sql = client.sql;
 
-        const reply = async (payload) => {
-            if (payload.ephemeral) { delete payload.ephemeral; payload.flags = [MessageFlags.Ephemeral]; }
-            if (isSlash) {
-                if (interactionOrMessage.deferred || interactionOrMessage.replied) return interactionOrMessage.editReply(payload);
-                const msg = await interactionOrMessage.reply({ ...payload, withResponse: true }); 
-                return msg.resource?.message || msg; 
-            }
-            return interactionOrMessage.reply(payload);
-        };
-
         if (activeFishingSessions.has(user.id)) {
-            return reply({ content: "⚠️ **لديك رحلة صيد جارية!** ركز على سنارتك.", ephemeral: true });
+            const content = "⚠️ **لديك رحلة صيد جارية!** ركز على سنارتك.";
+            if (isSlash) return interactionOrMessage.reply({ content, flags: [MessageFlags.Ephemeral] });
+            return interactionOrMessage.reply(content);
         }
+        
         activeFishingSessions.add(user.id);
 
         try {
@@ -110,8 +103,10 @@ module.exports = {
                 const remaining = lastFish + cooldown - now;
                 const minutes = Math.floor((remaining % 3600000) / 60000);
                 const seconds = Math.floor((remaining % 60000) / 1000).toString().padStart(2, '0');
-                activeFishingSessions.delete(user.id);
-                return reply({ content: `⏳ رميت السنارة مؤخراً! الأسماك حذرة الآن، انتظر **${minutes}:${seconds}** دقيقة لتعود للصيد.` });
+                activeFishingSessions.delete(user.id); // تأمين الحذف
+                const content = `⏳ رميت السنارة مؤخراً! الأسماك حذرة الآن، انتظر **${minutes}:${seconds}** دقيقة لتعود للصيد.`;
+                if (isSlash) return interactionOrMessage.reply({ content, flags: [MessageFlags.Ephemeral] });
+                return interactionOrMessage.reply(content);
             }
 
             let woundedDebuffRes;
@@ -120,9 +115,11 @@ module.exports = {
             
             const woundedDebuff = woundedDebuffRes.rows[0];
             if (woundedDebuff) {
-                activeFishingSessions.delete(user.id);
+                activeFishingSessions.delete(user.id); // تأمين الحذف
                 const minutesLeft = Math.ceil((Number(woundedDebuff.expiresAt || woundedDebuff.expiresat) - now) / 60000);
-                return reply({ content: `🩹 | أنت **جريح** حالياً! عليك الراحة لمدة **${minutesLeft}** دقيقة.`, flags: [MessageFlags.Ephemeral] });
+                const content = `🩹 | أنت **جريح** حالياً! عليك الراحة لمدة **${minutesLeft}** دقيقة.`;
+                if (isSlash) return interactionOrMessage.reply({ content, flags: [MessageFlags.Ephemeral] });
+                return interactionOrMessage.reply(content);
             }
 
             if (user.id !== OWNER_ID) {
@@ -255,14 +252,24 @@ module.exports = {
             let difficultyMultiplier = 1.0 + (totalValue / 2000); 
             difficultyMultiplier = Math.min(1.5, Math.max(1.0, difficultyMultiplier)); 
 
-            if (isSlash) await interactionOrMessage.deferReply();
-
             let desc = `**العدة:** 🎣 ${currentRod.name} | 🚤 ${currentBoat.name}\n🌊 **الموقع:** ${currentLocation.name}`;
             desc += usedBaitName ? `\n🪱 **الطعم:** ${usedBaitName}` : `\n🪱 **الطعم:** لا يوجد - الأسماك الثمينة لن تقترب!`; 
             desc += extraBuffsText; 
 
-            // إرسال رسالة البداية وانتظار العضة
-            const loadingMsg = await reply({ content: `**🌊 يرمي السنارة في الماء...**\n${desc}` });
+            // 🔥 الطريقة الصحيحة والمدرعة لإرسال الرسالة وجلبها للـ Collector 🔥
+            let loadingMsg;
+            if (isSlash) {
+                // استخدام withResponse: true هو الطريقة المعتمدة في v14
+                const response = await interactionOrMessage.reply({ content: `**🌊 يرمي السنارة في الماء...**\n${desc}`, withResponse: true });
+                loadingMsg = response.resource?.message || response;
+                // كإجراء احتياطي، نستخدم fetchReply إذا فشلت الطريقة الأولى
+                if (!loadingMsg || !loadingMsg.createMessageComponentCollector) {
+                    loadingMsg = await interactionOrMessage.fetchReply();
+                }
+            } else {
+                loadingMsg = await interactionOrMessage.reply({ content: `**🌊 يرمي السنارة في الماء...**\n${desc}` });
+            }
+
             const waitTime = Math.floor(Math.random() * 3000) + 2000; 
 
             setTimeout(async () => {
@@ -321,10 +328,9 @@ module.exports = {
 
                 await sendUpdate();
 
-                // 🔥 الحل الجذري: ربط الـ Collector بالقناة بدلاً من كائن الرسالة لضمان توافقه مع أوامر السلاش 🔥
-                const channel = interactionOrMessage.channel;
-                const collector = channel.createMessageComponentCollector({
-                    filter: i => i.user.id === user.id && i.customId.startsWith('fish_') && i.message.interaction?.id === (isSlash ? interactionOrMessage.id : null) || i.message.id === loadingMsg?.id,
+                // إنشاء الـ Collector على الرسالة نفسها بشكل آمن
+                const collector = loadingMsg.createMessageComponentCollector({
+                    filter: i => i.user.id === user.id && i.customId.startsWith('fish_'),
                     time: 60000 
                 });
 
@@ -407,7 +413,6 @@ module.exports = {
                                 if (!playerWeapon || playerWeapon.currentLevel === 0) playerWeapon = { name: "سكين صيد صدئة", currentDamage: 15, currentLevel: 1 };
 
                                 if (pvpCore.startPveBattle) {
-                                    activeFishingSessions.delete(user.id);
                                     await pvpCore.startPveBattle(interactionOrMessage, client, sql, member, monster, playerWeapon);
                                     return; 
                                 }
@@ -464,6 +469,7 @@ module.exports = {
                     } catch (err) {
                         console.error("End Event Error in Fish:", err);
                     } finally {
+                        // 🔥 الحماية النهائية 🔥 إزالة اسم اللاعب من الجلسات النشطة في كل الحالات
                         activeFishingSessions.delete(user.id);
                     }
                 });
@@ -471,8 +477,13 @@ module.exports = {
             }, waitTime);
         } catch (e) {
             console.error("Fish command main error:", e);
-            activeFishingSessions.delete(user.id);
-            reply({ content: "❌ حدث خطأ أثناء تجهيز الصيد." }).catch(()=>{});
+            const content = "❌ حدث خطأ أثناء تجهيز الصيد.";
+            if (isSlash) interactionOrMessage.reply({ content, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            else interactionOrMessage.reply(content).catch(()=>{});
+        } finally {
+            // إضافة حماية إضافية لو حدث خطأ كبير قبل الدخول في اللوب
+            if (!activeFishingSessions.has(user.id)) return;
+            // يتم تفريغ الجلسة من الـ Timeout أو الـ Collector أعلاه.
         }
     }
 };
