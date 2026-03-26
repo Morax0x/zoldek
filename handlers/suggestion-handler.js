@@ -12,25 +12,25 @@ async function cleanOldSuggestionThreads(channel) {
 
         // جلب الثريدات الفعالة
         const activeThreads = await channel.threads.fetchActive();
-        activeThreads.threads.forEach(async thread => {
+        for (const thread of activeThreads.threads.values()) {
             if (thread.name.startsWith('ᗢ〢💭・اقتـراح・')) {
                 const createdAt = thread.createdTimestamp;
                 if (createdAt && (now - createdAt > threeDaysMs)) {
                     await thread.delete().catch(() => {});
                 }
             }
-        });
+        }
 
         // جلب الثريدات المؤرشفة (المغلقة)
         const archivedThreads = await channel.threads.fetchArchived();
-        archivedThreads.threads.forEach(async thread => {
+        for (const thread of archivedThreads.threads.values()) {
              if (thread.name.startsWith('ᗢ〢💭・اقتـراح・')) {
                 const createdAt = thread.createdTimestamp;
                 if (createdAt && (now - createdAt > threeDaysMs)) {
                     await thread.delete().catch(() => {});
                 }
             }
-        });
+        }
     } catch (e) {
         console.error("Error cleaning old threads:", e);
     }
@@ -106,7 +106,7 @@ async function handleNewSuggestion(message, client, db) {
         }
     }
 
-    // بناء الإيمبد بالتصميم الجديد (وضع صورة المؤلف بدلا من الـ Thumbnail)
+    // بناء الإيمبد بالتصميم الجديد
     const embed = new EmbedBuilder()
         .setAuthor({ name: message.member?.displayName || message.author.username, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
         .setDescription(`✶ اقتـرح: <@${message.author.id}>\n\n> ✦ ${content}`)
@@ -117,12 +117,14 @@ async function handleNewSuggestion(message, client, db) {
         )
         .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: message.guild.iconURL({ dynamic: true }) });
 
+    // 🔥 إصلاح مشكلة تكرار الصورة (تغيير الاسم لاسم آمن بدون مسافات) 🔥
     const files = [];
     if (message.attachments.size > 0) {
         const attachment = message.attachments.first();
         if (attachment.contentType && attachment.contentType.startsWith('image/')) {
-            files.push({ attachment: attachment.url, name: attachment.name });
-            embed.setImage(`attachment://${attachment.name}`);
+            const safeName = 'suggestion_image.png'; // اسم ثابت ومحمي لمنع التكرار خارج الإيمبد
+            files.push({ attachment: attachment.url, name: safeName });
+            embed.setImage(`attachment://${safeName}`);
         }
     }
 
@@ -154,7 +156,7 @@ async function handleNewSuggestion(message, client, db) {
             reason: 'نقاش اقتراح جديد'
         });
 
-        // 🔥 تشغيل التنظيف التلقائي للثريدات القديمة في نفس الروم 🔥
+        // 🔥 تشغيل التنظيف التلقائي للثريدات القديمة (أكثر من 3 أيام) 🔥
         cleanOldSuggestionThreads(message.channel);
 
     } catch (err) {
@@ -181,7 +183,6 @@ async function handleSuggestionButtons(interaction, client, db) {
     if (!suggData) return interaction.reply({ content: '❌ هذا الاقتراح غير مسجل أو محذوف.', flags: [MessageFlags.Ephemeral] });
 
     if (interaction.customId === 'sugg_admin') {
-        // 🔥 فحص الآيدي: إذا كان الإمبراطور (أو الآيدي المحدد)، تظهر اللوحة. وإلا يظهر كشف التصويتات.
         if (userId === OWNER_ID) {
             const adminRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(`sugg_status_accept_${targetMsgId}`).setLabel('قبول/تنفيذ').setStyle(ButtonStyle.Success),
@@ -191,7 +192,6 @@ async function handleSuggestionButtons(interaction, client, db) {
             );
             return interaction.reply({ content: '⚙️ **خيارات إدارة الاقتراح:**', components: [adminRow], flags: [MessageFlags.Ephemeral] });
         } else {
-            // كشف التصويتات المخفي للعامة
             let votesRes;
             try { votesRes = await db.query(`SELECT "userID", "voteType" FROM suggestion_votes WHERE "messageID" = $1`, [targetMsgId]); }
             catch(e) { votesRes = await db.query(`SELECT userid as "userID", votetype as "voteType" FROM suggestion_votes WHERE messageid = $1`, [targetMsgId]).catch(()=>({rows: []})); }
@@ -270,11 +270,10 @@ async function handleSuggestionButtons(interaction, client, db) {
         catch(e) { updatedSuggRes = await db.query(`SELECT upvotes, downvotes, status FROM suggestions WHERE messageid = $1`, [targetMsgId]).catch(()=>({rows:[{upvotes:0, downvotes:0}]})); }
         
         const newStats = updatedSuggRes.rows[0];
-        const upCount = Number(newStats.upvotes ?? 0);
-        const downCount = Number(newStats.downvotes ?? 0);
+        const upCount = Number(newStats.upvotes ?? newStats.upvotes ?? 0);
+        const downCount = Number(newStats.downvotes ?? newStats.downvotes ?? 0);
         const totalVotes = upCount + downCount;
 
-        // 🔥 تحديث حساب النسبة المئوية للإحصائيات 🔥
         let statsFieldName = 'الإحصائيات';
         if (totalVotes > 0) {
             const percentage = Math.round((upCount / totalVotes) * 100);
