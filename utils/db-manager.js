@@ -1,3 +1,14 @@
+function getTodayDateString() { 
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date());
+}
+
+function getWeekStartDateString() {
+    const ksaTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
+    const diff = ksaTime.getDate() - (ksaTime.getDay() + 2) % 7; 
+    const friday = new Date(ksaTime.setDate(diff));
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(friday);
+}
+
 module.exports = (client, db) => {
     // 🚀 الذاكرة العشوائية (RAM Cache)
     const levelsCache = new Map();
@@ -82,7 +93,7 @@ module.exports = (client, db) => {
 
         isSaving = true;
         try {
-            await db.query('BEGIN'); // المعاملة الموحدة للسرعة
+            await db.query('BEGIN'); 
 
             // حفظ المستويات (Levels)
             for (const data of savesLevels.values()) {
@@ -114,7 +125,7 @@ module.exports = (client, db) => {
                 ]);
             }
 
-            // حفظ الإحصائيات اليومية (Daily Stats)
+            // حفظ الإحصائيات اليومية
             for (const data of savesDaily.values()) {
                 await db.query(`
                     INSERT INTO user_daily_stats ("id", "userID", "guildID", "date", "messages", "images", "stickers", "emojis_sent", "reactions_added", "replies_sent", "mentions_received", "vc_minutes", "water_tree", "counting_channel", "meow_count", "streaming_minutes", "disboard_bumps", "boost_channel_reactions", "topgg_votes", "main_chat_messages", "chatter_badge_given", "daily_badge_given", "knight_badge_given", "ai_interactions", "casino_profit", "mora_earned", "mora_donated", "knights_defeated", "fish_caught", "pvp_wins", "crops_harvested")
@@ -126,7 +137,7 @@ module.exports = (client, db) => {
                 ]);
             }
 
-            // حفظ الإحصائيات الأسبوعية (Weekly Stats)
+            // حفظ الإحصائيات الأسبوعية
             for (const data of savesWeekly.values()) {
                 await db.query(`
                     INSERT INTO user_weekly_stats ("id", "userID", "guildID", "weekStartDate", "messages", "images", "stickers", "emojis_sent", "reactions_added", "replies_sent", "mentions_received", "vc_minutes", "water_tree", "counting_channel", "meow_count", "streaming_minutes", "disboard_bumps", "topgg_votes", "weekly_badge_given", "ai_interactions")
@@ -138,7 +149,7 @@ module.exports = (client, db) => {
                 ]);
             }
 
-            // حفظ الإحصائيات الكلية (Total Stats)
+            // حفظ الإحصائيات الكلية
             for (const data of savesTotal.values()) {
                 await db.query(`
                     INSERT INTO user_total_stats ("id", "userID", "guildID", "total_messages", "total_images", "total_stickers", "total_emojis_sent", "total_reactions_added", "total_replies_sent", "total_mentions_received", "total_vc_minutes", "total_disboard_bumps", "total_topgg_votes", "total_ai_interactions")
@@ -157,7 +168,7 @@ module.exports = (client, db) => {
         } finally {
             isSaving = false;
         }
-    }, 15000); // يعمل كل 15 ثانية صمتاً
+    }, 15000); 
 
     // =====================================================================
     // 🟢 دوال الاستدعاء (API) للبوت
@@ -181,7 +192,7 @@ module.exports = (client, db) => {
         const cacheKey = `${userId}-${guildId}`;
         
         levelsCache.set(cacheKey, data); 
-        pendingSaves.levels.set(cacheKey, data); // أضفه لطابور الحفظ
+        pendingSaves.levels.set(cacheKey, data); 
     };
 
     client.getDailyStats = async function(id) {
@@ -196,7 +207,7 @@ module.exports = (client, db) => {
 
     client.setDailyStats = async function(data) {
         dailyStatsCache.set(data.id, data);
-        pendingSaves.daily.set(data.id, data); // أضفه لطابور الحفظ
+        pendingSaves.daily.set(data.id, data); 
     };
 
     client.getWeeklyStats = async function(id) {
@@ -211,7 +222,7 @@ module.exports = (client, db) => {
 
     client.setWeeklyStats = async function(data) {
         weeklyStatsCache.set(data.id, data);
-        pendingSaves.weekly.set(data.id, data); // أضفه لطابور الحفظ
+        pendingSaves.weekly.set(data.id, data); 
     };
 
     client.getTotalStats = async function(id) {
@@ -226,10 +237,9 @@ module.exports = (client, db) => {
 
     client.setTotalStats = async function(data) {
         totalStatsCache.set(data.id, data);
-        pendingSaves.total.set(data.id, data); // أضفه لطابور الحفظ
+        pendingSaves.total.set(data.id, data); 
     };
 
-    // إعدادات الإشعارات (تظل تُحفظ فوراً لأنها نادرة الحدوث)
     client.getQuestNotif = async function(id) {
         if (questNotifCache.has(id)) return questNotifCache.get(id);
         try {
@@ -252,8 +262,57 @@ module.exports = (client, db) => {
             await db.query(query, [
                 data.id, data.userID ?? data.userid, data.guildID ?? data.guildid, Number(data.dailyNotif ?? data.dailynotif) || 1, Number(data.weeklyNotif ?? data.weeklynotif) || 1, Number(data.achievementsNotif ?? data.achievementsnotif) || 1, Number(data.levelNotif ?? data.levelnotif) || 1, Number(data.kingsNotif ?? data.kingsnotif) || 1, Number(data.badgesNotif ?? data.badgesnotif) || 1
             ]);
-        } catch (err) {
-            console.error("❌ [QuestNotif Save]:", err.message);
+        } catch (err) {}
+    };
+
+    // 🔥 الدالة السحرية لإضافة وتخزين المهام والإنجازات بشكل آمن 🔥
+    client.incrementQuestStats = async function(userId, guildId, statName, valueToAdd = 1) {
+        if (!userId || !guildId || !statName) return;
+
+        const todayStr = getTodayDateString();
+        const weekStr = getWeekStartDateString();
+
+        const dailyId = `${userId}-${guildId}-${todayStr}`;
+        const weeklyId = `${userId}-${guildId}-${weekStr}`;
+        const totalId = `${userId}-${guildId}`;
+
+        try {
+            // 1. التحديث اليومي
+            let daily = await client.getDailyStats(dailyId);
+            if (!daily) daily = { id: dailyId, userID: userId, guildID: guildId, date: todayStr };
+            daily = client.safeMerge(daily, defaultDailyStats);
+            
+            if (daily[statName] !== undefined) {
+                daily[statName] = (Number(daily[statName]) || 0) + Number(valueToAdd);
+                await client.setDailyStats(daily);
+            }
+
+            // 2. التحديث الأسبوعي
+            let weekly = await client.getWeeklyStats(weeklyId);
+            if (!weekly) weekly = { id: weeklyId, userID: userId, guildID: guildId, weekStartDate: weekStr };
+            weekly = client.safeMerge(weekly, defaultWeeklyStats);
+            
+            if (weekly[statName] !== undefined) {
+                weekly[statName] = (Number(weekly[statName]) || 0) + Number(valueToAdd);
+                await client.setWeeklyStats(weekly);
+            }
+
+            // 3. التحديث الكلي (للإنجازات)
+            let total = await client.getTotalStats(totalId);
+            if (!total) total = { id: totalId, userID: userId, guildID: guildId };
+            total = client.safeMerge(total, defaultTotalStats);
+            
+            const totalStatName = statName.startsWith('total_') ? statName : `total_${statName}`;
+            
+            if (total[totalStatName] !== undefined) {
+                total[totalStatName] = (Number(total[totalStatName]) || 0) + Number(valueToAdd);
+                await client.setTotalStats(total);
+            } else if (total[statName] !== undefined) {
+                total[statName] = (Number(total[statName]) || 0) + Number(valueToAdd);
+                await client.setTotalStats(total);
+            }
+        } catch (e) {
+            console.error("❌ [Increment Quest Stats Error]:", e.message);
         }
     };
 };
