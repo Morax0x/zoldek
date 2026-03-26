@@ -1,13 +1,18 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 
-// نقرأ الرابط من Railway مباشرة، وإذا لم يجده يستخدم الرابط الداخلي كاحتياط
-const connectionString = process.env.DATABASE_URL || "postgresql://postgres:jbfhGDzgPCLLhOiilJPYEFVyiFHHEOwq@postgres.railway.internal:5432/railway";
+// 👑 الاعتماد الكلي على المتغيرات (أأمن وأفضل طريقة)
+const connectionString = process.env.DATABASE_URL;
 
-// ⚡ إعدادات الاتصال السريع (Turbo Pool)
+if (!connectionString) {
+    console.error("❌ [Database Error]: الرابط غير موجود! تأكد من إضافة DATABASE_URL في متغيرات Railway.");
+    process.exit(1); // يوقف البوت فوراً عشان ما يخرب البيانات
+}
+
 const db = new Pool({
     connectionString: connectionString,
-    ssl: false, // الاتصال الداخلي في ريلواي آمن ولا يحتاج SSL (يجعل الاتصال أسرع)
+    // فعلنا الـ SSL تجنباً لأي مشاكل عند استخدام الرابط الخارجي
+    ssl: { rejectUnauthorized: false },
     max: 50, 
     idleTimeoutMillis: 30000, 
     connectionTimeoutMillis: 2000, 
@@ -19,7 +24,7 @@ db.on('error', (err, client) => {
 });
 
 db.connect()
-    .then(() => console.log("✅ تم الاتصال بقاعدة البيانات (Railway) بنجاح! 🚀"))
+    .then(() => console.log("✅ تم الاتصال بقاعدة البيانات بنجاح! 🚀"))
     .catch(err => console.error("❌ خطأ في الاتصال بقاعدة البيانات:", err.message));
 
 module.exports = db;
