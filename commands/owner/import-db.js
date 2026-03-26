@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
-const zlib = require('zlib'); // 🚀 لفك الضغط
+const zlib = require('zlib'); 
 
 const OWNER_ID = "1145327691772481577";
 
@@ -44,14 +44,13 @@ module.exports = {
             return interactionOrMessage.reply(content);
         };
 
-        const msg = await reply("⏳ **جاري قراءة الملف، فك الضغط، وبدء نقل البيانات...**");
+        const msg = await reply("⏳ **جاري قراءة الملف، فك الضغط، وبدء النقل الصاروخي للبيانات...** 🚀");
 
         try {
             const response = await fetch(attachmentUrl);
             const arrayBuffer = await response.arrayBuffer();
             let buffer = Buffer.from(arrayBuffer);
 
-            // 🔥 فك الضغط إذا كان الملف مضغوطاً 🔥
             if (fileName.endsWith('.gz')) {
                 buffer = zlib.gunzipSync(buffer);
             }
@@ -66,21 +65,36 @@ module.exports = {
                 const rows = data[table];
                 if (rows.length === 0) continue;
 
-                // تصفير الجدول لتجنب التكرار
+                // تصفير الجدول
                 await db.query(`TRUNCATE TABLE "${table}" CASCADE`).catch(() => {});
 
                 const columns = Object.keys(rows[0]);
                 const colsStr = columns.map(c => `"${c}"`).join(', ');
-                const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
 
-                // 🔥 تسريع الرفع باستخدام حزم المعاملات (Transactions) 🔥
                 await db.query('BEGIN');
                 try {
-                    for (const row of rows) {
-                        const values = columns.map(col => row[col]);
-                        await db.query(`INSERT INTO "${table}" (${colsStr}) VALUES (${placeholders})`, values);
-                        rowsRestored++;
+                    // 🔥 نظام الرفع الجماعي الصاروخي (Bulk Insert) 🔥
+                    const BATCH_SIZE = 200; // نرفع كل 200 سطر دفعة واحدة
+                    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+                        const batch = rows.slice(i, i + BATCH_SIZE);
+                        const values = [];
+                        const valueStrings = [];
+                        let paramIndex = 1;
+
+                        for (const row of batch) {
+                            const rowParams = [];
+                            for (const col of columns) {
+                                values.push(row[col]);
+                                rowParams.push(`$${paramIndex++}`);
+                            }
+                            valueStrings.push(`(${rowParams.join(', ')})`);
+                        }
+
+                        // إرسال الدفعة لقاعدة البيانات بضربة واحدة
+                        await db.query(`INSERT INTO "${table}" (${colsStr}) VALUES ${valueStrings.join(', ')}`, values);
+                        rowsRestored += batch.length;
                     }
+                    
                     await db.query('COMMIT');
                     tablesRestored++;
                 } catch (e) {
@@ -89,7 +103,7 @@ module.exports = {
                 }
             }
 
-            await reply(`✅ **اكتملت المهمة يا إمبراطور!**\nتمت استعادة **${rowsRestored.toLocaleString()}** سجل موزعة على **${tablesRestored}** جداول بنجاح.`);
+            await reply(`✅ **اكتملت المهمة بسرعة البرق يا إمبراطور!** ⚡\nتمت استعادة **${rowsRestored.toLocaleString()}** سجل موزعة على **${tablesRestored}** جداول بنجاح.`);
 
         } catch (error) {
             console.error("Import DB Error:", error);
