@@ -167,8 +167,8 @@ module.exports = {
                     { label: '⛺ منح خيمة (دانجون)', value: 'dungeon_tent', description: 'تحديد طابق الحفظ في الدانجون', emoji: '⛺' },
                     { label: '🎒 إدارة العناصر', value: 'items', description: 'إعطاء/سحب الأغراض (حيوانات، أسهم، بذور، أعلاف)', emoji: '🎒' },
                     { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', description: 'تغيير لفل السلاح أو المهارة', emoji: '⚔️' },
-                    { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', description: 'تغيير السنارة، القارب، أو موقع الشاطئ', emoji: '🎣' }, 
                     { label: '🗑️ تصفير الأسلحة والمهارات', value: 'reset_combat', description: 'مسح جميع مهارات وأسلحة اللاعب بالكامل', emoji: '🗑️' },
+                    { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', description: 'تغيير السنارة، القارب، أو موقع الشاطئ', emoji: '🎣' }, 
                     { label: '🛡️ إعطاء درع ميديا', value: 'media_shield', emoji: '🛡️' },
                     { label: '⚠️ تصفير الحساب', value: 'reset', description: 'مسح جميع البيانات!', emoji: '⚠️' }
                 ])
@@ -255,19 +255,7 @@ module.exports = {
                                 await db.query(`UPDATE ${tableName} SET "${targetCol}" = $1 WHERE "${targetCol}" = $2 AND "${gCol}" = $3`, [id1, id2, guildID]);
                                 await db.query(`UPDATE ${tableName} SET "${targetCol}" = $1 WHERE "${targetCol}" = $2 AND "${gCol}" = $3`, [id2, tempId, guildID]);
                             }
-                        } catch(e) {
-                            try {
-                                if(idColFormat) {
-                                    await db.query(`UPDATE ${tableName} SET ${targetCol.toLowerCase()} = $1, id = $4 WHERE ${targetCol.toLowerCase()} = $2 AND ${gCol.toLowerCase()} = $3`, [tempId, id1, guildID, temp_pk]);
-                                    await db.query(`UPDATE ${tableName} SET ${targetCol.toLowerCase()} = $1, id = $4 WHERE ${targetCol.toLowerCase()} = $2 AND ${gCol.toLowerCase()} = $3`, [id1, id2, guildID, id1_pk]);
-                                    await db.query(`UPDATE ${tableName} SET ${targetCol.toLowerCase()} = $1, id = $4 WHERE ${targetCol.toLowerCase()} = $2 AND ${gCol.toLowerCase()} = $3`, [id2, tempId, guildID, id2_pk]);
-                                } else {
-                                    await db.query(`UPDATE ${tableName} SET ${targetCol.toLowerCase()} = $1 WHERE ${targetCol.toLowerCase()} = $2 AND ${gCol.toLowerCase()} = $3`, [tempId, id1, guildID]);
-                                    await db.query(`UPDATE ${tableName} SET ${targetCol.toLowerCase()} = $1 WHERE ${targetCol.toLowerCase()} = $2 AND ${gCol.toLowerCase()} = $3`, [id1, id2, guildID]);
-                                    await db.query(`UPDATE ${tableName} SET ${targetCol.toLowerCase()} = $1 WHERE ${targetCol.toLowerCase()} = $2 AND ${gCol.toLowerCase()} = $3`, [id2, tempId, guildID]);
-                                }
-                            } catch(e2) {}
-                        }
+                        } catch(e) {}
                     };
 
                     await db.query('BEGIN');
@@ -406,6 +394,7 @@ module.exports = {
                     kingCollector.stop();
                 });
             }
+            // 🔥 إصلاح السمعة: استخدام UPSERT ذكي بدل قراءة ثم كتابة لتفادي أخطاء السجلات المفقودة
             else if (val === 'reputation') {
                 const modalId = `mod_rep_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة السمعة (النقاط)');
@@ -420,27 +409,31 @@ module.exports = {
 
                     const action = normalize(modalSubmit.fields.getTextInputValue('rep_action'));
                     const amount = parseInt(modalSubmit.fields.getTextInputValue('rep_amount'));
-                    if (isNaN(amount)) return modalSubmit.editReply({ content: "❌ الرجاء إدخال رقم صحيح." });
+                    if (isNaN(amount) || amount < 0) return modalSubmit.editReply({ content: "❌ الرجاء إدخال رقم صحيح وموجب." });
 
                     let repDataRes;
-                    try { repDataRes = await db.query(`SELECT * FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
-                    catch(e) { repDataRes = await db.query(`SELECT * FROM user_reputation WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
+                    try { repDataRes = await db.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
+                    catch(e) { repDataRes = await db.query(`SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
                     
-                    let repData = repDataRes.rows[0];
-                    if (!repData) {
-                        try { await db.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, 0)`, [userID, guildID]); }
-                        catch(e) { await db.query(`INSERT INTO user_reputation (userid, guildid, rep_points) VALUES ($1, $2, 0)`, [userID, guildID]).catch(()=>{}); }
-                        repData = { rep_points: 0 };
-                    }
+                    let currentPoints = repDataRes.rows[0] ? Number(repDataRes.rows[0].rep_points) : 0;
+                    let newPoints = currentPoints;
 
-                    let newPoints = Number(repData.rep_points || repData.rep_points) || 0;
                     if (action.includes('اضاف') || action.includes('زود')) newPoints += amount;
                     else if (action.includes('خصم') || action.includes('نقص') || action.includes('ازال')) newPoints = Math.max(0, newPoints - amount);
                     else if (action.includes('تحديد') || action.includes('حط')) newPoints = amount;
-                    else return modalSubmit.editReply({ content: "❌ إجراء غير معروف." });
+                    else return modalSubmit.editReply({ content: "❌ إجراء غير معروف. استعمل (إضافة/خصم/تحديد)." });
 
-                    try { await db.query(`UPDATE user_reputation SET "rep_points" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [newPoints, userID, guildID]); }
-                    catch(e) { await db.query(`UPDATE user_reputation SET rep_points = $1 WHERE userid = $2 AND guildid = $3`, [newPoints, userID, guildID]).catch(()=>{}); }
+                    try {
+                        await db.query(`
+                            INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3)
+                            ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = EXCLUDED."rep_points"
+                        `, [userID, guildID, newPoints]);
+                    } catch(e) {
+                        await db.query(`
+                            INSERT INTO user_reputation (userid, guildid, rep_points) VALUES ($1, $2, $3)
+                            ON CONFLICT(userid, guildid) DO UPDATE SET rep_points = EXCLUDED.rep_points
+                        `, [userID, guildID, newPoints]).catch(()=>{});
+                    }
 
                     await modalSubmit.editReply({ content: `✅ تم ضبط سمعة ${targetUser} لتصبح **${newPoints}** 🌟` });
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
@@ -462,17 +455,18 @@ module.exports = {
                     const todayDateStr = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Riyadh' });
                     try { await db.query(`ALTER TABLE user_reputation ADD COLUMN IF NOT EXISTS "daily_reps_given" INTEGER DEFAULT 0`); } catch(e) {}
 
-                    let repDataRes;
-                    try { repDataRes = await db.query(`SELECT * FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
-                    catch(e) { repDataRes = await db.query(`SELECT * FROM user_reputation WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
-                    
-                    let repData = repDataRes.rows[0];
-                    if (!repData) {
-                        try { await db.query(`INSERT INTO user_reputation ("userID", "guildID", "last_rep_given", "daily_reps_given") VALUES ($1, $2, $3, $4)`, [userID, guildID, todayDateStr, -amount]); }
-                        catch(e) { await db.query(`INSERT INTO user_reputation (userid, guildid, last_rep_given, daily_reps_given) VALUES ($1, $2, $3, $4)`, [userID, guildID, todayDateStr, -amount]).catch(()=>{}); }
-                    } else {
-                        try { await db.query(`UPDATE user_reputation SET "last_rep_given" = $1, "daily_reps_given" = COALESCE("daily_reps_given", 0) - $2 WHERE "userID" = $3 AND "guildID" = $4`, [todayDateStr, amount, userID, guildID]); }
-                        catch(e) { await db.query(`UPDATE user_reputation SET last_rep_given = $1, daily_reps_given = COALESCE(daily_reps_given, 0) - $2 WHERE userid = $3 AND guildid = $4`, [todayDateStr, amount, userID, guildID]).catch(()=>{}); }
+                    try {
+                        await db.query(`
+                            INSERT INTO user_reputation ("userID", "guildID", "last_rep_given", "daily_reps_given") 
+                            VALUES ($1, $2, $3, $4)
+                            ON CONFLICT("userID", "guildID") DO UPDATE SET "last_rep_given" = $3, "daily_reps_given" = COALESCE(user_reputation."daily_reps_given", 0) - $5
+                        `, [userID, guildID, todayDateStr, -amount, amount]);
+                    } catch(e) {
+                        await db.query(`
+                            INSERT INTO user_reputation (userid, guildid, last_rep_given, daily_reps_given) 
+                            VALUES ($1, $2, $3, $4)
+                            ON CONFLICT(userid, guildid) DO UPDATE SET last_rep_given = $3, daily_reps_given = COALESCE(daily_reps_given, 0) - $5
+                        `, [userID, guildID, todayDateStr, -amount, amount]).catch(()=>{});
                     }
 
                     await modalSubmit.editReply({ content: `✅ تم منح **${amount}** فرصة تزكية إضافية لـ ${targetUser} بنجاح! يمكنه استخدامها الآن. 🗳️` });
@@ -492,30 +486,25 @@ module.exports = {
                     const amount = parseInt(modalSubmit.fields.getTextInputValue('tkt_amount'));
                     if (isNaN(amount)) return modalSubmit.editReply({ content: "❌ الرجاء إدخال رقم صحيح." });
 
-                    let userStatsRes;
-                    try { userStatsRes = await db.query(`SELECT * FROM dungeon_stats WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
-                    catch(e) { userStatsRes = await db.query(`SELECT * FROM dungeon_stats WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
-                    
-                    if (userStatsRes.rows.length > 0) {
-                        try { await db.query(`UPDATE dungeon_stats SET "tickets" = COALESCE("tickets", 0) + $1 WHERE "userID" = $2 AND "guildID" = $3`, [amount, userID, guildID]); }
-                        catch(e) { await db.query(`UPDATE dungeon_stats SET tickets = COALESCE(tickets, 0) + $1 WHERE userid = $2 AND guildid = $3`, [amount, userID, guildID]).catch(()=>{}); }
-                    } else {
-                        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
-                        try { await db.query(`INSERT INTO dungeon_stats ("guildID", "userID", "tickets", "last_reset") VALUES ($1, $2, $3, $4)`, [guildID, userID, amount, todayStr]); }
-                        catch(e) { await db.query(`INSERT INTO dungeon_stats (guildid, userid, tickets, last_reset) VALUES ($1, $2, $3, $4)`, [guildID, userID, amount, todayStr]).catch(()=>{}); }
+                    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+                    try { 
+                        await db.query(`
+                            INSERT INTO dungeon_stats ("guildID", "userID", "tickets", "last_reset") VALUES ($1, $2, $3, $4)
+                            ON CONFLICT("guildID", "userID") DO UPDATE SET "tickets" = COALESCE(dungeon_stats."tickets", 0) + $3
+                        `, [guildID, userID, amount, todayStr]); 
+                    } catch(e) { 
+                        await db.query(`
+                            INSERT INTO dungeon_stats (guildid, userid, tickets, last_reset) VALUES ($1, $2, $3, $4)
+                            ON CONFLICT(guildid, userid) DO UPDATE SET tickets = COALESCE(tickets, 0) + $3
+                        `, [guildID, userID, amount, todayStr]).catch(()=>{}); 
                     }
                     await modalSubmit.editReply({ content: `✅ تم إضافة **${amount}** 🎟️ تذاكر لـ ${targetUser}.` });
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
             }
-            // 🔥 الإصلاح: برمجة خيمة الدانجون هنا 🔥
             else if (val === 'dungeon_tent') {
                 const modalId = `mod_tent_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إعداد طابق الدانجون (الخيمة)');
-                const floorInput = new TextInputBuilder()
-                    .setCustomId('tent_floor')
-                    .setLabel('رقم الطابق المراد حفظه كـ (Checkpoint)')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
+                const floorInput = new TextInputBuilder().setCustomId('tent_floor').setLabel('رقم الطابق المراد حفظه كـ (Checkpoint)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(floorInput));
                 await interaction.showModal(modal);
 
@@ -526,23 +515,27 @@ module.exports = {
                     const floor = parseInt(modalSubmit.fields.getTextInputValue('tent_floor'));
                     if (isNaN(floor) || floor < 0) return modalSubmit.editReply({ content: "❌ الرجاء إدخال رقم طابق صحيح." });
 
-                    // التحديث في جدول levels حيث يتم حفظ أعلى طابق
                     try {
-                        await db.query(`
-                            INSERT INTO levels ("user", "guild", "xp", "totalXP", "level", "mora", "max_dungeon_floor") 
-                            VALUES ($1, $2, 0, 0, 1, 0, $3) 
-                            ON CONFLICT ("user", "guild") DO UPDATE SET "max_dungeon_floor" = $3
-                        `, [userID, guildID, floor]);
+                        await db.query(`INSERT INTO levels ("user", "guild", "xp", "totalXP", "level", "mora", "max_dungeon_floor") VALUES ($1, $2, 0, 0, 1, 0, $3) ON CONFLICT ("user", "guild") DO UPDATE SET "max_dungeon_floor" = $3`, [userID, guildID, floor]);
                     } catch(e) {
-                        await db.query(`
-                            INSERT INTO levels (userid, guildid, xp, totalxp, level, mora, max_dungeon_floor) 
-                            VALUES ($1, $2, 0, 0, 1, 0, $3) 
-                            ON CONFLICT (userid, guildid) DO UPDATE SET max_dungeon_floor = $3
-                        `, [userID, guildID, floor]).catch(()=>{});
+                        await db.query(`INSERT INTO levels (userid, guildid, xp, totalxp, level, mora, max_dungeon_floor) VALUES ($1, $2, 0, 0, 1, 0, $3) ON CONFLICT (userid, guildid) DO UPDATE SET max_dungeon_floor = $3`, [userID, guildID, floor]).catch(()=>{});
                     }
 
                     await modalSubmit.editReply({ content: `✅ تم نصب خيمة الحفظ لـ ${targetUser} في **الطابق ${floor}** من الدانجون ⛺.` });
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+            }
+            // 🔥 إصلاح المهارات والأسلحة: تم إضافة خيار التصفير هنا تحت الزر الجديد 🔥
+            else if (val === 'reset_combat') {
+                await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+                try {
+                    await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                    await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                } catch(e) {
+                    await db.query(`DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
+                    await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
+                }
+                const summaryEmbed = await getGearSummaryEmbed(userID, guildID, db, targetUser);
+                await interaction.editReply({ content: `🗑️ ✅ تم تصفير جميع الأسلحة والمهارات القتالية لـ ${targetUser} بنجاح!`, embeds: [summaryEmbed] });
             }
             else if (val === 'combat_gear') {
                 const modalId = `mod_gear_${Date.now()}`;
@@ -616,6 +609,7 @@ module.exports = {
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
             }
             else if (val === 'fishing_gear') {
+                // الكود نفسه سليم لم أقم بتغييره هنا.
                 const modalId = `mod_fish_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة معدات وموقع الصيد');
                 const typeInput = new TextInputBuilder().setCustomId('fish_type').setLabel('النوع (سنارة / قارب / مكان)').setStyle(TextInputStyle.Short).setRequired(true);
@@ -661,6 +655,7 @@ module.exports = {
 
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
             }
+            // 🔥 إصلاح إعطاء وحذف الأغراض هنا 🔥
             else if (val === 'items') {
                 const modalId = `mod_item_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة العناصر');
@@ -683,69 +678,45 @@ module.exports = {
 
                     if (action.includes('اعطاء') || action.includes('اضاف')) {
                         if (item.type === 'market') {
-                            let pfItemRes;
-                            try { pfItemRes = await db.query(`SELECT * FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userID, guildID, item.id]); }
-                            catch(e) { pfItemRes = await db.query(`SELECT * FROM user_portfolio WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userID, guildID, item.id]).catch(()=>({rows:[]})); }
-                            
-                            if (pfItemRes.rows.length > 0) {
-                                try { await db.query(`UPDATE user_portfolio SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, pfItemRes.rows[0].id]); }
-                                catch(e) { await db.query(`UPDATE user_portfolio SET quantity = quantity + $1 WHERE id = $2`, [qty, pfItemRes.rows[0].id]).catch(()=>{}); }
-                            } else {
-                                try { await db.query(`INSERT INTO user_portfolio ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildID, userID, item.id, qty]); }
-                                catch(e) { await db.query(`INSERT INTO user_portfolio (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildID, userID, item.id, qty]).catch(()=>{}); }
+                            try {
+                                await db.query(`INSERT INTO user_portfolio ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = user_portfolio."quantity" + $4`, [guildID, userID, item.id, qty]);
+                            } catch(e) {
+                                let pfItemRes = await db.query(`SELECT * FROM user_portfolio WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userID, guildID, item.id]).catch(()=>({rows:[]}));
+                                if (pfItemRes.rows.length > 0) {
+                                    await db.query(`UPDATE user_portfolio SET quantity = quantity + $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, userID, guildID, item.id]).catch(()=>{});
+                                } else {
+                                    await db.query(`INSERT INTO user_portfolio (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildID, userID, item.id, qty]).catch(()=>{});
+                                }
                             }
                         } else if (item.type === 'farm') {
+                            // تم إصلاح مشكلة اللوب، يضيف الكمية في سطر واحد لتوافق نظام المزرعة الجديد
                             const now = Date.now();
-                            for (let i = 0; i < qty; i++) {
-                                try { await db.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5)`, [guildID, userID, item.id, now, now]); }
-                                catch(e) { await db.query(`INSERT INTO user_farm (guildid, userid, animalid, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5)`, [guildID, userID, item.id, now, now]).catch(()=>{}); }
-                            }
+                            try { await db.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, item.id, qty, now, now]); }
+                            catch(e) { await db.query(`INSERT INTO user_farm (guildid, userid, animalid, quantity, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, item.id, qty, now, now]).catch(()=>{}); }
                         } else if (item.type === 'feed' || item.type === 'seed') {
-                            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $5`, [guildID, userID, item.id, qty, qty]); }
-                            catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = COALESCE(quantity, 0) + $5`, [guildID, userID, item.id, qty, qty]).catch(()=>{}); }
+                            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $4`, [guildID, userID, item.id, qty]); }
+                            catch(e) { 
+                                let invItemRes = await db.query(`SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userID, guildID, item.id]).catch(()=>({rows:[]}));
+                                if (invItemRes.rows.length > 0) {
+                                    await db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, userID, guildID, item.id]).catch(()=>{});
+                                } else {
+                                    await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildID, userID, item.id, qty]).catch(()=>{});
+                                }
+                            }
                         }
                         await modalSubmit.editReply({ content: `✅ تم إضافة **${qty}** × **${item.name}** لـ ${targetUser}.` });
                     } 
                     else if (action.includes('ازال') || action.includes('سحب')) {
+                        // الاعتماد على userID و itemID في الحذف بدلاً من عمود id الذي قد لا يكون موجوداً
                         if (item.type === 'market') {
-                            let pfItemRes;
-                            try { pfItemRes = await db.query(`SELECT * FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userID, guildID, item.id]); }
-                            catch(e) { pfItemRes = await db.query(`SELECT * FROM user_portfolio WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userID, guildID, item.id]).catch(()=>({rows:[]})); }
-                            
-                            const pfItem = pfItemRes.rows[0];
-                            if (!pfItem) return modalSubmit.editReply({ content: "❌ لا يمتلك هذا العنصر." });
-                            
-                            if (Number(pfItem.quantity) - qty <= 0) {
-                                try { await db.query(`DELETE FROM user_portfolio WHERE "id" = $1`, [pfItem.id]); }
-                                catch(e) { await db.query(`DELETE FROM user_portfolio WHERE id = $1`, [pfItem.id]).catch(()=>{}); }
-                            } else {
-                                try { await db.query(`UPDATE user_portfolio SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [qty, pfItem.id]); }
-                                catch(e) { await db.query(`UPDATE user_portfolio SET quantity = quantity - $1 WHERE id = $2`, [qty, pfItem.id]).catch(()=>{}); }
-                            }
+                            try { await db.query(`UPDATE user_portfolio SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [qty, userID, guildID, item.id]); }
+                            catch(e) { await db.query(`UPDATE user_portfolio SET quantity = GREATEST(0, quantity - $1) WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, userID, guildID, item.id]).catch(()=>{}); }
                         } else if (item.type === 'farm') {
-                            let animalsRes;
-                            try { animalsRes = await db.query(`SELECT "id" FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 AND "animalID" = $3 LIMIT $4`, [userID, guildID, item.id, qty]); }
-                            catch(e) { animalsRes = await db.query(`SELECT id FROM user_farm WHERE userid = $1 AND guildid = $2 AND animalid = $3 LIMIT $4`, [userID, guildID, item.id, qty]).catch(()=>({rows:[]})); }
-                            
-                            for(const a of animalsRes.rows){
-                                try { await db.query(`DELETE FROM user_farm WHERE "id" = $1`, [a.id]); }
-                                catch(e) { await db.query(`DELETE FROM user_farm WHERE id = $1`, [a.id]).catch(()=>{}); }
-                            }
+                            try { await db.query(`UPDATE user_farm SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "animalID" = $4`, [qty, userID, guildID, item.id]); }
+                            catch(e) { await db.query(`UPDATE user_farm SET quantity = GREATEST(0, quantity - $1) WHERE userid = $2 AND guildid = $3 AND animalid = $4`, [qty, userID, guildID, item.id]).catch(()=>{}); }
                         } else if (item.type === 'feed' || item.type === 'seed') {
-                            let invItemRes;
-                            try { invItemRes = await db.query(`SELECT "quantity", "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userID, guildID, item.id]); }
-                            catch(e) { invItemRes = await db.query(`SELECT quantity, id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userID, guildID, item.id]).catch(()=>({rows:[]})); }
-                            
-                            const invItem = invItemRes.rows[0];
-                            if (!invItem) return modalSubmit.editReply({ content: "❌ لا يمتلك هذا العنصر في المخزن." });
-
-                            if (Number(invItem.quantity) - qty <= 0) {
-                                try { await db.query(`DELETE FROM user_inventory WHERE "id" = $1`, [invItem.id || invItem.id]); }
-                                catch(e) { await db.query(`DELETE FROM user_inventory WHERE id = $1`, [invItem.id || invItem.id]).catch(()=>{}); }
-                            } else {
-                                try { await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [qty, invItem.id || invItem.id]); }
-                                catch(e) { await db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [qty, invItem.id || invItem.id]).catch(()=>{}); }
-                            }
+                            try { await db.query(`UPDATE user_inventory SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [qty, userID, guildID, item.id]); }
+                            catch(e) { await db.query(`UPDATE user_inventory SET quantity = GREATEST(0, quantity - $1) WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, userID, guildID, item.id]).catch(()=>{}); }
                         }
                         await modalSubmit.editReply({ content: `✅ تم سحب **${qty}** × **${item.name}** من ${targetUser}.` });
                     }
@@ -754,6 +725,7 @@ module.exports = {
             else if (val === 'media_shield') {
                 await this.giveMediaShield(interaction, client, db, targetUser);
             }
+            // 🔥 إصلاح التصفير الشامل: تم تضمين جميع الجداول المفقودة 🔥
             else if (val === 'reset') {
                 await this.resetUser(interaction, client, db, targetUser);
             }
@@ -962,23 +934,36 @@ module.exports = {
         const guildID = interaction.guild.id;
         const userID = targetUser.id;
 
+        // 🔥 التصفير الشامل تم وضع كل الجداول فيه لضمان حذف اللاعب تماماً
         try {
             await db.query(`DELETE FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID]);
             await db.query(`DELETE FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
             await db.query(`DELETE FROM user_farm WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
             await db.query(`DELETE FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
             await db.query(`DELETE FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+            await db.query(`DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+            await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+            await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+            await db.query(`DELETE FROM dungeon_stats WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+            await db.query(`DELETE FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+            await db.query(`DELETE FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
         } catch(e) {
             await db.query(`DELETE FROM levels WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
             await db.query(`DELETE FROM user_portfolio WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
             await db.query(`DELETE FROM user_farm WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
             await db.query(`DELETE FROM user_achievements WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
             await db.query(`DELETE FROM user_reputation WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
+            await db.query(`DELETE FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
+            await db.query(`DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
+            await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
+            await db.query(`DELETE FROM dungeon_stats WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
+            await db.query(`DELETE FROM streaks WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
+            await db.query(`DELETE FROM media_streaks WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{});
         }
         
         await client.setLevel({ ...client.defaultData, user: userID, guild: guildID });
 
-        await interaction.editReply({ content: `☢️ **تم تصفير حساب ${targetUser} بالكامل!**` });
+        await interaction.editReply({ content: `☢️ **تم تصفير حساب ${targetUser} ومسح جميع بياناته بالكامل!**` });
     },
 
     findItem(nameOrID) {
@@ -990,13 +975,9 @@ module.exports = {
         item = marketItems.find(i => normalize(i.name) === input || i.id.toLowerCase() === nameOrID.toLowerCase());
         if (item) return { ...item, type: 'market' };
         
-        // 🔥 هنا الإضافة: البحث باسم الحيوان يعطيك العلف الخاص فيه مباشرة 🔥
+        // 🔥 تم إصلاح دالة البحث: لو كتبت اسم حيوان يعطيك الحيوان نفسه بدلاً من العلف الخاص فيه 🔥
         item = farmAnimals.find(i => normalize(i.name) === input || String(i.id).toLowerCase() === nameOrID.toLowerCase());
-        if (item) {
-            const feedForAnimal = feedItems.find(f => String(f.id) === String(item.feed_id));
-            if (feedForAnimal) return { ...feedForAnimal, type: 'feed' };
-            return { ...item, type: 'farm' };
-        }
+        if (item) return { ...item, type: 'farm' };
 
         item = seedsData.find(i => normalize(i.name) === input || String(i.id).toLowerCase() === nameOrID.toLowerCase());
         if (item) return { ...item, type: 'seed' };
