@@ -13,7 +13,6 @@ const {
     MessageFlags 
 } = require("discord.js");
 
-// 🔥 استيراد الدالة السحرية المركزية للتلفيل الصامت 🔥
 let addXPAndCheckLevel;
 try {
     ({ addXPAndCheckLevel } = require('../handler-utils.js')); 
@@ -275,11 +274,24 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 const raceRoleIDs = allRaceRolesRes.rows.map(r => r.roleID || r.roleid);
                 const userRaceRole = interaction.member.roles.cache.find(r => raceRoleIDs.includes(r.id));
                 if (userRaceRole) { await interaction.member.roles.remove(userRaceRole); }
-                try { await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]); }
-                catch(e) { await db.query(`DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
-                try { await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" LIKE 'race_%'`, [interaction.user.id, interaction.guild.id]); }
-                catch(e) { await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid LIKE 'race_%'`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
-            } catch (err) { console.error("Error in change_race cleanup:", err); }
+                
+                // 🔥 حذف العرق والأسلحة والمهارات التابعة له 🔥
+                await db.query("BEGIN");
+                
+                await db.query(`DELETE FROM user_race WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id])
+                    .catch(() => db.query(`DELETE FROM user_race WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]));
+                    
+                await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id])
+                    .catch(() => db.query(`DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]));
+                    
+                await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" LIKE 'race_%'`, [interaction.user.id, interaction.guild.id])
+                    .catch(() => db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid LIKE 'race_%'`, [interaction.user.id, interaction.guild.id]));
+                
+                await db.query("COMMIT");
+            } catch (err) { 
+                await db.query("ROLLBACK").catch(()=>{});
+                console.error("Error in change_race cleanup:", err); 
+            }
               
             const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
             try {
