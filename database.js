@@ -1,23 +1,17 @@
+require('dotenv').config();
 const { Pool } = require('pg');
 
-// الرابط الصحيح والمضمون لقاعدة بيانات Railway الجديدة 🚂
-const connectionString = "postgresql://postgres:jbfhGDzgPCLLhOiilJPYEFVyiFHHEOwq@postgres.railway.internal:5432/railway";
-
-// هذا السطر السحري يجبر الاستضافة تتصل بشكل صحيح (IPv4) لتجنب أخطاء الشبكة
-const pg = require('pg');
-if (pg.defaults) {
-    pg.defaults.family = 4;
-}
+// نقرأ الرابط من Railway مباشرة، وإذا لم يجده يستخدم الرابط الداخلي كاحتياط
+const connectionString = process.env.DATABASE_URL || "postgresql://postgres:jbfhGDzgPCLLhOiilJPYEFVyiFHHEOwq@postgres.railway.internal:5432/railway";
 
 // ⚡ إعدادات الاتصال السريع (Turbo Pool)
 const db = new Pool({
     connectionString: connectionString,
-    // قمنا بتعطيل الـ SSL لأن الاتصال الداخلي في Railway آمن ولا يحتاج تشفيره (ليكون أسرع)
-    ssl: false,
-    max: 50, // 🚀 السماح بـ 50 اتصال متزامن في نفس اللحظة لإنهاء طابور الانتظار
-    idleTimeoutMillis: 30000, // إغلاق الاتصالات الخاملة بعد 30 ثانية لتوفير الذاكرة
-    connectionTimeoutMillis: 2000, // البوت لن ينتظر أكثر من ثانيتين للاتصال
-    maxUses: 7500 // تجديد الاتصال بعد 7500 استخدام لضمان بقائه في أعلى سرعة
+    ssl: false, // الاتصال الداخلي في ريلواي آمن ولا يحتاج SSL (يجعل الاتصال أسرع)
+    max: 50, 
+    idleTimeoutMillis: 30000, 
+    connectionTimeoutMillis: 2000, 
+    maxUses: 7500 
 });
 
 db.on('error', (err, client) => {
@@ -25,7 +19,7 @@ db.on('error', (err, client) => {
 });
 
 db.connect()
-    .then(() => console.log("✅ تم الاتصال بقاعدة البيانات (Railway) السريعة بنجاح! 🚀"))
+    .then(() => console.log("✅ تم الاتصال بقاعدة البيانات (Railway) بنجاح! 🚀"))
     .catch(err => console.error("❌ خطأ في الاتصال بقاعدة البيانات:", err.message));
 
 module.exports = db;
