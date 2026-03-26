@@ -401,18 +401,20 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                         const totalCost = itemData.price * qty;
                         if (Number(userData.mora || 0) < totalCost) return submit.reply({ content: `❌ رصيد غير كافي! تحتاج **${totalCost.toLocaleString()}** مورا.`, flags: [MessageFlags.Ephemeral] });
                         
+                        // 🔥 خصم المورا أولاً لضمان عدم التلاعب 🔥
                         try { await sql.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [totalCost, user.id, guild.id]); }
                         catch(e) { await sql.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [totalCost, user.id, guild.id]).catch(()=>{}); }
                         
-                        userData.mora = String(Number(userData.mora || 0) - totalCost);
+                        userData.mora = Number(userData.mora || 0) - totalCost;
                         if (typeof client.setLevel === 'function') await client.setLevel(userData);
                         
                         if (shopState.currentCategory === 'animals') {
-                            try { await sql.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, Date.now(), Date.now()]); }
-                            catch(e) { await sql.query(`INSERT INTO user_farm (guildid, userid, animalid, quantity, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, Date.now(), Date.now()]).catch(()=>{}); }
+                            const now = Date.now();
+                            try { await sql.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, now, now]); }
+                            catch(e) { await sql.query(`INSERT INTO user_farm (guildid, userid, animalid, quantity, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, now, now]).catch(()=>{}); }
                         } else {
                             try { await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = user_inventory."quantity" + $5`, [guild.id, user.id, itemId, qty, qty]); }
-                            catch(e) { await sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = COALESCE(quantity, 0) + $5`, [guild.id, user.id, itemId, qty, qty]).catch(()=>{}); }
+                            catch(e) { await sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = quantity + $5`, [guild.id, user.id, itemId, qty, qty]).catch(()=>{}); }
                         }
                         
                         await submit.reply({ content: `✅ تم شراء **${qty}x ${itemData.name}** بنجاح!`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
@@ -470,7 +472,7 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                             try { await sql.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [totalRefund, user.id, guild.id]); }
                             catch(e) { await sql.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [totalRefund, user.id, guild.id]).catch(()=>{}); }
                             
-                            userData.mora = String(Number(userData.mora || 0) + totalRefund);
+                            userData.mora = Number(userData.mora || 0) + totalRefund;
                             if (typeof client.setLevel === 'function') await client.setLevel(userData);
                             
                             await submit.reply({ content: `✅ تم بيع **${soldCount}x ${itemData.name}** بـ **${totalRefund.toLocaleString()}** مورا.`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
@@ -486,12 +488,6 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                             const sellPrice = Math.floor(itemData.price * 0.5); 
                             const totalGain = sellPrice * qty;
 
-                            try { await sql.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [totalGain, user.id, guild.id]); }
-                            catch(e) { await sql.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [totalGain, user.id, guild.id]).catch(()=>{}); }
-
-                            userData.mora = String(Number(userData.mora || 0) + totalGain);
-                            if (typeof client.setLevel === 'function') await client.setLevel(userData);
-
                             if (Number(invItem.quantity) === qty) {
                                 try { await sql.query(`DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guild.id, itemId]); }
                                 catch(e) { await sql.query(`DELETE FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guild.id, itemId]).catch(()=>{}); }
@@ -499,6 +495,12 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                                 try { await sql.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [qty, user.id, guild.id, itemId]); }
                                 catch(e) { await sql.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, user.id, guild.id, itemId]).catch(()=>{}); }
                             }
+                            
+                            try { await sql.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [totalGain, user.id, guild.id]); }
+                            catch(e) { await sql.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [totalGain, user.id, guild.id]).catch(()=>{}); }
+
+                            userData.mora = Number(userData.mora || 0) + totalGain;
+                            if (typeof client.setLevel === 'function') await client.setLevel(userData);
 
                             await submit.reply({ content: `✅ تم بيع **${qty}x ${itemData.name}** (بنصف السعر) وكسبت **${totalGain.toLocaleString()}** مورا.`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                         }
