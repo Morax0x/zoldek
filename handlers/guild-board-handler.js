@@ -17,7 +17,7 @@ try { GlobalFonts.registerFromPath(path.join(__dirname, '../fonts/bein-ar-normal
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_STAR = '⭐';
-const OWNER_ID = "1145327691772481577"; // 👑 الإمبراطور مستثـنى من المنافسة
+const OWNER_ID = "1145327691772481577"; 
 
 const RACE_TRANSLATIONS = new Map([
     ['Human', 'بشري'], ['Dragon', 'تنين'], ['Elf', 'آلف'], ['Dark Elf', 'آلف الظلام'],
@@ -577,6 +577,6 @@ async function handleQuestPanel(i, client, db) {
     await i.editReply({ content: embeds.length === 0 && files.length === 0 ? "❌ لا توجد بيانات." : null, embeds: embeds, files: files, components: components }).catch(()=>{});
 }
 
-// 🔥 تطبيق الجسر: استيراد دوال الإحصائيات من الملف الجديد وتصديرها مجدداً 🔥
 const { autoUpdateKingsBoard, updateGuildStat, rewardDailyKings, processStatsQueue } = require('./kings-stats-handler.js');
+
 module.exports = { handleQuestPanel, handleGuildBoard: handleQuestPanel, updateGuildStat, processStatsQueue };
