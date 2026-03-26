@@ -413,11 +413,22 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                             try { await sql.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, now, now]); }
                             catch(e) { await sql.query(`INSERT INTO user_farm (guildid, userid, animalid, quantity, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, now, now]).catch(()=>{}); }
                         } else {
-                            try { await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = user_inventory."quantity" + $5`, [guild.id, user.id, itemId, qty, qty]); }
-                            catch(e) { await sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = quantity + $5`, [guild.id, user.id, itemId, qty, qty]).catch(()=>{}); }
+                            // تم استخدام SELECT ثم UPDATE/INSERT لضمان إضافة السلع حتى لو ما فيه Unique Constraint
+                            let checkInvRes;
+                            try { checkInvRes = await sql.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guild.id, itemId]); }
+                            catch(e) { checkInvRes = await sql.query(`SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guild.id, itemId]).catch(()=>({rows:[]})); }
+                            
+                            if (checkInvRes && checkInvRes.rows && checkInvRes.rows.length > 0) {
+                                try { await sql.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [qty, user.id, guild.id, itemId]); }
+                                catch(e) { await sql.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, user.id, guild.id, itemId]).catch(()=>{}); }
+                            } else {
+                                try { await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guild.id, user.id, itemId, qty]); }
+                                catch(e) { await sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guild.id, user.id, itemId, qty]).catch(()=>{}); }
+                            }
                         }
                         
-                        await submit.reply({ content: `✅ تم شراء **${qty}x ${itemData.name}** بنجاح!`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                        // الرد الظاهر عند النجاح (بدون إخفاء)
+                        await submit.reply({ content: `✅ تم شراء **${qty}x ${itemData.name}** بنجاح!` }).catch(()=>{});
 
                     } else { 
                         if (shopState.currentCategory === 'animals') {
@@ -475,7 +486,8 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                             userData.mora = Number(userData.mora || 0) + totalRefund;
                             if (typeof client.setLevel === 'function') await client.setLevel(userData);
                             
-                            await submit.reply({ content: `✅ تم بيع **${soldCount}x ${itemData.name}** بـ **${totalRefund.toLocaleString()}** مورا.`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                            // الرد الظاهر عند البيع
+                            await submit.reply({ content: `✅ تم بيع **${soldCount}x ${itemData.name}** بـ **${totalRefund.toLocaleString()}** مورا.` }).catch(()=>{});
 
                         } else {
                             let invItemRes;
@@ -502,7 +514,8 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                             userData.mora = Number(userData.mora || 0) + totalGain;
                             if (typeof client.setLevel === 'function') await client.setLevel(userData);
 
-                            await submit.reply({ content: `✅ تم بيع **${qty}x ${itemData.name}** (بنصف السعر) وكسبت **${totalGain.toLocaleString()}** مورا.`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                            // الرد الظاهر عند البيع
+                            await submit.reply({ content: `✅ تم بيع **${qty}x ${itemData.name}** (بنصف السعر) وكسبت **${totalGain.toLocaleString()}** مورا.` }).catch(()=>{});
                         }
                     }
 
