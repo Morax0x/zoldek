@@ -210,15 +210,27 @@ async function autoUpdateKingsBoard(client, db) {
 
 async function rewardDailyKings(client, db) {
     if (!db) return;
+    console.log("=== STARTING REWARD DAILY KINGS ===");
     try {
         await ensureKingTrackerTable(db);
 
         const yesterdayKSA = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
         yesterdayKSA.setDate(yesterdayKSA.getDate() - 1);
         const targetDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(yesterdayKSA);
+        console.log(`Rewarding for date: ${targetDateStr}`);
 
-        let isPaidRes = await db.query(`SELECT * FROM kings_daily_payout WHERE "dateStr" = $1`, [targetDateStr]).catch(() => db.query(`SELECT * FROM kings_daily_payout WHERE datestr = $1`, [targetDateStr]));
-        if (isPaidRes?.rows.length > 0) return; 
+        // 🔥 حماية صلبة للتأكد من عدم تكرار التوزيع 🔥
+        let isPaidRes;
+        try {
+            isPaidRes = await db.query(`SELECT "dateStr" FROM kings_daily_payout WHERE "dateStr" = $1`, [targetDateStr]);
+        } catch(e) {
+            isPaidRes = await db.query(`SELECT datestr FROM kings_daily_payout WHERE datestr = $1`, [targetDateStr]).catch(()=>({rows:[]}));
+        }
+
+        if (isPaidRes && isPaidRes.rows && isPaidRes.rows.length > 0) {
+            console.log("✅ Rewards already paid for this date. Skipping.");
+            return; 
+        }
 
         for (const guild of client.guilds.cache.values()) {
             const guildId = guild.id;
@@ -278,10 +290,19 @@ async function rewardDailyKings(client, db) {
                     }
 
                     if (user || member) {
+                        // 🔥 تحديث صلب وعنيد لحفظ السمعة (Upsert) 🔥
                         try {
-                            await db.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3) ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = user_reputation."rep_points" + $4`, [w.id, guildId, w.rep, w.rep]);
+                            await db.query(`
+                                INSERT INTO user_reputation ("userID", "guildID", "rep_points") 
+                                VALUES ($1, $2, $3) 
+                                ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = user_reputation."rep_points" + $4
+                            `, [w.id, guildId, w.rep, w.rep]);
                         } catch(e) {
-                            await db.query(`INSERT INTO user_reputation (userid, guildid, rep_points) VALUES ($1, $2, $3) ON CONFLICT(userid, guildid) DO UPDATE SET rep_points = user_reputation.rep_points + $4`, [w.id, guildId, w.rep, w.rep]).catch(()=>{});
+                            await db.query(`
+                                INSERT INTO user_reputation (userid, guildid, rep_points) 
+                                VALUES ($1, $2, $3) 
+                                ON CONFLICT(userid, guildid) DO UPDATE SET rep_points = user_reputation.rep_points + $4
+                            `, [w.id, guildId, w.rep, w.rep]).catch(err => console.error("Rep Update Error:", err));
                         }
                         kingsToAnnounce.push({ title: w.title, name: safeName, rep: w.rep });
                     }
@@ -300,18 +321,25 @@ async function rewardDailyKings(client, db) {
                                 await announceChannel.send({
                                     content: `👑 تـتـويـج مـلـوك الإمـبـراطـوريـة 👑`,
                                     files: [attachment]
-                                }).catch(()=>{});
+                                }).catch((e)=> console.error("Failed to send kings announcement image:", e));
                             }
-                        } catch(e) {}
+                        } catch(e) {
+                            console.error("Error generating kings image:", e);
+                        }
                     }
                 }
-            } catch (err) {} 
+            } catch (err) {
+                console.error(`Error processing guild ${guildId} for rewards:`, err);
+            } 
         }
 
+        // 🔥 تسجيل أنه تم التوزيع بنجاح اليوم 🔥
         try { await db.query(`INSERT INTO kings_daily_payout ("dateStr") VALUES ($1)`, [targetDateStr]); }
         catch(e) { await db.query(`INSERT INTO kings_daily_payout (datestr) VALUES ($1)`, [targetDateStr]).catch(()=>{}); }
 
-    } catch (e) {}
+    } catch (e) {
+        console.error("CRITICAL ERROR IN REWARD DAILY KINGS:", e);
+    }
 }
 
 const statsQueue = new Map();
