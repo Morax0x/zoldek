@@ -145,7 +145,7 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
         const fifteenDaysMs = 15 * 24 * 60 * 60 * 1000;
         if (!usageData || (Date.now() - Number(usageData.lastUsedTimestamp || usageData.lastusedtimestamp) > fifteenDaysMs)) isRoleCouponReady = true; else bestRoleCoupon = null; 
     }
-    if (!bossCoupon && !bestRoleCoupon) return processFinalPurchase(interaction, itemData, quantity, totalPrice, 0, 'none', client, db, callbackType);
+    if (!bossCoupon && !bestRoleCoupon) return await processFinalPurchase(interaction, itemData, quantity, totalPrice, 0, 'none', client, db, callbackType);
 
     const row = new ActionRowBuilder();
     let couponMessage = "";
@@ -169,42 +169,59 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     const replyData = { content: `**🛍️ خيـارات الـدفع:**\n\n${couponMessage}`, components: [row], flags: MessageFlags.Ephemeral, fetchReply: true };
     let msg; if (interaction.replied || interaction.deferred) msg = await interaction.followUp(replyData); else msg = await interaction.reply(replyData);
     
-    // 🔥 إصلاح مشكلة الدبل كليك هنا (max: 1 و .once) 🔥
-    const filter = i => i.user.id === userID;
-    const collector = msg.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 60000, max: 1 });
-    collector.once('collect', async i => {
-        await i.deferUpdate().catch(()=>{}); 
-        await i.editReply({ content: "⏳ جاري تنفيذ الطلب...", components: [] }).catch(()=>{});
+    // 🔥 الحماية الكاملة من الدبل كليك بتجميد القفل لين يخلص Collector 🔥
+    await new Promise((resolve) => {
+        const filter = i => i.user.id === userID;
+        const collector = msg.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 60000, max: 1 });
         
-        if (i.customId === 'skip_coupon') await processFinalPurchase(i, itemData, quantity, totalPrice, 0, 'none', client, db, callbackType);
-        else if (i.customId === 'use_boss_coupon') await processFinalPurchase(i, itemData, quantity, finalPriceWithBoss, Number(bossCoupon.discountPercent || bossCoupon.discountpercent), 'boss', client, db, callbackType, bossCoupon.id);
-        else if (i.customId === 'use_role_coupon') await processFinalPurchase(i, itemData, quantity, finalPriceWithRole, Number(bestRoleCoupon.discountPercent || bestRoleCoupon.discountpercent), 'role', client, db, callbackType);
+        collector.once('collect', async i => {
+            await i.deferUpdate().catch(()=>{}); 
+            await i.editReply({ content: "⏳ جاري تنفيذ الطلب...", components: [] }).catch(()=>{});
+            
+            if (i.customId === 'skip_coupon') await processFinalPurchase(interaction, itemData, quantity, totalPrice, 0, 'none', client, db, callbackType);
+            else if (i.customId === 'use_boss_coupon') await processFinalPurchase(interaction, itemData, quantity, finalPriceWithBoss, Number(bossCoupon.discountPercent || bossCoupon.discountpercent), 'boss', client, db, callbackType, bossCoupon.id);
+            else if (i.customId === 'use_role_coupon') await processFinalPurchase(interaction, itemData, quantity, finalPriceWithRole, Number(bestRoleCoupon.discountPercent || bestRoleCoupon.discountpercent), 'role', client, db, callbackType);
+            
+            resolve();
+        });
+
+        collector.on('end', collected => {
+            if (collected.size === 0) {
+                msg.edit({ content: "⏳ انتهى وقت الاختيار وتم إلغاء العملية.", components: [] }).catch(()=>{});
+                resolve();
+            }
+        });
     });
 }
 
+// 🔥 القلب النابض: الدالة المعززة ضد ثغرات التكرار وفقدان الفلوس 🔥
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
-    let userDataRes;
-    try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [interaction.user.id, interaction.guild.id]); }
-    catch(e) { userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})); }
-    
-    let userData = userDataRes.rows[0];
-    if (!userData) {
-        userData = { user: interaction.user.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0, xp: 0, totalXP: 0 };
-        try { await db.query(`INSERT INTO levels ("user", "guild", "mora", "bank", "xp", "totalXP", "level") VALUES ($1, $2, 0, 0, 0, 0, 0)`, [interaction.user.id, interaction.guild.id]); }
-        catch(e) { await db.query(`INSERT INTO levels (userid, guildid, mora, bank, xp, totalxp, level) VALUES ($1, $2, 0, 0, 0, 0, 0)`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
-    }
-      
     const safeReply = async (payload) => {
         payload.flags = MessageFlags.Ephemeral; 
-        if (interaction.deferred || interaction.replied) return await interaction.followUp(payload).catch(()=>{}); else return await interaction.reply(payload).catch(()=>{});
+        if (interaction.deferred || interaction.replied) return await interaction.followUp(payload).catch(()=>{}); 
+        else return await interaction.reply(payload).catch(()=>{});
     };
 
-    if (Number(userData.mora) < finalPrice) {
-        const userBank = Number(userData.bank) || 0; 
-        let errorMsg = `❌ **عذراً، لا تملك مورا كافية!**\nالمطلوب بالكاش: **${finalPrice.toLocaleString()}** ${EMOJI_MORA}`;
-        if (userBank >= finalPrice) errorMsg += `\n\n💡 **تلميح:** ليس لديك كاش كافٍ، ولكن لديك **${userBank.toLocaleString()}** في البنك.`;
-        return await safeReply({ content: errorMsg });
+    let exactNewMora = -1;
+
+    // 1. 🔥 الخصم الذري الآمن جداً (يمنع النسخ والدبل كليك تماماً) 🔥
+    if (finalPrice > 0) {
+        let deductRes;
+        try { 
+            deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [finalPrice, interaction.user.id, interaction.guild.id]); 
+        } catch(e) { 
+            try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [finalPrice, interaction.user.id, interaction.guild.id]); } 
+            catch(err) { return await safeReply({ content: "❌ **خطأ داخلي!** فشل النظام في التحقق من رصيدك." }); }
+        }
+
+        if (!deductRes || deductRes.rowCount === 0) {
+            return await safeReply({ content: `❌ **عذراً، لا تملك مورا كافية في جيبك (الكاش)!**\nالمطلوب: **${finalPrice.toLocaleString()}** ${EMOJI_MORA}` });
+        }
+        exactNewMora = deductRes.rows[0].mora;
     }
+
+    // 2. الفلوس انخصمت! الآن نعطيه العنصر
+    let success = true;
 
     if (couponType === 'boss' && couponIdToDelete) {
         try { await db.query(`DELETE FROM user_coupons WHERE "id" = $1`, [couponIdToDelete]); }
@@ -215,11 +232,10 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         catch(e) { await db.query(`INSERT INTO user_role_coupon_usage (guildid, userid, lastusedtimestamp) VALUES ($1, $2, $3) ON CONFLICT(guildid, userid) DO UPDATE SET lastusedtimestamp = EXCLUDED.lastusedtimestamp`, [interaction.guild.id, interaction.user.id, Date.now()]).catch(()=>{}); }
     }
 
-    // 🔥 ضمان إعطاء العنصر للمخزن أولاً 🔥
     if (callbackType === 'item') {
         if (itemData.id === 'personal_guard_1d') { 
             try { await db.query(`UPDATE levels SET "hasGuard" = COALESCE("hasGuard", 0) + 3, "guardExpires" = 0 WHERE "user" = $1 AND "guild" = $2`, [interaction.user.id, interaction.guild.id]); }
-            catch(e) { await db.query(`UPDATE levels SET hasguard = COALESCE(hasguard, 0) + 3, guardexpires = 0 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
+            catch(e) { try { await db.query(`UPDATE levels SET hasguard = COALESCE(hasguard, 0) + 3, guardexpires = 0 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]); } catch(err) { success = false; } }
         }
         else if (itemData.id === 'streak_shield') {
             let existingStreakRes;
@@ -228,7 +244,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             const existingStreak = existingStreakRes.rows[0];
             const id = existingStreak?.id || `${interaction.guild.id}-${interaction.user.id}`;
             try { await db.query(`INSERT INTO streaks ("id", "guildID", "userID", "streakCount", "lastMessageTimestamp", "hasGracePeriod", "hasItemShield", "nicknameActive", "hasReceivedFreeShield", "separator", "dmNotify", "highestStreak") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT ("id") DO UPDATE SET "hasItemShield" = 1`, [id, interaction.guild.id, interaction.user.id, existingStreak?.streakCount || existingStreak?.streakcount || 0, existingStreak?.lastMessageTimestamp || existingStreak?.lastmessagetimestamp || 0, existingStreak?.hasGracePeriod || existingStreak?.hasgraceperiod || 0, 1, existingStreak?.nicknameActive ?? existingStreak?.nicknameactive ?? 1, existingStreak?.hasReceivedFreeShield || existingStreak?.hasreceivedfreeshield || 0, existingStreak?.separator || '»', existingStreak?.dmNotify ?? existingStreak?.dmnotify ?? 1, existingStreak?.highestStreak || existingStreak?.higheststreak || 0]); }
-            catch(e) { await db.query(`INSERT INTO streaks (id, guildid, userid, streakcount, lastmessagetimestamp, hasgraceperiod, hasitemshield, nicknameactive, hasreceivedfreeshield, separator, dmnotify, higheststreak) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO UPDATE SET hasitemshield = 1`, [id, interaction.guild.id, interaction.user.id, existingStreak?.streakCount || existingStreak?.streakcount || 0, existingStreak?.lastMessageTimestamp || existingStreak?.lastmessagetimestamp || 0, existingStreak?.hasGracePeriod || existingStreak?.hasgraceperiod || 0, 1, existingStreak?.nicknameActive ?? existingStreak?.nicknameactive ?? 1, existingStreak?.hasReceivedFreeShield || existingStreak?.hasreceivedfreeshield || 0, existingStreak?.separator || '»', existingStreak?.dmNotify ?? existingStreak?.dmnotify ?? 1, existingStreak?.highestStreak || existingStreak?.higheststreak || 0]).catch(()=>{}); }
+            catch(e) { try { await db.query(`INSERT INTO streaks (id, guildid, userid, streakcount, lastmessagetimestamp, hasgraceperiod, hasitemshield, nicknameactive, hasreceivedfreeshield, separator, dmnotify, higheststreak) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO UPDATE SET hasitemshield = 1`, [id, interaction.guild.id, interaction.user.id, existingStreak?.streakCount || existingStreak?.streakcount || 0, existingStreak?.lastMessageTimestamp || existingStreak?.lastmessagetimestamp || 0, existingStreak?.hasGracePeriod || existingStreak?.hasgraceperiod || 0, 1, existingStreak?.nicknameActive ?? existingStreak?.nicknameactive ?? 1, existingStreak?.hasReceivedFreeShield || existingStreak?.hasreceivedfreeshield || 0, existingStreak?.separator || '»', existingStreak?.dmNotify ?? existingStreak?.dmnotify ?? 1, existingStreak?.highestStreak || existingStreak?.higheststreak || 0]); } catch(err) { success = false; } }
         }
         else if (itemData.id === 'streak_shield_media') {
             let existingMediaStreakRes;
@@ -237,7 +253,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             const existingMediaStreak = existingMediaStreakRes.rows[0];
             const id = existingMediaStreak?.id || `${interaction.guild.id}-${interaction.user.id}`;
             try { await db.query(`INSERT INTO media_streaks ("id", "guildID", "userID", "streakCount", "lastMediaTimestamp", "hasGracePeriod", "hasItemShield", "hasReceivedFreeShield", "dmNotify", "highestStreak") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT ("id") DO UPDATE SET "hasItemShield" = 1`, [id, interaction.guild.id, interaction.user.id, existingMediaStreak?.streakCount || existingMediaStreak?.streakcount || 0, existingMediaStreak?.lastMediaTimestamp || existingMediaStreak?.lastmediatimestamp || 0, existingMediaStreak?.hasGracePeriod || existingMediaStreak?.hasgraceperiod || 0, 1, existingMediaStreak?.hasReceivedFreeShield || existingMediaStreak?.hasreceivedfreeshield || 0, existingMediaStreak?.dmNotify ?? existingMediaStreak?.dmnotify ?? 1, existingMediaStreak?.highestStreak || existingMediaStreak?.higheststreak || 0]); }
-            catch(e) { await db.query(`INSERT INTO media_streaks (id, guildid, userid, streakcount, lastmediatimestamp, hasgraceperiod, hasitemshield, hasreceivedfreeshield, dmnotify, higheststreak) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO UPDATE SET hasitemshield = 1`, [id, interaction.guild.id, interaction.user.id, existingMediaStreak?.streakCount || existingMediaStreak?.streakcount || 0, existingMediaStreak?.lastMediaTimestamp || existingMediaStreak?.lastmediatimestamp || 0, existingMediaStreak?.hasGracePeriod || existingMediaStreak?.hasgraceperiod || 0, 1, existingMediaStreak?.hasReceivedFreeShield || existingMediaStreak?.hasreceivedfreeshield || 0, existingMediaStreak?.dmNotify ?? existingMediaStreak?.dmnotify ?? 1, existingMediaStreak?.highestStreak || existingMediaStreak?.higheststreak || 0]).catch(()=>{}); }
+            catch(e) { try { await db.query(`INSERT INTO media_streaks (id, guildid, userid, streakcount, lastmediatimestamp, hasgraceperiod, hasitemshield, hasreceivedfreeshield, dmnotify, higheststreak) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO UPDATE SET hasitemshield = 1`, [id, interaction.guild.id, interaction.user.id, existingMediaStreak?.streakCount || existingMediaStreak?.streakcount || 0, existingMediaStreak?.lastMediaTimestamp || existingMediaStreak?.lastmediatimestamp || 0, existingMediaStreak?.hasGracePeriod || existingMediaStreak?.hasgraceperiod || 0, 1, existingMediaStreak?.hasReceivedFreeShield || existingMediaStreak?.hasreceivedfreeshield || 0, existingMediaStreak?.dmNotify ?? existingMediaStreak?.dmnotify ?? 1, existingMediaStreak?.highestStreak || existingMediaStreak?.higheststreak || 0]); } catch(err) { success = false; } }
         }
         else if (itemData.id.startsWith('xp_buff_')) {
             let multiplier = 0, buffPercent = 0, duration = 0;
@@ -249,7 +265,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             if (duration > 0) {
                 const expiresAt = Date.now() + duration;
                 try { await db.query(`INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]); }
-                catch(e) { await db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]).catch(()=>{}); }
+                catch(e) { try { await db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]); } catch (err) { success = false; } }
             }
         }
         else if (itemData.id === 'vip_role_3d') {
@@ -258,18 +274,18 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             catch(e) { settingsRes = await db.query(`SELECT viproleid FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
             const settings = settingsRes.rows[0];
             if (settings && (settings.vipRoleID || settings.viproleid)) {
-                const member = await interaction.guild.members.fetch(interaction.user.id);
-                await member.roles.add(settings.vipRoleID || settings.viproleid).catch(console.error);
+                const member = await interaction.guild.members.fetch(interaction.user.id).catch(()=>{});
+                if (member) await member.roles.add(settings.vipRoleID || settings.viproleid).catch(()=>{});
                 const expiresAt = Date.now() + (3 * 24 * 60 * 60 * 1000);
                 try { await db.query(`INSERT INTO temporary_roles ("userID", "guildID", "roleID", "expiresAt") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "roleID") DO UPDATE SET "expiresAt" = EXCLUDED."expiresAt"`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid, expiresAt]); }
-                catch(e) { await db.query(`INSERT INTO temporary_roles (userid, guildid, roleid, expiresat) VALUES ($1, $2, $3, $4) ON CONFLICT (userid, guildid, roleid) DO UPDATE SET expiresat = EXCLUDED.expiresat`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid, expiresAt]).catch(()=>{}); }
+                catch(e) { try { await db.query(`INSERT INTO temporary_roles (userid, guildid, roleid, expiresat) VALUES ($1, $2, $3, $4) ON CONFLICT (userid, guildid, roleid) DO UPDATE SET expiresat = EXCLUDED.expiresat`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid, expiresAt]); } catch (err) { success = false; } }
             }
         }
         else if (itemData.id === 'farm_worker_3d') {
             const duration = 3 * 24 * 60 * 60 * 1000;
             const expiresAt = Date.now() + duration;
             try { await db.query(`INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, expiresAt, 0]); }
-            catch(e) { await db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, expiresAt, 0]).catch(()=>{}); }
+            catch(e) { try { await db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, expiresAt, 0]); } catch(err){ success = false; } }
         }
         else if (itemData.id === 'change_race') {
             try {
@@ -286,7 +302,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 
                 try { await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" ILIKE 'race_%'`, [interaction.user.id, interaction.guild.id]); }
                 catch(e) { await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid ILIKE 'race_%'`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
-            } catch (err) { console.error("Error in change_race cleanup:", err); }
+            } catch (err) { success = false; console.error("Error in change_race cleanup:", err); }
               
             const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
             try { await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, 'xp', -0.05]); }
@@ -295,44 +311,55 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             catch(e) { await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, 'mora', -0.05]).catch(()=>{}); }
         }
         else {
-            // إضافة كل العناصر العامة (الجرعات وغيرها) للمخزن
+            // العناصر اللي تروح المخزن (انفنتوري)
             await ensureInventoryTable(db); 
             try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $5`, [interaction.guild.id, interaction.user.id, itemData.id, quantity, quantity]); }
-            catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $5`, [interaction.guild.id, interaction.user.id, itemData.id, quantity, quantity]).catch(()=>{}); }
+            catch(e) { 
+                try { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $5`, [interaction.guild.id, interaction.user.id, itemData.id, quantity, quantity]); }
+                catch(err) { success = false; console.error("Inventory error:", err); }
+            }
         }
     } 
     else if (callbackType === 'weapon') {
         const newLevel = itemData.currentLevel + 1;
         if (itemData.isBuy) {
             try { await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]); }
-            catch(e) { await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]).catch(()=>{}); }
+            catch(e) { try { await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]); } catch(err) { success = false; } }
         } else {
             try { await db.query(`UPDATE user_weapons SET "weaponLevel" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "raceName" = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]); }
-            catch(e) { await db.query(`UPDATE user_weapons SET weaponlevel = $1 WHERE userid = $2 AND guildid = $3 AND racename = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=>{}); }
+            catch(e) { try { await db.query(`UPDATE user_weapons SET weaponlevel = $1 WHERE userid = $2 AND guildid = $3 AND racename = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]); } catch (err) { success = false; } }
         }
-        await _handleWeaponUpgrade(interaction, client, db, true); 
+        if (success) await _handleWeaponUpgrade(interaction, client, db, true); 
     } 
     else if (callbackType === 'skill') {
         const newLevel = itemData.currentLevel + 1;
         if (itemData.isBuy) {
             try { await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]); }
-            catch(e) { await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]).catch(()=>{}); }
+            catch(e) { try { await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]); } catch(err) { success = false; } }
         } else {
             try { await db.query(`UPDATE user_skills SET "skillLevel" = $1 WHERE "id" = $2`, [newLevel, itemData.dbId]); }
-            catch(e) { await db.query(`UPDATE user_skills SET skilllevel = $1 WHERE id = $2`, [newLevel, itemData.dbId]).catch(()=>{}); }
+            catch(e) { try { await db.query(`UPDATE user_skills SET skilllevel = $1 WHERE id = $2`, [newLevel, itemData.dbId]); } catch (err) { success = false; } }
         }
-        await _handleSkillUpgrade(interaction, client, db, true); 
+        if (success) await _handleSkillUpgrade(interaction, client, db, true); 
     }
 
-    // 🔥 تحديث المورا بعد إضافة العنصر بنجاح 🔥
-    userData.mora = Number(userData.mora) - finalPrice; 
-    try { await db.query(`UPDATE levels SET "mora" = "mora" - $1, "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $2 AND "guild" = $3`, [finalPrice, interaction.user.id, interaction.guild.id]); }
-    catch(e) { await db.query(`UPDATE levels SET mora = mora - $1, shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $2 AND guildid = $3`, [finalPrice, interaction.user.id, interaction.guild.id]).catch(()=>{}); }
+    // 3. 🔥 الحماية: إذا فشل إعطاء العنصر، نرجع فلوسه ونعطيه رسالة خطأ 🔥
+    if (!success) {
+        if (finalPrice > 0) {
+            try { await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [finalPrice, interaction.user.id, interaction.guild.id]); }
+            catch(e) { await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [finalPrice, interaction.user.id, interaction.guild.id]).catch(()=>{}); }
+        }
+        return await safeReply({ content: "❌ **خطأ تقني!** لم يتم تسليم العنصر وتم استرجاع المورا لحسابك." });
+    }
+
+    // 4. العملية ناجحة: نحدث الكاش والإحصائيات
+    try { await db.query(`UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, [interaction.user.id, interaction.guild.id]); }
+    catch(e) { await db.query(`UPDATE levels SET shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
     
     if (client.getLevel && client.setLevel) {
         let cacheData = await client.getLevel(interaction.user.id, interaction.guild.id);
         if (cacheData) { 
-            cacheData.mora = Number(cacheData.mora || 0) - finalPrice; 
+            cacheData.mora = exactNewMora !== -1 ? exactNewMora : cacheData.mora; 
             cacheData.shop_purchases = (Number(cacheData.shop_purchases) || 0) + 1;
             await client.setLevel(cacheData); 
         }
@@ -522,6 +549,7 @@ async function _handlePotionSelect(i, client, db) {
     await i.editReply({ embeds: [embed], components: [row] }).catch(()=>{});
 }
 
+// 🔥 إضافة الخصم الذري الآمن لدوال الصيد 🔥
 async function _handleRodUpgrade(i, client, db) {
     await i.deferUpdate().catch(()=>{});
     const userId = i.user.id; 
@@ -538,20 +566,18 @@ async function _handleRodUpgrade(i, client, db) {
     
     if (!nextRod) return i.followUp({ content: '❌ الحد الأقصى.', flags: MessageFlags.Ephemeral }).catch(()=>{});
     
-    if (Number(userData.mora) < nextRod.price) {
-        const userBank = Number(userData.bank) || 0;
-        let msg = `❌ رصيدك غير كافي.`;
-        if (userBank >= nextRod.price) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}** مورا، اسحب منها.`;
-        return i.followUp({ content: msg, flags: MessageFlags.Ephemeral }).catch(()=>{});
-    }
+    let deductRes;
+    try { deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1, "rodLevel" = $2 WHERE "user" = $3 AND "guild" = $4 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [nextRod.price, nextLevel, userId, i.guild.id]); }
+    catch(e) { try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1, rodlevel = $2 WHERE userid = $3 AND guildid = $4 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [nextRod.price, nextLevel, userId, i.guild.id]); } catch(err) { return i.followUp({ content: '❌ خطأ بالبيانات.', flags: MessageFlags.Ephemeral }).catch(()=>{}); } }
     
-    try { await db.query(`UPDATE levels SET "mora" = "mora" - $1, "rodLevel" = $2 WHERE "user" = $3 AND "guild" = $4`, [nextRod.price, nextLevel, userId, i.guild.id]); }
-    catch(e) { await db.query(`UPDATE levels SET mora = mora - $1, rodlevel = $2 WHERE userid = $3 AND guildid = $4`, [nextRod.price, nextLevel, userId, i.guild.id]).catch(()=>{}); }
+    if (!deductRes || deductRes.rowCount === 0) {
+        return i.followUp({ content: `❌ رصيدك غير كافي. تحتاج: **${nextRod.price.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral }).catch(()=>{});
+    }
     
     if (client.getLevel && client.setLevel) {
         let cacheData = await client.getLevel(userId, i.guild.id);
         if (cacheData) { 
-            cacheData.mora = Number(cacheData.mora || 0) - nextRod.price;
+            cacheData.mora = deductRes.rows[0].mora;
             cacheData.rodLevel = nextLevel;
             await client.setLevel(cacheData); 
         }
@@ -559,7 +585,6 @@ async function _handleRodUpgrade(i, client, db) {
 
     await i.followUp({ content: `🎉 مبروك! تم شراء **${nextRod.name}**!`, flags: MessageFlags.Ephemeral }).catch(()=>{});
     sendShopLog(client, i.guild.id, i.member, `سنارة صيد: ${nextRod.name}`, nextRod.price, "شراء/تطوير");
-    
     await _handleRodSelect(i, client, db);
 }
 
@@ -580,20 +605,19 @@ async function _handleBoatUpgrade(i, client, db) {
     const nextBoat = boatsConfig.find(b => b.level === nextLevel);
     
     if (!nextBoat) return i.followUp({ content: '❌ الحد الأقصى.', flags: MessageFlags.Ephemeral }).catch(()=>{});
-    if (Number(userData.mora) < nextBoat.price) {
-        const userBank = Number(userData.bank) || 0;
-        let msg = `❌ رصيدك غير كافي.`;
-        if (userBank >= nextBoat.price) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}** مورا، اسحب منها.`;
-        return i.followUp({ content: msg, flags: MessageFlags.Ephemeral }).catch(()=>{});
-    }
     
-    try { await db.query(`UPDATE levels SET "boatLevel" = $1, "mora" = "mora" - $2, "currentLocation" = $3 WHERE "user" = $4 AND "guild" = $5`, [nextLevel, nextBoat.price, nextBoat.location_id, userId, i.guild.id]); }
-    catch(e) { await db.query(`UPDATE levels SET boatlevel = $1, mora = mora - $2, currentlocation = $3 WHERE userid = $4 AND guildid = $5`, [nextLevel, nextBoat.price, nextBoat.location_id, userId, i.guild.id]).catch(()=>{}); }
+    let deductRes;
+    try { deductRes = await db.query(`UPDATE levels SET "boatLevel" = $1, "mora" = CAST("mora" AS BIGINT) - $2, "currentLocation" = $3 WHERE "user" = $4 AND "guild" = $5 AND CAST("mora" AS BIGINT) >= $2 RETURNING "mora"`, [nextLevel, nextBoat.price, nextBoat.location_id, userId, i.guild.id]); }
+    catch(e) { try { deductRes = await db.query(`UPDATE levels SET boatlevel = $1, mora = CAST(mora AS BIGINT) - $2, currentlocation = $3 WHERE userid = $4 AND guildid = $5 AND CAST(mora AS BIGINT) >= $2 RETURNING mora`, [nextLevel, nextBoat.price, nextBoat.location_id, userId, i.guild.id]); } catch(err) { return i.followUp({ content: '❌ خطأ بالبيانات.', flags: MessageFlags.Ephemeral }).catch(()=>{}); } }
+    
+    if (!deductRes || deductRes.rowCount === 0) {
+        return i.followUp({ content: `❌ رصيدك غير كافي. تحتاج: **${nextBoat.price.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral }).catch(()=>{});
+    }
     
     if (client.getLevel && client.setLevel) {
         let cacheData = await client.getLevel(userId, i.guild.id);
         if (cacheData) { 
-            cacheData.mora = Number(cacheData.mora || 0) - nextBoat.price;
+            cacheData.mora = deductRes.rows[0].mora;
             cacheData.boatLevel = nextLevel;
             await client.setLevel(cacheData); 
         }
@@ -601,7 +625,6 @@ async function _handleBoatUpgrade(i, client, db) {
 
     await i.followUp({ content: `🎉 مبروك! تم شراء **${nextBoat.name}**!`, flags: MessageFlags.Ephemeral }).catch(()=>{});
     sendShopLog(client, i.guild.id, i.member, `قارب صيد: ${nextBoat.name}`, nextBoat.price, "شراء/تطوير");
-    
     await _handleBoatSelect(i, client, db);
 }
 
@@ -614,24 +637,13 @@ async function _handleBaitBuy(i, client, db) {
     const unitPrice = Math.round(bait.price / 5);
     const cost = unitPrice * qty; 
     
-    let userDataRes;
-    try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]); }
-    catch(e) { userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})); }
-    let userData = userDataRes.rows[0];
-
-    if (!userData) {
-        return i.editReply('❌ لا توجد بيانات مسجلة لك.').catch(()=>{});
-    }
+    let deductRes;
+    try { deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [cost, i.user.id, i.guild.id]); }
+    catch(e) { try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [cost, i.user.id, i.guild.id]); } catch(err) { return i.editReply('❌ خطأ بالبيانات.').catch(()=>{}); } }
     
-    if (Number(userData.mora) < cost) {
-        const userBank = Number(userData.bank) || 0;
-        let msg = `❌ رصيدك غير كافي لشراء هذه الحزمة! تحتاج إلى **${cost.toLocaleString()}** ${EMOJI_MORA}`;
-        if (userBank >= cost) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}** مورا، اسحب منها.`;
-        return i.editReply(msg).catch(()=>{});
+    if (!deductRes || deductRes.rowCount === 0) {
+        return i.editReply(`❌ رصيدك غير كافي لشراء هذه الحزمة! تحتاج إلى **${cost.toLocaleString()}** ${EMOJI_MORA}`).catch(()=>{});
     }
-    
-    try { await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [cost, i.user.id, i.guild.id]); }
-    catch(e) { await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [cost, i.user.id, i.guild.id]).catch(()=>{}); }
     
     try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $5`, [i.guild.id, i.user.id, baitId, qty, qty]); }
     catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $5`, [i.guild.id, i.user.id, baitId, qty, qty]).catch(()=>{}); }
@@ -639,7 +651,7 @@ async function _handleBaitBuy(i, client, db) {
     if (client.getLevel && client.setLevel) {
         let cacheData = await client.getLevel(i.user.id, i.guild.id);
         if (cacheData) { 
-            cacheData.mora = Number(cacheData.mora || 0) - cost;
+            cacheData.mora = deductRes.rows[0].mora;
             await client.setLevel(cacheData); 
         }
     }
@@ -871,9 +883,13 @@ async function _handleShopButton(i, client, db) {
                 }
              }
              if (RESTRICTED_ITEMS.includes(item.id)) {
-                 if (Number(userData.mora) < item.price) return await i.editReply({ content: `❌ رصيدك غير كافي!` }).catch(()=>{});
-                 try { await db.query(`UPDATE levels SET "mora" = "mora" - $1, "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $2 AND "guild" = $3`, [item.price, userId, guildId]); }
-                 catch(e) { await db.query(`UPDATE levels SET mora = mora - $1, shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $2 AND guildid = $3`, [item.price, userId, guildId]).catch(()=>{}); }
+                 // الخصم الآمن للطلبات النادرة (يخصم ثم يرسل تكت)
+                 let deductRes;
+                 try { deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1, "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [item.price, userId, guildId]); }
+                 catch(e) { try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1, shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [item.price, userId, guildId]); } catch(err) { return await i.editReply({ content: `❌ حدث خطأ في النظام.` }).catch(()=>{}); } }
+                 
+                 if (!deductRes || deductRes.rowCount === 0) return await i.editReply({ content: `❌ رصيدك غير كافي.` }).catch(()=>{});
+
                  const owner = await client.users.fetch(OWNER_ID);
                  if (owner) { owner.send(`🔔 تنبيه شراء!\n\nالعضو: ${i.user.tag} (${i.user.id})\nاشترى: **${item.name}**\nالمبلغ: ${item.price.toLocaleString()} ${EMOJI_MORA}`).catch(console.error); }
                  await i.editReply({ content: `✅ تمت عملية الشراء! فضلاً، قم بفتح "مجلس خاص" (تكت) لاستلام طلبك.` }).catch(()=>{});
@@ -892,20 +908,21 @@ async function _handleReplaceGuard(i, client, db) {
     try {
         await i.deferUpdate().catch(()=>{});
         const userId = i.user.id; const guildId = i.guild.id; const item = shopItems.find(it => it.id === 'personal_guard_1d');
-        let userDataRes;
-        try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]); }
-        catch(e) { userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
-        let userData = userDataRes.rows[0];
-        if (Number(userData.mora) < item.price) {
-            const userBank = Number(userData.bank) || 0;
-            let msg = `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`;
-            if (userBank >= item.price) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}** مورا.`;
-            return await i.followUp({ content: msg, components: [], embeds: [], flags: MessageFlags.Ephemeral }).catch(()=>{});
-        }
-        try { await db.query(`UPDATE levels SET "mora" = "mora" - $1, "hasGuard" = 3, "guardExpires" = 0, "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $2 AND "guild" = $3`, [item.price, userId, guildId]); }
-        catch(e) { await db.query(`UPDATE levels SET mora = mora - $1, hasguard = 3, guardexpires = 0, shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $2 AND guildid = $3`, [item.price, userId, guildId]).catch(()=>{}); }
         
-        await i.followUp({ content: `✅ **تم تجديد العقد!**\nلديك الآن **3** محاولات حماية جديدة.\nرصيدك المتبقي: **${(Number(userData.mora) - item.price).toLocaleString()}** ${EMOJI_MORA}`, components: [], embeds: [], flags: MessageFlags.Ephemeral }).catch(()=>{});
+        let deductRes;
+        try { deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1, "hasGuard" = 3, "guardExpires" = 0, "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [item.price, userId, guildId]); }
+        catch(e) { try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1, hasguard = 3, guardexpires = 0, shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [item.price, userId, guildId]); } catch(err) { return await i.followUp({ content: "❌ خطأ.", flags: MessageFlags.Ephemeral }).catch(()=>{}); } }
+        
+        if (!deductRes || deductRes.rowCount === 0) {
+            return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral }).catch(()=>{});
+        }
+        
+        if (client.getLevel && client.setLevel) {
+            let cacheData = await client.getLevel(userId, guildId);
+            if (cacheData) { cacheData.mora = deductRes.rows[0].mora; await client.setLevel(cacheData); }
+        }
+        
+        await i.followUp({ content: `✅ **تم تجديد العقد!**\nلديك الآن **3** محاولات حماية جديدة.\nرصيدك المتبقي: **${deductRes.rows[0].mora.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral }).catch(()=>{});
         sendShopLog(client, guildId, i.member, "حارس شخصي (تجديد)", item.price, "شراء");
     } catch (error) { console.error("Guard Replace Error:", error); }
 }
@@ -915,16 +932,14 @@ async function _handleReplaceBuffButton(i, client, db) {
         await i.deferUpdate().catch(()=>{});
         const userId = i.user.id; const guildId = i.guild.id; const newItemId = i.customId.replace('replace_buff_', '');
         const item = shopItems.find(it => it.id === newItemId);
-        if (!item) return await i.followUp({ content: '❌ هذا العنصر غير موجود!', components: [], embeds: [], flags: MessageFlags.Ephemeral }).catch(()=>{});
-        let userDataRes;
-        try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]); }
-        catch(e) { userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
-        let userData = userDataRes.rows[0];
-        if (Number(userData.mora) < item.price) {
-            const userBank = Number(userData.bank) || 0;
-            let msg = `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`;
-            if (userBank >= item.price) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}** مورا.`;
-            return await i.followUp({ content: msg, components: [], embeds: [], flags: MessageFlags.Ephemeral }).catch(()=>{});
+        if (!item) return await i.followUp({ content: '❌ هذا العنصر غير موجود!', flags: MessageFlags.Ephemeral }).catch(()=>{});
+        
+        let deductRes;
+        try { deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1, "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [item.price, userId, guildId]); }
+        catch(e) { try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1, shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [item.price, userId, guildId]); } catch(err) { return await i.followUp({ content: "❌ خطأ.", flags: MessageFlags.Ephemeral }).catch(()=>{}); } }
+        
+        if (!deductRes || deductRes.rowCount === 0) {
+            return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral }).catch(()=>{});
         }
         
         try { await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [userId, guildId]); }
@@ -940,10 +955,12 @@ async function _handleReplaceBuffButton(i, client, db) {
         try { await db.query(`INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]); }
         catch(e) { await db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]).catch(()=>{}); }
         
-        try { await db.query(`UPDATE levels SET "mora" = "mora" - $1, "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $2 AND "guild" = $3`, [item.price, userId, guildId]); }
-        catch(e) { await db.query(`UPDATE levels SET mora = mora - $1, shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $2 AND guildid = $3`, [item.price, userId, guildId]).catch(()=>{}); }
+        if (client.getLevel && client.setLevel) {
+            let cacheData = await client.getLevel(userId, guildId);
+            if (cacheData) { cacheData.mora = deductRes.rows[0].mora; await client.setLevel(cacheData); }
+        }
         
-        await i.followUp({ content: `✅ تم استبدال المعزز وشراء **${item.name}** بنجاح!\nرصيدك المتبقي: **${(Number(userData.mora) - item.price).toLocaleString()}** ${EMOJI_MORA}`, components: [], embeds: [], flags: MessageFlags.Ephemeral }).catch(()=>{});
+        await i.followUp({ content: `✅ تم استبدال المعزز وشراء **${item.name}** بنجاح!\nرصيدك المتبقي: **${deductRes.rows[0].mora.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral }).catch(()=>{});
         sendShopLog(client, guildId, i.member, item.name, item.price, "استبدال/شراء");
     } catch (error) { console.error("خطأ في زر استبدال المعزز:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }).catch(()=>{}); }
 }
@@ -962,21 +979,28 @@ async function handleShopModal(i, client, db) {
             const response = i.fields.getTextInputValue('reply_response').trim();
             const price = 10000;
             await i.deferReply({ flags: MessageFlags.Ephemeral }).catch(()=>{});
-            let userDataRes;
-            try { userDataRes = await db.query(`SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]); }
-            catch(e) { userDataRes = await db.query(`SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})); }
-            const userData = userDataRes.rows[0];
-            if (!userData || Number(userData.mora || userData.mora) < price) return i.editReply(`❌ رصيدك غير كافي.`).catch(()=>{});
+            
             let existingRes;
             try { existingRes = await db.query(`SELECT 1 FROM auto_responses WHERE "guildID" = $1 AND "trigger" = $2`, [i.guild.id, trigger]); }
             catch(e) { existingRes = await db.query(`SELECT 1 FROM auto_responses WHERE guildid = $1 AND trigger = $2`, [i.guild.id, trigger]).catch(()=>({rows:[]})); }
             if (existingRes.rows.length > 0) return i.editReply(`❌ هذا الرد موجود مسبقاً.`).catch(()=>{});
+            
+            let deductRes;
+            try { deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [price, i.user.id, i.guild.id]); }
+            catch(e) { try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [price, i.user.id, i.guild.id]); } catch(err) { return i.editReply(`❌ خطأ.`).catch(()=>{}); } }
+            
+            if (!deductRes || deductRes.rowCount === 0) return i.editReply(`❌ رصيدك غير كافي.`).catch(()=>{});
+
             try {
-                try { await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [price, i.user.id, i.guild.id]); }
-                catch(e) { await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [price, i.user.id, i.guild.id]).catch(()=>{}); }
                 const expiresAt = Date.now() + (3 * 24 * 60 * 60 * 1000);
                 try { await db.query(`INSERT INTO auto_responses ("guildID", "trigger", "response", "matchType", "cooldown", "createdBy", "expiresAt") VALUES ($1, $2, $3, 'exact', 600, $4, $5)`, [i.guild.id, trigger, response, i.user.id, expiresAt]); }
                 catch(e) { await db.query(`INSERT INTO auto_responses (guildid, trigger, response, matchtype, cooldown, createdby, expiresat) VALUES ($1, $2, $3, 'exact', 600, $4, $5)`, [i.guild.id, trigger, response, i.user.id, expiresAt]).catch(()=>{}); }
+                
+                if (client.getLevel && client.setLevel) {
+                    let cacheData = await client.getLevel(i.user.id, i.guild.id);
+                    if (cacheData) { cacheData.mora = deductRes.rows[0].mora; await client.setLevel(cacheData); }
+                }
+
                 await i.editReply(`✅ **تم شراء الرد!**\n- الكلمة: \`${trigger}\`\n- الرد: \`${response}\`\n- الصلاحية: 3 أيام`).catch(()=>{});
                 sendShopLog(client, i.guild.id, i.member, `رد تلقائي: ${trigger}`, price, "شراء");
             } catch (e) { console.error(e); await i.editReply(`❌ حدث خطأ.`).catch(()=>{}); }
@@ -1026,18 +1050,17 @@ async function _handleXpExchangeModal(i, client, db) {
         
         const totalCost = amountToBuy * CUSTOM_XP_RATE;
         
-        if (userMora < totalCost) {
-            const userBank = Number(userData.bank) || 0;
-            let msg = `❌ رصيدك غير كافي.`;
-            if (userBank >= totalCost) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}** مورا.`;
-            return await i.editReply({ content: msg }).catch(()=>{});
+        let deductRes;
+        try { deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [totalCost, userId, guildId]); }
+        catch(e) { try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [totalCost, userId, guildId]); } catch(err) { return i.editReply({ content: '❌ خطأ.' }).catch(()=>{}); } }
+        
+        if (!deductRes || deductRes.rowCount === 0) {
+            return await i.editReply({ content: `❌ رصيدك غير كافي.` }).catch(()=>{});
         }
         
-        userData.mora = Number(userData.mora) - totalCost; 
+        userData.mora = deductRes.rows[0].mora;
         
-        // 🔥 إضافة الـ XP الصامت بواسطة الدالة المركزية السحرية 🔥
         if (addXPAndCheckLevel) {
-            // نمرر false لمنع إرسال صورة التلفيل والمنشن
             await addXPAndCheckLevel(client, i.member, db, amountToBuy, 0, false).catch(()=>{});
         } else {
             userData.xp = Number(userData.xp) + amountToBuy; 
