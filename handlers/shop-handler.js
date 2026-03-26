@@ -191,9 +191,12 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         return await safeReply({ content: errorMsg });
     }
 
+    // 🔥 ضمان الخصم المباشر من الداتابيز لتفادي تعليق الكاش 🔥
+    try { await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [finalPrice, interaction.user.id, interaction.guild.id]); }
+    catch(e) { await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [finalPrice, interaction.user.id, interaction.guild.id]).catch(()=>{}); }
+
     userData.mora = Number(userData.mora) - finalPrice; 
     userData.shop_purchases = (Number(userData.shop_purchases) || 0) + 1;
-
     await client.setLevel(userData);
       
     if (couponType === 'boss' && couponIdToDelete) {
@@ -267,7 +270,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             catch(e) { await db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, expiresAt, 0]).catch(()=>{}); }
         }
          
-        // 🔥 تم الإصلاح الجذري لحذف العرق والأسلحة والمهارات بشكل صلب 🔥
+        // 🔥 مسح العرق والأسلحة والمهارات بشكل صلب لتفادي التعليق 🔥
         else if (itemData.id === 'change_race') {
             try {
                 let allRaceRolesRes;
@@ -275,17 +278,14 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 catch(e) { allRaceRolesRes = await db.query(`SELECT roleid, racename FROM race_roles WHERE guildid = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
                 const raceRoleIDs = allRaceRolesRes.rows.map(r => r.roleID || r.roleid);
                 const userRaceRole = interaction.member.roles.cache.find(r => raceRoleIDs.includes(r.id));
-                if (userRaceRole) { await interaction.member.roles.remove(userRaceRole); }
+                if (userRaceRole) { await interaction.member.roles.remove(userRaceRole).catch(()=>{}); }
 
-                // حذف العرق من الداتابيز
                 try { await db.query(`DELETE FROM user_race WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]); }
                 catch(e) { await db.query(`DELETE FROM user_race WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
 
-                // مسح السلاح بالكامل لتفادي تعارض الـ Primary Key
                 try { await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]); }
                 catch(e) { await db.query(`DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
 
-                // مسح المهارات الخاصة بالعرق القديم بالكامل
                 try { await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" LIKE 'race_%'`, [interaction.user.id, interaction.guild.id]); }
                 catch(e) { await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid LIKE 'race_%'`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
                 
@@ -300,10 +300,20 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, 'mora', -0.05]).catch(()=>{});
             }
         }
+        // 🔥 حل سلة المشتريات (يضمن تسليم أي عنصر غير مصنف للحقيبة) 🔥
+        else {
+            await ensureInventoryTable(db); 
+            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, 1) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = user_inventory."quantity" + 1`, [interaction.guild.id, interaction.user.id, itemData.id]); }
+            catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, 1) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = user_inventory.quantity + 1`, [interaction.guild.id, interaction.user.id, itemData.id]).catch(()=>{}); }
+        }
     } 
     else if (callbackType === 'weapon') {
         const newLevel = itemData.currentLevel + 1;
         if (itemData.isBuy) {
+            // تفريغ المكان بالقوة قبل الحفظ
+            try { await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]); } catch(e){}
+            try { await db.query(`DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=>{}); } catch(e){}
+
             try { await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]); }
             catch(e) { await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]).catch(()=>{}); }
         } else {
@@ -315,6 +325,10 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     else if (callbackType === 'skill') {
         const newLevel = itemData.currentLevel + 1;
         if (itemData.isBuy) {
+            // تفريغ المكان بالقوة قبل الحفظ
+            try { await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]); } catch(e){}
+            try { await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]).catch(()=>{}); } catch(e){}
+
             try { await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]); }
             catch(e) { await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]).catch(()=>{}); }
         } else {
@@ -329,6 +343,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
      
     if (itemData.id === 'farm_worker_3d') {
         successMsg += `\n👨‍🌾 **عامل المزرعة بدأ العمل!** سيقوم بحصاد المحاصيل وإطعام الحيوانات لمدة 3 أيام.`;
+    } else if (itemData.id === 'change_race') {
+        successMsg += `\n🧬 **تم مسح عرقك القديم بنجاح!** يمكنك الآن استخدام أمر \`/race\` لاختيار عرق جديد.`;
     }
       
     await safeReply({ content: successMsg });
