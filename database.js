@@ -1,17 +1,17 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 
-// 👑 الاعتماد الكلي على المتغيرات (أأمن وأفضل طريقة)
+// 👑 يسحب الرابط من المتغيرات مباشرة
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
     console.error("❌ [Database Error]: الرابط غير موجود! تأكد من إضافة DATABASE_URL في متغيرات Railway.");
-    process.exit(1); // يوقف البوت فوراً عشان ما يخرب البيانات
+    process.exit(1); 
 }
 
 const db = new Pool({
     connectionString: connectionString,
-    // فعلنا الـ SSL تجنباً لأي مشاكل عند استخدام الرابط الخارجي
+    // فعلنا الـ SSL عشان الرابط الخارجي يشتغل بأعلى حماية وبدون أخطاء
     ssl: { rejectUnauthorized: false },
     max: 50, 
     idleTimeoutMillis: 30000, 
