@@ -1,12 +1,13 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const zlib = require('zlib'); // 🚀 لفك الضغط
 
 const OWNER_ID = "1145327691772481577";
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('import-db')
-        .setDescription('استعادة قاعدة البيانات من ملف JSON (للمالك فقط)')
-        .addAttachmentOption(option => option.setName('file').setDescription('ملف الـ JSON الخاص بالنسخة الاحتياطية').setRequired(true)),
+        .setDescription('استعادة قاعدة البيانات من ملف مضغوط GZ (للمالك فقط)')
+        .addAttachmentOption(option => option.setName('file').setDescription('ملف النسخة الاحتياطية').setRequired(true)),
     name: 'import-db',
     aliases: ['استيراد', 'رفع_البيانات'],
     
@@ -18,18 +19,24 @@ module.exports = {
         if (author.id !== OWNER_ID) return;
 
         let attachmentUrl = null;
+        let fileName = "";
 
         if (isSlash) {
             const file = interactionOrMessage.options.getAttachment('file');
-            if (!file.name.endsWith('.json')) return interactionOrMessage.reply({ content: "❌ يجب أن يكون الملف بصيغة JSON.", flags: [MessageFlags.Ephemeral] });
             attachmentUrl = file.url;
+            fileName = file.name;
             await interactionOrMessage.deferReply();
         } else {
             const message = interactionOrMessage;
-            if (message.attachments.size === 0) return message.reply("❌ الرجاء إرفاق ملف الـ JSON مع الأمر.");
+            if (message.attachments.size === 0) return message.reply("❌ الرجاء إرفاق ملف النسخة الاحتياطية.");
             const file = message.attachments.first();
-            if (!file.name.endsWith('.json')) return message.reply("❌ يجب أن يكون الملف بصيغة JSON.");
             attachmentUrl = file.url;
+            fileName = file.name;
+        }
+
+        if (!fileName.endsWith('.json') && !fileName.endsWith('.gz')) {
+            const err = "❌ يجب أن يكون الملف بصيغة `.json` أو `.json.gz`.";
+            return isSlash ? interactionOrMessage.editReply(err) : interactionOrMessage.reply(err);
         }
 
         const reply = async (content) => {
@@ -37,12 +44,19 @@ module.exports = {
             return interactionOrMessage.reply(content);
         };
 
-        const msg = await reply("⏳ **جاري قراءة الملف وبدء نقل البيانات...**");
+        const msg = await reply("⏳ **جاري قراءة الملف، فك الضغط، وبدء نقل البيانات...**");
 
         try {
-            // تحميل الملف من الديسكورد
             const response = await fetch(attachmentUrl);
-            const data = await response.json();
+            const arrayBuffer = await response.arrayBuffer();
+            let buffer = Buffer.from(arrayBuffer);
+
+            // 🔥 فك الضغط إذا كان الملف مضغوطاً 🔥
+            if (fileName.endsWith('.gz')) {
+                buffer = zlib.gunzipSync(buffer);
+            }
+
+            const data = JSON.parse(buffer.toString('utf-8'));
             const db = client.sql;
 
             let tablesRestored = 0;
@@ -52,26 +66,30 @@ module.exports = {
                 const rows = data[table];
                 if (rows.length === 0) continue;
 
-                // تنظيف الجدول قبل رفع البيانات الجديدة عشان ما تتكرر
+                // تصفير الجدول لتجنب التكرار
                 await db.query(`TRUNCATE TABLE "${table}" CASCADE`).catch(() => {});
 
                 const columns = Object.keys(rows[0]);
                 const colsStr = columns.map(c => `"${c}"`).join(', ');
                 const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
 
-                for (const row of rows) {
-                    const values = columns.map(col => row[col]);
-                    try {
+                // 🔥 تسريع الرفع باستخدام حزم المعاملات (Transactions) 🔥
+                await db.query('BEGIN');
+                try {
+                    for (const row of rows) {
+                        const values = columns.map(col => row[col]);
                         await db.query(`INSERT INTO "${table}" (${colsStr}) VALUES (${placeholders})`, values);
                         rowsRestored++;
-                    } catch (e) {
-                        console.log(`Failed to insert row into ${table}:`, e.message);
                     }
+                    await db.query('COMMIT');
+                    tablesRestored++;
+                } catch (e) {
+                    await db.query('ROLLBACK');
+                    console.log(`Failed to insert into ${table}:`, e.message);
                 }
-                tablesRestored++;
             }
 
-            await reply(`✅ **اكتملت المهمة يا إمبراطور!**\nتمت استعادة **${rowsRestored}** سجل موزعة على **${tablesRestored}** جداول.`);
+            await reply(`✅ **اكتملت المهمة يا إمبراطور!**\nتمت استعادة **${rowsRestored.toLocaleString()}** سجل موزعة على **${tablesRestored}** جداول بنجاح.`);
 
         } catch (error) {
             console.error("Import DB Error:", error);
