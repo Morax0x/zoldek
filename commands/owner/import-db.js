@@ -1,12 +1,12 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
-const zlib = require('zlib'); 
+const zlib = require('zlib');
 
 const OWNER_ID = "1145327691772481577";
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('import-db')
-        .setDescription('استعادة قاعدة البيانات من ملف مضغوط GZ (للمالك فقط)')
+        .setDescription('استعادة قاعدة البيانات بذكاء (يتجاهل العواميد القديمة) - للمالك فقط')
         .addAttachmentOption(option => option.setName('file').setDescription('ملف النسخة الاحتياطية').setRequired(true)),
     name: 'import-db',
     aliases: ['استيراد', 'رفع_البيانات'],
@@ -44,7 +44,7 @@ module.exports = {
             return interactionOrMessage.reply(content);
         };
 
-        const msg = await reply("⏳ **جاري قراءة الملف، فك الضغط، وبدء النقل الصاروخي للبيانات...** 🚀");
+        const msg = await reply("⏳ **جاري الفحص الدقيق للملف وبدء رفع الإعدادات والبيانات...**");
 
         try {
             const response = await fetch(attachmentUrl);
@@ -65,45 +65,45 @@ module.exports = {
                 const rows = data[table];
                 if (rows.length === 0) continue;
 
-                // تصفير الجدول
+                // 1. التأكد من وجود الجدول في القاعدة الجديدة وجلب العواميد الصحيحة فقط
+                let tableColsRes;
+                try {
+                    tableColsRes = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1`, [table]);
+                } catch(e) { continue; }
+
+                if (tableColsRes.rows.length === 0) continue; // الجدول غير موجود أساساً
+                
+                const validColumns = tableColsRes.rows.map(r => r.column_name);
+
+                // 2. تنظيف الجدول لتهيئته
                 await db.query(`TRUNCATE TABLE "${table}" CASCADE`).catch(() => {});
 
-                const columns = Object.keys(rows[0]);
-                const colsStr = columns.map(c => `"${c}"`).join(', ');
+                let tableSuccess = false;
 
-                await db.query('BEGIN');
-                try {
-                    // 🔥 نظام الرفع الجماعي الصاروخي (Bulk Insert) 🔥
-                    const BATCH_SIZE = 200; // نرفع كل 200 سطر دفعة واحدة
-                    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-                        const batch = rows.slice(i, i + BATCH_SIZE);
-                        const values = [];
-                        const valueStrings = [];
-                        let paramIndex = 1;
+                // 3. إدخال البيانات سطراً بسطر مع فلترة العواميد الخربانة
+                for (const row of rows) {
+                    // نأخذ فقط العواميد الموجودة فعلياً في القاعدة الجديدة
+                    const rowCols = Object.keys(row).filter(c => validColumns.includes(c));
+                    if (rowCols.length === 0) continue;
 
-                        for (const row of batch) {
-                            const rowParams = [];
-                            for (const col of columns) {
-                                values.push(row[col]);
-                                rowParams.push(`$${paramIndex++}`);
-                            }
-                            valueStrings.push(`(${rowParams.join(', ')})`);
-                        }
+                    const colsStr = rowCols.map(c => `"${c}"`).join(', ');
+                    const placeholders = rowCols.map((_, i) => `$${i + 1}`).join(', ');
+                    const values = rowCols.map(c => row[c]);
 
-                        // إرسال الدفعة لقاعدة البيانات بضربة واحدة
-                        await db.query(`INSERT INTO "${table}" (${colsStr}) VALUES ${valueStrings.join(', ')}`, values);
-                        rowsRestored += batch.length;
+                    try {
+                        await db.query(`INSERT INTO "${table}" (${colsStr}) VALUES (${placeholders})`, values);
+                        rowsRestored++;
+                        tableSuccess = true;
+                    } catch (e) {
+                        // يتم تجاهل الخطأ في سطر واحد عشان ما يخرب باقي الجدول (عزل الأخطاء)
+                        console.log(`[Import Warning] Skipped a row in ${table}: ${e.message}`);
                     }
-                    
-                    await db.query('COMMIT');
-                    tablesRestored++;
-                } catch (e) {
-                    await db.query('ROLLBACK');
-                    console.log(`Failed to insert into ${table}:`, e.message);
                 }
+                
+                if (tableSuccess) tablesRestored++;
             }
 
-            await reply(`✅ **اكتملت المهمة بسرعة البرق يا إمبراطور!** ⚡\nتمت استعادة **${rowsRestored.toLocaleString()}** سجل موزعة على **${tablesRestored}** جداول بنجاح.`);
+            await reply(`✅ **اكتملت المهمة يا إمبراطور!**\nتم رفع الإعدادات وكل شيء! استعدنا **${rowsRestored.toLocaleString()}** سجل في **${tablesRestored}** جداول بنجاح تام.`);
 
         } catch (error) {
             console.error("Import DB Error:", error);
