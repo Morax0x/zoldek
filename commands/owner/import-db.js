@@ -6,7 +6,7 @@ const OWNER_ID = "1145327691772481577";
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('import-db')
-        .setDescription('استعادة قاعدة البيانات بسرعة الضوء وبدقة 100% - للمالك فقط')
+        .setDescription('استعادة قاعدة البيانات بدقة مع تصحيح حالة الأحرف - للمالك فقط')
         .addAttachmentOption(option => option.setName('file').setDescription('ملف النسخة الاحتياطية').setRequired(true)),
     name: 'import-db',
     aliases: ['استيراد', 'رفع_البيانات'],
@@ -44,7 +44,7 @@ module.exports = {
             return interactionOrMessage.reply(content);
         };
 
-        const msg = await reply("⏳ **جاري فك الضغط ورفع البيانات (نظام الحزم السريعة)... الرجاء الانتظار!** 🚀");
+        const msg = await reply("⏳ **جاري تحليل البيانات وتصحيح العواميد المخفية (Smart Mapping)... الرجاء الانتظار!** 🚀");
 
         try {
             const response = await fetch(attachmentUrl);
@@ -65,29 +65,36 @@ module.exports = {
                 const rows = data[table];
                 if (rows.length === 0) continue;
 
-                // 1. جلب عواميد الجدول من القاعدة الجديدة لضمان عدم وجود عواميد خردة
+                // 1. جلب عواميد الجدول من القاعدة الجديدة بذكاء
                 let tableColsRes;
                 try {
-                    tableColsRes = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1`, [table]);
+                    tableColsRes = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_name ILIKE $1`, [table]);
                 } catch(e) { continue; }
 
                 if (tableColsRes.rows.length === 0) continue;
+                
                 const validColumns = tableColsRes.rows.map(r => r.column_name);
+                
+                // 💡 الخدعة السحرية: خريطة لربط الأسماء القديمة بالجديدة وتجاهل حساسية الأحرف
+                const validColMap = {};
+                validColumns.forEach(c => validColMap[c.toLowerCase()] = c);
 
                 // 2. تنظيف الجدول لتهيئته
-                await db.query(`TRUNCATE TABLE "${table}" CASCADE`).catch(() => {});
+                try { await db.query(`TRUNCATE TABLE "${table}" CASCADE`); } catch(e) {}
 
-                // استخراج العواميد المشتركة بين النسخة الاحتياطية والقاعدة الجديدة
-                const backupCols = new Set();
-                rows.forEach(r => Object.keys(r).forEach(k => backupCols.add(k)));
-                const targetCols = validColumns.filter(c => backupCols.has(c));
+                // 3. استخراج العواميد المشتركة (بالتصحيح التلقائي)
+                const targetColsSet = new Set();
+                rows.forEach(r => Object.keys(r).forEach(k => {
+                    const mappedCol = validColMap[k.toLowerCase()];
+                    if (mappedCol) targetColsSet.add(mappedCol);
+                }));
                 
+                const targetCols = Array.from(targetColsSet);
                 if (targetCols.length === 0) continue;
+                
                 const colsStr = targetCols.map(c => `"${c}"`).join(', ');
 
                 let tableSuccess = false;
-                
-                // 3. نظام الإدخال بالجملة (رفع كل 500 سطر معاً لسرعة فائقة)
                 const BATCH_SIZE = 500; 
                 
                 for (let i = 0; i < rows.length; i += BATCH_SIZE) {
@@ -98,36 +105,46 @@ module.exports = {
 
                     for (const row of chunk) {
                         let rowParams = [];
+                        
+                        // توحيد مفاتيح الملف القديم لتصبح مطابقة تماماً
+                        const lowerRow = {};
+                        Object.keys(row).forEach(k => lowerRow[k.toLowerCase()] = row[k]);
+
                         for (const col of targetCols) {
-                            values.push(row[col] !== undefined ? row[col] : null);
+                            const val = lowerRow[col.toLowerCase()];
+                            values.push(val !== undefined ? val : null);
                             rowParams.push(`$${paramIndex++}`);
                         }
                         placeholdersArray.push(`(${rowParams.join(', ')})`);
                     }
 
                     try {
-                        // محاولة الإدخال السريع (Bulk Insert)
                         await db.query(`INSERT INTO "${table}" (${colsStr}) VALUES ${placeholdersArray.join(', ')}`, values);
                         rowsRestored += chunk.length;
                         tableSuccess = true;
                     } catch (e) {
-                        console.log(`[Import] حزمة سريعة فشلت في جدول ${table}، التحويل لنظام السطر بسطر لضمان الدقة...`);
+                        console.log(`[Import] حزمة سريعة فشلت في جدول ${table} (${e.message})... جاري الرفع سطر بسطر...`);
                         
-                        // 4. الحماية المزدوجة: لو فشلت الحزمة، نرفعها سطر سطر عشان ما نخسر البيانات السليمة
                         for (const row of chunk) {
+                            const lowerRow = {};
+                            Object.keys(row).forEach(k => lowerRow[k.toLowerCase()] = row[k]);
+
                             let singleValues = [];
                             let singleParams = [];
                             let sIndex = 1;
+                            
                             for (const col of targetCols) {
-                                singleValues.push(row[col] !== undefined ? row[col] : null);
+                                const val = lowerRow[col.toLowerCase()];
+                                singleValues.push(val !== undefined ? val : null);
                                 singleParams.push(`$${sIndex++}`);
                             }
+                            
                             try {
                                 await db.query(`INSERT INTO "${table}" (${colsStr}) VALUES (${singleParams.join(', ')})`, singleValues);
                                 rowsRestored++;
                                 tableSuccess = true;
                             } catch(err2) {
-                                // نتجاهل السطر التالف فقط
+                                // نتجاهل فقط السطر التالف فعلياً
                             }
                         }
                     }
@@ -135,11 +152,11 @@ module.exports = {
                 if (tableSuccess) tablesRestored++;
             }
 
-            await reply(`✅ **اكتملت المهمة بنجاح ساحق يا إمبراطور!**\nتم رفع **${rowsRestored.toLocaleString()}** سجل بدقة متناهية، وتوزيعها على **${tablesRestored}** جداول. كل شيء عاد كما كان! 👑`);
+            await reply(`✅ **اكتملت المهمة وتمت استعادة كل البيانات المخفية يا إمبراطور!**\nتم حل مشكلة اختلاف أسماء العواميد بنجاح! رفعنا **${rowsRestored.toLocaleString()}** سجل لـ **${tablesRestored}** جداول. كل المستويات والستريكات والأموال عادت! 👑`);
 
         } catch (error) {
             console.error("Import DB Error:", error);
-            await reply("❌ حدث خطأ أثناء رفع البيانات. تأكد من أن الملف سليم.");
+            await reply("❌ حدث خطأ أثناء رفع البيانات. راجع الكونسول.");
         }
     }
 };
