@@ -1,5 +1,13 @@
 const { calculateRequiredXP } = require('./handler-utils.js');
 
+// 🔥 جلب دالة تحديث الإحصائيات لتسجيل الدقائق في لوحة الملوك 🔥
+let updateGuildStat;
+try {
+    ({ updateGuildStat } = require('./kings-stats-handler.js'));
+} catch(e) {
+    try { ({ updateGuildStat } = require('./guild-board-handler.js')); } catch(e2){}
+}
+
 module.exports = (client) => {
     setInterval(async () => {
         try {
@@ -46,7 +54,7 @@ module.exports = (client) => {
                             }
                         }
 
-                        // 🔥 الحل الجذري لمنع التخمينات ودمج النصوص (مثل تحول لفل 40 إلى 401) 🔥
+                        // 🔥 الحل الجذري لمنع التخمينات ودمج النصوص 🔥
                         userData.totalVCTime = (Number(userData.totalVCTime || userData.totalvctime) || 0) + 1;
                         userData.xp = (Number(userData.xp) || 0) + 5;
                         userData.totalXP = (Number(userData.totalXP || userData.totalxp) || 0) + 5;
@@ -56,7 +64,7 @@ module.exports = (client) => {
                         // جلب الـ XP المطلوب للفل القادم باستخدام دالة الصعوبة الجديدة
                         let nextXP = calculateRequiredXP(userData.level);
                         
-                        // 🔥 استخدام While Loop للتلفيل المتعدد بأمان في حال اكتسب خبرة ضخمة 🔥
+                        // 🔥 استخدام While Loop للتلفيل المتعدد بأمان 🔥
                         let leveledUp = false;
                         while (userData.xp >= nextXP) {
                             userData.xp -= nextXP;
@@ -65,16 +73,20 @@ module.exports = (client) => {
                             nextXP = calculateRequiredXP(userData.level);
                         }
 
-                        // 🔥 التحديث الآمن باستخدام الكاش لتفادي مسح البيانات التي جُمعت من الشات 🔥
+                        // 🔥 التحديث الآمن باستخدام الكاش 🔥
                         if (client.setLevel) {
                             await client.setLevel(userData);
                         } else {
-                            // كود احتياطي في حال كان الكاش غير متوفر
                             await db.query(`
                                 UPDATE levels 
                                 SET "xp" = $1, "totalXP" = $2, "level" = $3, "mora" = $4, "totalVCTime" = $5
                                 WHERE "user" = $6 AND "guild" = $7
                             `, [userData.xp, userData.totalXP, userData.level, userData.mora, userData.totalVCTime, userID, guildID]);
+                        }
+
+                        // 👑 الحل الجذري لمشكلة ملك الصوت (التسجيل في اللوحة) 👑
+                        if (typeof updateGuildStat === 'function') {
+                            updateGuildStat(client, guildID, userID, 'vc_minutes', 1).catch(()=>{});
                         }
 
                         // تحديث مهام الوقت الصوتي
@@ -94,5 +106,5 @@ module.exports = (client) => {
         } catch (error) {
             console.error("[Global Voice Timer Error]", error.message);
         }
-    }, 60 * 1000); // يتكرر كل دقيقة (60,000 ملي ثانية)
+    }, 60 * 1000); // يتكرر كل دقيقة
 };
