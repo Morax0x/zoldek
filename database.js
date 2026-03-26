@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 
 // الرابط الصحيح والمضمون للـ Pooler
-const connectionString = "postgresql://postgres.kkxelyuzmgmnauhfphyd:AzizEmorax123789456@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
+const connectionString = "postgresql://postgres:jbfhGDzgPCLLhOiilJPYEFVyiFHHEOwq@postgres.railway.internal:5432/railway";
 
 // هذا السطر السحري يجبر الاستضافة تتصل بشكل صحيح (IPv4) لتجنب أخطاء الشبكة
 const pg = require('pg');
