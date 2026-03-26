@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 
+// 👑 يسحب الرابط من المتغيرات مباشرة
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
@@ -8,13 +9,10 @@ if (!connectionString) {
     process.exit(1); 
 }
 
-// 🔥 فحص ذكي: إذا كان الرابط داخلي (internal) نوقف التشفير لجعله بسرعة البرق 🔥
-const isInternal = connectionString.includes('.internal');
-
 const db = new Pool({
     connectionString: connectionString,
-    // إيقاف الـ SSL للاتصال الداخلي يسرع نقل البيانات بشكل هائل
-    ssl: isInternal ? false : { rejectUnauthorized: false },
+    // فعلنا الـ SSL عشان الرابط الخارجي يشتغل بأعلى حماية وبدون أخطاء
+    ssl: { rejectUnauthorized: false },
     max: 50, 
     idleTimeoutMillis: 30000, 
     connectionTimeoutMillis: 2000, 
@@ -26,7 +24,7 @@ db.on('error', (err, client) => {
 });
 
 db.connect()
-    .then(() => console.log(`✅ تم الاتصال بقاعدة البيانات (${isInternal ? 'الداخلية الصاروخية ⚡' : 'الخارجية 🌐'}) بنجاح! 🚀`))
+    .then(() => console.log("✅ تم الاتصال بقاعدة البيانات بنجاح! 🚀"))
     .catch(err => console.error("❌ خطأ في الاتصال بقاعدة البيانات:", err.message));
 
 module.exports = db;
