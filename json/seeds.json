@@ -60,7 +60,7 @@
     "emoji": "🌽",
     "stage_emoji": "🌽",
     "price": 250,
-    "sell_price": 400,
+    "sell_price": 350,
     "xp_reward": 15,
     "growth_time_hours": 24,
     "wither_time_hours": 48
@@ -71,7 +71,7 @@
     "emoji": "🍆",
     "stage_emoji": "🌱",
     "price": 300,
-    "sell_price": 500,
+    "sell_price": 400,
     "xp_reward": 20,
     "growth_time_hours": 30,
     "wither_time_hours": 60
@@ -83,7 +83,7 @@
     "stage_emoji": "🌾",
     "price": 350,
     "sell_price": 600,
-    "xp_reward": 25,
+    "xp_reward": 20,
     "growth_time_hours": 36,
     "wither_time_hours": 72
   },
@@ -93,8 +93,8 @@
     "emoji": "🎃",
     "stage_emoji": "🌱",
     "price": 500,
-    "sell_price": 900,
-    "xp_reward": 35,
+    "sell_price": 700,
+    "xp_reward": 20,
     "growth_time_hours": 48,
     "wither_time_hours": 72
   },
@@ -104,8 +104,8 @@
     "emoji": "🍉",
     "stage_emoji": "🌱",
     "price": 600,
-    "sell_price": 1100,
-    "xp_reward": 40,
+    "sell_price": 900,
+    "xp_reward": 20,
     "growth_time_hours": 50,
     "wither_time_hours": 80
   },
@@ -115,8 +115,8 @@
     "emoji": "🍍",
     "stage_emoji": "🌴",
     "price": 800,
-    "sell_price": 1500,
-    "xp_reward": 45,
+    "sell_price": 1200,
+    "xp_reward": 25,
     "growth_time_hours": 60,
     "wither_time_hours": 90
   },
@@ -126,8 +126,8 @@
     "emoji": "🌴",
     "stage_emoji": "🌴",
     "price": 1000,
-    "sell_price": 1800,
-    "xp_reward": 50,
+    "sell_price": 1500,
+    "xp_reward": 30,
     "growth_time_hours": 72,
     "wither_time_hours": 120
   }
