@@ -3,6 +3,39 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, Mess
 const SUGGESTION_COOLDOWN = new Map();
 const OWNER_ID = "1145327691772481577"; // آيدي الإمبراطور للتحكم بالاقتراحات
 
+// 🔥 دالة لتنظيف الثريدات القديمة (أقدم من 3 أيام) 🔥
+async function cleanOldSuggestionThreads(channel) {
+    if (!channel || !channel.threads) return;
+    try {
+        const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+
+        // جلب الثريدات الفعالة
+        const activeThreads = await channel.threads.fetchActive();
+        activeThreads.threads.forEach(async thread => {
+            if (thread.name.startsWith('ᗢ〢💭・اقتـراح・')) {
+                const createdAt = thread.createdTimestamp;
+                if (createdAt && (now - createdAt > threeDaysMs)) {
+                    await thread.delete().catch(() => {});
+                }
+            }
+        });
+
+        // جلب الثريدات المؤرشفة (المغلقة)
+        const archivedThreads = await channel.threads.fetchArchived();
+        archivedThreads.threads.forEach(async thread => {
+             if (thread.name.startsWith('ᗢ〢💭・اقتـراح・')) {
+                const createdAt = thread.createdTimestamp;
+                if (createdAt && (now - createdAt > threeDaysMs)) {
+                    await thread.delete().catch(() => {});
+                }
+            }
+        });
+    } catch (e) {
+        console.error("Error cleaning old threads:", e);
+    }
+}
+
 async function handleNewSuggestion(message, client, db) {
     if (message.author.bot) return;
 
@@ -46,7 +79,31 @@ async function handleNewSuggestion(message, client, db) {
             )
         `);
     } catch (e) {
-        console.error("Error creating suggestions table:", e);
+        // Fallback for lowercase columns
+        try {
+            await db.query(`
+                CREATE TABLE IF NOT EXISTS suggestions (
+                    messageid TEXT PRIMARY KEY,
+                    guildid TEXT,
+                    userid TEXT,
+                    content TEXT,
+                    status TEXT DEFAULT 'pending',
+                    upvotes INTEGER DEFAULT 0,
+                    downvotes INTEGER DEFAULT 0,
+                    createdat BIGINT
+                )
+            `);
+            await db.query(`
+                CREATE TABLE IF NOT EXISTS suggestion_votes (
+                    messageid TEXT,
+                    userid TEXT,
+                    votetype TEXT,
+                    PRIMARY KEY (messageid, userid)
+                )
+            `);
+        } catch (e2) {
+            console.error("Error creating suggestions table:", e2);
+        }
     }
 
     // بناء الإيمبد بالتصميم الجديد (وضع صورة المؤلف بدلا من الـ Thumbnail)
@@ -97,15 +154,23 @@ async function handleNewSuggestion(message, client, db) {
             reason: 'نقاش اقتراح جديد'
         });
 
+        // 🔥 تشغيل التنظيف التلقائي للثريدات القديمة في نفس الروم 🔥
+        cleanOldSuggestionThreads(message.channel);
+
     } catch (err) {
         console.error("Error sending/saving suggestion:", err);
     }
 }
 
 async function handleSuggestionButtons(interaction, client, db) {
-    if (!interaction.isButton() || !interaction.customId.startsWith('sugg_')) return;
+    if (!interaction.isButton() || (!interaction.customId.startsWith('sugg_') && !interaction.customId.startsWith('sugg_status_'))) return;
 
-    const targetMsgId = interaction.customId.startsWith('sugg_status_') ? interaction.customId.split('_')[3] : interaction.message.id;
+    let targetMsgId;
+    if (interaction.customId.startsWith('sugg_status_')) {
+        targetMsgId = interaction.customId.split('_')[3];
+    } else {
+        targetMsgId = interaction.message.id;
+    }
     const userId = interaction.user.id;
 
     let suggRes;
@@ -205,8 +270,8 @@ async function handleSuggestionButtons(interaction, client, db) {
         catch(e) { updatedSuggRes = await db.query(`SELECT upvotes, downvotes, status FROM suggestions WHERE messageid = $1`, [targetMsgId]).catch(()=>({rows:[{upvotes:0, downvotes:0}]})); }
         
         const newStats = updatedSuggRes.rows[0];
-        const upCount = Number(newStats.upvotes ?? newStats.upvotes ?? 0);
-        const downCount = Number(newStats.downvotes ?? newStats.downvotes ?? 0);
+        const upCount = Number(newStats.upvotes ?? 0);
+        const downCount = Number(newStats.downvotes ?? 0);
         const totalVotes = upCount + downCount;
 
         // 🔥 تحديث حساب النسبة المئوية للإحصائيات 🔥
@@ -226,7 +291,7 @@ async function handleSuggestionButtons(interaction, client, db) {
         };
 
         originalEmbed.setFields(fields);
-        await interaction.message.edit({ embeds: [originalEmbed] });
+        await interaction.message.edit({ embeds: [originalEmbed] }).catch(()=>{});
     }
 
     if (interaction.customId.startsWith('sugg_status_')) {
@@ -286,10 +351,10 @@ async function handleSuggestionButtons(interaction, client, db) {
             }
 
             originalEmbed.setColor(newColor).setFields(fields);
-            await suggestionMsg.edit({ embeds: [originalEmbed] });
+            await suggestionMsg.edit({ embeds: [originalEmbed] }).catch(()=>{});
         }
         
-        await interaction.update({ content: `✅ تم تغيير حالة الاقتراح إلى: **${newStatusText}**`, components: [] });
+        await interaction.update({ content: `✅ تم تغيير حالة الاقتراح إلى: **${newStatusText}**`, components: [] }).catch(()=>{});
 
         if (action === 'accept') {
             try {
@@ -324,7 +389,7 @@ async function handleSuggestionModals(interaction, client, db) {
     
     originalEmbed.setFields(fields);
     
-    await suggestionMsg.edit({ embeds: [originalEmbed] });
+    await suggestionMsg.edit({ embeds: [originalEmbed] }).catch(()=>{});
     await interaction.reply({ content: '✅ تم إضافة الرد إلى الاقتراح بنجاح!', flags: [MessageFlags.Ephemeral] });
 }
 
