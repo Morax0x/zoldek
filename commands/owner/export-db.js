@@ -1,4 +1,6 @@
 const { SlashCommandBuilder, AttachmentBuilder, MessageFlags } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 
 const OWNER_ID = "1145327691772481577";
 
@@ -28,7 +30,9 @@ module.exports = {
         };
 
         if (isSlash) await interactionOrMessage.deferReply();
-        const msg = await reply("⏳ **جاري استخراج بيانات الإمبراطورية...** الرجاء الانتظار.");
+        const msg = await reply("⏳ **جاري سحب وضغط بيانات الإمبراطورية...** (قد يستغرق الأمر ثواني معدودة)");
+
+        let tempFilePath = null;
 
         try {
             const db = client.sql;
@@ -39,18 +43,24 @@ module.exports = {
 
             const exportData = {};
 
-            // الدوران على كل جدول وسحب كل البيانات
+            // الدوران على كل جدول وسحب البيانات
             for (const table of tables) {
                 const res = await db.query(`SELECT * FROM "${table}"`);
                 exportData[table] = res.rows;
             }
 
-            // تحويل البيانات لملف JSON
-            const jsonString = JSON.stringify(exportData, null, 2);
-            const buffer = Buffer.from(jsonString, 'utf-8');
-            const attachment = new AttachmentBuilder(buffer, { name: `Empress_DB_Backup_${Date.now()}.json` });
+            // 🔥 1. ضغط الملف: إزالة المسافات لتقليل حجم الملف بنسبة كبيرة جداً 🔥
+            const jsonString = JSON.stringify(exportData);
+            
+            // 🔥 2. إنشاء ملف مؤقت في الاستضافة بدلاً من الرام لمنع التايم أوت 🔥
+            const fileName = `Empress_DB_${Date.now()}.json`;
+            tempFilePath = path.join(process.cwd(), fileName);
+            fs.writeFileSync(tempFilePath, jsonString);
 
-            const finalMsg = "✅ **تم استخراج قاعدة البيانات بنجاح يا إمبراطور!**\nحمل هذا الملف واحتفظ به، ثم استخدم أمر الاستيراد في القاعدة الجديدة.";
+            // 🔥 3. قراءة الملف ورفعه كـ Stream لديسكورد 🔥
+            const attachment = new AttachmentBuilder(tempFilePath, { name: fileName });
+
+            const finalMsg = "✅ **تم استخراج قاعدة البيانات بنجاح يا إمبراطور!**\nحمل هذا الملف واحتفظ به، ثم استخدم أمر الاستيراد `!import-db` في القاعدة الجديدة.";
             
             if (isSlash) {
                 await interactionOrMessage.editReply({ content: finalMsg, files: [attachment] });
@@ -58,11 +68,23 @@ module.exports = {
                 await msg.edit({ content: finalMsg, files: [attachment] });
             }
 
+            // 🔥 4. تنظيف وحذف الملف المؤقت بعد رفعه بدقائق قليلة للتأكد من وصوله 🔥
+            setTimeout(() => {
+                if (tempFilePath && fs.existsSync(tempFilePath)) {
+                    fs.unlinkSync(tempFilePath);
+                }
+            }, 15000);
+
         } catch (error) {
             console.error("Export DB Error:", error);
-            const err = "❌ حدث خطأ أثناء التصدير، راجع الكونسول.";
+            const err = "❌ حدث خطأ أثناء التصدير، أو أن حجم البيانات يتجاوز 25 ميجابايت (الحد الأقصى لرفع الملفات في ديسكورد).";
             if (isSlash) await interactionOrMessage.editReply(err);
             else await msg.edit(err);
+            
+            // تنظيف في حالة حدوث خطأ
+            if (tempFilePath && fs.existsSync(tempFilePath)) {
+                fs.unlinkSync(tempFilePath);
+            }
         }
     }
 };
