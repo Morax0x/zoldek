@@ -355,14 +355,22 @@ module.exports = {
                 const OWNER_ID = "1145327691772481577"; 
                 const isOwnerMentioning = message.author.id === OWNER_ID;
 
-                // 👑 قاعدة الإمبراطور للذكاء الاصطناعي:
+                // 👑 تفعيل رتبة المستشار لتخطي القيود 👑
+                let isWisdomKing = false;
+                try {
+                    if (settings && (settings.roleAdvisor || settings.roleadvisor) && message.member?.roles.cache.has(settings.roleAdvisor || settings.roleadvisor)) {
+                        isWisdomKing = true;
+                    }
+                } catch(e) {}
+
+                // 👑 قاعدة الإمبراطور والمستشارين للذكاء الاصطناعي:
                 if (!aiChannelData) {
                     if (message.channel.parentId && aiConfig.isRestrictedCategory(message.channel.parentId)) {
                         const paidStatus = aiConfig.getPaidChannelStatus(message.channel.id);
                         if (paidStatus) {
                             aiChannelData = { nsfw: paidStatus.mode === 'NSFW' ? 1 : 0 };
                         } else {
-                            if (isOwnerMentioning) {
+                            if (isOwnerMentioning || isWisdomKing) {
                                 aiChannelData = { nsfw: 0 };
                             } else {
                                 if (paymentCooldowns.has(message.channel.id)) return; 
@@ -374,25 +382,31 @@ module.exports = {
                         }
                     } else {
                         // قناة عادية جداً ليست مخصصة للذكاء
-                        if (!isOwnerMentioning) return; // يتم تجاهل العضو العادي بصمت
-                        aiChannelData = { nsfw: 0 }; // السماح للإمبراطور
+                        if (!isOwnerMentioning && !isWisdomKing) return; // يتم تجاهل العضو العادي بصمت
+                        aiChannelData = { nsfw: 0 }; // السماح للإمبراطور والمستشار
                     }
                 }
 
                 let canChat = true;
-                let isTrackedUser = !isOwnerMentioning;
+                let isTrackedUser = !isOwnerMentioning && !isWisdomKing; // لا يتم تتبع الإمبراطور ولا المستشار
 
+                // 🔥 سد ثغرة الاستخدام اللانهائي المدرعة 🔥
                 if (isTrackedUser) {
-                    const usageStatus = await aiLimitHandler.checkUserUsage(message.member);
-                    if (usageStatus && usageStatus.canChat === false) {
-                        const daily = usageStatus.dailyUsage || 0;
-                        const limit = usageStatus.roleLimit || 0;
-                        const bal = usageStatus.purchasedBalance || 0;
-                        if (limit === 0 && bal === 0 && daily < 10) {
-                            canChat = true;
-                        } else {
-                            canChat = false;
+                    try {
+                        const usageStatus = await aiLimitHandler.checkUserUsage(message.member, db);
+                        if (usageStatus && usageStatus.canChat === false) {
+                            const daily = Number(usageStatus.dailyUsage) || 0;
+                            const limit = Number(usageStatus.roleLimit) || 0;
+                            const bal = Number(usageStatus.purchasedBalance) || 0;
+                            
+                            if (limit === 0 && bal === 0 && daily < 10) {
+                                canChat = true; // 10 رسائل مجانية فقط للجدد
+                            } else {
+                                canChat = false; // بلوك وإيقاف!
+                            }
                         }
+                    } catch(e) {
+                        console.error("[Limit Handler Error]:", e);
                     }
                 }
 
@@ -428,7 +442,7 @@ module.exports = {
                     }
 
                     if (!cleanContent && !imageAttachment) {
-                        if (isTrackedUser) aiLimitHandler.releasePendingUsage(message.author.id);
+                        if (isTrackedUser) aiLimitHandler.releasePendingUsage(message.author.id).catch(()=>{});
                         return message.reply("نـعـم .. ؟");
                     }
 
@@ -444,12 +458,25 @@ module.exports = {
                     );
                     
                     if (!reply) {
-                        if (isTrackedUser) aiLimitHandler.releasePendingUsage(message.author.id);
+                        if (isTrackedUser) aiLimitHandler.releasePendingUsage(message.author.id).catch(()=>{});
                         return;
                     }
 
+                    // 🔥 التصليح الجذري للثغرة: تسجيل الخصم بقوة حتى لا يستعملوه مجاناً 🔥
                     if (isTrackedUser) {
-                        await aiLimitHandler.incrementUsage(message.author.id, db);
+                        try {
+                            await aiLimitHandler.incrementUsage(message.member, db);
+                        } catch(e1) {
+                            try {
+                                await aiLimitHandler.incrementUsage(message.author.id, message.guild.id, db);
+                            } catch(e2) {
+                                try {
+                                    await aiLimitHandler.incrementUsage(message.author.id, db);
+                                } catch(e3) {
+                                    console.error("[AI Usage Increment ERROR]:", e3);
+                                }
+                            }
+                        }
                     }
 
                     const safeReplyMsg = reply.replace(/@everyone/g, '@\u200beveryone').replace(/@here/g, '@\u200bhere');
@@ -465,7 +492,8 @@ module.exports = {
                     }
 
                 } catch (err) {
-                    if (isTrackedUser) aiLimitHandler.releasePendingUsage(message.author.id);
+                    // تم إزالة releasePendingUsage من هنا لمنع استغلال الخطأ للدردشة المجانية
+                    console.error("[AI Chat Error]:", err);
                 }
                 return; 
             }
@@ -725,7 +753,7 @@ module.exports = {
                             }
                         }
                     } else {
-                        // التجاهل الصامت التام لأي عضو يحاول استخدام الأوامر (لا يوجد رسالة رفض)
+                        // التجاهل الصامت التام لأي عضو يحاول استخدام الأوامر
                         return; 
                     }
                     return; 
