@@ -200,6 +200,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
 
     let exactNewMora = -1;
 
+    // الخصم الآمن
     if (finalPrice > 0) {
         let deductRes;
         try { 
@@ -305,56 +306,84 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             catch(e) { await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, 'mora', -0.05]).catch(()=>{}); }
         }
         else {
+            // 🔥 الإصلاح الدبابة لمشكلة الإنفنتوري
             await ensureInventoryTable(db); 
+            let querySuccess = false;
             try {
-                let checkRes;
-                try { checkRes = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [interaction.user.id, interaction.guild.id, itemData.id]); }
-                catch(e) { checkRes = await db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]})); }
-                
-                if (checkRes && checkRes.rows && checkRes.rows.length > 0) {
-                    try { await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [quantity, interaction.user.id, interaction.guild.id, itemData.id]); }
-                    catch(e) { await db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [quantity, interaction.user.id, interaction.guild.id, itemData.id]); }
-                } else {
-                    try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, quantity]); }
-                    catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, quantity]); }
+                await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $4`, [interaction.guild.id, interaction.user.id, itemData.id, quantity]);
+                querySuccess = true;
+            } catch(e) {
+                try {
+                    await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $4`, [interaction.guild.id, interaction.user.id, itemData.id, quantity]);
+                    querySuccess = true;
+                } catch(e2) {
+                    try {
+                        let check = await db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]}));
+                        if (check.rows.length > 0) {
+                            await db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [quantity, interaction.user.id, interaction.guild.id, itemData.id]);
+                        } else {
+                            const invId = `${interaction.guild.id}-${interaction.user.id}-${itemData.id}`;
+                            await db.query(`INSERT INTO user_inventory (id, guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4, $5)`, [invId, interaction.guild.id, interaction.user.id, itemData.id, quantity]);
+                        }
+                        querySuccess = true;
+                    } catch(e3) { console.error("Inventory Error:", e3); }
                 }
-            } catch(err) { success = false; console.error("Inventory error:", err); }
+            }
+            if (!querySuccess) success = false;
         }
     } 
     else if (callbackType === 'weapon') {
+        // 🔥 الإصلاح الدبابة لمشكلة الأسلحة 
         const newLevel = itemData.currentLevel + 1;
+        let querySuccess = false;
         try {
-            let checkRes;
-            try { checkRes = await db.query(`SELECT 1 FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]); }
-            catch(e) { checkRes = await db.query(`SELECT 1 FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=>({rows:[]})); }
-            
-            if (checkRes && checkRes.rows && checkRes.rows.length > 0) {
-                try { await db.query(`UPDATE user_weapons SET "weaponLevel" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "raceName" = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]); }
-                catch(e) { await db.query(`UPDATE user_weapons SET weaponlevel = $1 WHERE userid = $2 AND guildid = $3 AND racename = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]); }
-            } else {
-                try { await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]); }
-                catch(e) { await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]); }
+            await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "raceName") DO UPDATE SET "weaponLevel" = EXCLUDED."weaponLevel"`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]);
+            querySuccess = true;
+        } catch(e) {
+            try {
+                await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4) ON CONFLICT (userid, guildid, racename) DO UPDATE SET weaponlevel = EXCLUDED.weaponlevel`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]);
+                querySuccess = true;
+            } catch(e2) {
+                try {
+                    let check = await db.query(`SELECT 1 FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=>({rows:[]}));
+                    if (check.rows.length > 0) {
+                        await db.query(`UPDATE user_weapons SET weaponlevel = $1 WHERE userid = $2 AND guildid = $3 AND racename = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]);
+                    } else {
+                        const wId = `${interaction.guild.id}-${interaction.user.id}-${itemData.raceName}`;
+                        await db.query(`INSERT INTO user_weapons (id, userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4, $5)`, [wId, interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]);
+                    }
+                    querySuccess = true;
+                } catch(e3) { console.error("Weapon Error Fallback:", e3); }
             }
-        } catch(err) { success = false; console.error("Weapon Error:", err); }
-        
+        }
+        if (!querySuccess) success = false;
         if (success) await _handleWeaponUpgrade(interaction, client, db, true); 
     } 
     else if (callbackType === 'skill') {
+        // 🔥 الإصلاح الدبابة لمشكلة المهارات
         const newLevel = itemData.currentLevel + 1;
+        let querySuccess = false;
         try {
-            let checkRes;
-            try { checkRes = await db.query(`SELECT 1 FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]); }
-            catch(e) { checkRes = await db.query(`SELECT 1 FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]).catch(()=>({rows:[]})); }
-            
-            if (checkRes && checkRes.rows && checkRes.rows.length > 0) {
-                try { await db.query(`UPDATE user_skills SET "skillLevel" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "skillID" = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.skillId]); }
-                catch(e) { await db.query(`UPDATE user_skills SET skilllevel = $1 WHERE userid = $2 AND guildid = $3 AND skillid = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.skillId]); }
-            } else {
-                try { await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]); }
-                catch(e) { await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]); }
+            await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "skillID") DO UPDATE SET "skillLevel" = EXCLUDED."skillLevel"`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]);
+            querySuccess = true;
+        } catch(e) {
+            try {
+                await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4) ON CONFLICT (userid, guildid, skillid) DO UPDATE SET skilllevel = EXCLUDED.skilllevel`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]);
+                querySuccess = true;
+            } catch(e2) {
+                try {
+                    let check = await db.query(`SELECT 1 FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]).catch(()=>({rows:[]}));
+                    if (check.rows.length > 0) {
+                        await db.query(`UPDATE user_skills SET skilllevel = $1 WHERE userid = $2 AND guildid = $3 AND skillid = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.skillId]);
+                    } else {
+                        const sId = `${interaction.guild.id}-${interaction.user.id}-${itemData.skillId}`;
+                        await db.query(`INSERT INTO user_skills (id, userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4, $5)`, [sId, interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]);
+                    }
+                    querySuccess = true;
+                } catch(e3) { console.error("Skill Error:", e3); }
             }
-        } catch(err) { success = false; console.error("Skill Error:", err); }
-
+        }
+        if (!querySuccess) success = false;
         if (success) await _handleSkillUpgrade(interaction, client, db, true, itemData.skillId); 
     }
 
@@ -515,14 +544,61 @@ async function _handleBoatSelect(i, client, db) {
     await i.editReply({ embeds: [embed], components: [row] }).catch(()=>{});
 }
 
-async function _handleBaitSelect(i, client, db) {
-    if(i.replied || i.deferred) await i.editReply("جاري التحميل...").catch(()=>{}); else await i.deferReply({ flags: MessageFlags.Ephemeral }).catch(()=>{});
-    const baitOptions = baitsConfig.map(b => {
-        const packPrice = Math.round((b.price / 5) * 5); 
-        return { label: `حزمة 5x ${b.name}`, description: `${b.description} | ${packPrice.toLocaleString()} مورا`, value: `buy_bait_${b.id}`, emoji: '🪱' };
-    });
-    const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop_buy_bait_menu').setPlaceholder('اختر الطعم (حزمة من 5 حبات)...').addOptions(baitOptions));
-    await i.editReply({ content: "**🛒 متجر الطعوم:**", components: [row], embeds: [] }).catch(()=>{});
+async function _handleBaitBuy(i, client, db) {
+    await i.deferReply({ flags: MessageFlags.Ephemeral }).catch(()=>{});
+    const baitId = i.values[0].replace('buy_bait_', '');
+    const bait = baitsConfig.find(b => b.id === baitId);
+    
+    const qty = 5; 
+    const unitPrice = Math.round(bait.price / 5);
+    const cost = unitPrice * qty; 
+    
+    let deductRes;
+    try { deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [cost, i.user.id, i.guild.id]); }
+    catch(e) { try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [cost, i.user.id, i.guild.id]); } catch(err) { return i.editReply('❌ خطأ بالبيانات.').catch(()=>{}); } }
+    
+    if (!deductRes || deductRes.rowCount === 0) {
+        return i.editReply(`❌ رصيدك غير كافي لشراء هذه الحزمة! تحتاج إلى **${cost.toLocaleString()}** ${EMOJI_MORA}`).catch(()=>{});
+    }
+    
+    // 🔥 الإصلاح الدبابة لمشكلة الإنفنتوري مع شراء الطعم
+    let querySuccess = false;
+    try { 
+        await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $5`, [i.guild.id, i.user.id, baitId, qty, qty]); 
+        querySuccess = true; 
+    } catch(e) {
+        try { 
+            await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $5`, [i.guild.id, i.user.id, baitId, qty, qty]); 
+            querySuccess = true; 
+        } catch(e2) {
+            try {
+                let check = await db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [i.user.id, i.guild.id, baitId]).catch(()=>({rows:[]}));
+                if (check.rows.length > 0) { 
+                    await db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, i.user.id, i.guild.id, baitId]); 
+                } else { 
+                    const invId = `${i.guild.id}-${i.user.id}-${baitId}`; 
+                    await db.query(`INSERT INTO user_inventory (id, guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4, $5)`, [invId, i.guild.id, i.user.id, baitId, qty]); 
+                }
+                querySuccess = true;
+            } catch(e3) { console.error("Bait Inventory Error:", e3); }
+        }
+    }
+    if (!querySuccess) {
+        // نرجع المورا
+        try { await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [cost, i.user.id, i.guild.id]).catch(()=>{}); } catch(e){}
+        return i.editReply('❌ خطأ فني أثناء إضافة الطعم لمخزنك. تم استرجاع أموالك.').catch(()=>{});
+    }
+    
+    if (client.getLevel && client.setLevel) {
+        let cacheData = await client.getLevel(i.user.id, i.guild.id);
+        if (cacheData) { 
+            cacheData.mora = deductRes.rows[0].mora;
+            await client.setLevel(cacheData); 
+        }
+    }
+
+    await i.editReply({ content: `✅ تم شراء **حزمة (${qty} حبات) من ${bait.name}** بنجاح!` }).catch(()=>{});
+    sendShopLog(client, i.guild.id, i.member, `حزمة طعم: ${bait.name} (x${qty})`, cost, "شراء");
 }
 
 async function _handlePotionSelect(i, client, db) {
@@ -638,49 +714,6 @@ async function _handleBoatUpgrade(i, client, db) {
     await i.followUp({ content: `🎉 مبروك! تم شراء **${nextBoat.name}**!`, flags: MessageFlags.Ephemeral }).catch(()=>{});
     sendShopLog(client, i.guild.id, i.member, `قارب صيد: ${nextBoat.name}`, nextBoat.price, "شراء/تطوير");
     await _handleBoatSelect(i, client, db);
-}
-
-async function _handleBaitBuy(i, client, db) {
-    await i.deferReply({ flags: MessageFlags.Ephemeral }).catch(()=>{});
-    const baitId = i.values[0].replace('buy_bait_', '');
-    const bait = baitsConfig.find(b => b.id === baitId);
-    
-    const qty = 5; 
-    const unitPrice = Math.round(bait.price / 5);
-    const cost = unitPrice * qty; 
-    
-    let deductRes;
-    try { deductRes = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [cost, i.user.id, i.guild.id]); }
-    catch(e) { try { deductRes = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [cost, i.user.id, i.guild.id]); } catch(err) { return i.editReply('❌ خطأ بالبيانات.').catch(()=>{}); } }
-    
-    if (!deductRes || deductRes.rowCount === 0) {
-        return i.editReply(`❌ رصيدك غير كافي لشراء هذه الحزمة! تحتاج إلى **${cost.toLocaleString()}** ${EMOJI_MORA}`).catch(()=>{});
-    }
-    
-    try {
-        let checkRes;
-        try { checkRes = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [i.user.id, i.guild.id, baitId]); }
-        catch(e) { checkRes = await db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [i.user.id, i.guild.id, baitId]).catch(()=>({rows:[]})); }
-        
-        if (checkRes && checkRes.rows && checkRes.rows.length > 0) {
-            try { await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [qty, i.user.id, i.guild.id, baitId]); }
-            catch(e) { await db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, i.user.id, i.guild.id, baitId]); }
-        } else {
-            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [i.guild.id, i.user.id, baitId, qty]); }
-            catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [i.guild.id, i.user.id, baitId, qty]); }
-        }
-    } catch(err) { console.error("Bait Inventory Error:", err); }
-    
-    if (client.getLevel && client.setLevel) {
-        let cacheData = await client.getLevel(i.user.id, i.guild.id);
-        if (cacheData) { 
-            cacheData.mora = deductRes.rows[0].mora;
-            await client.setLevel(cacheData); 
-        }
-    }
-
-    await i.editReply({ content: `✅ تم شراء **حزمة (${qty} حبات) من ${bait.name}** بنجاح!` }).catch(()=>{});
-    sendShopLog(client, i.guild.id, i.member, `حزمة طعم: ${bait.name} (x${qty})`, cost, "شراء");
 }
 
 async function _handleWeaponUpgrade(i, client, db, isUpdate = false) {
