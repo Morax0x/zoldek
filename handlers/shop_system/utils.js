@@ -6,11 +6,14 @@ const OWNER_ID = "1145327691772481577";
 const XP_EXCHANGE_RATE = 3;
 const BANNER_URL = 'https://i.postimg.cc/NMkWVyLV/line.png';
 
-const shopItems = require('../../json/shop-items.json'); 
-const potionItems = require('../../json/potions.json'); 
-const farmAnimals = require('../../json/farm-animals.json');
-const weaponsConfig = require('../../json/weapons-config.json');
-const skillsConfig = require('../../json/skills-config.json');
+let shopItems = [], potionItems = [], farmAnimals = [], weaponsConfig = [], skillsConfig = [];
+
+// 🔥 تم استخدام try/catch لضمان عدم انهيار البوت إذا كان فيه مشكلة في ملفات JSON 🔥
+try { shopItems = require('../../json/shop-items.json'); } catch(e){}
+try { potionItems = require('../../json/potions.json'); } catch(e){}
+try { farmAnimals = require('../../json/farm-animals.json'); } catch(e){}
+try { weaponsConfig = require('../../json/weapons-config.json'); } catch(e){}
+try { skillsConfig = require('../../json/skills-config.json'); } catch(e){}
 
 const rootDir = process.cwd();
 let rodsConfig = [], boatsConfig = [], baitsConfig = [];
@@ -19,7 +22,17 @@ try {
     rodsConfig = fishingConfig.rods || [];
     boatsConfig = fishingConfig.boats || [];
     baitsConfig = fishingConfig.baits || [];
-} catch (e) { console.error("Error loading fishing config:", e); }
+} catch (e) { 
+    // محاولة قراءة الملف القديم لو فشل الجديد
+    try {
+        const fishJson = require(path.join(rootDir, 'json', 'fish.json'));
+        rodsConfig = fishJson.rods || [];
+        boatsConfig = fishJson.boats || [];
+        baitsConfig = fishJson.baits || [];
+    } catch(err) {
+        console.error("Error loading fishing config:", err); 
+    }
+}
 
 const THUMBNAILS = new Map([
     ['upgrade_weapon', 'https://i.postimg.cc/CMXxsXT1/tsmym-bdwn-ʿnwan-7.png'],
@@ -45,25 +58,35 @@ const THUMBNAILS = new Map([
 
 async function ensureInventoryTable(db) {
     if(!db) return;
-    await db.query(`
-        CREATE TABLE IF NOT EXISTS user_inventory (
-            "id" BIGSERIAL PRIMARY KEY,
-            "guildID" TEXT,
-            "userID" TEXT,
-            "itemID" TEXT,
-            "quantity" BIGINT DEFAULT 0,
-            UNIQUE("guildID", "userID", "itemID")
-        );
-    `);
+    try {
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS user_inventory (
+                "id" BIGSERIAL PRIMARY KEY,
+                "guildID" TEXT,
+                "userID" TEXT,
+                "itemID" TEXT,
+                "quantity" BIGINT DEFAULT 0,
+                UNIQUE("guildID", "userID", "itemID")
+            );
+        `);
+    } catch(e) {
+        console.error("[Database Error] ensureInventoryTable failed:", e.message);
+    }
 }
 
 async function sendShopLog(client, guildId, member, item, price, type = "شراء") {
     try {
-        const settingsRes = await client.db.query(`SELECT "shopLogChannelID" FROM settings WHERE "guild" = $1`, [guildId]);
+        let settingsRes;
+        try { settingsRes = await client.db.query(`SELECT "shopLogChannelID" FROM settings WHERE "guild" = $1`, [guildId]); }
+        catch(e) { settingsRes = await client.db.query(`SELECT shoplogchannelid FROM settings WHERE guild = $1`, [guildId]).catch(()=>({rows:[]})); }
+        
         const settings = settingsRes.rows[0];
         if (!settings || (!settings.shopLogChannelID && !settings.shoplogchannelid)) return;
-        const channel = await client.channels.fetch(settings.shopLogChannelID || settings.shoplogchannelid).catch(() => null);
+        
+        const channelId = settings.shopLogChannelID || settings.shoplogchannelid;
+        const channel = await client.channels.fetch(channelId).catch(() => null);
         if (!channel) return;
+
         const embed = new EmbedBuilder()
             .setTitle(`🛒 سجل عمليات المتجر`)
             .setColor(type.includes("بيع") ? Colors.Green : Colors.Gold)
@@ -76,8 +99,12 @@ async function sendShopLog(client, guildId, member, item, price, type = "شرا�
             )
             .setThumbnail(member.user.displayAvatarURL())
             .setTimestamp();
-        await channel.send({ embeds: [embed] });
-    } catch (e) { console.error("[Shop Log Error]", e.message); }
+            
+        await channel.send({ embeds: [embed] }).catch(()=>{});
+    } catch (e) { 
+        // نتجاهل الأخطاء البسيطة عشان ما يعلق المتجر بسبب اللوج
+        // console.error("[Shop Log Error]", e.message); 
+    }
 }
 
 module.exports = {
