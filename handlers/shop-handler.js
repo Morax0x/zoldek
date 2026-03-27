@@ -2,9 +2,10 @@ const {
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, 
     ModalBuilder, TextInputBuilder, TextInputStyle, ComponentType, Colors, MessageFlags 
 } = require("discord.js");
-const farmAnimals = require('../../json/farm-animals.json'); 
 
-// 🔥 إصلاح مسار الاستيراد: الملفان في نفس مجلد handlers 🔥
+// 🔥 إصلاح مسار المزرعة 🔥
+const farmAnimals = require('../json/farm-animals.json'); 
+
 let addXPAndCheckLevel;
 try {
     ({ addXPAndCheckLevel } = require('./handler-utils.js')); 
@@ -217,8 +218,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         catch(e) { await db.query(`DELETE FROM user_coupons WHERE id = $1`, [couponIdToDelete]).catch(()=>{}); }
     }
     else if (couponType === 'role') {
-        try { await db.query(`INSERT INTO user_role_coupon_usage ("guildID", "userID", "lastUsedTimestamp") VALUES ($1, $2, $3) ON CONFLICT("guildID", "userID") DO UPDATE SET "lastUsedTimestamp" = EXCLUDED."lastUsedTimestamp"`, [interaction.guild.id, interaction.user.id, Date.now()]); }
-        catch(e) { await db.query(`INSERT INTO user_role_coupon_usage (guildid, userid, lastusedtimestamp) VALUES ($1, $2, $3) ON CONFLICT(guildid, userid) DO UPDATE SET lastusedtimestamp = EXCLUDED.lastusedtimestamp`, [interaction.guild.id, interaction.user.id, Date.now()]).catch(()=>{}); }
+        try { await db.query(`INSERT INTO user_role_coupon_usage ("guildID", "userID", "lastUsedTimestamp") VALUES ($1, $2, $3) ON CONFLICT ("guildID", "userID") DO UPDATE SET "lastUsedTimestamp" = EXCLUDED."lastUsedTimestamp"`, [interaction.guild.id, interaction.user.id, Date.now()]); }
+        catch(e) { await db.query(`INSERT INTO user_role_coupon_usage (guildid, userid, lastusedtimestamp) VALUES ($1, $2, $3) ON CONFLICT (guildid, userid) DO UPDATE SET lastusedtimestamp = EXCLUDED.lastusedtimestamp`, [interaction.guild.id, interaction.user.id, Date.now()]).catch(()=>{}); }
     }
 
     if (callbackType === 'item') {
@@ -283,12 +284,14 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         else if (itemData.id === 'farm_worker_3d') {
             const duration = 3 * 24 * 60 * 60 * 1000;
             try { 
-                await db.query(`
-                    INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") 
-                    VALUES ($1, $2, 'farm_worker', 0, $3, 0)
-                    ON CONFLICT("userID", "guildID", "buffType") 
-                    DO UPDATE SET "expiresAt" = LEAST(user_buffs."expiresAt" + $4, $5)
-                `, [interaction.user.id, interaction.guild.id, Date.now() + duration, duration, Date.now() + MAX_FARM_WORKER_DAYS]); 
+                let existingRes = await db.query(`SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]}));
+                let active = existingRes.rows[0];
+                let currentExpiry = active ? Number(active.expiresAt || active.expiresat) : Date.now();
+                if (currentExpiry < Date.now()) currentExpiry = Date.now();
+                let newExpiry = currentExpiry + duration;
+                
+                await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=>{});
+                await db.query(`INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 0, $3, 0)`, [interaction.user.id, interaction.guild.id, newExpiry]).catch(()=>{}); 
             } catch(e) {}
         }
         else if (itemData.id === 'change_race') {
@@ -317,7 +320,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     else if (callbackType === 'weapon') {
         const newLevel = itemData.currentLevel + 1;
         if (itemData.isBuy) {
-            try { await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4) ON CONFLICT("userID", "guildID", "raceName") DO UPDATE SET "weaponLevel" = $4`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]); } catch(e){}
+            try { await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]); } catch(e){}
+            try { await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]); } catch(e){}
         } else {
             try { await db.query(`UPDATE user_weapons SET "weaponLevel" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "raceName" = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]); } catch(e){}
         }
@@ -325,7 +329,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     else if (callbackType === 'skill') {
         const newLevel = itemData.currentLevel + 1;
         if (itemData.isBuy) {
-            try { await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4) ON CONFLICT("userID", "guildID", "skillID") DO UPDATE SET "skillLevel" = $4`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]); } catch(e){}
+            try { await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]); } catch(e){}
+            try { await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]); } catch(e){}
         } else {
             try { await db.query(`UPDATE user_skills SET "skillLevel" = $1 WHERE "id" = $2`, [newLevel, itemData.dbId]); } catch(e){}
         }
@@ -937,7 +942,6 @@ async function handleShopInteractions(i, client, db) {
         }
         if (!userData) userData = { level: 0, mora: 0, bank: 0 }; 
 
-        const userLevel = Number(userData.level) || 0;
         const cash = Number(userData.mora) || 0;
         const bank = Number(userData.bank) || 0;
 
@@ -978,7 +982,6 @@ async function handleShopInteractions(i, client, db) {
             اهـلا بـك بمتـجر الامبراطـوريـة
             ✬ رصيـدك الكـاش: **${cash.toLocaleString()}** ${EMOJI_MORA}
             ✬ رصـيد البنـك: **${bank.toLocaleString()}** ${EMOJI_MORA}
-            ✬ مـسـتواك: **${userLevel}**
 
             ✦ تصفح القائمة لعرض الـعـنـاصر المتـاحـة
             `)
@@ -1033,6 +1036,7 @@ async function handleShopInteractions(i, client, db) {
         const buffId = i.customId.replace('replace_buff_', '');
         const item = shopItems.find(it => it.id === buffId);
         if (item) {
+            await i.deferUpdate();
             await processFinalPurchase(i, item, 1, item.price, 0, 'none', client, db, 'item');
         }
     }
