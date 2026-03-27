@@ -430,24 +430,28 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                     
                     if (shopState.currentCategory === 'animals') {
                         let farmCheckRes;
-                        try { farmCheckRes = await sql.query(`SELECT "id" FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 AND "animalID" = $3`, [user.id, guild.id, itemId]); }
-                        catch(e) { farmCheckRes = await sql.query(`SELECT id FROM user_farm WHERE userid = $1 AND guildid = $2 AND animalid = $3`, [user.id, guild.id, itemId]).catch(()=>({rows:[]})); }
+                        try { farmCheckRes = await sql.query(`SELECT "id", "quantity" FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 AND "animalID" = $3`, [user.id, guild.id, itemId]); }
+                        catch(e) { farmCheckRes = await sql.query(`SELECT id, quantity FROM user_farm WHERE userid = $1 AND guildid = $2 AND animalid = $3`, [user.id, guild.id, itemId]).catch(()=>({rows:[]})); }
                         
                         if (farmCheckRes.rows[0]) {
-                            try { await sql.query(`UPDATE user_farm SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, farmCheckRes.rows[0].id]); }
-                            catch(e) { await sql.query(`UPDATE user_farm SET quantity = quantity + $1 WHERE id = $2`, [qty, farmCheckRes.rows[0].id || farmCheckRes.rows[0].ID]).catch(()=>{}); }
+                            const currentQty = Number(farmCheckRes.rows[0].quantity || farmCheckRes.rows[0].Quantity) || 0;
+                            const newQty = currentQty + qty;
+                            try { await sql.query(`UPDATE user_farm SET "quantity" = $1 WHERE "id" = $2`, [newQty, farmCheckRes.rows[0].id]); }
+                            catch(e) { await sql.query(`UPDATE user_farm SET quantity = $1 WHERE id = $2`, [newQty, farmCheckRes.rows[0].id || farmCheckRes.rows[0].ID]).catch(()=>{}); }
                         } else {
                             try { await sql.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, Date.now(), Date.now()]); }
                             catch(e) { await sql.query(`INSERT INTO user_farm (guildid, userid, animalid, quantity, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, Date.now(), Date.now()]).catch(()=>{}); }
                         }
                     } else {
                         let invCheckRes;
-                        try { invCheckRes = await sql.query(`SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guild.id, itemId]); }
-                        catch(e) { invCheckRes = await sql.query(`SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guild.id, itemId]).catch(()=>({rows:[]})); }
+                        try { invCheckRes = await sql.query(`SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guild.id, itemId]); }
+                        catch(e) { invCheckRes = await sql.query(`SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guild.id, itemId]).catch(()=>({rows:[]})); }
                         
                         if (invCheckRes.rows[0]) {
-                            try { await sql.query(`UPDATE user_inventory SET "quantity" = LEAST("quantity" + $1, $2) WHERE "id" = $3`, [qty, MAX_FARM_LIMIT, invCheckRes.rows[0].id]); }
-                            catch(e) { await sql.query(`UPDATE user_inventory SET quantity = LEAST(quantity + $1, $2) WHERE id = $3`, [qty, MAX_FARM_LIMIT, invCheckRes.rows[0].id || invCheckRes.rows[0].ID]).catch(()=>{}); }
+                            const currentQty = Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity) || 0;
+                            const newQty = Math.min(currentQty + qty, MAX_FARM_LIMIT);
+                            try { await sql.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invCheckRes.rows[0].id]); }
+                            catch(e) { await sql.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invCheckRes.rows[0].id || invCheckRes.rows[0].ID]).catch(()=>{}); }
                         } else {
                             try { await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guild.id, user.id, itemId, qty]); }
                             catch(e) { await sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guild.id, user.id, itemId, qty]).catch(()=>{}); }
@@ -505,8 +509,9 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                                 try { await sql.query(`DELETE FROM user_farm WHERE "id" = $1`, [row.id]); }
                                 catch(e) { await sql.query(`DELETE FROM user_farm WHERE id = $1`, [row.id || row.ID]).catch(()=>{}); }
                             } else {
-                                try { await sql.query(`UPDATE user_farm SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [sellFromRow, row.id]); }
-                                catch(e) { await sql.query(`UPDATE user_farm SET quantity = quantity - $1 WHERE id = $2`, [sellFromRow, row.id || row.ID]).catch(()=>{}); }
+                                const newQty = Number(row.quantity || row.Quantity) - sellFromRow;
+                                try { await sql.query(`UPDATE user_farm SET "quantity" = $1 WHERE "id" = $2`, [newQty, row.id]); }
+                                catch(e) { await sql.query(`UPDATE user_farm SET quantity = $1 WHERE id = $2`, [newQty, row.id || row.ID]).catch(()=>{}); }
                             }
                         }
 
@@ -551,8 +556,9 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                             try { await sql.query(`DELETE FROM user_inventory WHERE "id" = $1`, [invItem.id]); }
                             catch(e) { await sql.query(`DELETE FROM user_inventory WHERE id = $1`, [invItem.id || invItem.ID]).catch(()=>{}); }
                         } else {
-                            try { await sql.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [qty, invItem.id]); }
-                            catch(e) { await sql.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [qty, invItem.id || invItem.ID]).catch(()=>{}); }
+                            const newQty = Number(invItem.quantity || invItem.Quantity) - qty;
+                            try { await sql.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invItem.id]); }
+                            catch(e) { await sql.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invItem.id || invItem.ID]).catch(()=>{}); }
                         }
 
                         const sellEmbed = new EmbedBuilder()
