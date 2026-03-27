@@ -148,6 +148,12 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
 }
 
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
+    // 🛠️ حل مشكلة اختفاء أعمدة multiplier و buffPercent من قواعد البيانات القديمة بصمت
+    await db.query(`ALTER TABLE user_buffs ADD COLUMN "multiplier" REAL DEFAULT 0.0`).catch(()=>{});
+    await db.query(`ALTER TABLE user_buffs ADD COLUMN multiplier REAL DEFAULT 0.0`).catch(()=>{});
+    await db.query(`ALTER TABLE user_buffs ADD COLUMN "buffPercent" BIGINT DEFAULT 0`).catch(()=>{});
+    await db.query(`ALTER TABLE user_buffs ADD COLUMN buffpercent BIGINT DEFAULT 0`).catch(()=>{});
+
     let userDataRes;
     try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [interaction.user.id, interaction.guild.id]); }
     catch(e) { userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})); }
@@ -797,6 +803,13 @@ async function _handleReplaceGuard(i, client, db) {
 async function _handleReplaceBuffButton(i, client, db) {
     try {
         await i.deferUpdate();
+        
+        // 🛠️ حل مشكلة اختفاء أعمدة multiplier و buffPercent من قواعد البيانات القديمة بصمت
+        await db.query(`ALTER TABLE user_buffs ADD COLUMN "multiplier" REAL DEFAULT 0.0`).catch(()=>{});
+        await db.query(`ALTER TABLE user_buffs ADD COLUMN multiplier REAL DEFAULT 0.0`).catch(()=>{});
+        await db.query(`ALTER TABLE user_buffs ADD COLUMN "buffPercent" BIGINT DEFAULT 0`).catch(()=>{});
+        await db.query(`ALTER TABLE user_buffs ADD COLUMN buffpercent BIGINT DEFAULT 0`).catch(()=>{});
+
         const userId = i.user.id; 
         const guildId = i.guild.id; 
         const newItemId = i.customId.replace('replace_buff_', '');
