@@ -134,6 +134,10 @@ async function setupDatabase(clientOrSql) {
         // 🔥 إضافة عمود voice_time لدعم التحديثات الجديدة 🔥
         await ensureColumn(db, 'kings_board_tracker', 'voice_time', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'mora_stolen', 'BIGINT DEFAULT 0');
+
+        // 🔥 تحديث عواميد البفات المفقودة في الجداول القديمة لتجنب أخطاء المتجر 🔥
+        await ensureColumn(db, 'user_buffs', 'multiplier', 'REAL DEFAULT 0.0');
+        await ensureColumn(db, 'user_buffs', 'buffPercent', 'BIGINT DEFAULT 0');
         
         const insertItem = `INSERT INTO market_items ("id", "name", "description", "currentPrice") VALUES ($1, $2, $3, $4) ON CONFLICT ("id") DO NOTHING`;
         for (const item of defaultMarketItems) {
