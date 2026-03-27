@@ -324,20 +324,27 @@ module.exports = {
                 
                 kingCollector.on('collect', async i => {
                     await i.deferUpdate();
-                    const selectedRoleColumn = i.values[0];
+                    let selectedRoleColumn = i.values[0];
                     
                     let settingsRes;
                     try { settingsRes = await db.query(`SELECT "${selectedRoleColumn}" FROM settings WHERE "guild" = $1`, [guildID]); }
                     catch(e) { settingsRes = await db.query(`SELECT ${selectedRoleColumn} FROM settings WHERE guild = $1`, [guildID]).catch(()=>({rows:[]})); }
                     
-                    const roleId = settingsRes.rows[0] ? settingsRes.rows[0][selectedRoleColumn] : null;
+                    let roleId = settingsRes.rows[0] ? (settingsRes.rows[0][selectedRoleColumn] || settingsRes.rows[0][selectedRoleColumn.toLowerCase()]) : null;
+
+                    if (!roleId && selectedRoleColumn === 'roleVoice') {
+                        try { settingsRes = await db.query(`SELECT "roleVoiceKing" FROM settings WHERE "guild" = $1`, [guildID]); }
+                        catch(e) { settingsRes = await db.query(`SELECT rolevoiceking FROM settings WHERE guild = $1`, [guildID]).catch(()=>({rows:[]})); }
+                        roleId = settingsRes.rows[0] ? (settingsRes.rows[0]['roleVoiceKing'] || settingsRes.rows[0]['rolevoiceking']) : null;
+                    }
+
                     if (!roleId) return await i.editReply({ content: `❌ لم يتم إعداد رتبة لهذا الملك في إعدادات السيرفر.`, components: [] });
 
                     const targetRole = message.guild.roles.cache.get(roleId);
                     if (!targetRole) return await i.editReply({ content: `❌ الرتبة المطلوبة غير موجودة في السيرفر.`, components: [] });
 
                     const todayStr = getTodayDateString();
-                    const statName = kingStatsMap[selectedRoleColumn];
+                    const statName = kingStatsMap[selectedRoleColumn] || kingStatsMap['roleVoice'];
 
                     if (isEmpting) {
                         targetRole.members.forEach(async (member) => {
@@ -345,39 +352,56 @@ module.exports = {
                         });
 
                         if (selectedRoleColumn === 'roleCasinoKing') {
-                            await db.query(`UPDATE kings_board_tracker SET "casino_profit" = 0, "mora_earned" = 0 WHERE "guildID" = $1 AND "date" = $2`, [guildID, todayStr]).catch(()=>{});
+                            try { await db.query(`UPDATE kings_board_tracker SET "casino_profit" = 0, "mora_earned" = 0 WHERE "guildID" = $1 AND "date" = $2`, [guildID, todayStr]); }
+                            catch(e) { await db.query(`UPDATE kings_board_tracker SET casino_profit = 0, mora_earned = 0 WHERE guildid = $1 AND date = $2`, [guildID, todayStr]).catch(()=>{}); }
                         } else {
-                            await db.query(`UPDATE kings_board_tracker SET "${statName}" = 0 WHERE "guildID" = $1 AND "date" = $2`, [guildID, todayStr]).catch(()=>{});
+                            try { await db.query(`UPDATE kings_board_tracker SET "${statName}" = 0 WHERE "guildID" = $1 AND "date" = $2`, [guildID, todayStr]); }
+                            catch(e) { await db.query(`UPDATE kings_board_tracker SET ${statName} = 0 WHERE guildid = $1 AND date = $2`, [guildID, todayStr]).catch(()=>{}); }
                         }
 
                         await i.editReply({ content: `🗑️ **تم إخلاء عرش (${targetRole.name}) وتصفير جميع نقاطه لليوم بنجاح!**`, components: [] });
                     } else {
                         let currentMax = 0;
                         if (selectedRoleColumn === 'roleCasinoKing') {
-                            const res = await db.query(`SELECT SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 GROUP BY "userID" ORDER BY val DESC LIMIT 1`, [guildID, todayStr]).catch(()=>({rows:[]}));
-                            currentMax = res.rows[0] ? Number(res.rows[0].val) : 0;
+                            try {
+                                const res = await db.query(`SELECT SUM(COALESCE("casino_profit", 0) + COALESCE("mora_earned", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 GROUP BY "userID" ORDER BY val DESC LIMIT 1`, [guildID, todayStr]);
+                                currentMax = res.rows[0] ? Number(res.rows[0].val) : 0;
+                            } catch(e) {
+                                const res = await db.query(`SELECT SUM(COALESCE(casino_profit, 0) + COALESCE(mora_earned, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 GROUP BY userid ORDER BY val DESC LIMIT 1`, [guildID, todayStr]).catch(()=>({rows:[]}));
+                                currentMax = res.rows[0] ? Number(res.rows[0].val) : 0;
+                            }
                         } else if (selectedRoleColumn === 'roleAbyss') {
-                            const res = await db.query(`SELECT "dungeon_floor" as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 ORDER BY "dungeon_floor" DESC LIMIT 1`, [guildID, todayStr]).catch(()=>({rows:[]}));
-                            currentMax = res.rows[0] ? Number(res.rows[0].val) : 0;
+                            try {
+                                const res = await db.query(`SELECT "dungeon_floor" as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 ORDER BY "dungeon_floor" DESC LIMIT 1`, [guildID, todayStr]);
+                                currentMax = res.rows[0] ? Number(res.rows[0].val) : 0;
+                            } catch(e) {
+                                const res = await db.query(`SELECT dungeon_floor as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 ORDER BY dungeon_floor DESC LIMIT 1`, [guildID, todayStr]).catch(()=>({rows:[]}));
+                                currentMax = res.rows[0] ? Number(res.rows[0].val) : 0;
+                            }
                         } else {
-                            const res = await db.query(`SELECT SUM(COALESCE("${statName}", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 GROUP BY "userID" ORDER BY val DESC LIMIT 1`, [guildID, todayStr]).catch(()=>({rows:[]}));
-                            currentMax = res.rows[0] ? Number(res.rows[0].val) : 0;
+                            try {
+                                const res = await db.query(`SELECT SUM(COALESCE("${statName}", 0)) as val FROM kings_board_tracker WHERE "guildID" = $1 AND "date" = $2 GROUP BY "userID" ORDER BY val DESC LIMIT 1`, [guildID, todayStr]);
+                                currentMax = res.rows[0] ? Number(res.rows[0].val) : 0;
+                            } catch(e) {
+                                const res = await db.query(`SELECT SUM(COALESCE(${statName}, 0)) as val FROM kings_board_tracker WHERE guildid = $1 AND date = $2 GROUP BY userid ORDER BY val DESC LIMIT 1`, [guildID, todayStr]).catch(()=>({rows:[]}));
+                                currentMax = res.rows[0] ? Number(res.rows[0].val) : 0;
+                            }
                         }
 
-                        const newVal = currentMax + 10; 
+                        const newVal = currentMax + 2; 
                         const trackerId = `${userID}-${guildID}-${todayStr}`;
 
                         try {
                             await db.query(`
                                 INSERT INTO kings_board_tracker ("id", "userID", "guildID", "date", "${statName}") 
                                 VALUES ($1, $2, $3, $4, $5)
-                                ON CONFLICT("id") DO UPDATE SET "${statName}" = $5
+                                ON CONFLICT("id") DO UPDATE SET "${statName}" = GREATEST(kings_board_tracker."${statName}", $5)
                             `, [trackerId, userID, guildID, todayStr, newVal]);
                         } catch(e) {
                             await db.query(`
                                 INSERT INTO kings_board_tracker (id, userid, guildid, date, ${statName}) 
                                 VALUES ($1, $2, $3, $4, $5)
-                                ON CONFLICT(id) DO UPDATE SET ${statName} = $5
+                                ON CONFLICT(id) DO UPDATE SET ${statName} = GREATEST(kings_board_tracker.${statName}, $5)
                             `, [trackerId, userID, guildID, todayStr, newVal]).catch(()=>{});
                         }
 
@@ -394,7 +418,6 @@ module.exports = {
                     kingCollector.stop();
                 });
             }
-            // 🔥 إصلاح السمعة: استخدام UPSERT ذكي بدل قراءة ثم كتابة لتفادي أخطاء السجلات المفقودة
             else if (val === 'reputation') {
                 const modalId = `mod_rep_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة السمعة (النقاط)');
@@ -524,7 +547,6 @@ module.exports = {
                     await modalSubmit.editReply({ content: `✅ تم نصب خيمة الحفظ لـ ${targetUser} في **الطابق ${floor}** من الدانجون ⛺.` });
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
             }
-            // 🔥 إصلاح المهارات والأسلحة: تم إضافة خيار التصفير هنا تحت الزر الجديد 🔥
             else if (val === 'reset_combat') {
                 await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
                 try {
@@ -609,7 +631,6 @@ module.exports = {
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
             }
             else if (val === 'fishing_gear') {
-                // الكود نفسه سليم لم أقم بتغييره هنا.
                 const modalId = `mod_fish_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة معدات وموقع الصيد');
                 const typeInput = new TextInputBuilder().setCustomId('fish_type').setLabel('النوع (سنارة / قارب / مكان)').setStyle(TextInputStyle.Short).setRequired(true);
@@ -655,7 +676,6 @@ module.exports = {
 
                 } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
             }
-            // 🔥 إصلاح إعطاء وحذف الأغراض هنا 🔥
             else if (val === 'items') {
                 const modalId = `mod_item_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة العناصر');
@@ -689,7 +709,6 @@ module.exports = {
                                 }
                             }
                         } else if (item.type === 'farm') {
-                            // تم إصلاح مشكلة اللوب، يضيف الكمية في سطر واحد لتوافق نظام المزرعة الجديد
                             const now = Date.now();
                             try { await db.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, item.id, qty, now, now]); }
                             catch(e) { await db.query(`INSERT INTO user_farm (guildid, userid, animalid, quantity, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, item.id, qty, now, now]).catch(()=>{}); }
@@ -707,7 +726,6 @@ module.exports = {
                         await modalSubmit.editReply({ content: `✅ تم إضافة **${qty}** × **${item.name}** لـ ${targetUser}.` });
                     } 
                     else if (action.includes('ازال') || action.includes('سحب')) {
-                        // الاعتماد على userID و itemID في الحذف بدلاً من عمود id الذي قد لا يكون موجوداً
                         if (item.type === 'market') {
                             try { await db.query(`UPDATE user_portfolio SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [qty, userID, guildID, item.id]); }
                             catch(e) { await db.query(`UPDATE user_portfolio SET quantity = GREATEST(0, quantity - $1) WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, userID, guildID, item.id]).catch(()=>{}); }
@@ -725,7 +743,6 @@ module.exports = {
             else if (val === 'media_shield') {
                 await this.giveMediaShield(interaction, client, db, targetUser);
             }
-            // 🔥 إصلاح التصفير الشامل: تم تضمين جميع الجداول المفقودة 🔥
             else if (val === 'reset') {
                 await this.resetUser(interaction, client, db, targetUser);
             }
@@ -934,7 +951,6 @@ module.exports = {
         const guildID = interaction.guild.id;
         const userID = targetUser.id;
 
-        // 🔥 التصفير الشامل تم وضع كل الجداول فيه لضمان حذف اللاعب تماماً
         try {
             await db.query(`DELETE FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID]);
             await db.query(`DELETE FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
@@ -975,7 +991,6 @@ module.exports = {
         item = marketItems.find(i => normalize(i.name) === input || i.id.toLowerCase() === nameOrID.toLowerCase());
         if (item) return { ...item, type: 'market' };
         
-        // 🔥 تم إصلاح دالة البحث: لو كتبت اسم حيوان يعطيك الحيوان نفسه بدلاً من العلف الخاص فيه 🔥
         item = farmAnimals.find(i => normalize(i.name) === input || String(i.id).toLowerCase() === nameOrID.toLowerCase());
         if (item) return { ...item, type: 'farm' };
 
