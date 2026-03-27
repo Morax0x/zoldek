@@ -2,26 +2,39 @@ const {
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, 
     ModalBuilder, TextInputBuilder, TextInputStyle, ComponentType, Colors, MessageFlags 
 } = require("discord.js");
-const { sendLevelUpMessage } = require('../handler-utils.js'); 
-const farmAnimals = require('../../json/farm-animals.json'); 
-const { 
-    shopItems, potionItems, weaponsConfig, skillsConfig, rodsConfig, boatsConfig, baitsConfig, 
-    EMOJI_MORA, OWNER_ID, XP_EXCHANGE_RATE, BANNER_URL, THUMBNAILS, 
-    ensureInventoryTable, sendShopLog 
-} = require('./utils');
 
-// 🔥 الحدود الجديدة التي طلبتها 🔥
+let sendLevelUpMessage, addXPAndCheckLevel;
+try {
+    const h = require('../handler-utils.js');
+    sendLevelUpMessage = h.sendLevelUpMessage;
+    addXPAndCheckLevel = h.addXPAndCheckLevel;
+} catch (e) {
+    try {
+        const h = require('./handler-utils.js');
+        sendLevelUpMessage = h.sendLevelUpMessage;
+        addXPAndCheckLevel = h.addXPAndCheckLevel;
+    } catch (e2) {}
+}
+
+let farmAnimals;
+try { farmAnimals = require('../../json/farm-animals.json'); } catch(e) { farmAnimals = require('../json/farm-animals.json'); }
+
+let utils;
+try { utils = require('./utils.js'); } 
+catch(e) { 
+    try { utils = require('./shop_system/utils.js'); } catch(e2) { utils = {}; } 
+}
+
+const { 
+    shopItems = [], potionItems = [], weaponsConfig = [], skillsConfig = [], rodsConfig = [], boatsConfig = [], baitsConfig = [], 
+    EMOJI_MORA = '<:mora:1435647151349698621>', OWNER_ID, XP_EXCHANGE_RATE = 3, BANNER_URL, THUMBNAILS, 
+    ensureInventoryTable, sendShopLog 
+} = utils;
+
 const MAX_FARM_LIMIT = 1000;
 const MAX_POTION_LIMIT = 999;
 const MAX_GUARD_USES = 6; 
 const MAX_FARM_WORKER_DAYS = 6 * 24 * 60 * 60 * 1000; 
-
-let addXPAndCheckLevel;
-try {
-    ({ addXPAndCheckLevel } = require('../handler-utils.js')); 
-} catch (e) {
-    try { ({ addXPAndCheckLevel } = require('./handler-utils.js')); } catch (e2) {}
-}
 
 let _handleFarmTransaction, _handleMarketTransaction, updateMarketPrices;
 try { const m = require('./farm.js'); _handleFarmTransaction = m._handleFarmTransaction; } catch(e) { try { const m = require('./shop_system/farm.js'); _handleFarmTransaction = m._handleFarmTransaction; } catch(e2) {} }
@@ -40,6 +53,7 @@ const emojiMap = new Map([
 function getBuyableItems() { return shopItems.filter(it => it.category !== 'menus' && !EXCLUDED_FROM_MAIN_MENU.includes(it.id)); }
 function getPotionItems() { return potionItems; }
 function getGeneralSkills() { return skillsConfig.filter(s => s.id.startsWith('skill_')); }
+
 function getRaceSkillConfig(raceName) { 
     if (!raceName) return null;
     return skillsConfig.find(s => {
@@ -136,7 +150,6 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     });
 }
 
-// 🔥 نظام الدفع والإضافة المحدث (إلغاء ON CONFLICT بالكامل ليعمل بشكل مطلق) 🔥
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
     let userDataRes;
     try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [interaction.user.id, interaction.guild.id]); }
@@ -157,7 +170,9 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     if (callbackType === 'item') {
         if (itemData.id === 'personal_guard_1d') {
             const currentGuards = Number(userData.hasGuard) || 0;
-            if (currentGuards >= MAX_GUARD_USES) return await safeReply({ content: `🚫 **تم بلوغ الحد الأقصى!**\nلا يمكنك توظيف أكثر من حارسين (6 محاولات).` });
+            if (currentGuards >= MAX_GUARD_USES) {
+                return await safeReply({ content: `🚫 **تم بلوغ الحد الأقصى!**\nلا يمكنك توظيف أكثر من حارسين (6 محاولات).` });
+            }
         }
         else if (itemData.id === 'farm_worker_3d') {
             let buffRes = await db.query(`SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
@@ -169,7 +184,9 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         else if (itemData.id.startsWith('feed_') || itemData.id.startsWith('seed_') || itemData.category === 'farming') {
             let invCheckRes = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=> db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]})));
             let currQty = invCheckRes.rows[0] ? Number(invCheckRes.rows[0].quantity) : 0;
-            if (currQty + quantity > MAX_FARM_LIMIT) return await safeReply({ content: `🚫 **مخزن المزرعة ممتلئ!**\nلا يمكنك حمل أكثر من **${MAX_FARM_LIMIT}** من هذا العنصر.` });
+            if (currQty + quantity > MAX_FARM_LIMIT) {
+                return await safeReply({ content: `🚫 **مخزن المزرعة ممتلئ!**\nلا يمكنك حمل أكثر من **${MAX_FARM_LIMIT}** من هذا العنصر.` });
+            }
         }
     }
 
@@ -195,7 +212,6 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         }
     }
 
-    // إضافة العناصر بطريقة الاستعلام المزدوج (SELECT ثم UPDATE/INSERT)
     if (callbackType === 'item') {
         if (itemData.id === 'personal_guard_1d') { 
             try { await db.query(`UPDATE levels SET "hasGuard" = LEAST(COALESCE("hasGuard", 0) + 3, $1), "guardExpires" = 0 WHERE "user" = $2 AND "guild" = $3`, [MAX_GUARD_USES, interaction.user.id, interaction.guild.id]); }
@@ -339,7 +355,6 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     if (discountUsed > 0) successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
     if (itemData.id === 'farm_worker_3d') successMsg += `\n👨‍🌾 **عامل المزرعة بدأ العمل!** سيقوم بحصاد المحاصيل وإطعام الحيوانات.`;
     
-    // 🔥 جعل الرد علني في الشات كرسالة مستقلة ತمنشن اللاعب 🔥
     const successEmbed = new EmbedBuilder()
         .setTitle('✅ تمت عملية الشراء بنجاح')
         .setColor(Colors.Green)
@@ -362,7 +377,6 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
 function buildPaginatedItemEmbed(selectedItemId) {
     const isPotion = potionItems.find(i => i.id === selectedItemId);
     const itemList = isPotion ? potionItems : getBuyableItems();
-
     const itemIndex = itemList.findIndex(it => it.id === selectedItemId);
     if (itemIndex === -1) return null;
 
@@ -478,13 +492,13 @@ async function _handleBaitBuy(i, client, db) {
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     const baitId = i.values[0].replace('buy_bait_', '');
     const bait = baitsConfig.find(b => b.id === baitId);
-    
     const qty = 5; 
     const unitPrice = Math.round(bait.price / 5);
-    const cost = unitPrice * qty; 
+    const cost = unitPrice * qty;
     
     let userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]).catch(()=> db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})));
     let userData = userDataRes.rows[0];
+
     if (!userData) return i.editReply('❌ لا توجد بيانات مسجلة لك.');
 
     let invCheckRes = await db.query(`SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [i.user.id, i.guild.id, baitId]).catch(()=> db.query(`SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [i.user.id, i.guild.id, baitId]).catch(()=>({rows:[]})));
