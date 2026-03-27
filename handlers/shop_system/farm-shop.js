@@ -421,9 +421,23 @@ async function handleShopInteraction(i, client, sql, user, guild, shopState, get
                         try { await sql.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, Date.now(), Date.now()]); }
                         catch(e) { await sql.query(`INSERT INTO user_farm (guildid, userid, animalid, quantity, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, user.id, itemId, qty, Date.now(), Date.now()]).catch(()=>{}); }
                     } else {
-                        // 🔥 تحديث السعة بشكل سليم باستخدام LEAST لضمان الجدار الناري 1000 🔥
-                        try { await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = LEAST(user_inventory."quantity" + $5, $6)`, [guild.id, user.id, itemId, qty, qty, MAX_FARM_LIMIT]); }
-                        catch(e) { await sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = LEAST(COALESCE(quantity, 0) + $5, $6)`, [guild.id, user.id, itemId, qty, qty, MAX_FARM_LIMIT]).catch(()=>{}); }
+                        // 🔥 تحديث السعة بشكل صلب وإضافة العنصر بنجاح 🔥
+                        try { 
+                            let existingRes = await sql.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guild.id, itemId]).catch(()=>({rows:[]}));
+                            if(existingRes.rows.length > 0) {
+                                await sql.query(`UPDATE user_inventory SET "quantity" = LEAST("quantity" + $1, $2) WHERE "userID" = $3 AND "guildID" = $4 AND "itemID" = $5`, [qty, MAX_FARM_LIMIT, user.id, guild.id, itemId]);
+                            } else {
+                                await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guild.id, user.id, itemId, qty]);
+                            }
+                        }
+                        catch(e) { 
+                            let existingRes = await sql.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guild.id, itemId]).catch(()=>({rows:[]}));
+                            if(existingRes.rows.length > 0) {
+                                await sql.query(`UPDATE user_inventory SET quantity = LEAST(quantity + $1, $2) WHERE userid = $3 AND guildid = $4 AND itemid = $5`, [qty, MAX_FARM_LIMIT, user.id, guild.id, itemId]).catch(()=>{});
+                            } else {
+                                await sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guild.id, user.id, itemId, qty]).catch(()=>{});
+                            }
+                        }
                     }
                     
                     // 🔥 رد علني بدون Ephemeral لعملية الشراء الناجحة 🔥
