@@ -43,6 +43,21 @@ const emojiMap = new Map([
 
 const HIDDEN_ITEMS_ID = [];
 
+// 🛠️ دالة تنفيذ الداتابيز الآمنة التي تكشف الخطأ الحقيقي وتمنع انهيار البوت
+async function executeDB(db, primaryQuery, fallbackQuery, params = []) {
+    try {
+        return await db.query(primaryQuery, params);
+    } catch (e1) {
+        if (!fallbackQuery) throw e1;
+        try {
+            return await db.query(fallbackQuery, params);
+        } catch (e2) {
+            // نقوم بإرجاع الخطأ الأول لأنه دائماً يحتوي على السبب الحقيقي (مثل اسم العمود المفقود)
+            throw e1; 
+        }
+    }
+}
+
 function getBuyableItems() { 
     if (!shopItems) return [];
     return shopItems.filter(it => it.category !== 'menus' && !EXCLUDED_FROM_MAIN_MENU.includes(it.id)); 
@@ -61,9 +76,7 @@ function getRaceSkillConfig(raceName) {
 
 async function getUserRace(member, db) { 
     if (!member || !member.roles) return null;
-    let allRaceRolesRes;
-    try { allRaceRolesRes = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [member.guild.id]); }
-    catch(e) { allRaceRolesRes = await db.query(`SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [member.guild.id]).catch(()=>({rows:[]})); }
+    let allRaceRolesRes = await executeDB(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [member.guild.id]).catch(()=>({rows:[]}));
     if(!allRaceRolesRes || !allRaceRolesRes.rows) return null;
     const allRaceRoles = allRaceRolesRes.rows;
     const userRoleIDs = member.roles.cache.map(r => r.id); 
@@ -84,14 +97,10 @@ async function getAllUserAvailableSkills(member, db) {
 
 async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalPrice, client, db, callbackType) {
     const member = interaction.member; const guildID = interaction.guild.id; const userID = member.id;
-    let bossCouponRes;
-    try { bossCouponRes = await db.query(`SELECT * FROM user_coupons WHERE "guildID" = $1 AND "userID" = $2 AND "isUsed" = 0 LIMIT 1`, [guildID, userID]); }
-    catch(e) { bossCouponRes = await db.query(`SELECT * FROM user_coupons WHERE guildid = $1 AND userid = $2 AND isused = 0 LIMIT 1`, [guildID, userID]).catch(()=>({rows:[]})); }
+    let bossCouponRes = await executeDB(db, `SELECT * FROM user_coupons WHERE "guildID" = $1 AND "userID" = $2 AND "isUsed" = 0 LIMIT 1`, `SELECT * FROM user_coupons WHERE guildid = $1 AND userid = $2 AND isused = 0 LIMIT 1`, [guildID, userID]).catch(()=>({rows:[]}));
     const bossCoupon = bossCouponRes?.rows?.[0] || null;
     
-    let roleCouponsConfigRes;
-    try { roleCouponsConfigRes = await db.query(`SELECT * FROM role_coupons_config WHERE "guildID" = $1`, [guildID]); }
-    catch(e) { roleCouponsConfigRes = await db.query(`SELECT * FROM role_coupons_config WHERE guildid = $1`, [guildID]).catch(()=>({rows:[]})); }
+    let roleCouponsConfigRes = await executeDB(db, `SELECT * FROM role_coupons_config WHERE "guildID" = $1`, `SELECT * FROM role_coupons_config WHERE guildid = $1`, [guildID]).catch(()=>({rows:[]}));
     const roleCouponsConfig = roleCouponsConfigRes?.rows || [];
     
     let bestRoleCoupon = null;
@@ -103,9 +112,7 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     
     let isRoleCouponReady = false;
     if (bestRoleCoupon) {
-        let usageDataRes;
-        try { usageDataRes = await db.query(`SELECT "lastUsedTimestamp" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, [guildID, userID]); }
-        catch(e) { usageDataRes = await db.query(`SELECT lastusedtimestamp FROM user_role_coupon_usage WHERE guildid = $1 AND userid = $2`, [guildID, userID]).catch(()=>({rows:[]})); }
+        let usageDataRes = await executeDB(db, `SELECT "lastUsedTimestamp" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, `SELECT lastusedtimestamp FROM user_role_coupon_usage WHERE guildid = $1 AND userid = $2`, [guildID, userID]).catch(()=>({rows:[]}));
         const usageData = usageDataRes?.rows?.[0];
         const fifteenDaysMs = 15 * 24 * 60 * 60 * 1000;
         if (!usageData || (Date.now() - Number(usageData.lastUsedTimestamp || usageData.lastusedtimestamp) > fifteenDaysMs)) isRoleCouponReady = true; else bestRoleCoupon = null; 
@@ -148,21 +155,12 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
 }
 
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
-    // 🛠️ حل مشكلة اختفاء أعمدة multiplier و buffPercent من قواعد البيانات القديمة بصمت
-    await db.query(`ALTER TABLE user_buffs ADD COLUMN "multiplier" REAL DEFAULT 0.0`).catch(()=>{});
-    await db.query(`ALTER TABLE user_buffs ADD COLUMN multiplier REAL DEFAULT 0.0`).catch(()=>{});
-    await db.query(`ALTER TABLE user_buffs ADD COLUMN "buffPercent" BIGINT DEFAULT 0`).catch(()=>{});
-    await db.query(`ALTER TABLE user_buffs ADD COLUMN buffpercent BIGINT DEFAULT 0`).catch(()=>{});
-
-    let userDataRes;
-    try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [interaction.user.id, interaction.guild.id]); }
-    catch(e) { userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})); }
-    
+    let userDataRes = await executeDB(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]}));
     let userData = userDataRes?.rows?.[0];
+    
     if (!userData) {
         userData = { user: interaction.user.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0, xp: 0, totalXP: 0 };
-        try { await db.query(`INSERT INTO levels ("user", "guild", "mora", "bank", "xp", "totalXP", "level") VALUES ($1, $2, 0, 0, 0, 0, 0)`, [interaction.user.id, interaction.guild.id]); }
-        catch(e) { await db.query(`INSERT INTO levels (userid, guildid, mora, bank, xp, totalxp, level) VALUES ($1, $2, 0, 0, 0, 0, 0)`, [interaction.user.id, interaction.guild.id]).catch(()=>{}); }
+        await executeDB(db, `INSERT INTO levels ("user", "guild", "mora", "bank", "xp", "totalXP", "level") VALUES ($1, $2, 0, 0, 0, 0, 0)`, `INSERT INTO levels (userid, guildid, mora, bank, xp, totalxp, level) VALUES ($1, $2, 0, 0, 0, 0, 0)`, [interaction.user.id, interaction.guild.id]).catch(()=>{});
     }
       
     const safeReply = async (payload) => {
@@ -170,26 +168,23 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         if (interaction.deferred || interaction.replied) return await interaction.followUp(payload); else return await interaction.reply(payload);
     };
 
+    // التحقق من الشروط المسبقة قبل الشراء
     if (callbackType === 'item') {
         if (itemData.id === 'personal_guard_1d') {
             const currentGuards = Number(userData.hasGuard) || 0;
-            if (currentGuards >= MAX_GUARD_USES) {
-                return await safeReply({ content: `🚫 **تم بلوغ الحد الأقصى لحرس الشخصي!**\nلا يمكنك توظيف أكثر من حارسين (6 محاولات حماية).` });
-            }
+            if (currentGuards >= MAX_GUARD_USES) return await safeReply({ content: `🚫 **تم بلوغ الحد الأقصى لحرس الشخصي!**\nلا يمكنك توظيف أكثر من حارسين (6 محاولات حماية).` });
         }
         else if (itemData.id === 'farm_worker_3d') {
-            let buffRes = await db.query(`SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
+            let buffRes = await executeDB(db, `SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]}));
             let activeWorker = buffRes?.rows?.[0];
             if (activeWorker && (Number(activeWorker.expiresAt || activeWorker.expiresat) - Date.now() >= MAX_FARM_WORKER_DAYS)) {
                 return await safeReply({ content: `🚫 **تم بلوغ الحد الأقصى لعامل المزرعة!**\nلا يمكنك توظيف عمال إضافيين أكثر من الحد الأقصى (6 أيام).` });
             }
         }
         else if (itemData.id.startsWith('feed_') || itemData.id.startsWith('seed_') || itemData.category === 'farming') {
-            let invCheckRes = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=> db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]})));
+            let invCheckRes = await executeDB(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]}));
             let currQty = invCheckRes?.rows?.[0] ? Number(invCheckRes.rows[0].quantity) : 0;
-            if (currQty + quantity > MAX_FARM_LIMIT) {
-                return await safeReply({ content: `🚫 **مخزن المزرعة ممتلئ!**\nلا يمكنك حمل أكثر من **${MAX_FARM_LIMIT}** من هذا العنصر.` });
-            }
+            if (currQty + quantity > MAX_FARM_LIMIT) return await safeReply({ content: `🚫 **مخزن المزرعة ممتلئ!**\nلا يمكنك حمل أكثر من **${MAX_FARM_LIMIT}** من هذا العنصر.` });
         }
     }
 
@@ -200,181 +195,176 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         return await safeReply({ content: errorMsg });
     }
 
+    // 💰 1. سحب الأموال أولاً
     userData.mora = Number(userData.mora) - finalPrice; 
+    await executeDB(db, `UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [finalPrice, interaction.user.id, interaction.guild.id]).catch(()=>{});
     
-    if (couponType === 'boss' && couponIdToDelete) {
-        try { await db.query(`DELETE FROM user_coupons WHERE "id" = $1`, [couponIdToDelete]); }
-        catch(e) { await db.query(`DELETE FROM user_coupons WHERE id = $1`, [couponIdToDelete]).catch(()=>{}); }
-    }
-    else if (couponType === 'role') {
-        let roleUsageRes = await db.query(`SELECT "id" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, [interaction.guild.id, interaction.user.id]).catch(()=> db.query(`SELECT id FROM user_role_coupon_usage WHERE guildid = $1 AND userid = $2`, [interaction.guild.id, interaction.user.id]).catch(()=>({rows:[]})));
-        if (roleUsageRes?.rows?.[0]) {
-            const usageId = roleUsageRes.rows[0].id || roleUsageRes.rows[0].ID;
-            await db.query(`UPDATE user_role_coupon_usage SET "lastUsedTimestamp" = $1 WHERE "id" = $2`, [Date.now(), usageId]).catch(()=> db.query(`UPDATE user_role_coupon_usage SET lastusedtimestamp = $1 WHERE id = $2`, [Date.now(), usageId]));
-        } else {
-            await db.query(`INSERT INTO user_role_coupon_usage ("guildID", "userID", "lastUsedTimestamp") VALUES ($1, $2, $3)`, [interaction.guild.id, interaction.user.id, Date.now()]).catch(()=> db.query(`INSERT INTO user_role_coupon_usage (guildid, userid, lastusedtimestamp) VALUES ($1, $2, $3)`, [interaction.guild.id, interaction.user.id, Date.now()]));
+    // 🛡️ 2. نظام استرداد آمن (Refund System) في حال فشل قاعدة البيانات
+    try {
+        // إدارة الكوبونات
+        if (couponType === 'boss' && couponIdToDelete) {
+            await executeDB(db, `DELETE FROM user_coupons WHERE "id" = $1`, `DELETE FROM user_coupons WHERE id = $1`, [couponIdToDelete]);
         }
-    }
+        else if (couponType === 'role') {
+            let roleUsageRes = await executeDB(db, `SELECT "id" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, `SELECT id FROM user_role_coupon_usage WHERE guildid = $1 AND userid = $2`, [interaction.guild.id, interaction.user.id]).catch(()=>({rows:[]}));
+            if (roleUsageRes?.rows?.[0]) {
+                const usageId = roleUsageRes.rows[0].id || roleUsageRes.rows[0].ID;
+                await executeDB(db, `UPDATE user_role_coupon_usage SET "lastUsedTimestamp" = $1 WHERE "id" = $2`, `UPDATE user_role_coupon_usage SET lastusedtimestamp = $1 WHERE id = $2`, [Date.now(), usageId]);
+            } else {
+                await executeDB(db, `INSERT INTO user_role_coupon_usage ("guildID", "userID", "lastUsedTimestamp") VALUES ($1, $2, $3)`, `INSERT INTO user_role_coupon_usage (guildid, userid, lastusedtimestamp) VALUES ($1, $2, $3)`, [interaction.guild.id, interaction.user.id, Date.now()]);
+            }
+        }
 
-    if (callbackType === 'item') {
-        if (itemData.id === 'personal_guard_1d') { 
-            try { await db.query(`UPDATE levels SET "hasGuard" = LEAST(COALESCE("hasGuard", 0) + 3, $1), "guardExpires" = 0 WHERE "user" = $2 AND "guild" = $3`, [MAX_GUARD_USES, interaction.user.id, interaction.guild.id]); }
-            catch(e) { await db.query(`UPDATE levels SET hasguard = LEAST(COALESCE(hasguard, 0) + 3, $1), guardexpires = 0 WHERE userid = $2 AND guildid = $3`, [MAX_GUARD_USES, interaction.user.id, interaction.guild.id]).catch(()=>{}); }
-        }
-        else if (itemData.category === 'potions') { 
-            await ensureInventoryTable(db); 
-            let invCheckRes = await db.query(`SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=> db.query(`SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]})));
-            if (invCheckRes?.rows?.[0]) {
-                const invId = invCheckRes.rows[0].id || invCheckRes.rows[0].ID;
-                let newQty = Math.min(Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity || 0) + quantity, MAX_POTION_LIMIT);
-                await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invId]).catch(()=> db.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invId]));
-            } else {
-                await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, Math.min(quantity, MAX_POTION_LIMIT)]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, Math.min(quantity, MAX_POTION_LIMIT)]));
+        // إعطاء العناصر
+        if (callbackType === 'item') {
+            if (itemData.id === 'personal_guard_1d') { 
+                await executeDB(db, `UPDATE levels SET "hasGuard" = LEAST(COALESCE("hasGuard", 0) + 3, $1), "guardExpires" = 0 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET hasguard = LEAST(COALESCE(hasguard, 0) + 3, $1), guardexpires = 0 WHERE userid = $2 AND guildid = $3`, [MAX_GUARD_USES, interaction.user.id, interaction.guild.id]);
             }
-        }
-        else if (itemData.id.startsWith('feed_') || itemData.id.startsWith('seed_') || itemData.category === 'farming') {
-            await ensureInventoryTable(db); 
-            let invCheckRes = await db.query(`SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=> db.query(`SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]})));
-            if (invCheckRes?.rows?.[0]) {
-                const invId = invCheckRes.rows[0].id || invCheckRes.rows[0].ID;
-                let newQty = Math.min(Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity || 0) + quantity, MAX_FARM_LIMIT);
-                await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invId]).catch(()=> db.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invId]));
-            } else {
-                await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, Math.min(quantity, MAX_FARM_LIMIT)]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, Math.min(quantity, MAX_FARM_LIMIT)]));
-            }
-        }
-        else if (itemData.id === 'streak_shield') {
-            let existingStreakRes = await db.query(`SELECT "id" FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM streaks WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
-            if (existingStreakRes?.rows?.[0]) {
-                const strkId = existingStreakRes.rows[0].id || existingStreakRes.rows[0].ID;
-                await db.query(`UPDATE streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, [strkId]).catch(()=> db.query(`UPDATE streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [strkId]));
-            } else {
-                const id = `${interaction.guild.id}-${interaction.user.id}`;
-                await db.query(`INSERT INTO streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]).catch(()=> db.query(`INSERT INTO streaks (id, guildid, userid, hasitemshield) VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]));
-            }
-        }
-        else if (itemData.id === 'streak_shield_media') {
-            let existingMediaRes = await db.query(`SELECT "id" FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM media_streaks WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
-            if (existingMediaRes?.rows?.[0]) {
-                const medId = existingMediaRes.rows[0].id || existingMediaRes.rows[0].ID;
-                await db.query(`UPDATE media_streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, [medId]).catch(()=> db.query(`UPDATE media_streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [medId]));
-            } else {
-                const id = `${interaction.guild.id}-${interaction.user.id}`;
-                await db.query(`INSERT INTO media_streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]).catch(()=> db.query(`INSERT INTO media_streaks (id, guildid, userid, hasitemshield) VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]));
-            }
-        }
-        else if (itemData.id.startsWith('xp_buff_')) {
-            let multiplier = 0, buffPercent = 0, duration = 0;
-            switch (itemData.id) {
-                case 'xp_buff_1d_3': multiplier = 0.45; buffPercent = 45; duration = 24 * 60 * 60 * 1000; break;
-                case 'xp_buff_1d_7': multiplier = 0.70; buffPercent = 70; duration = 48 * 60 * 60 * 1000; break;
-                case 'xp_buff_2d_10': multiplier = 0.90; buffPercent = 90; duration = 72 * 60 * 60 * 1000; break;
-            }
-            if (duration > 0) {
-                let buffRes = await db.query(`SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
-                const expiresAt = Date.now() + duration;
-                if (buffRes?.rows?.[0]) {
-                    const bfId = buffRes.rows[0].id || buffRes.rows[0].ID;
-                    await db.query(`UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "id" = $4`, [multiplier, expiresAt, buffPercent, bfId]).catch(()=> db.query(`UPDATE user_buffs SET multiplier = $1, expiresat = $2, buffpercent = $3 WHERE id = $4`, [multiplier, expiresAt, buffPercent, bfId]));
+            else if (itemData.category === 'potions' || itemData.id.startsWith('feed_') || itemData.id.startsWith('seed_') || itemData.category === 'farming') { 
+                await ensureInventoryTable(db); 
+                const MAX_LIM = itemData.category === 'potions' ? MAX_POTION_LIMIT : MAX_FARM_LIMIT;
+                let invCheckRes = await executeDB(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]}));
+                if (invCheckRes?.rows?.[0]) {
+                    const invId = invCheckRes.rows[0].id || invCheckRes.rows[0].ID;
+                    let newQty = Math.min(Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity || 0) + quantity, MAX_LIM);
+                    await executeDB(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invId]);
                 } else {
-                    await db.query(`INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]).catch(()=> db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]));
+                    await executeDB(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, Math.min(quantity, MAX_LIM)]);
                 }
             }
-        }
-        else if (itemData.id === 'vip_role_3d') {
-            let settingsRes;
-            try { settingsRes = await db.query(`SELECT "vipRoleID" FROM settings WHERE "guild" = $1`, [interaction.guild.id]); }
-            catch(e) { settingsRes = await db.query(`SELECT viproleid FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
-            const settings = settingsRes?.rows?.[0];
-            if (settings && (settings.vipRoleID || settings.viproleid)) {
-                const member = await interaction.guild.members.fetch(interaction.user.id).catch(()=>{});
-                if (member) await member.roles.add(settings.vipRoleID || settings.viproleid).catch(()=>{});
-                const expiresAt = Date.now() + (3 * 24 * 60 * 60 * 1000);
+            else if (itemData.id === 'streak_shield') {
+                let existingStreakRes = await executeDB(db, `SELECT "id" FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT id FROM streaks WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]}));
+                if (existingStreakRes?.rows?.[0]) {
+                    const strkId = existingStreakRes.rows[0].id || existingStreakRes.rows[0].ID;
+                    await executeDB(db, `UPDATE streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, `UPDATE streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [strkId]);
+                } else {
+                    const id = `${interaction.guild.id}-${interaction.user.id}`;
+                    await executeDB(db, `INSERT INTO streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, `INSERT INTO streaks (id, guildid, userid, hasitemshield) VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]);
+                }
+            }
+            else if (itemData.id === 'streak_shield_media') {
+                let existingMediaRes = await executeDB(db, `SELECT "id" FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT id FROM media_streaks WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]}));
+                if (existingMediaRes?.rows?.[0]) {
+                    const medId = existingMediaRes.rows[0].id || existingMediaRes.rows[0].ID;
+                    await executeDB(db, `UPDATE media_streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, `UPDATE media_streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [medId]);
+                } else {
+                    const id = `${interaction.guild.id}-${interaction.user.id}`;
+                    await executeDB(db, `INSERT INTO media_streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, `INSERT INTO media_streaks (id, guildid, userid, hasitemshield) VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]);
+                }
+            }
+            else if (itemData.id.startsWith('xp_buff_')) {
+                let multiplier = 0, buffPercent = 0, duration = 0;
+                switch (itemData.id) {
+                    case 'xp_buff_1d_3': multiplier = 0.45; buffPercent = 45; duration = 24 * 60 * 60 * 1000; break;
+                    case 'xp_buff_1d_7': multiplier = 0.70; buffPercent = 70; duration = 48 * 60 * 60 * 1000; break;
+                    case 'xp_buff_2d_10': multiplier = 0.90; buffPercent = 90; duration = 72 * 60 * 60 * 1000; break;
+                }
+                if (duration > 0) {
+                    let buffRes = await executeDB(db, `SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `SELECT id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]}));
+                    const expiresAt = Date.now() + duration;
+                    if (buffRes?.rows?.[0]) {
+                        const bfId = buffRes.rows[0].id || buffRes.rows[0].ID;
+                        await executeDB(db, `UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "id" = $4`, `UPDATE user_buffs SET multiplier = $1, expiresat = $2, buffpercent = $3 WHERE id = $4`, [multiplier, expiresAt, buffPercent, bfId]);
+                    } else {
+                        await executeDB(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]);
+                    }
+                }
+            }
+            else if (itemData.id === 'vip_role_3d') {
+                let settingsRes = await executeDB(db, `SELECT "vipRoleID" FROM settings WHERE "guild" = $1`, `SELECT viproleid FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]}));
+                const settings = settingsRes?.rows?.[0];
+                if (settings && (settings.vipRoleID || settings.viproleid)) {
+                    const member = await interaction.guild.members.fetch(interaction.user.id).catch(()=>{});
+                    if (member) await member.roles.add(settings.vipRoleID || settings.viproleid).catch(()=>{});
+                    const expiresAt = Date.now() + (3 * 24 * 60 * 60 * 1000);
+                    
+                    let roleCheck = await executeDB(db, `SELECT "id" FROM temporary_roles WHERE "userID" = $1 AND "guildID" = $2 AND "roleID" = $3`, `SELECT id FROM temporary_roles WHERE userid = $1 AND guildid = $2 AND roleid = $3`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid]).catch(()=>({rows:[]}));
+                    if (roleCheck?.rows?.[0]) {
+                        const rlId = roleCheck.rows[0].id || roleCheck.rows[0].ID;
+                        await executeDB(db, `UPDATE temporary_roles SET "expiresAt" = $1 WHERE "id" = $2`, `UPDATE temporary_roles SET expiresat = $1 WHERE id = $2`, [expiresAt, rlId]);
+                    } else {
+                        await executeDB(db, `INSERT INTO temporary_roles ("userID", "guildID", "roleID", "expiresAt") VALUES ($1, $2, $3, $4)`, `INSERT INTO temporary_roles (userid, guildid, roleid, expiresat) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid, expiresAt]);
+                    }
+                }
+            }
+            else if (itemData.id === 'farm_worker_3d') {
+                const duration = 3 * 24 * 60 * 60 * 1000;
+                let existingWorkerRes = await executeDB(db, `SELECT "expiresAt", "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `SELECT expiresat, id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]}));
+                const existingWorker = existingWorkerRes?.rows?.[0];
+                let newExpiresAt = Date.now() + duration;
                 
-                let roleCheck = await db.query(`SELECT "id" FROM temporary_roles WHERE "userID" = $1 AND "guildID" = $2 AND "roleID" = $3`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid]).catch(()=> db.query(`SELECT id FROM temporary_roles WHERE userid = $1 AND guildid = $2 AND roleid = $3`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid]).catch(()=>({rows:[]})));
-                if (roleCheck?.rows?.[0]) {
-                    const rlId = roleCheck.rows[0].id || roleCheck.rows[0].ID;
-                    await db.query(`UPDATE temporary_roles SET "expiresAt" = $1 WHERE "id" = $2`, [expiresAt, rlId]).catch(()=> db.query(`UPDATE temporary_roles SET expiresat = $1 WHERE id = $2`, [expiresAt, rlId]));
+                if (existingWorker) {
+                    if (Number(existingWorker.expiresAt || existingWorker.expiresat) > Date.now()) {
+                        newExpiresAt = Number(existingWorker.expiresAt || existingWorker.expiresat) + duration;
+                    }
+                    const workerId = existingWorker.id || existingWorker.ID;
+                    await executeDB(db, `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`, `UPDATE user_buffs SET expiresat = $1 WHERE id = $2`, [newExpiresAt, workerId]);
                 } else {
-                    await db.query(`INSERT INTO temporary_roles ("userID", "guildID", "roleID", "expiresAt") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid, expiresAt]).catch(()=> db.query(`INSERT INTO temporary_roles (userid, guildid, roleid, expiresat) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid, expiresAt]));
+                    await executeDB(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, newExpiresAt, 0]);
                 }
             }
-        }
-        else if (itemData.id === 'farm_worker_3d') {
-            const duration = 3 * 24 * 60 * 60 * 1000;
-            let existingWorkerRes = await db.query(`SELECT "expiresAt", "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT expiresat, id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
-            const existingWorker = existingWorkerRes?.rows?.[0];
-            let newExpiresAt = Date.now() + duration;
-            
-            if (existingWorker) {
-                if (Number(existingWorker.expiresAt || existingWorker.expiresat) > Date.now()) {
-                    newExpiresAt = Number(existingWorker.expiresAt || existingWorker.expiresat) + duration;
-                }
-                const workerId = existingWorker.id || existingWorker.ID;
-                await db.query(`UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`, [newExpiresAt, workerId]).catch(()=> db.query(`UPDATE user_buffs SET expiresat = $1 WHERE id = $2`, [newExpiresAt, workerId]));
-            } else {
-                await db.query(`INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, newExpiresAt, 0]).catch(()=> db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, newExpiresAt, 0]));
-            }
-        }
-        else if (itemData.id === 'change_race') {
-            try {
-                let allRaceRolesRes = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [interaction.guild.id]).catch(()=> db.query(`SELECT roleid, racename FROM race_roles WHERE guildid = $1`, [interaction.guild.id]).catch(()=>({rows:[]})));
+            else if (itemData.id === 'change_race') {
+                let allRaceRolesRes = await executeDB(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid, racename FROM race_roles WHERE guildid = $1`, [interaction.guild.id]).catch(()=>({rows:[]}));
                 const raceRoleIDs = (allRaceRolesRes?.rows || []).map(r => r.roleID || r.roleid);
                 const userRaceRole = interaction.member.roles.cache.find(r => raceRoleIDs.includes(r.id));
                 if (userRaceRole) { await interaction.member.roles.remove(userRaceRole).catch(()=>{}); }
 
-                await db.query(`DELETE FROM user_race WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`DELETE FROM user_race WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{}));
-                await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{}));
-                await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" LIKE 'race_%'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid LIKE 'race_%'`, [interaction.user.id, interaction.guild.id]).catch(()=>{}));
-            } catch (err) {}
-              
-            const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
-            try {
-                let xpBuffCheck = await db.query(`SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
+                await executeDB(db, `DELETE FROM user_race WHERE "userID" = $1 AND "guildID" = $2`, `DELETE FROM user_race WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{});
+                await executeDB(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{});
+                await executeDB(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" LIKE 'race_%'`, `DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid LIKE 'race_%'`, [interaction.user.id, interaction.guild.id]).catch(()=>{});
+                  
+                const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
+                let xpBuffCheck = await executeDB(db, `SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `SELECT id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]}));
                 if (xpBuffCheck?.rows?.[0]) {
                     const xpId = xpBuffCheck.rows[0].id || xpBuffCheck.rows[0].ID;
-                    await db.query(`UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, [-5, expiresAt, -0.05, xpId]).catch(()=> db.query(`UPDATE user_buffs SET buffpercent = $1, expiresat = $2, multiplier = $3 WHERE id = $4`, [-5, expiresAt, -0.05, xpId]));
+                    await executeDB(db, `UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, `UPDATE user_buffs SET buffpercent = $1, expiresat = $2, multiplier = $3 WHERE id = $4`, [-5, expiresAt, -0.05, xpId]);
                 }
-                else await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'xp', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]).catch(()=> db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'xp', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]));
+                else await executeDB(db, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'xp', $5)`, `INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'xp', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]);
                 
-                let moraBuffCheck = await db.query(`SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'mora'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'mora'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
+                let moraBuffCheck = await executeDB(db, `SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'mora'`, `SELECT id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'mora'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]}));
                 if (moraBuffCheck?.rows?.[0]) {
                     const moraId = moraBuffCheck.rows[0].id || moraBuffCheck.rows[0].ID;
-                    await db.query(`UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, [-5, expiresAt, -0.05, moraId]).catch(()=> db.query(`UPDATE user_buffs SET buffpercent = $1, expiresat = $2, multiplier = $3 WHERE id = $4`, [-5, expiresAt, -0.05, moraId]));
+                    await executeDB(db, `UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, `UPDATE user_buffs SET buffpercent = $1, expiresat = $2, multiplier = $3 WHERE id = $4`, [-5, expiresAt, -0.05, moraId]);
                 }
-                else await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'mora', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]).catch(()=> db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'mora', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]));
-            } catch(e) {}
-        }
-    } 
-    else if (callbackType === 'weapon') {
-        const newLevel = itemData.currentLevel + 1;
-        if (itemData.isBuy) {
-            let wepCheck = await db.query(`SELECT "id" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=> db.query(`SELECT id FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=>({rows:[]})));
-            if (wepCheck?.rows?.[0]) {
-                const wId = wepCheck.rows[0].id || wepCheck.rows[0].ID;
-                await db.query(`UPDATE user_weapons SET "weaponLevel" = $1 WHERE "id" = $2`, [newLevel, wId]).catch(()=> db.query(`UPDATE user_weapons SET weaponlevel = $1 WHERE id = $2`, [newLevel, wId]));
+                else await executeDB(db, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'mora', $5)`, `INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'mora', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]);
             }
-            else await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]).catch(()=> db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]));
-        } else {
-            await db.query(`UPDATE user_weapons SET "weaponLevel" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "raceName" = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=> db.query(`UPDATE user_weapons SET weaponlevel = $1 WHERE userid = $2 AND guildid = $3 AND racename = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=>{}));
-        }
-    } 
-    else if (callbackType === 'skill') {
-        const newLevel = itemData.currentLevel + 1;
-        if (itemData.isBuy) {
-            let skillCheck = await db.query(`SELECT "id" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]).catch(()=> db.query(`SELECT id FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]).catch(()=>({rows:[]})));
-            if (skillCheck?.rows?.[0]) {
-                const sId = skillCheck.rows[0].id || skillCheck.rows[0].ID;
-                await db.query(`UPDATE user_skills SET "skillLevel" = $1 WHERE "id" = $2`, [newLevel, sId]).catch(()=> db.query(`UPDATE user_skills SET skilllevel = $1 WHERE id = $2`, [newLevel, sId]));
+        } 
+        else if (callbackType === 'weapon') {
+            const newLevel = itemData.currentLevel + 1;
+            if (itemData.isBuy) {
+                let wepCheck = await executeDB(db, `SELECT "id" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, `SELECT id FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=>({rows:[]}));
+                if (wepCheck?.rows?.[0]) {
+                    const wId = wepCheck.rows[0].id || wepCheck.rows[0].ID;
+                    await executeDB(db, `UPDATE user_weapons SET "weaponLevel" = $1 WHERE "id" = $2`, `UPDATE user_weapons SET weaponlevel = $1 WHERE id = $2`, [newLevel, wId]);
+                }
+                else await executeDB(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]);
+            } else {
+                await executeDB(db, `UPDATE user_weapons SET "weaponLevel" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "raceName" = $4`, `UPDATE user_weapons SET weaponlevel = $1 WHERE userid = $2 AND guildid = $3 AND racename = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]);
             }
-            else await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]).catch(()=> db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]));
-        } else {
-            await db.query(`UPDATE user_skills SET "skillLevel" = $1 WHERE "id" = $2`, [newLevel, itemData.dbId]).catch(()=> db.query(`UPDATE user_skills SET skilllevel = $1 WHERE id = $2`, [newLevel, itemData.dbId || itemData.dbID]).catch(()=>{}));
+        } 
+        else if (callbackType === 'skill') {
+            const newLevel = itemData.currentLevel + 1;
+            if (itemData.isBuy) {
+                let skillCheck = await executeDB(db, `SELECT "id" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `SELECT id FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]).catch(()=>({rows:[]}));
+                if (skillCheck?.rows?.[0]) {
+                    const sId = skillCheck.rows[0].id || skillCheck.rows[0].ID;
+                    await executeDB(db, `UPDATE user_skills SET "skillLevel" = $1 WHERE "id" = $2`, `UPDATE user_skills SET skilllevel = $1 WHERE id = $2`, [newLevel, sId]);
+                }
+                else await executeDB(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]);
+            } else {
+                await executeDB(db, `UPDATE user_skills SET "skillLevel" = $1 WHERE "id" = $2`, `UPDATE user_skills SET skilllevel = $1 WHERE id = $2`, [newLevel, itemData.dbId || itemData.dbID]);
+            }
         }
-    }
 
-    try { await db.query(`UPDATE levels SET "mora" = $1, "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $2 AND "guild" = $3`, [userData.mora, interaction.user.id, interaction.guild.id]); }
-    catch(e) { await db.query(`UPDATE levels SET mora = $1, shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $2 AND guildid = $3`, [userData.mora, interaction.user.id, interaction.guild.id]).catch(()=>{}); }
+        await executeDB(db, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>{});
+        
+    } catch (e) {
+        // 🔥 في حال وجود أي خطأ بالداتا بيز، نسترجع أموال المستخدم فوراً لضمان حقه ونرسل له السبب
+        console.error("❌ Shop Purchase DB Error:", e.message);
+        await executeDB(db, `UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [finalPrice, interaction.user.id, interaction.guild.id]).catch(()=>{});
+        
+        return await safeReply({ content: `❌ **حدث خطأ برمجي داخلي أثناء استلام العنصر!**\nتم استرجاع مبلغ **${finalPrice.toLocaleString()}** مورا إلى حسابك تلقائياً لتجنب ضياعها.\n*(الخطأ: ${e.message})*` });
+    }
     
     let successMsg = `📦 **العنصر:** ${itemData.name || itemData.raceName || 'Unknown'}\n💰 **التكلفة:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
     if (discountUsed > 0) successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
@@ -440,7 +430,7 @@ async function buildSkillEmbedWithPagination(allUserSkills, pageIndex, db, i) {
     const prevIndex = (pageIndex - 1 + totalSkills) % totalSkills;
     const nextIndex = (pageIndex + 1) % totalSkills;
     
-    let userSkillRes = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [i.user.id, i.guild.id, skillConfig.id]).catch(()=> db.query(`SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [i.user.id, i.guild.id, skillConfig.id]).catch(()=>({rows:[]})));
+    let userSkillRes = await executeDB(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [i.user.id, i.guild.id, skillConfig.id]).catch(()=>({rows:[]}));
     let userSkill = userSkillRes?.rows?.[0];
     let currentLevel = userSkill ? Number(userSkill.skillLevel || userSkill.skilllevel) : 0;
     const isRaceSkill = skillConfig.id.startsWith('race_');
@@ -474,7 +464,7 @@ async function buildSkillEmbedWithPagination(allUserSkills, pageIndex, db, i) {
 
 async function _handleRodSelect(i, client, db) {
     if(i.replied || i.deferred) await i.editReply({ content: "جاري التحميل...", components: [], embeds: [] }); else await i.deferReply({ flags: MessageFlags.Ephemeral });
-    let userDataRes = await db.query(`SELECT "rodLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]).catch(()=> db.query(`SELECT rodlevel FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})));
+    let userDataRes = await executeDB(db, `SELECT "rodLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT rodlevel FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]}));
     let userData = userDataRes?.rows?.[0];
     const currentLevel = userData ? (Number(userData.rodLevel || userData.rodlevel) || 1) : 1;
     const nextLevel = currentLevel + 1;
@@ -495,7 +485,7 @@ async function _handleRodSelect(i, client, db) {
 
 async function _handleBoatSelect(i, client, db) {
     if(i.replied || i.deferred) await i.editReply({ content: "جاري التحميل...", components: [], embeds: [] }); else await i.deferReply({ flags: MessageFlags.Ephemeral });
-    let userDataRes = await db.query(`SELECT "boatLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]).catch(()=> db.query(`SELECT boatlevel FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})));
+    let userDataRes = await executeDB(db, `SELECT "boatLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT boatlevel FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]}));
     let userData = userDataRes?.rows?.[0];
     const currentLevel = userData ? (Number(userData.boatLevel || userData.boatlevel) || 1) : 1;
     const nextLevel = currentLevel + 1;
@@ -521,12 +511,12 @@ async function _handleBaitBuy(i, client, db) {
     const unitPrice = Math.round(bait.price / 5);
     const cost = unitPrice * qty;
     
-    let userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]).catch(()=> db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})));
+    let userDataRes = await executeDB(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]}));
     let userData = userDataRes?.rows?.[0];
 
     if (!userData) return i.editReply('❌ لا توجد بيانات مسجلة لك.');
 
-    let invCheckRes = await db.query(`SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [i.user.id, i.guild.id, baitId]).catch(()=> db.query(`SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [i.user.id, i.guild.id, baitId]).catch(()=>({rows:[]})));
+    let invCheckRes = await executeDB(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [i.user.id, i.guild.id, baitId]).catch(()=>({rows:[]}));
     let currQty = invCheckRes?.rows?.[0] ? Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity) : 0;
     if (currQty + qty > MAX_FARM_LIMIT) return await i.editReply({ content: `🚫 **لا يمكنك شراء الطعوم!**\nمخزن الصيد ممتلئ، الحد الأقصى هو **${MAX_FARM_LIMIT}**.` });
     
@@ -538,13 +528,13 @@ async function _handleBaitBuy(i, client, db) {
     }
     
     userData.mora = Number(userData.mora || userData.mora) - cost; 
-    await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [userData.mora, i.user.id, i.guild.id]).catch(()=> db.query(`UPDATE levels SET mora = $1 WHERE userid = $2 AND guildid = $3`, [userData.mora, i.user.id, i.guild.id]).catch(()=>{}));
+    await executeDB(db, `UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = $1 WHERE userid = $2 AND guildid = $3`, [userData.mora, i.user.id, i.guild.id]).catch(()=>{});
     
     if (invCheckRes?.rows?.[0]) {
         const invId = invCheckRes.rows[0].id || invCheckRes.rows[0].ID;
-        await db.query(`UPDATE user_inventory SET "quantity" = LEAST("quantity" + $1, $2) WHERE "id" = $3`, [qty, MAX_FARM_LIMIT, invId]).catch(()=> db.query(`UPDATE user_inventory SET quantity = LEAST(quantity + $1, $2) WHERE id = $3`, [qty, MAX_FARM_LIMIT, invId]).catch(()=>{}));
+        await executeDB(db, `UPDATE user_inventory SET "quantity" = LEAST("quantity" + $1, $2) WHERE "id" = $3`, `UPDATE user_inventory SET quantity = LEAST(quantity + $1, $2) WHERE id = $3`, [qty, MAX_FARM_LIMIT, invId]).catch(()=>{});
     } else {
-        await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [i.guild.id, i.user.id, baitId, qty]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [i.guild.id, i.user.id, baitId, qty]).catch(()=>{}));
+        await executeDB(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [i.guild.id, i.user.id, baitId, qty]).catch(()=>{});
     }
     
     const successEmbed = new EmbedBuilder().setTitle('✅ تمت عملية الشراء بنجاح').setColor(Colors.Green).setDescription(`📦 **العنصر:** حزمة (${qty} حبات) من ${bait.name}\n💰 **التكلفة:** ${cost.toLocaleString()} ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
@@ -607,7 +597,7 @@ async function _handleWeaponUpgrade(i, client, db, isUpdate = false) {
 
         if(!exactRaceName) return; 
 
-        let userWeaponRes = await db.query(`SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [userId, guildId, exactRaceName]).catch(()=> db.query(`SELECT * FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [userId, guildId, exactRaceName]).catch(()=>({rows:[]})));
+        let userWeaponRes = await executeDB(db, `SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, `SELECT * FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [userId, guildId, exactRaceName]).catch(()=>({rows:[]}));
         let userWeapon = userWeaponRes?.rows?.[0];
         let currentLevel = userWeapon ? Number(userWeapon.weaponLevel || userWeapon.weaponlevel) : 0;
           
@@ -662,7 +652,7 @@ async function _handleSkillUpgrade(i, client, db, isUpdate = false) {
 
         if(!skillConfig) return;
 
-        let userSkillRes = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [userId, guildId, skillId]).catch(()=> db.query(`SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [userId, guildId, skillId]).catch(()=>({rows:[]})));
+        let userSkillRes = await executeDB(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [userId, guildId, skillId]).catch(()=>({rows:[]}));
         let userSkill = userSkillRes?.rows?.[0];
         let currentLevel = userSkill ? Number(userSkill.skillLevel || userSkill.skilllevel) : 0; let price = 0;
           
@@ -690,7 +680,7 @@ async function _handleShopButton(i, client, db) {
         const userId = i.user.id; const guildId = i.guild.id; const boughtItemId = i.customId.replace('buy_item_', ''); 
           
         if (boughtItemId === 'item_temp_reply') {
-            let userMoraRes = await db.query(`SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(()=> db.query(`SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})));
+            let userMoraRes = await executeDB(db, `SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
             const userMora = userMoraRes?.rows?.[0] ? Number(userMoraRes.rows[0].mora || userMoraRes.rows[0].mora) : 0;
             if (userMora < 10000) return i.reply({ content: `❌ تحتاج 10,000 ${EMOJI_MORA}`, flags: [MessageFlags.Ephemeral] });
             const modal = new ModalBuilder().setCustomId('shop_buy_reply_modal').setTitle('شراء رد تلقائي (3 أيام)');
@@ -704,7 +694,7 @@ async function _handleShopButton(i, client, db) {
         let item = shopItems.find(it => it.id === boughtItemId) || potionItems.find(it => it.id === boughtItemId);
         if (!item) return await i.reply({ content: '❌ هذا العنصر غير موجود!', flags: MessageFlags.Ephemeral });
         
-        let userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(()=> db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})));
+        let userDataRes = await executeDB(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
         let userData = userDataRes?.rows?.[0];
         if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
           
@@ -719,21 +709,21 @@ async function _handleShopButton(i, client, db) {
             }
         }
         else if (item.id === 'streak_shield') {
-            let existingRes = await db.query(`SELECT "hasItemShield" FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]).catch(()=> db.query(`SELECT hasitemshield FROM streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})));
+            let existingRes = await executeDB(db, `SELECT "hasItemShield" FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT hasitemshield FROM streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
             const currentShields = Number(existingRes?.rows?.[0]?.hasItemShield || existingRes?.rows?.[0]?.hasitemshield || 0);
             if (currentShields >= 3) {
                 return await i.editReply({ content: `🚫 **درعك ممتلئ!**\nلديك **${currentShields}** دروع ستريك نشطة حالياً. لا يمكنك شراء المزيد حتى يتم استهلاكها.` });
             }
         }
         else if (item.id === 'streak_shield_media') {
-            let existingRes = await db.query(`SELECT "hasItemShield" FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]).catch(()=> db.query(`SELECT hasitemshield FROM media_streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})));
+            let existingRes = await executeDB(db, `SELECT "hasItemShield" FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT hasitemshield FROM media_streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
             const currentShields = Number(existingRes?.rows?.[0]?.hasItemShield || existingRes?.rows?.[0]?.hasitemshield || 0);
             if (currentShields >= 3) {
                 return await i.editReply({ content: `🚫 **درع الميديا ممتلئ!**\nلديك **${currentShields}** دروع نشطة حالياً. لا يمكنك شراء المزيد.` });
             }
         }
         else if (item.id === 'farm_worker_3d') {
-            let existingWorkerRes = await db.query(`SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, [userId, guildId]).catch(()=> db.query(`SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [userId, guildId]).catch(()=>({rows:[]})));
+            let existingWorkerRes = await executeDB(db, `SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [userId, guildId]).catch(()=>({rows:[]}));
             const existingWorker = existingWorkerRes?.rows?.[0];
             const expiresAtMs = Number(existingWorker?.expiresAt || existingWorker?.expiresat || 0);
             const remainingDays = Math.ceil((expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000));
@@ -743,7 +733,7 @@ async function _handleShopButton(i, client, db) {
             }
         }
         else if (item.id.startsWith('xp_buff_')) {
-            let getActiveBuffRes = await db.query(`SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp' AND "expiresAt" > $3`, [userId, guildId, Date.now()]).catch(()=> db.query(`SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp' AND expiresat > $3`, [userId, guildId, Date.now()]).catch(()=>({rows:[]})));
+            let getActiveBuffRes = await executeDB(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp' AND "expiresAt" > $3`, `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp' AND expiresat > $3`, [userId, guildId, Date.now()]).catch(()=>({rows:[]}));
             const activeBuff = getActiveBuffRes?.rows?.[0];
             if (activeBuff) {
                 const replaceButton = new ButtonBuilder().setCustomId(`replace_buff_${item.id}`).setLabel("إلغاء القديم وشراء الجديد").setStyle(ButtonStyle.Danger);
@@ -774,7 +764,7 @@ async function _handleReplaceGuard(i, client, db) {
     try {
         await i.deferUpdate();
         const userId = i.user.id; const guildId = i.guild.id; const item = shopItems.find(it => it.id === 'personal_guard_1d');
-        let userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(()=> db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})));
+        let userDataRes = await executeDB(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
         let userData = userDataRes?.rows?.[0];
         if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
         
@@ -790,7 +780,7 @@ async function _handleReplaceGuard(i, client, db) {
         }
         userData.mora = Number(userData.mora) - item.price; 
         const newGuards = (Number(userData.hasGuard) || 0) + 3;
-        await db.query(`UPDATE levels SET "mora" = $1, "hasGuard" = $2, "guardExpires" = 0 WHERE "user" = $3 AND "guild" = $4`, [userData.mora, newGuards, userId, guildId]).catch(()=> db.query(`UPDATE levels SET mora = $1, hasguard = $2, guardexpires = 0 WHERE userid = $3 AND guildid = $4`, [userData.mora, newGuards, userId, guildId]).catch(()=>{}));
+        await executeDB(db, `UPDATE levels SET "mora" = $1, "hasGuard" = $2, "guardExpires" = 0 WHERE "user" = $3 AND "guild" = $4`, `UPDATE levels SET mora = $1, hasguard = $2, guardexpires = 0 WHERE userid = $3 AND guildid = $4`, [userData.mora, newGuards, userId, guildId]).catch(()=>{});
         
         const successEmbed = new EmbedBuilder().setTitle('✅ تمت عملية التجديد بنجاح').setColor(Colors.Green).setDescription(`📦 **العنصر:** حارس شخصي\n💰 **التكلفة:** ${item.price.toLocaleString()} ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
         
@@ -803,12 +793,6 @@ async function _handleReplaceGuard(i, client, db) {
 async function _handleReplaceBuffButton(i, client, db) {
     try {
         await i.deferUpdate();
-        
-        // 🛠️ حل مشكلة اختفاء أعمدة multiplier و buffPercent من قواعد البيانات القديمة بصمت
-        await db.query(`ALTER TABLE user_buffs ADD COLUMN "multiplier" REAL DEFAULT 0.0`).catch(()=>{});
-        await db.query(`ALTER TABLE user_buffs ADD COLUMN multiplier REAL DEFAULT 0.0`).catch(()=>{});
-        await db.query(`ALTER TABLE user_buffs ADD COLUMN "buffPercent" BIGINT DEFAULT 0`).catch(()=>{});
-        await db.query(`ALTER TABLE user_buffs ADD COLUMN buffpercent BIGINT DEFAULT 0`).catch(()=>{});
 
         const userId = i.user.id; 
         const guildId = i.guild.id; 
@@ -817,7 +801,7 @@ async function _handleReplaceBuffButton(i, client, db) {
         
         if (!item) return await i.followUp({ content: '❌ هذا العنصر غير موجود!', components: [], embeds: [], flags: MessageFlags.Ephemeral });
         
-        let userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(()=> db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})));
+        let userDataRes = await executeDB(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
         let userData = userDataRes?.rows?.[0];
         if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
         
@@ -828,21 +812,29 @@ async function _handleReplaceBuffButton(i, client, db) {
             return await i.followUp({ content: msg, components: [], embeds: [], flags: MessageFlags.Ephemeral });
         }
         
-        userData.mora = Number(userData.mora) - item.price;
-        await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [userId, guildId]).catch(()=> db.query(`DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [userId, guildId]).catch(()=>{}));
+        // 💰 خصم الأموال
+        await executeDB(db, `UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [item.price, userId, guildId]);
         
-        let expiresAt, multiplier, buffPercent;
-        switch (item.id) {
-            case 'xp_buff_1d_3': multiplier = 0.45; buffPercent = 45; expiresAt = Date.now() + (24 * 60 * 60 * 1000); break;
-            case 'xp_buff_1d_7': multiplier = 0.70; buffPercent = 70; expiresAt = Date.now() + (48 * 60 * 60 * 1000); break;
-            case 'xp_buff_2d_10': multiplier = 0.90; buffPercent = 90; expiresAt = Date.now() + (72 * 60 * 60 * 1000); break;
-        }
-        
-        if (multiplier > 0) {
-            await db.query(`INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]).catch(()=> db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]).catch(()=>{}));
-        }
+        try {
+            await executeDB(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [userId, guildId]);
+            
+            let expiresAt, multiplier, buffPercent;
+            switch (item.id) {
+                case 'xp_buff_1d_3': multiplier = 0.45; buffPercent = 45; expiresAt = Date.now() + (24 * 60 * 60 * 1000); break;
+                case 'xp_buff_1d_7': multiplier = 0.70; buffPercent = 70; expiresAt = Date.now() + (48 * 60 * 60 * 1000); break;
+                case 'xp_buff_2d_10': multiplier = 0.90; buffPercent = 90; expiresAt = Date.now() + (72 * 60 * 60 * 1000); break;
+            }
+            
+            if (multiplier > 0) {
+                await executeDB(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]);
+            }
 
-        await db.query(`UPDATE levels SET "mora" = $1, "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $2 AND "guild" = $3`, [userData.mora, userId, guildId]).catch(()=> db.query(`UPDATE levels SET mora = $1, shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $2 AND guildid = $3`, [userData.mora, userId, guildId]).catch(()=>{}));
+            await executeDB(db, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>{});
+        } catch(e) {
+            // 🛡️ استرداد إذا فشل الكود
+            await executeDB(db, `UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [item.price, userId, guildId]);
+            return await i.followUp({ content: `❌ **حدث خطأ داخلي**\nتم إرجاع أموالك. السبب: ${e.message}`, flags: MessageFlags.Ephemeral });
+        }
         
         const successEmbed = new EmbedBuilder().setTitle('✅ تمت عملية الشراء بنجاح').setColor(Colors.Green).setDescription(`📦 **العنصر:** ${item.name} (استبدال)\n💰 **التكلفة:** ${item.price.toLocaleString()} ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
 
@@ -862,15 +854,15 @@ async function handleShopModal(i, client, db) {
         const response = i.fields.getTextInputValue('reply_response').trim();
         const price = 10000;
         await i.deferReply({ flags: MessageFlags.Ephemeral });
-        let userDataRes = await db.query(`SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]).catch(()=> db.query(`SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})));
+        let userDataRes = await executeDB(db, `SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]}));
         const userData = userDataRes?.rows?.[0];
         if (!userData || Number(userData.mora || userData.mora) < price) return i.editReply(`❌ رصيدك غير كافي.`);
-        let existingRes = await db.query(`SELECT 1 FROM auto_responses WHERE "guildID" = $1 AND "trigger" = $2`, [i.guild.id, trigger]).catch(()=> db.query(`SELECT 1 FROM auto_responses WHERE guildid = $1 AND trigger = $2`, [i.guild.id, trigger]).catch(()=>({rows:[]})));
+        let existingRes = await executeDB(db, `SELECT 1 FROM auto_responses WHERE "guildID" = $1 AND "trigger" = $2`, `SELECT 1 FROM auto_responses WHERE guildid = $1 AND trigger = $2`, [i.guild.id, trigger]).catch(()=>({rows:[]}));
         if (existingRes?.rows?.length > 0) return i.editReply(`❌ هذا الرد موجود مسبقاً.`);
         try {
-            await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [price, i.user.id, i.guild.id]).catch(()=> db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [price, i.user.id, i.guild.id]).catch(()=>{}));
+            await executeDB(db, `UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [price, i.user.id, i.guild.id]).catch(()=>{});
             const expiresAt = Date.now() + (3 * 24 * 60 * 60 * 1000);
-            await db.query(`INSERT INTO auto_responses ("guildID", "trigger", "response", "matchType", "cooldown", "createdBy", "expiresAt") VALUES ($1, $2, $3, 'exact', 600, $4, $5)`, [i.guild.id, trigger, response, i.user.id, expiresAt]).catch(()=> db.query(`INSERT INTO auto_responses (guildid, trigger, response, matchtype, cooldown, createdby, expiresat) VALUES ($1, $2, $3, 'exact', 600, $4, $5)`, [i.guild.id, trigger, response, i.user.id, expiresAt]).catch(()=>{}));
+            await executeDB(db, `INSERT INTO auto_responses ("guildID", "trigger", "response", "matchType", "cooldown", "createdBy", "expiresAt") VALUES ($1, $2, $3, 'exact', 600, $4, $5)`, `INSERT INTO auto_responses (guildid, trigger, response, matchtype, cooldown, createdby, expiresat) VALUES ($1, $2, $3, 'exact', 600, $4, $5)`, [i.guild.id, trigger, response, i.user.id, expiresAt]).catch(()=>{});
             
             const successEmbed = new EmbedBuilder().setTitle('✅ تمت عملية الشراء بنجاح').setColor(Colors.Green).setDescription(`📦 **العنصر:** رد تلقائي (${trigger})\n💰 **التكلفة:** ${price.toLocaleString()} ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
             
@@ -895,10 +887,10 @@ async function _handleXpExchangeModal(i, client, db) {
     try {
         await i.deferReply({ flags: MessageFlags.Ephemeral });
         const userId = i.user.id; const guildId = i.guild.id;
-        let userLoanRes = await db.query(`SELECT 1 FROM user_loans WHERE "userID" = $1 AND "guildID" = $2 AND "remainingAmount" > 0`, [userId, guildId]).catch(()=> db.query(`SELECT 1 FROM user_loans WHERE userid = $1 AND guildid = $2 AND remainingamount > 0`, [userId, guildId]).catch(()=>({rows:[]})));
+        let userLoanRes = await executeDB(db, `SELECT 1 FROM user_loans WHERE "userID" = $1 AND "guildID" = $2 AND "remainingAmount" > 0`, `SELECT 1 FROM user_loans WHERE userid = $1 AND guildid = $2 AND remainingamount > 0`, [userId, guildId]).catch(()=>({rows:[]}));
         if (userLoanRes?.rows?.length > 0) return await i.editReply({ content: `❌ عليك قرض.` });
         
-        let userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(()=> db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})));
+        let userDataRes = await executeDB(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
         let userData = userDataRes?.rows?.[0];
         if (!userData) userData = { user: userId, guild: guildId, mora: 0, bank: 0 };
         
@@ -941,7 +933,7 @@ async function handleShopInteractions(i, client, db) {
     if (i.customId === 'shop_open_menu') { 
         const userId = i.user.id;
         const guildId = i.guild.id;
-        let userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(()=> db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})));
+        let userDataRes = await executeDB(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
         let userData = userDataRes?.rows?.[0];
         if (!userData) userData = { level: 0, mora: 0, bank: 0 }; 
 
