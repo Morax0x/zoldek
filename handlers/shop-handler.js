@@ -31,6 +31,7 @@ const {
 const CUSTOM_XP_RATE = 5; 
 const MAX_FARM_LIMIT = 1000;
 const MAX_POTION_LIMIT = 999;
+const HIDDEN_ITEMS_ID = []; // 🔥 Added back to fix the ReferenceError
 
 let _handleFarmTransaction, _handleMarketTransaction, updateMarketPrices;
 try { const m = require('./farm.js'); _handleFarmTransaction = m._handleFarmTransaction; } catch(e) { try { const m = require('./shop_system/farm.js'); _handleFarmTransaction = m._handleFarmTransaction; } catch(e2) {} }
@@ -272,7 +273,10 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             try {
                 await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, 'xp', -0.05]);
                 await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, 'mora', -0.05]);
-            } catch(e) {}
+            } catch(e) {
+                await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, 'xp', -0.05]).catch(()=>{});
+                await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, 'mora', -0.05]).catch(()=>{});
+            }
         }
     } 
     else if (callbackType === 'weapon') {
