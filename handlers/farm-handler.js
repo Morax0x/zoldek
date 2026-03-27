@@ -45,6 +45,9 @@ async function checkFarmIncome(client, db) {
 
     try {
         await db.query(`CREATE TABLE IF NOT EXISTS farm_last_payout ("id" TEXT PRIMARY KEY, "lastPayoutDate" BIGINT)`);
+        // 🔥 إضافة صامتة للأعمدة لتجنب أخطاء "userid does not exist"
+        await db.query(`ALTER TABLE user_buffs ADD COLUMN "multiplier" REAL DEFAULT 0.0`).catch(()=>{});
+        await db.query(`ALTER TABLE user_buffs ADD COLUMN "buffPercent" BIGINT DEFAULT 0`).catch(()=>{});
     } catch (e) {}
 
     let farmOwnersRes;
@@ -54,8 +57,8 @@ async function checkFarmIncome(client, db) {
         farmOwnersRes = await db.query(`SELECT DISTINCT userid as "userID", guildid as "guildID" FROM user_farm UNION SELECT DISTINCT userid as "userID", guildid as "guildID" FROM user_lands`).catch(()=>({rows:[]}));
     }
     
-    const farmOwners = farmOwnersRes.rows;
-    if (!farmOwners || !farmOwners.length) return;
+    const farmOwners = farmOwnersRes?.rows || [];
+    if (!farmOwners.length) return;
     
     for (const owner of farmOwners) {
         try {
@@ -69,7 +72,7 @@ async function checkFarmIncome(client, db) {
             try { lastPayoutDataRes = await db.query(`SELECT "lastPayoutDate" FROM farm_last_payout WHERE "id" = $1`, [payoutID]); }
             catch(e) { lastPayoutDataRes = await db.query(`SELECT lastpayoutdate as "lastPayoutDate" FROM farm_last_payout WHERE id = $1`, [payoutID]).catch(()=>({rows:[]})); }
             
-            const lastPayoutData = lastPayoutDataRes.rows[0];
+            const lastPayoutData = lastPayoutDataRes?.rows?.[0];
             const payoutTime = lastPayoutData ? (Number(lastPayoutData.lastPayoutDate) || 0) : 0;
             
             const isDailyPayoutDue = (now - payoutTime) >= ONE_DAY;
@@ -80,7 +83,7 @@ async function checkFarmIncome(client, db) {
             try { workerBuffRes = await db.query(`SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userID, guildID, now]); }
             catch(e) { workerBuffRes = await db.query(`SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker' AND expiresat > $3`, [userID, guildID, now]).catch(()=>({rows:[]})); }
             
-            const hasWorker = workerBuffRes.rows.length > 0;
+            const hasWorker = workerBuffRes?.rows?.length > 0;
 
             let harvestedMap = new Map();
             let fedMap = new Map();
@@ -95,7 +98,7 @@ async function checkFarmIncome(client, db) {
                 try { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userID, guildID]); }
                 catch(e) { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userID, guildID]).catch(()=>({rows:[]})); }
                 
-                const plantedPlots = plantedPlotsRes.rows;
+                const plantedPlots = plantedPlotsRes?.rows || [];
                 
                 for (const plot of plantedPlots) {
                     const seedId = plot.seedID || plot.seedid;
@@ -126,7 +129,7 @@ async function checkFarmIncome(client, db) {
             let userFarmRes;
             try { userFarmRes = await db.query(`SELECT * FROM user_farm WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
             catch(e) { userFarmRes = await db.query(`SELECT * FROM user_farm WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
-            const userFarm = userFarmRes.rows;
+            const userFarm = userFarmRes?.rows || [];
             
             let dailyAnimalIncome = 0;
             let currentAnimalsCount = 0;
@@ -164,7 +167,7 @@ async function checkFarmIncome(client, db) {
                     let invDataRes;
                     try { invDataRes = await db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userID, guildID, animal.feed_id]); }
                     catch(e) { invDataRes = await db.query(`SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userID, guildID, animal.feed_id]).catch(()=>({rows:[]})); }
-                    const invData = invDataRes.rows[0];
+                    const invData = invDataRes?.rows?.[0];
                     
                     if (invData && Number(invData.quantity || invData.quantity) >= qty) {
                         try {
@@ -223,7 +226,7 @@ async function checkFarmIncome(client, db) {
             let settingsRes;
             try { settingsRes = await db.query(`SELECT "casinoChannelID" FROM settings WHERE "guild" = $1`, [guildID]); }
             catch(e) { settingsRes = await db.query(`SELECT casinochannelid FROM settings WHERE guild = $1`, [guildID]).catch(()=>({rows:[]})); }
-            const casinoId = settingsRes.rows[0]?.casinochannelid || settingsRes.rows[0]?.casinoChannelID;
+            const casinoId = settingsRes?.rows?.[0]?.casinochannelid || settingsRes?.rows?.[0]?.casinoChannelID;
             if (!casinoId) continue;
             
             const channel = guildObj.channels.cache.get(casinoId);
@@ -265,7 +268,7 @@ async function checkFarmIncome(client, db) {
             await channel.send({ content: `<@${userID}>`, embeds: [embed] }).catch(() => {});
 
         } catch (err) {
-            console.error(`[Farm Critical Error] User: ${owner.userID || owner.userid}`, err);
+            console.error(`[Farm Critical Error] User: ${owner.userID || owner.userid}`, err.message);
         }
     }
 }
