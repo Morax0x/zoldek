@@ -96,7 +96,7 @@ async function ensureLandTable(db) {
             "plantTime" BIGINT,
             PRIMARY KEY ("userID", "guildID", "plotID")
         )
-    `);
+    `).catch(()=>{});
 }
 
 async function renderLand(interaction, client, db) {
@@ -116,7 +116,7 @@ async function renderLand(interaction, client, db) {
     let userPlotsRes;
     try { userPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
     catch(e) { userPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
-    const userPlots = userPlotsRes.rows;
+    const userPlots = userPlotsRes?.rows || [];
     
     const now = Date.now();
 
@@ -283,7 +283,7 @@ async function renderLand(interaction, client, db) {
         try { workerBuffRes = await db.query(`SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userId, guildId, now]); }
         catch(e) { workerBuffRes = await db.query(`SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker' AND expiresat > $3`, [userId, guildId, now]).catch(()=>({rows:[]})); }
         
-        const workerBuff = workerBuffRes.rows[0];
+        const workerBuff = workerBuffRes?.rows?.[0];
         
         if (workerBuff) {
             const timeLeft = Number(workerBuff.expiresAt || workerBuff.expiresat) - now;
@@ -341,7 +341,6 @@ async function handleLandInteractions(i, client, db) {
     const updateView = async () => {
         const data = await renderLand(i, client, db);
         
-        // جلب صف الأزرار السفلي الخاص بالتنقل والموجود أصلاً في الرسالة
         const currentComponents = i.message.components;
         let navRow = null;
         if (currentComponents && currentComponents.length > 0) {
@@ -369,7 +368,7 @@ async function handleLandInteractions(i, client, db) {
             try { userPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
             catch(e) { userPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
             
-            const userPlots = userPlotsRes.rows;
+            const userPlots = userPlotsRes?.rows || [];
             const recordedIds = userPlots.map(p => Number(p.plotID || p.plotid));
 
             for (let pid = 1; pid <= maxPlots; pid++) {
@@ -408,7 +407,7 @@ async function handleLandInteractions(i, client, db) {
             try { existingPlotsRes = await db.query(`SELECT "plotID", "status" FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
             catch(e) { existingPlotsRes = await db.query(`SELECT plotid, status FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
             
-            const existingPlots = existingPlotsRes.rows;
+            const existingPlots = existingPlotsRes?.rows || [];
             const existingIds = existingPlots.map(p => Number(p.plotID || p.plotid));
             let plotsToPlow = [];
 
@@ -446,7 +445,8 @@ async function handleLandInteractions(i, client, db) {
             } catch (e) {
                 await db.query("ROLLBACK").catch(()=>{});
                 try {
-                    await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [totalCost, userId, guildId]);
+                    // 🔥 تم إصلاح هذا الـ Fallback ليستخدم الأعمدة الصحيحة في جدول levels ("user", "guild") 🔥
+                    await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [totalCost, userId, guildId]);
                     userData.mora = String(Number(userData.mora || 0) - totalCost);
                     if (typeof client.setLevel === 'function') await client.setLevel(userData);
                     
@@ -524,13 +524,13 @@ async function handleLandInteractions(i, client, db) {
             try { tilledPlotsRes = await db.query(`SELECT "plotID" FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'tilled'`, [userId, guildId]); }
             catch(e) { tilledPlotsRes = await db.query(`SELECT plotid FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'tilled'`, [userId, guildId]).catch(()=>({rows:[]})); }
             
-            const tilledPlots = tilledPlotsRes.rows;
+            const tilledPlots = tilledPlotsRes?.rows || [];
             
             let invItemRes;
             try { invItemRes = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, seedId]); }
             catch(e) { invItemRes = await db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, seedId]).catch(()=>({rows:[]})); }
             
-            const invItem = invItemRes.rows[0];
+            const invItem = invItemRes?.rows?.[0];
             const seedStock = invItem ? Number(invItem.quantity) : 0;
 
             const countToPlant = Math.min(qtyInput, tilledPlots.length, seedStock);
@@ -560,7 +560,7 @@ async function handleLandInteractions(i, client, db) {
                 }
                 await db.query("COMMIT");
             } catch (e) {
-                await db.query("ROLLBACK");
+                await db.query("ROLLBACK").catch(()=>{});
                 try {
                     await db.query("BEGIN");
                     for (let k = 0; k < countToPlant; k++) {
@@ -604,7 +604,7 @@ async function handleLandInteractions(i, client, db) {
             try { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userId, guildId]); }
             catch(e) { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userId, guildId]).catch(()=>({rows:[]})); }
             
-            const plantedPlots = plantedPlotsRes.rows;
+            const plantedPlots = plantedPlotsRes?.rows || [];
             const now = Date.now();
             let totalRevenue = 0, totalXP = 0, harvestedCount = 0;
             const plotsToReset = [];
@@ -635,7 +635,7 @@ async function handleLandInteractions(i, client, db) {
                 }
                 await db.query("COMMIT");
             } catch (e) {
-                await db.query("ROLLBACK");
+                await db.query("ROLLBACK").catch(()=>{});
                 try {
                     await db.query("BEGIN");
                     for (const pid of plotsToReset) {
@@ -649,11 +649,15 @@ async function handleLandInteractions(i, client, db) {
                  await addXPAndCheckLevel(client, i.member, db, totalXP, totalRevenue, false).catch(()=>{});
             } else {
                  try { await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [totalRevenue, totalXP, userId, guildId]); }
-                 catch(e) { await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE userid = $3 AND guildid = $4`, [totalRevenue, totalXP, userId, guildId]).catch(()=>{}); }
+                 catch(e) { 
+                     // 🔥 تم إصلاح هذا الـ Fallback ليستخدم الأعمدة الصحيحة في جدول levels ("user", "guild") 🔥
+                     await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [totalRevenue, totalXP, userId, guildId]).catch(()=>{}); 
+                 }
             }
 
             if (updateGuildStat) {
-                updateGuildStat(client, guildId, userId, 'crops_harvested', totalRevenue).catch(()=>{});
+                // قد لا تكون دالة updateGuildStat من نوع Promise لذلك وضعناها بـ try/catch
+                try { await updateGuildStat(client, guildId, userId, 'crops_harvested', totalRevenue); } catch(e){}
             }
 
             await i.followUp({ content: `🌾 **تم الحصاد!** (+${totalRevenue} مورا, +${totalXP} XP)`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
@@ -667,7 +671,7 @@ async function handleLandInteractions(i, client, db) {
             try { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userId, guildId]); }
             catch(e) { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userId, guildId]).catch(()=>({rows:[]})); }
             
-            const plantedPlots = plantedPlotsRes.rows;
+            const plantedPlots = plantedPlotsRes?.rows || [];
             const now = Date.now();
             const plotsToReset = [];
 
@@ -689,7 +693,7 @@ async function handleLandInteractions(i, client, db) {
                 }
                 await db.query("COMMIT");
             } catch (e) {
-                await db.query("ROLLBACK");
+                await db.query("ROLLBACK").catch(()=>{});
                 try {
                     await db.query("BEGIN");
                     for (const pid of plotsToReset) {
@@ -716,7 +720,7 @@ async function getSeedCount(db, userId, guildId, seedId) {
         try { invItemRes = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, seedId]); }
         catch(e) { invItemRes = await db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, seedId]).catch(()=>({rows:[]})); }
         
-        const invItem = invItemRes.rows[0];
+        const invItem = invItemRes?.rows?.[0];
         return invItem ? Number(invItem.quantity) : 0;
     } catch(e) {
         return 0;
