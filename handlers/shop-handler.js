@@ -203,7 +203,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     else if (couponType === 'role') {
         let roleUsageRes = await db.query(`SELECT "id" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, [interaction.guild.id, interaction.user.id]).catch(()=> db.query(`SELECT id FROM user_role_coupon_usage WHERE guildid = $1 AND userid = $2`, [interaction.guild.id, interaction.user.id]).catch(()=>({rows:[]})));
         if (roleUsageRes?.rows?.[0]) {
-            await db.query(`UPDATE user_role_coupon_usage SET "lastUsedTimestamp" = $1 WHERE "id" = $2`, [Date.now(), roleUsageRes.rows[0].id]).catch(()=> db.query(`UPDATE user_role_coupon_usage SET lastusedtimestamp = $1 WHERE id = $2`, [Date.now(), roleUsageRes.rows[0].id || roleUsageRes.rows[0].ID]));
+            const usageId = roleUsageRes.rows[0].id || roleUsageRes.rows[0].ID;
+            await db.query(`UPDATE user_role_coupon_usage SET "lastUsedTimestamp" = $1 WHERE "id" = $2`, [Date.now(), usageId]).catch(()=> db.query(`UPDATE user_role_coupon_usage SET lastusedtimestamp = $1 WHERE id = $2`, [Date.now(), usageId]));
         } else {
             await db.query(`INSERT INTO user_role_coupon_usage ("guildID", "userID", "lastUsedTimestamp") VALUES ($1, $2, $3)`, [interaction.guild.id, interaction.user.id, Date.now()]).catch(()=> db.query(`INSERT INTO user_role_coupon_usage (guildid, userid, lastusedtimestamp) VALUES ($1, $2, $3)`, [interaction.guild.id, interaction.user.id, Date.now()]));
         }
@@ -218,8 +219,9 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             await ensureInventoryTable(db); 
             let invCheckRes = await db.query(`SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=> db.query(`SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]})));
             if (invCheckRes?.rows?.[0]) {
+                const invId = invCheckRes.rows[0].id || invCheckRes.rows[0].ID;
                 let newQty = Math.min(Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity || 0) + quantity, MAX_POTION_LIMIT);
-                await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invCheckRes.rows[0].id]).catch(()=> db.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invCheckRes.rows[0].id || invCheckRes.rows[0].ID]));
+                await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invId]).catch(()=> db.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invId]));
             } else {
                 await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, Math.min(quantity, MAX_POTION_LIMIT)]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, Math.min(quantity, MAX_POTION_LIMIT)]));
             }
@@ -228,8 +230,9 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             await ensureInventoryTable(db); 
             let invCheckRes = await db.query(`SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=> db.query(`SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [interaction.user.id, interaction.guild.id, itemData.id]).catch(()=>({rows:[]})));
             if (invCheckRes?.rows?.[0]) {
+                const invId = invCheckRes.rows[0].id || invCheckRes.rows[0].ID;
                 let newQty = Math.min(Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity || 0) + quantity, MAX_FARM_LIMIT);
-                await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invCheckRes.rows[0].id]).catch(()=> db.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invCheckRes.rows[0].id || invCheckRes.rows[0].ID]));
+                await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invId]).catch(()=> db.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invId]));
             } else {
                 await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, Math.min(quantity, MAX_FARM_LIMIT)]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [interaction.guild.id, interaction.user.id, itemData.id, Math.min(quantity, MAX_FARM_LIMIT)]));
             }
@@ -237,7 +240,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         else if (itemData.id === 'streak_shield') {
             let existingStreakRes = await db.query(`SELECT "id" FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM streaks WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
             if (existingStreakRes?.rows?.[0]) {
-                await db.query(`UPDATE streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, [existingStreakRes.rows[0].id]).catch(()=> db.query(`UPDATE streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [existingStreakRes.rows[0].id || existingStreakRes.rows[0].ID]));
+                const strkId = existingStreakRes.rows[0].id || existingStreakRes.rows[0].ID;
+                await db.query(`UPDATE streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, [strkId]).catch(()=> db.query(`UPDATE streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [strkId]));
             } else {
                 const id = `${interaction.guild.id}-${interaction.user.id}`;
                 await db.query(`INSERT INTO streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]).catch(()=> db.query(`INSERT INTO streaks (id, guildid, userid, hasitemshield) VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]));
@@ -246,7 +250,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         else if (itemData.id === 'streak_shield_media') {
             let existingMediaRes = await db.query(`SELECT "id" FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM media_streaks WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
             if (existingMediaRes?.rows?.[0]) {
-                await db.query(`UPDATE media_streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, [existingMediaRes.rows[0].id]).catch(()=> db.query(`UPDATE media_streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [existingMediaRes.rows[0].id || existingMediaRes.rows[0].ID]));
+                const medId = existingMediaRes.rows[0].id || existingMediaRes.rows[0].ID;
+                await db.query(`UPDATE media_streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, [medId]).catch(()=> db.query(`UPDATE media_streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [medId]));
             } else {
                 const id = `${interaction.guild.id}-${interaction.user.id}`;
                 await db.query(`INSERT INTO media_streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]).catch(()=> db.query(`INSERT INTO media_streaks (id, guildid, userid, hasitemshield) VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]));
@@ -263,7 +268,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 let buffRes = await db.query(`SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
                 const expiresAt = Date.now() + duration;
                 if (buffRes?.rows?.[0]) {
-                    await db.query(`UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "id" = $4`, [multiplier, expiresAt, buffPercent, buffRes.rows[0].id]).catch(()=> db.query(`UPDATE user_buffs SET multiplier = $1, expiresat = $2, buffpercent = $3 WHERE id = $4`, [multiplier, expiresAt, buffPercent, buffRes.rows[0].id || buffRes.rows[0].ID]));
+                    const bfId = buffRes.rows[0].id || buffRes.rows[0].ID;
+                    await db.query(`UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "id" = $4`, [multiplier, expiresAt, buffPercent, bfId]).catch(()=> db.query(`UPDATE user_buffs SET multiplier = $1, expiresat = $2, buffpercent = $3 WHERE id = $4`, [multiplier, expiresAt, buffPercent, bfId]));
                 } else {
                     await db.query(`INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]).catch(()=> db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]));
                 }
@@ -281,7 +287,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 
                 let roleCheck = await db.query(`SELECT "id" FROM temporary_roles WHERE "userID" = $1 AND "guildID" = $2 AND "roleID" = $3`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid]).catch(()=> db.query(`SELECT id FROM temporary_roles WHERE userid = $1 AND guildid = $2 AND roleid = $3`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid]).catch(()=>({rows:[]})));
                 if (roleCheck?.rows?.[0]) {
-                    await db.query(`UPDATE temporary_roles SET "expiresAt" = $1 WHERE "id" = $2`, [expiresAt, roleCheck.rows[0].id]).catch(()=> db.query(`UPDATE temporary_roles SET expiresat = $1 WHERE id = $2`, [expiresAt, roleCheck.rows[0].id || roleCheck.rows[0].ID]));
+                    const rlId = roleCheck.rows[0].id || roleCheck.rows[0].ID;
+                    await db.query(`UPDATE temporary_roles SET "expiresAt" = $1 WHERE "id" = $2`, [expiresAt, rlId]).catch(()=> db.query(`UPDATE temporary_roles SET expiresat = $1 WHERE id = $2`, [expiresAt, rlId]));
                 } else {
                     await db.query(`INSERT INTO temporary_roles ("userID", "guildID", "roleID", "expiresAt") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid, expiresAt]).catch(()=> db.query(`INSERT INTO temporary_roles (userid, guildid, roleid, expiresat) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, settings.vipRoleID || settings.viproleid, expiresAt]));
                 }
@@ -297,7 +304,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 if (Number(existingWorker.expiresAt || existingWorker.expiresat) > Date.now()) {
                     newExpiresAt = Number(existingWorker.expiresAt || existingWorker.expiresat) + duration;
                 }
-                await db.query(`UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`, [newExpiresAt, existingWorker.id]).catch(()=> db.query(`UPDATE user_buffs SET expiresat = $1 WHERE id = $2`, [newExpiresAt, existingWorker.id || existingWorker.ID]));
+                const workerId = existingWorker.id || existingWorker.ID;
+                await db.query(`UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`, [newExpiresAt, workerId]).catch(()=> db.query(`UPDATE user_buffs SET expiresat = $1 WHERE id = $2`, [newExpiresAt, workerId]));
             } else {
                 await db.query(`INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, newExpiresAt, 0]).catch(()=> db.query(`INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, newExpiresAt, 0]));
             }
@@ -317,11 +325,17 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
             try {
                 let xpBuffCheck = await db.query(`SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
-                if (xpBuffCheck?.rows?.[0]) await db.query(`UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, [-5, expiresAt, -0.05, xpBuffCheck.rows[0].id]).catch(()=> db.query(`UPDATE user_buffs SET buffpercent = $1, expiresat = $2, multiplier = $3 WHERE id = $4`, [-5, expiresAt, -0.05, xpBuffCheck.rows[0].id || xpBuffCheck.rows[0].ID]));
+                if (xpBuffCheck?.rows?.[0]) {
+                    const xpId = xpBuffCheck.rows[0].id || xpBuffCheck.rows[0].ID;
+                    await db.query(`UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, [-5, expiresAt, -0.05, xpId]).catch(()=> db.query(`UPDATE user_buffs SET buffpercent = $1, expiresat = $2, multiplier = $3 WHERE id = $4`, [-5, expiresAt, -0.05, xpId]));
+                }
                 else await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'xp', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]).catch(()=> db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'xp', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]));
                 
                 let moraBuffCheck = await db.query(`SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'mora'`, [interaction.user.id, interaction.guild.id]).catch(()=> db.query(`SELECT id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'mora'`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})));
-                if (moraBuffCheck?.rows?.[0]) await db.query(`UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, [-5, expiresAt, -0.05, moraBuffCheck.rows[0].id]).catch(()=> db.query(`UPDATE user_buffs SET buffpercent = $1, expiresat = $2, multiplier = $3 WHERE id = $4`, [-5, expiresAt, -0.05, moraBuffCheck.rows[0].id || moraBuffCheck.rows[0].ID]));
+                if (moraBuffCheck?.rows?.[0]) {
+                    const moraId = moraBuffCheck.rows[0].id || moraBuffCheck.rows[0].ID;
+                    await db.query(`UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, [-5, expiresAt, -0.05, moraId]).catch(()=> db.query(`UPDATE user_buffs SET buffpercent = $1, expiresat = $2, multiplier = $3 WHERE id = $4`, [-5, expiresAt, -0.05, moraId]));
+                }
                 else await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'mora', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]).catch(()=> db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'mora', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]));
             } catch(e) {}
         }
@@ -330,7 +344,10 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         const newLevel = itemData.currentLevel + 1;
         if (itemData.isBuy) {
             let wepCheck = await db.query(`SELECT "id" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=> db.query(`SELECT id FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=>({rows:[]})));
-            if (wepCheck?.rows?.[0]) await db.query(`UPDATE user_weapons SET "weaponLevel" = $1 WHERE "id" = $2`, [newLevel, wepCheck.rows[0].id]).catch(()=> db.query(`UPDATE user_weapons SET weaponlevel = $1 WHERE id = $2`, [newLevel, wepCheck.rows[0].id || wepCheck.rows[0].ID]));
+            if (wepCheck?.rows?.[0]) {
+                const wId = wepCheck.rows[0].id || wepCheck.rows[0].ID;
+                await db.query(`UPDATE user_weapons SET "weaponLevel" = $1 WHERE "id" = $2`, [newLevel, wId]).catch(()=> db.query(`UPDATE user_weapons SET weaponlevel = $1 WHERE id = $2`, [newLevel, wId]));
+            }
             else await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]).catch(()=> db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.raceName, newLevel]));
         } else {
             await db.query(`UPDATE user_weapons SET "weaponLevel" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "raceName" = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=> db.query(`UPDATE user_weapons SET weaponlevel = $1 WHERE userid = $2 AND guildid = $3 AND racename = $4`, [newLevel, interaction.user.id, interaction.guild.id, itemData.raceName]).catch(()=>{}));
@@ -340,7 +357,10 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         const newLevel = itemData.currentLevel + 1;
         if (itemData.isBuy) {
             let skillCheck = await db.query(`SELECT "id" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]).catch(()=> db.query(`SELECT id FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [interaction.user.id, interaction.guild.id, itemData.skillId]).catch(()=>({rows:[]})));
-            if (skillCheck?.rows?.[0]) await db.query(`UPDATE user_skills SET "skillLevel" = $1 WHERE "id" = $2`, [newLevel, skillCheck.rows[0].id]).catch(()=> db.query(`UPDATE user_skills SET skilllevel = $1 WHERE id = $2`, [newLevel, skillCheck.rows[0].id || skillCheck.rows[0].ID]));
+            if (skillCheck?.rows?.[0]) {
+                const sId = skillCheck.rows[0].id || skillCheck.rows[0].ID;
+                await db.query(`UPDATE user_skills SET "skillLevel" = $1 WHERE "id" = $2`, [newLevel, sId]).catch(()=> db.query(`UPDATE user_skills SET skilllevel = $1 WHERE id = $2`, [newLevel, sId]));
+            }
             else await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]).catch(()=> db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, itemData.skillId, newLevel]));
         } else {
             await db.query(`UPDATE user_skills SET "skillLevel" = $1 WHERE "id" = $2`, [newLevel, itemData.dbId]).catch(()=> db.query(`UPDATE user_skills SET skilllevel = $1 WHERE id = $2`, [newLevel, itemData.dbId || itemData.dbID]).catch(()=>{}));
@@ -515,7 +535,8 @@ async function _handleBaitBuy(i, client, db) {
     await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [userData.mora, i.user.id, i.guild.id]).catch(()=> db.query(`UPDATE levels SET mora = $1 WHERE userid = $2 AND guildid = $3`, [userData.mora, i.user.id, i.guild.id]).catch(()=>{}));
     
     if (invCheckRes?.rows?.[0]) {
-        await db.query(`UPDATE user_inventory SET "quantity" = LEAST("quantity" + $1, $2) WHERE "id" = $3`, [qty, MAX_FARM_LIMIT, invCheckRes.rows[0].id]).catch(()=> db.query(`UPDATE user_inventory SET quantity = LEAST(quantity + $1, $2) WHERE id = $3`, [qty, MAX_FARM_LIMIT, invCheckRes.rows[0].id || invCheckRes.rows[0].ID]).catch(()=>{}));
+        const invId = invCheckRes.rows[0].id || invCheckRes.rows[0].ID;
+        await db.query(`UPDATE user_inventory SET "quantity" = LEAST("quantity" + $1, $2) WHERE "id" = $3`, [qty, MAX_FARM_LIMIT, invId]).catch(()=> db.query(`UPDATE user_inventory SET quantity = LEAST(quantity + $1, $2) WHERE id = $3`, [qty, MAX_FARM_LIMIT, invId]).catch(()=>{}));
     } else {
         await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [i.guild.id, i.user.id, baitId, qty]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [i.guild.id, i.user.id, baitId, qty]).catch(()=>{}));
     }
