@@ -3,12 +3,11 @@ const path = require('path');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>'; 
 const OWNER_ID = "1145327691772481577"; 
-const XP_EXCHANGE_RATE = 3;
+const XP_EXCHANGE_RATE = 5;
 const BANNER_URL = 'https://i.postimg.cc/NMkWVyLV/line.png';
 
 let shopItems = [], potionItems = [], farmAnimals = [], weaponsConfig = [], skillsConfig = [];
 
-// 🔥 تم استخدام try/catch لضمان عدم انهيار البوت إذا كان فيه مشكلة في ملفات JSON 🔥
 try { shopItems = require('../../json/shop-items.json'); } catch(e){}
 try { potionItems = require('../../json/potions.json'); } catch(e){}
 try { farmAnimals = require('../../json/farm-animals.json'); } catch(e){}
@@ -23,7 +22,6 @@ try {
     boatsConfig = fishingConfig.boats || [];
     baitsConfig = fishingConfig.baits || [];
 } catch (e) { 
-    // محاولة قراءة الملف القديم لو فشل الجديد
     try {
         const fishJson = require(path.join(rootDir, 'json', 'fish.json'));
         rodsConfig = fishJson.rods || [];
