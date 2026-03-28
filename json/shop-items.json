@@ -94,7 +94,7 @@
   {
     "id": "exchange_xp",
     "name": "شراء خبرة (XP)",
-    "description": "السعر: 3 مورا = 1 إكس بي",
+    "description": "السعر: 5 مورا = 1 إكس بي",
     "price": 0,
     "emoji": "🪙",
     "category": "premium",
