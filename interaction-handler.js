@@ -25,9 +25,7 @@ let farmShop;
 try {
     const farmModule = require('./handlers/farm-handler.js');
     handleFarmInteractions = farmModule.handleFarmInteractions || farmModule._handleFarmTransaction;
-} catch (e) {
-    console.error("ℹ️ Farm Handler not found or has an error.");
-}
+} catch (e) {}
 
 try {
     farmShop = require('./handlers/shop_system/farm-shop.js');
@@ -36,9 +34,7 @@ try {
     try {
         farmShop = require('./handlers/farm-shop.js');
         handleFarmShopModal = farmShop.handleFarmShopModal;
-    } catch (e2) {
-        console.error("ℹ️ Farm Shop module error.");
-    }
+    } catch (e2) {}
 }
 
 const ms = require('ms');
@@ -132,7 +128,6 @@ module.exports = (client, db, antiRolesCache) => {
                 if (!isAllowed) return i.reply({ content: "❌ **لا يمكنك استخدام هذا الأمر في هذه القناة.**", flags: [MessageFlags.Ephemeral] });
 
                 try { await command.execute(i); } catch (error) {
-                    console.error(`[Slash Error: ${i.commandName}]`, error);
                     if (!i.replied && !i.deferred) await i.reply({ content: 'حدث خطأ داخلي!', flags: [MessageFlags.Ephemeral] });
                 }
                 return;
@@ -160,9 +155,8 @@ module.exports = (client, db, antiRolesCache) => {
                     return;
                 }
 
-                // 🌟 الحماية القسوى: نمنع الهاندلر المركزي من سرقة أزرار المزرعة، ونتركها للكوليكتر في farm.js! 🌟
                 if (id.startsWith('shop_cat_') || id.startsWith('farm_') || id.startsWith('buy_btn_farm|') || id.startsWith('sell_btn_farm|') || id.startsWith('nav_') || id.includes('feed_animal')) {
-                    return; // تم الإيقاف هنا ليعمل كوليكتر المزرعة بكفاءة.
+                    return;
                 }
 
                 if (id.startsWith('notify_afk_')) {
@@ -276,7 +270,6 @@ module.exports = (client, db, antiRolesCache) => {
 
             if (i.isModalSubmit()) {
                 
-                // 🌟 السماح بنوافذ بيع وشراء المزرعة فقط هنا
                 if (i.customId.startsWith('farm_buy_modal|') || i.customId.startsWith('farm_sell_modal|')) {
                     if (handleFarmShopModal) {
                         await handleFarmShopModal(i, client, db);
@@ -350,7 +343,6 @@ module.exports = (client, db, antiRolesCache) => {
 
         } catch (error) {
             if (error.code === 10062 || error.code === 40060) return;
-            console.error("Interaction Handler Error:", error);
         } finally {
             if (processingInteractions.has(i.user.id)) {
                 processingInteractions.delete(i.user.id);
@@ -359,7 +351,6 @@ module.exports = (client, db, antiRolesCache) => {
     });
 };
 
-// 💰🔥 نظـــــام الســـــوق المصلّـــــح 100% 🔥💰
 async function handleMarketInteraction(interaction, client, db) {
     const user = interaction.user;
     const guild = interaction.guild;
@@ -429,7 +420,6 @@ async function handleMarketInteraction(interaction, client, db) {
 
             await interaction.editReply({ content: `<@${user.id}>`, embeds: [embed] });
         } catch (err) {
-            console.error(err);
             await interaction.editReply({ content: '❌ حدث خطأ أثناء معالجة العملية.' });
         }
     } else if (interaction.customId.startsWith('sell_modal_')) {
@@ -479,7 +469,6 @@ async function handleMarketInteraction(interaction, client, db) {
 
             await interaction.editReply({ content: `<@${user.id}>`, embeds: [embed] });
         } catch (err) {
-            console.error(err);
             await interaction.editReply({ content: '❌ حدث خطأ أثناء معالجة العملية.' });
         }
     }
