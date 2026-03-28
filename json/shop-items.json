@@ -5,7 +5,8 @@
     "description": "شراء وتطوير معدات الصيد (سنارات، قوارب، طعوم).",
     "price": 0,
     "emoji": "🎣",
-    "category": "menus"
+    "category": "profession",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/fishing_gear_menu.png"
   },
   {
     "id": "potions_menu",
@@ -13,30 +14,17 @@
     "description": "قائمة لشراء جرعات الدانجون",
     "price": 0,
     "emoji": "🧪",
-    "category": "menus"
-  },
-  {
-    "id": "upgrade_weapon",
-    "name": "سلاح العرق",
-    "description": "قم بشراء وتطوير سلاحك الخاص بناءً على عرقك.",
-    "price": 0,
-    "emoji": "🗡️",
-    "category": "menus"
-  },
-  {
-    "id": "upgrade_skill",
-    "name": "تطوير المهارات",
-    "description": "شراء أو تطوير مهاراتك القتالية (الشفاء، الدرع، ...)",
-    "price": 0,
-    "emoji": "🌟",
-    "category": "menus"
+    "category": "general",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/potions_menu.png"
   },
   {
     "id": "personal_guard_1d",
     "name": "حارس شخصي ",
     "description": "حماية كاملة من السرقة لثلاث محاولات سرقة.",
     "price": 1500,
-    "emoji": "🛡️"
+    "emoji": "🛡️",
+    "category": "general",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/personal_guard_1d.png"
   },
   {
     "id": "farm_worker_3d",
@@ -45,14 +33,18 @@
     "price": 2500,
     "type": "farm_worker",
     "duration_days": 3,
-    "emoji": "👨‍🌾"
+    "emoji": "👨‍🌾",
+    "category": "profession",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/farm_worker_3d.png"
   },
   {
     "id": "streak_shield",
     "name": "درع الستريك",
     "description": "يحمي ستريك الرسائل من التصفير لمرة واحدة (يمنحك 72 ساعة بدلاً من 48).",
     "price": 1000,
-    "emoji": "🔥"
+    "emoji": "🔥",
+    "category": "general",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/streak_shield.png"
   },
   {
     "id": "streak_shield_media",
@@ -60,42 +52,53 @@
     "description": "يحمي ستريك الميديا الخاص بك من الضياع لمرة واحدة (يوم إضافي).",
     "price": 500,
     "emoji": "📸",
-    "image": "https://i.postimg.cc/3rbLwCMj/tsmym-bdwn-ʿnwan-2.png"
+    "category": "general",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/streak_shield_media.png"
   },
   {
     "id": "xp_buff_1d_3",
     "name": "تعزيز خبرة (صغير)",
     "description": "زيادة +45% XP لمدة 24 ساعة.",
     "price": 1500,
-    "emoji": "✨"
+    "emoji": "✨",
+    "category": "premium",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/xp_buff_1d_3.png"
   },
   {
     "id": "xp_buff_1d_7",
     "name": "تعزيز خبرة (متوسط)",
     "description": "زيادة +70% XP لمدة 48 ساعة.",
     "price": 2000,
-    "emoji": "🚀"
+    "emoji": "🚀",
+    "category": "premium",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/xp_buff_1d_7.png"
   },
   {
     "id": "xp_buff_2d_10",
     "name": "تعزيز خبرة (كبير)",
     "description": "زيادة +90% XP لمدة 72 ساعة.",
     "price": 5000,
-    "emoji": "☄️"
+    "emoji": "☄️",
+    "category": "premium",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/xp_buff_2d_10.png"
   },
   {
     "id": "vip_role_3d",
     "name": "عضوية الرتب (3 أيام)",
     "description": "يمنحك رتبة خاصة تتيح لك إنشاء رتبك المخصصة.",
     "price": 8000,
-    "emoji": "💎"
+    "emoji": "💎",
+    "category": "premium",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/vip_role_3d.png"
   },
   {
     "id": "exchange_xp",
     "name": "شراء خبرة (XP)",
-    "description": "السعر: 5 مورا = 1 إكس بي",
+    "description": "السعر: 3 مورا = 1 إكس بي",
     "price": 0,
-    "emoji": "🪙"
+    "emoji": "🪙",
+    "category": "premium",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/exchange_xp.png"
   },
   {
     "id": "change_race",
@@ -104,16 +107,7 @@
     "price": 99999,
     "duration": 7,
     "emoji": "🧬",
-    "image": "https://i.postimg.cc/rs4mmjvs/tsmym-bdwn-ʿnwan-9.png"
-  },
-  {
-    "id": "item_temp_reply",
-    "name": "رد بوت تلقائي خاص بك",
-    "description": "شراء رد خاص بك لمدة 3 أيام.",
-    "price": 10000,
-    "type": "special",
-    "emoji": "💬",
-    "stock": -1,
-    "role_id": null
+    "category": "premium",
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/change_race.png"
   }
 ]
