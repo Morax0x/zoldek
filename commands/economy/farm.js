@@ -5,9 +5,19 @@ const { getPlayerCapacity } = require('../../utils/farmUtils.js');
 const { renderLand } = require('../../handlers/farm-land.js');
 
 let farmShop;
+let farmShopError = null;
 try {
     farmShop = require('../../handlers/shop_system/farm-shop.js');
-} catch(e) {}
+} catch(e) {
+    farmShopError = e.message;
+    try { 
+        farmShop = require('../../handlers/farm-shop.js'); 
+        farmShopError = null;
+    } catch(e2) {
+        farmShopError = e2.message;
+        console.error("❌ خطأ في تحميل ملف متجر المزرعة:", e2);
+    }
+}
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const LEFT_EMOJI = '<:left:1439164494759723029>';
@@ -60,7 +70,7 @@ module.exports = {
         const reply = async (payload) => {
             if (isSlash) return interaction.editReply(payload).catch(() => {});
             return message.channel.send(payload).catch(() => {});
-        };
+        }
 
         const db = client.sql;
         const targetUser = targetMember.user;
@@ -69,15 +79,8 @@ module.exports = {
         const isOwner = user.id === userId; 
         const now = Date.now();
 
-        let shopState = {
-            currentView: 'main',
-            currentCategory: null,
-            currentPage: 0,
-            currentItemIndex: 0,
-            currentItemsList: []
-        };
-
         let animalsPage = 0;
+        let shopState = {}; 
 
         const getAnimalsPaginationRow = (page, totalPages) => {
             const row = new ActionRowBuilder();
@@ -91,11 +94,11 @@ module.exports = {
         };
 
         const renderFarmAnimals = async (page = 0) => {
-            const maxCapacity = await getPlayerCapacity(client, userId, guildId);
-            
-            let userAnimalsRes;
-            try { userAnimalsRes = await db.query(`SELECT * FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 ORDER BY "quantity" DESC`, [userId, guildId]); }
-            catch(e) { userAnimalsRes = await db.query(`SELECT * FROM user_farm WHERE userid = $1 AND guildid = $2 ORDER BY quantity DESC`, [userId, guildId]).catch(()=>({rows:[]})); }
+            const [maxCapacity, userAnimalsRes] = await Promise.all([
+                getPlayerCapacity(client, userId, guildId),
+                db.query(`SELECT * FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 ORDER BY "quantity" DESC`, [userId, guildId])
+                  .catch(() => db.query(`SELECT * FROM user_farm WHERE userid = $1 AND guildid = $2 ORDER BY quantity DESC`, [userId, guildId]).catch(()=>({rows:[]})))
+            ]);
             
             const userAnimals = userAnimalsRes.rows;
 
@@ -283,12 +286,45 @@ module.exports = {
                     await i.editReply({ embeds: [data.embed], components: components, files: [], attachments: [], content: '' }).catch(() => {});
                 }
                 else if (i.customId === 'nav_shop') {
-                    await i.deferUpdate().catch(() => {});
-                    if (farmShop) {
-                        const data = farmShop.buildMainMenu(user);
-                        await i.editReply({ embeds: data.embeds, components: [...data.components, getNavRow('shop')], files: [], attachments: [], content: '' }).catch(() => {});
-                    } else {
-                        await i.followUp({ content: '❌ نظام المتجر قيد التحديث.', flags: [MessageFlags.Ephemeral] });
+                    if (!i.deferred && !i.replied) await i.deferUpdate().catch(() => {});
+                    
+                    if (!farmShop) {
+                        return await i.followUp({ 
+                            content: `❌ **حدث خطأ في ملف المتجر يمنعه من العمل!**\n\`${farmShopError || 'الملف مفقود'}\`\n\n*(الرجاء إبلاغ الإدارة بهذا الخطأ لإصلاحه)*`, 
+                            flags: [MessageFlags.Ephemeral] 
+                        }).catch(() => {});
+                    }
+
+                    try {
+                        const menuFn = farmShop.buildMainMenu || farmShop.getShopMenu || farmShop.generateMainMenu;
+                        
+                        if (menuFn) {
+                            const data = await menuFn(user, client, db);
+                            const embeds = data.embeds || (data.embed ? [data.embed] : []);
+                            const components = data.components || (data.actionRow ? [data.actionRow] : []);
+                            
+                            components.push(getNavRow('shop'));
+
+                            await i.editReply({ 
+                                embeds: embeds, 
+                                components: components, 
+                                files: data.files || [], 
+                                attachments: [], 
+                                content: data.content || '' 
+                            }).catch(() => {});
+                        } else if (farmShop.handleShopInteraction) {
+                            await farmShop.handleShopInteraction(i, client, db, user, guild, shopState, getNavRow);
+                        } else {
+                            await i.followUp({ content: '❌ المتجر متوفر كملف لكن دالة الفتح (`buildMainMenu`) غير موجودة فيه!', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        await i.followUp({ content: `❌ **خطأ برمجي أثناء فتح المتجر:**\n\`${err.message}\``, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                    }
+                }
+                else if (farmShop && (i.customId === 'shop_cat_select' || i.customId.startsWith('shop_cat_') || i.customId === 'farm_select_item' || i.customId.startsWith('buy_btn_farm|') || i.customId.startsWith('farm_shop_'))) {
+                    if (farmShop.handleShopInteraction) {
+                        await farmShop.handleShopInteraction(i, client, db, user, guild, shopState, getNavRow);
                     }
                 }
                 else if (i.customId === 'farm_prev' || i.customId === 'farm_next') {
@@ -332,47 +368,35 @@ module.exports = {
                             const feedId = animal.feed_id;
                             const maxHungerMs = (animal.max_hunger_days || 3) * DAY_MS;
                             
-                            let sampleRes;
-                            try { sampleRes = await db.query(`SELECT "lastFedTimestamp" FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 AND "animalID" = $3 LIMIT 1`, [userId, guildId, animalId]); }
-                            catch(e) { sampleRes = await db.query(`SELECT lastfedtimestamp FROM user_farm WHERE userid = $1 AND guildid = $2 AND animalid = $3 LIMIT 1`, [userId, guildId, animalId]).catch(()=>({rows:[]})); }
+                            const [sampleRes, countRowRes, invRowRes] = await Promise.all([
+                                db.query(`SELECT "lastFedTimestamp" FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 AND "animalID" = $3 LIMIT 1`, [userId, guildId, animalId]).catch(()=>db.query(`SELECT lastfedtimestamp FROM user_farm WHERE userid = $1 AND guildid = $2 AND animalid = $3 LIMIT 1`, [userId, guildId, animalId]).catch(()=>({rows:[]}))),
+                                db.query(`SELECT SUM("quantity") as total FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 AND "animalID" = $3`, [userId, guildId, animalId]).catch(()=>db.query(`SELECT SUM(quantity) as total FROM user_farm WHERE userid = $1 AND guildid = $2 AND animalid = $3`, [userId, guildId, animalId]).catch(()=>({rows:[]}))),
+                                db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, feedId]).catch(()=>db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, feedId]).catch(()=>({rows:[]})))
+                            ]);
                             
                             const sample = sampleRes.rows[0];
-                            
                             if (sample && (sample.lastFedTimestamp || sample.lastfedtimestamp)) {
                                 const lastFed = Number(sample.lastFedTimestamp || sample.lastfedtimestamp);
                                 const timeSinceFed = Date.now() - lastFed;
-                                
                                 if (timeSinceFed < (maxHungerMs * 0.10)) { 
                                     return subI.reply({ content: `✋ **${animal.name}** ما زال شبعاناً!\nالرجاء الانتظار حتى يهضم طعامه قليلاً لتجنب إهدار العلف.`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
                                 }
                             }
 
-                            let countRowRes;
-                            try { countRowRes = await db.query(`SELECT SUM("quantity") as total FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 AND "animalID" = $3`, [userId, guildId, animalId]); }
-                            catch(e) { countRowRes = await db.query(`SELECT SUM(quantity) as total FROM user_farm WHERE userid = $1 AND guildid = $2 AND animalid = $3`, [userId, guildId, animalId]).catch(()=>({rows:[]})); }
-                            
                             const countRow = countRowRes.rows[0];
-                            const totalAnimals = countRow ? Number(countRow.total) : 0;
-                            
-                            let invRowRes;
-                            try { invRowRes = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, feedId]); }
-                            catch(e) { invRowRes = await db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, feedId]).catch(()=>({rows:[]})); }
+                            const totalAnimals = countRow ? Number(countRow.total || countRow.totalqty) : 0;
                             
                             const invRow = invRowRes.rows[0];
-                            
-                            if (!invRow || Number(invRow.quantity) < totalAnimals) {
+                            if (!invRow || Number(invRow.quantity || invRow.Quantity) < totalAnimals) {
                                 return subI.reply({ content: `❌ **علف غير كافي!**\nتحتاج **${totalAnimals}** وحدة لإطعام القطيع بالكامل.`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
                             }
                             
-                            try {
-                                await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [totalAnimals, userId, guildId, feedId]);
-                                await db.query(`UPDATE user_farm SET "lastFedTimestamp" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "animalID" = $4`, [Date.now(), userId, guildId, animalId]);
-                            } catch(e) {
-                                await db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [totalAnimals, userId, guildId, feedId]).catch(()=>{});
-                                await db.query(`UPDATE user_farm SET lastfedtimestamp = $1 WHERE userid = $2 AND guildid = $3 AND animalid = $4`, [Date.now(), userId, guildId, animalId]).catch(()=>{});
-                            }
+                            await Promise.all([
+                                db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [totalAnimals, userId, guildId, feedId]).catch(() => db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [totalAnimals, userId, guildId, feedId]).catch(()=>{})),
+                                db.query(`UPDATE user_farm SET "lastFedTimestamp" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "animalID" = $4`, [Date.now(), userId, guildId, animalId]).catch(() => db.query(`UPDATE user_farm SET lastfedtimestamp = $1 WHERE userid = $2 AND guildid = $3 AND animalid = $4`, [Date.now(), userId, guildId, animalId]).catch(()=>{}))
+                            ]);
                             
-                            await subI.reply({ content: `✅ تم إطعام ${totalAnimals} **${animal.name}** بنجاح وتجديد طاقته!`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                            await subI.reply({ content: `✅ تم إطعام ${totalAnimals} **${animal.name}** بنجاح وتجديد طاقته!` }).catch(() => {});
                             
                             const data = await renderFeedStore();
                             const components = data.actionRow ? [data.actionRow, getNavRow('feed')] : [getNavRow('feed')];
@@ -380,10 +404,6 @@ module.exports = {
                         }
                     });
                 }
-                else if (farmShop && (i.customId.startsWith('shop_cat_') || i.customId === 'farm_select_item' || i.customId.startsWith('buy_') || i.customId.startsWith('sell_') || i.customId.startsWith('farm_page_') || i.customId.startsWith('farm_prev_detail_') || i.customId.startsWith('farm_next_detail_') || i.customId === 'farm_back_main' || i.customId === 'farm_back_to_grid')) {
-                    await farmShop.handleShopInteraction(i, client, db, user, guild, shopState, getNavRow);
-                }
-
             } catch (err) {}
         });
 
