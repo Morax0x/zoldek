@@ -6,7 +6,8 @@
     "description": "🧪 تستعيد 50% من صحتك أثناء المعركة.",
     "category": "potions",
     "emoji": "🧪",
-    "effect": { "type": "heal", "percent": 50 }
+    "effect": { "type": "heal", "percent": 50 },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_heal.png"
   },
   {
     "id": "potion_stealth",
@@ -15,7 +16,8 @@
     "description": "👻 تجعل الوحش يتجاهلك تماماً للجولة القادمة.",
     "category": "potions",
     "emoji": "👻",
-    "effect": { "type": "stealth", "duration": 1 }
+    "effect": { "type": "stealth", "duration": 1 },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_stealth.png"
   },
   {
     "id": "potion_reflect",
@@ -24,7 +26,8 @@
     "description": "🌵 تعكس 50% من الضرر المتلقى ليعود على الوحش.",
     "category": "potions",
     "emoji": "🌵",
-    "effect": { "type": "reflect", "percent": 50, "duration": 1 }
+    "effect": { "type": "reflect", "percent": 50, "duration": 1 },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_reflect.png"
   },
   {
     "id": "potion_time",
@@ -33,7 +36,8 @@
     "description": "⏳ تعيد شحن مهاراتك فوراً.",
     "category": "potions",
     "emoji": "⏳",
-    "effect": { "type": "cooldown_reset" }
+    "effect": { "type": "cooldown_reset" },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_time.png"
   },
   {
     "id": "potion_titan",
@@ -42,7 +46,8 @@
     "description": "🔥 تضاعف صحتك وتجبر الوحش على مهاجمتك (تستمر لـ 5 طوابق).",
     "category": "potions",
     "emoji": "🔥",
-    "effect": { "type": "titan", "floors": 5 }
+    "effect": { "type": "titan", "floors": 5 },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_titan.png"
   },
   {
     "id": "potion_sacrifice",
@@ -51,6 +56,7 @@
     "description": "💀 تضحي بنفسك لإنعاش وشفاء كامل الفريق.",
     "category": "potions",
     "emoji": "💀",
-    "effect": { "type": "sacrifice" }
+    "effect": { "type": "sacrifice" },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_sacrifice.png"
   }
 ]
