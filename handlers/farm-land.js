@@ -1,6 +1,5 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder, Colors } = require("discord.js");
 const Canvas = require('canvas');
-const path = require('path');
 const seedsData = require('../json/seeds.json');
 const { getLandPlots } = require('../utils/farmUtils.js');
 
@@ -23,8 +22,24 @@ const GRID_COLS = 6;
 const GRID_ROWS = 6;    
 const MAX_GAME_PLOTS = 36; 
 
-const ASSETS_PATH = path.join(__dirname, '..', 'images', 'farm');
-let GLOBAL_IMAGES = null;
+const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
+const ASSETS_URL = `${R2_URL}/images/farm`;
+
+// 🚀 أقوى نظام كاش بالرام (يحفظ مسار التحميل نفسه عشان يمنع التكرار نهائياً)
+const RAM_IMAGE_CACHE = new Map();
+
+async function getFarmAsset(name) {
+    if (RAM_IMAGE_CACHE.has(name)) return await RAM_IMAGE_CACHE.get(name);
+    
+    const url = `${ASSETS_URL}/${name}.png`;
+    const promise = Canvas.loadImage(url).catch((e) => {
+        console.error(`Failed to load image: ${url}`);
+        return null;
+    });
+    
+    RAM_IMAGE_CACHE.set(name, promise);
+    return await promise;
+}
 
 const farmLocks = new Map();
 
@@ -45,46 +60,6 @@ async function getGrowthMultiplier(db, userId, guildId) {
     } catch(e) { return 1.0; }
 }
 
-async function loadAllImages() {
-    if (GLOBAL_IMAGES) return GLOBAL_IMAGES; 
-
-    const loadImage = async (name) => {
-        try { return await Canvas.loadImage(path.join(ASSETS_PATH, name)); } 
-        catch (e) { 
-            try { return await Canvas.loadImage(path.join(ASSETS_PATH, name + '.png')); } catch (e2) { return null; }
-        }
-    };
-
-    GLOBAL_IMAGES = {
-        grass: await loadImage('grass.png'),
-        tilled: await loadImage('tilled.png'),
-        lock: await loadImage('lock.png'),
-        withered: await loadImage('withered.png'),
-        sprout: await loadImage('sprout.png'),
-        borderTop: await loadImage('border_top.png'),
-        borderBottom: await loadImage('border_bottom.png'),
-        borderLeft: await loadImage('border_left.png'),
-        borderRight: await loadImage('border_right.png'),
-        cornerTL: await loadImage('corner_top_left.png'),
-        cornerTR: await loadImage('corner_top_right.png'),
-        cornerBL: await loadImage('corner_bottom_left.png'),
-        cornerBR: await loadImage('corner_bottom_right.png'),
-        crops: {} 
-    };
-    return GLOBAL_IMAGES;
-}
-
-async function getCropImage(seedId) {
-    if (!GLOBAL_IMAGES) await loadAllImages();
-    if (GLOBAL_IMAGES.crops[seedId]) return GLOBAL_IMAGES.crops[seedId];
-
-    try {
-        const img = await Canvas.loadImage(path.join(ASSETS_PATH, `${seedId}.png`));
-        GLOBAL_IMAGES.crops[seedId] = img;
-        return img;
-    } catch (e) { return null; }
-}
-
 async function ensureLandTable(db) {
     await db.query(`
         CREATE TABLE IF NOT EXISTS user_lands (
@@ -96,36 +71,43 @@ async function ensureLandTable(db) {
             "plantTime" BIGINT,
             PRIMARY KEY ("userID", "guildID", "plotID")
         )
-    `).catch(()=>{});
+    `).catch(() => {});
 }
 
 async function renderLand(interaction, client, db) {
     await ensureLandTable(db);
     
-    const images = await loadAllImages();
-
     const user = interaction.user || interaction.author; 
     const userId = user.id;
     const guildId = interaction.guild.id;
-    
-    const growthMultiplier = await getGrowthMultiplier(db, userId, guildId);
-
-    let unlockedPlots = await getLandPlots(client, userId, guildId);
-    if (unlockedPlots >= 30) unlockedPlots = 36; 
-
-    let userPlotsRes;
-    try { userPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
-    catch(e) { userPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
-    const userPlots = userPlotsRes?.rows || [];
-    
     const now = Date.now();
 
-    let canPlow = false;        
-    let hasTilled = false;      
-    let readyCount = 0;         
-    let witheredCount = 0;      
-    let minRemainingTime = Infinity;
-    let totalPlowCost = 0;
+    // 🚀 جلب البيانات والصور الأساسية كلها بضربة وحدة (Parallel Execution)
+    const [
+        growthMultiplier, unlockedPlotsRaw, userPlotsRes, workerBuffRes,
+        grassImg, tilledImg, lockImg, witheredImg, sproutImg,
+        bTop, bBot, bLeft, bRight, cTL, cTR, cBL, cBR
+    ] = await Promise.all([
+        getGrowthMultiplier(db, userId, guildId),
+        getLandPlots(client, userId, guildId),
+        db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]).catch(() => db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}))),
+        db.query(`SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userId, guildId, now]).catch(() => db.query(`SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker' AND expiresat > $3`, [userId, guildId, now]).catch(()=>({rows:[]}))),
+        getFarmAsset('grass'), getFarmAsset('tilled'), getFarmAsset('lock'), getFarmAsset('withered'), getFarmAsset('sprout'),
+        getFarmAsset('border_top'), getFarmAsset('border_bottom'), getFarmAsset('border_left'), getFarmAsset('border_right'),
+        getFarmAsset('corner_top_left'), getFarmAsset('corner_top_right'), getFarmAsset('corner_bottom_left'), getFarmAsset('corner_bottom_right')
+    ]);
+
+    const images = {
+        grass: grassImg, tilled: tilledImg, lock: lockImg, withered: witheredImg, sprout: sproutImg,
+        borderTop: bTop, borderBottom: bBot, borderLeft: bLeft, borderRight: bRight,
+        cornerTL: cTL, cornerTR: cTR, cornerBL: cBL, cornerBR: cBR
+    };
+
+    const unlockedPlots = unlockedPlotsRaw >= 30 ? 36 : unlockedPlotsRaw;
+    const userPlots = userPlotsRes.rows;
+
+    let canPlow = false, hasTilled = false, readyCount = 0, witheredCount = 0, minRemainingTime = Infinity, totalPlowCost = 0;
+    const neededCrops = new Set(); // لاستخراج الصور المطلوبة بدون تكرار
 
     for (let i = 1; i <= unlockedPlots; i++) {
         const p = userPlots.find(x => Number(x.plotID || x.plotid) === i);
@@ -133,13 +115,9 @@ async function renderLand(interaction, client, db) {
         if (!p || p.status === 'empty') {
             totalPlowCost += PLOW_COST_BULK;
             canPlow = true;
-        }
-        
-        if (p && p.status === 'tilled') {
+        } else if (p.status === 'tilled') {
             hasTilled = true;
-        }
-
-        if (p && p.status === 'planted' && (p.seedID || p.seedid)) {
+        } else if (p.status === 'planted' && (p.seedID || p.seedid)) {
             const sID = p.seedID || p.seedid;
             const seed = seedsData.find(s => s.id === sID);
             if (seed) {
@@ -147,12 +125,18 @@ async function renderLand(interaction, client, db) {
                 const age = now - Number(p.plantTime || p.planttime);
                 const remaining = growthMs - age;
 
-                if (remaining > 0 && remaining < minRemainingTime) {
-                    minRemainingTime = remaining;
+                if (remaining > 0 && remaining < minRemainingTime) minRemainingTime = remaining;
+                
+                // التحقق مما إذا كان المحصول جاهزاً لنطلب صورته
+                if (age >= growthMs && age < (growthMs + (seed.wither_time_hours * 3600000))) {
+                    neededCrops.add(seed.id);
                 }
             }
         }
     }
+
+    // 🚀 تحميل صور المحاصيل المطلوبة فقط دفعة واحدة (إذا لم تكن محملة أصلاً)
+    await Promise.all(Array.from(neededCrops).map(id => getFarmAsset(id)));
 
     const totalWidth = (GRID_COLS * TILE_SIZE) + (TILE_SIZE * 2);
     const totalHeight = (GRID_ROWS * TILE_SIZE) + (TILE_SIZE * 2);
@@ -197,9 +181,7 @@ async function renderLand(interaction, client, db) {
         if (i > unlockedPlots) {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-            if (images.lock) {
-                ctx.drawImage(images.lock, x, y, TILE_SIZE, TILE_SIZE);
-            }
+            if (images.lock) ctx.drawImage(images.lock, x, y, TILE_SIZE, TILE_SIZE);
         } else {
             const plotData = userPlots.find(p => Number(p.plotID || p.plotid) === i);
             
@@ -220,7 +202,7 @@ async function renderLand(interaction, client, db) {
                         if (images.withered) ctx.drawImage(images.withered, x, y, TILE_SIZE, TILE_SIZE);
                         witheredCount++;
                     } else if (age >= growthMs) {
-                        const cropImg = await getCropImage(seed.id);
+                        const cropImg = await getFarmAsset(seed.id); // 🚀 يستدعيها من الرام بصفر ثانية
                         if (cropImg) ctx.drawImage(cropImg, x, y, TILE_SIZE, TILE_SIZE);
                         readyCount++;
                     } else {
@@ -278,23 +260,14 @@ async function renderLand(interaction, client, db) {
         addButton(new ButtonBuilder().setCustomId('info_growth_bonus').setLabel(`⚡ بركة النمو: +${bonusPercent}% سرعة`).setStyle(ButtonStyle.Secondary).setDisabled(true));
     }
 
-    try {
-        let workerBuffRes;
-        try { workerBuffRes = await db.query(`SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userId, guildId, now]); }
-        catch(e) { workerBuffRes = await db.query(`SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker' AND expiresat > $3`, [userId, guildId, now]).catch(()=>({rows:[]})); }
-        
-        const workerBuff = workerBuffRes?.rows?.[0];
-        
-        if (workerBuff) {
-            const timeLeft = Number(workerBuff.expiresAt || workerBuff.expiresat) - now;
-            const daysLeft = Math.floor(timeLeft / (24 * 60 * 60 * 1000));
-            const hoursLeft = Math.floor((timeLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-            
-            const timeString = `${daysLeft} يـ ${hoursLeft} سـ`;
-
-            addButton(new ButtonBuilder().setCustomId('info_worker_status').setLabel(`👨‍🌾 العامل: ${timeString}`).setStyle(ButtonStyle.Secondary).setDisabled(true));
-        }
-    } catch (e) { console.error("Error fetching worker status:", e); }
+    const workerBuff = workerBuffRes.rows[0];
+    if (workerBuff) {
+        const timeLeft = Number(workerBuff.expiresAt || workerBuff.expiresat) - now;
+        const daysLeft = Math.floor(timeLeft / (24 * 60 * 60 * 1000));
+        const hoursLeft = Math.floor((timeLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+        const timeString = `${daysLeft} يـ ${hoursLeft} سـ`;
+        addButton(new ButtonBuilder().setCustomId('info_worker_status').setLabel(`👨‍🌾 العامل: ${timeString}`).setStyle(ButtonStyle.Secondary).setDisabled(true));
+    }
 
     if (currentRow.components.length > 0) {
         actionRows.push(currentRow);
@@ -368,7 +341,7 @@ async function handleLandInteractions(i, client, db) {
             try { userPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
             catch(e) { userPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
             
-            const userPlots = userPlotsRes?.rows || [];
+            const userPlots = userPlotsRes.rows;
             const recordedIds = userPlots.map(p => Number(p.plotID || p.plotid));
 
             for (let pid = 1; pid <= maxPlots; pid++) {
@@ -407,7 +380,7 @@ async function handleLandInteractions(i, client, db) {
             try { existingPlotsRes = await db.query(`SELECT "plotID", "status" FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
             catch(e) { existingPlotsRes = await db.query(`SELECT plotid, status FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
             
-            const existingPlots = existingPlotsRes?.rows || [];
+            const existingPlots = existingPlotsRes.rows;
             const existingIds = existingPlots.map(p => Number(p.plotID || p.plotid));
             let plotsToPlow = [];
 
@@ -445,8 +418,7 @@ async function handleLandInteractions(i, client, db) {
             } catch (e) {
                 await db.query("ROLLBACK").catch(()=>{});
                 try {
-                    // 🔥 تم إصلاح هذا الـ Fallback ليستخدم الأعمدة الصحيحة في جدول levels ("user", "guild") 🔥
-                    await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [totalCost, userId, guildId]);
+                    await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [totalCost, userId, guildId]);
                     userData.mora = String(Number(userData.mora || 0) - totalCost);
                     if (typeof client.setLevel === 'function') await client.setLevel(userData);
                     
@@ -520,18 +492,14 @@ async function handleLandInteractions(i, client, db) {
 
             if (isNaN(qtyInput) || qtyInput <= 0) return await i.editReply("❌ رقم خطأ.").catch(()=>{});
 
-            let tilledPlotsRes;
-            try { tilledPlotsRes = await db.query(`SELECT "plotID" FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'tilled'`, [userId, guildId]); }
-            catch(e) { tilledPlotsRes = await db.query(`SELECT plotid FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'tilled'`, [userId, guildId]).catch(()=>({rows:[]})); }
+            const [tilledPlotsRes, invItemRes] = await Promise.all([
+                db.query(`SELECT "plotID" FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'tilled'`, [userId, guildId]).catch(() => db.query(`SELECT plotid FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'tilled'`, [userId, guildId]).catch(()=>({rows:[]}))),
+                db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, seedId]).catch(() => db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, seedId]).catch(()=>({rows:[]})))
+            ]);
             
-            const tilledPlots = tilledPlotsRes?.rows || [];
-            
-            let invItemRes;
-            try { invItemRes = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, seedId]); }
-            catch(e) { invItemRes = await db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, seedId]).catch(()=>({rows:[]})); }
-            
-            const invItem = invItemRes?.rows?.[0];
-            const seedStock = invItem ? Number(invItem.quantity) : 0;
+            const tilledPlots = tilledPlotsRes.rows;
+            const invItem = invItemRes.rows[0];
+            const seedStock = invItem ? Number(invItem.quantity || invItem.Quantity) : 0;
 
             const countToPlant = Math.min(qtyInput, tilledPlots.length, seedStock);
 
@@ -560,7 +528,7 @@ async function handleLandInteractions(i, client, db) {
                 }
                 await db.query("COMMIT");
             } catch (e) {
-                await db.query("ROLLBACK").catch(()=>{});
+                await db.query("ROLLBACK");
                 try {
                     await db.query("BEGIN");
                     for (let k = 0; k < countToPlant; k++) {
@@ -599,12 +567,12 @@ async function handleLandInteractions(i, client, db) {
         }
 
         if (baseAction === 'land_harvest_all') {
-            const growthMultiplier = await getGrowthMultiplier(db, userId, guildId);
-            let plantedPlotsRes;
-            try { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userId, guildId]); }
-            catch(e) { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userId, guildId]).catch(()=>({rows:[]})); }
+            const [growthMultiplier, plantedPlotsRes] = await Promise.all([
+                getGrowthMultiplier(db, userId, guildId),
+                db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userId, guildId]).catch(() => db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userId, guildId]).catch(()=>({rows:[]})))
+            ]);
             
-            const plantedPlots = plantedPlotsRes?.rows || [];
+            const plantedPlots = plantedPlotsRes.rows;
             const now = Date.now();
             let totalRevenue = 0, totalXP = 0, harvestedCount = 0;
             const plotsToReset = [];
@@ -635,7 +603,7 @@ async function handleLandInteractions(i, client, db) {
                 }
                 await db.query("COMMIT");
             } catch (e) {
-                await db.query("ROLLBACK").catch(()=>{});
+                await db.query("ROLLBACK");
                 try {
                     await db.query("BEGIN");
                     for (const pid of plotsToReset) {
@@ -649,29 +617,25 @@ async function handleLandInteractions(i, client, db) {
                  await addXPAndCheckLevel(client, i.member, db, totalXP, totalRevenue, false).catch(()=>{});
             } else {
                  try { await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [totalRevenue, totalXP, userId, guildId]); }
-                 catch(e) { 
-                     // 🔥 تم إصلاح هذا الـ Fallback ليستخدم الأعمدة الصحيحة في جدول levels ("user", "guild") 🔥
-                     await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [totalRevenue, totalXP, userId, guildId]).catch(()=>{}); 
-                 }
+                 catch(e) { await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE userid = $3 AND guildid = $4`, [totalRevenue, totalXP, userId, guildId]).catch(()=>{}); }
             }
 
             if (updateGuildStat) {
-                // قد لا تكون دالة updateGuildStat من نوع Promise لذلك وضعناها بـ try/catch
-                try { await updateGuildStat(client, guildId, userId, 'crops_harvested', totalRevenue); } catch(e){}
+                updateGuildStat(client, guildId, userId, 'crops_harvested', totalRevenue).catch(()=>{});
             }
 
-            await i.followUp({ content: `🌾 **تم الحصاد!** (+${totalRevenue} مورا, +${totalXP} XP)`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            await i.followUp({ content: `🌾 **تم حصاد ${harvestedCount} محاصيل!**\n💰 الأرباح: **+${totalRevenue.toLocaleString()}** مورا\n✨ الخبرة: **+${totalXP}** XP` }).catch(()=>{});
             await updateView();
             return;
         }
 
         if (baseAction === 'land_clean_all') {
-            const growthMultiplier = await getGrowthMultiplier(db, userId, guildId);
-            let plantedPlotsRes;
-            try { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userId, guildId]); }
-            catch(e) { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userId, guildId]).catch(()=>({rows:[]})); }
+            const [growthMultiplier, plantedPlotsRes] = await Promise.all([
+                getGrowthMultiplier(db, userId, guildId),
+                db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userId, guildId]).catch(() => db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userId, guildId]).catch(()=>({rows:[]})))
+            ]);
             
-            const plantedPlots = plantedPlotsRes?.rows || [];
+            const plantedPlots = plantedPlotsRes.rows;
             const now = Date.now();
             const plotsToReset = [];
 
@@ -693,7 +657,7 @@ async function handleLandInteractions(i, client, db) {
                 }
                 await db.query("COMMIT");
             } catch (e) {
-                await db.query("ROLLBACK").catch(()=>{});
+                await db.query("ROLLBACK");
                 try {
                     await db.query("BEGIN");
                     for (const pid of plotsToReset) {
@@ -703,7 +667,7 @@ async function handleLandInteractions(i, client, db) {
                 } catch(err) { await db.query("ROLLBACK").catch(()=>{}); }
             }
 
-            await i.followUp({ content: `🚿 **تم التنظيف.**`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            await i.followUp({ content: `🚿 **تم تنظيف ${plotsToReset.length} أراضي ذابلة.**`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             await updateView();
             return;
         }
@@ -720,8 +684,8 @@ async function getSeedCount(db, userId, guildId, seedId) {
         try { invItemRes = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, seedId]); }
         catch(e) { invItemRes = await db.query(`SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, seedId]).catch(()=>({rows:[]})); }
         
-        const invItem = invItemRes?.rows?.[0];
-        return invItem ? Number(invItem.quantity) : 0;
+        const invItem = invItemRes.rows[0];
+        return invItem ? Number(invItem.quantity || invItem.Quantity) : 0;
     } catch(e) {
         return 0;
     }
