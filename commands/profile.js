@@ -100,6 +100,7 @@ module.exports = {
 
     name: 'profile',
     aliases: ['p', 'بروفايل', 'بطاقة', 'كارد', 'card', 'inv', 'inventory', 'شنطة', 'اغراض', 'حقيبة', 'مهاراتي', 'skills', 'ms', 'عتاد', 'قدراتي', 'محفظتي', 'استثماراتي', 'ممتلكات', 'portfolio'], 
+    category: "Economy", // مصنف كـ Economy ليعمل في الكازينو إذا كان الكازينو يشترط ذلك
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
@@ -134,12 +135,11 @@ module.exports = {
             let selectedIndex = 0; 
             let activeItemDetails = null; 
 
-            // 🔥 التعديل السحري هنا لدعم الكازينو (بدون بريفكس) ودعم البريفكس العادي 🔥
+            // 🔥 فلترة التريجر عشان الاختصارات تشتغل صح بدون بريفكس 🔥
             let commandTrigger = "";
             if (!isSlash) {
                 const firstWord = interactionOrMessage.content.trim().split(/ +/)[0].toLowerCase();
-                // يزيل أي رمز في بداية الكلمة (مثل ! أو -) ويترك الحروف العربية والإنجليزية
-                commandTrigger = firstWord.replace(/^[^a-z0-9\u0600-\u06FF]/i, ''); 
+                commandTrigger = firstWord.replace(/^[^\w\s\u0600-\u06FF]/, ''); 
             }
 
             if (['inv', 'inventory', 'شنطة', 'اغراض', 'حقيبة'].includes(commandTrigger)) {
@@ -329,7 +329,7 @@ module.exports = {
                             let purchasePrice = Number(row.purchasePrice || row.purchaseprice) || 0;
                             const info = resolveItemInfoLocal(itemID);
                             
-                            info.description = `${info.description || ''}\n\n📊 السعر الحالي: ${currentPrice.toLocaleString()} ${EMOJI_MORA}\n💰 سعر الشراء: ${purchasePrice.toLocaleString()} ${EMOJI_MORA}\n💎 القيمة الإجمالية: ${(currentPrice * quantity).toLocaleString()} ${EMOJI_MORA}`;
+                            info.description = `${info.description || ''}\n\n📊 السعر الحالي: ${currentPrice.toLocaleString()} 🪙\n💰 سعر الشراء: ${purchasePrice.toLocaleString()} 🪙\n💎 القيمة الإجمالية: ${(currentPrice * quantity).toLocaleString()} 🪙`;
                             items.push({ ...info, name: marketItem.name, quantity, id: itemID, purchasePrice, currentPrice, itemTotalValue });
                         }
 
@@ -351,13 +351,33 @@ module.exports = {
 
                         return { content: '', files: [new AttachmentBuilder(buffer, { name: 'portfolio.png' })], components: [row1] };
                     } 
-                    // 🔥 باقي أقسام الحقيبة العادية 🔥
+                    // 🔥 باقي أقسام الحقيبة العادية والفلتر الجذري للأسماك 🔥
                     else {
                         try {
                             const invQuery = await db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
+                            
                             items = (invQuery?.rows || []).map(row => {
-                                const info = resolveItemInfoLocal(row.itemID || row.itemid);
-                                return { ...info, quantity: row.quantity, id: row.itemID || row.itemid };
+                                const itemId = row.itemID || row.itemid;
+                                const info = resolveItemInfoLocal(itemId);
+                                
+                                // 🔥 فلتر إجباري مدرّع للأسماك 🔥
+                                // أي عنصر يحتوي على كلمة fish يُنقل إجبارياً إلى الموارد.
+                                if (itemId.toLowerCase().includes('fish')) {
+                                    info.category = 'موارد';
+                                }
+                                
+                                // توحيد الأسماء الإنجليزية للعربية حتى تتطابق مع القوائم
+                                if (info.category === 'materials') info.category = 'موارد';
+                                if (info.category === 'fishing' || info.category === 'fishing_gear') info.category = 'صيد';
+                                if (info.category === 'farming') info.category = 'مزرعة';
+                                if (info.category === 'potions' || info.category === 'others') info.category = 'أخرى';
+
+                                // تنظيف أخير: أي شيء في قسم الصيد وليس طعماً أو صنارة يُنقل للموارد!
+                                if (info.category === 'صيد' && !itemId.toLowerCase().includes('bait') && !itemId.toLowerCase().includes('rod') && !itemId.toLowerCase().includes('boat')) {
+                                    info.category = 'موارد';
+                                }
+
+                                return { ...info, quantity: row.quantity, id: itemId };
                             }).filter(i => i.category === invCategory);
                         } catch(e) {}
                         
@@ -479,7 +499,7 @@ module.exports = {
                                 new ButtonBuilder().setCustomId(`trade_dec_${tradeId}`).setLabel('رفض ❌').setStyle(ButtonStyle.Danger)
                             );
 
-                            const tradeMsgObj = await modalSubmit.followUp({ content: `⚖️ **عـقـد تـجـاري**\nمرحباً <@${targetID}>!\nيعرض عليك <@${authorUser.id}>:\n**استلام:** ${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}\n**دفع:** ${price.toLocaleString()} ${EMOJI_MORA}`, components: [tradeButtons] });
+                            const tradeMsgObj = await modalSubmit.followUp({ content: `⚖️ **عـقـد تـجـاري**\nمرحباً <@${targetID}>!\nيعرض عليك <@${authorUser.id}>:\n**استلام:** ${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}\n**دفع:** ${price.toLocaleString()} 🪙`, components: [tradeButtons] });
 
                             const tradeFilter = btn => btn.user.id === targetID && btn.customId.includes(tradeId);
                             const tradeCollector = tradeMsgObj.createMessageComponentCollector({ filter: tradeFilter, time: 60000 });
@@ -519,7 +539,7 @@ module.exports = {
                                     await db.query('COMMIT').catch(()=>{});
 
                                     tradeCollector.stop('accepted');
-                                    await tradeMsgObj.edit({ content: `✅ **تمت الصفقة بنجاح!**\nاشترى <@${targetID}> ${qty}x ${activeItemDetails.name} مقابل ${price.toLocaleString()} ${EMOJI_MORA} من <@${authorUser.id}>.`, components: [] });
+                                    await tradeMsgObj.edit({ content: `✅ **تمت الصفقة بنجاح!**\nاشترى <@${targetID}> ${qty}x ${activeItemDetails.name} مقابل ${price.toLocaleString()} 🪙 من <@${authorUser.id}>.`, components: [] });
 
                                     activeItemDetails.quantity -= qty;
                                     if(activeItemDetails.quantity <= 0) activeItemDetails = null;
@@ -596,14 +616,25 @@ module.exports = {
                                 let purchasePrice = Number(row.purchasePrice || row.purchaseprice) || 0;
                                 const info = resolveItemInfoLocal(itemID);
                                 
-                                info.description = `${info.description || ''}\n\n📊 السعر الحالي: ${currentPrice.toLocaleString()} ${EMOJI_MORA}\n💰 سعر الشراء: ${purchasePrice.toLocaleString()} ${EMOJI_MORA}\n💎 القيمة الإجمالية: ${(currentPrice * quantity).toLocaleString()} ${EMOJI_MORA}`;
+                                info.description = `${info.description || ''}\n\n📊 السعر الحالي: ${currentPrice.toLocaleString()} 🪙\n💰 سعر الشراء: ${purchasePrice.toLocaleString()} 🪙\n💎 القيمة الإجمالية: ${(currentPrice * quantity).toLocaleString()} 🪙`;
                                 items.push({ ...info, quantity, id: itemID });
                             }
                         } else {
                             const invQuery = await db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
                             items = (invQuery?.rows || []).map(row => {
-                                const info = resolveItemInfoLocal(row.itemID || row.itemid);
-                                return { ...info, quantity: row.quantity, id: row.itemID || row.itemid };
+                                const itemId = row.itemID || row.itemid;
+                                const info = resolveItemInfoLocal(itemId);
+                                
+                                if (itemId.toLowerCase().includes('fish')) info.category = 'موارد';
+                                if (info.category === 'materials') info.category = 'موارد';
+                                if (info.category === 'fishing' || info.category === 'fishing_gear') info.category = 'صيد';
+                                if (info.category === 'farming') info.category = 'مزرعة';
+                                if (info.category === 'potions' || info.category === 'others') info.category = 'أخرى';
+                                if (info.category === 'صيد' && !itemId.toLowerCase().includes('bait') && !itemId.toLowerCase().includes('rod') && !itemId.toLowerCase().includes('boat')) {
+                                    info.category = 'موارد';
+                                }
+
+                                return { ...info, quantity: row.quantity, id: itemId };
                             }).filter(it => it.category === invCategory);
                         }
 
