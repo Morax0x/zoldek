@@ -6,9 +6,32 @@ function getName(entity) {
     return entity.name || "Unknown";
 }
 
+// 🔥 دالة الصحوة المتأخرة (توازن نهاية اللعبة) 🔥
 function getWeaponRawDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
-    return weaponConfig.base_damage + (weaponConfig.damage_increment * (level - 1));
+    
+    const base = weaponConfig.base_damage;
+    const inc = weaponConfig.damage_increment;
+
+    if (level <= 15) {
+        // من مستوى 1 إلى 15: قوة متباينة تعتمد على قوة العرق الأساسية
+        return Math.floor(base + (inc * (level - 1)));
+    } else {
+        // من مستوى 16 إلى 30: تقارب نحو 800 لجميع الأعراق
+        const damageAt15 = base + (inc * 14);
+        const targetDamageAt30 = 800;
+        const levelsRemaining = 15; // المسافة بين 15 و 30
+        
+        const damageNeeded = targetDamageAt30 - damageAt15;
+        const dynamicIncrement = damageNeeded / levelsRemaining;
+        
+        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
+        
+        // كاب أقصى للضمان ألا يتجاوز 800 في حال وصل لفل 30
+        if (level >= 30) return targetDamageAt30;
+        
+        return Math.floor(finalDamage);
+    }
 }
 
 function executeWeaponAttack(attacker, defender, isOwner = false) {
