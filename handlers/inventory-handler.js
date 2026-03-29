@@ -1,11 +1,12 @@
 const upgradeMats = require('../json/upgrade-materials.json');
-let fishData = [], farmSeeds = [], farmFeeds = [], potionsData = [], marketData = [];
+let fishData = [], farmSeeds = [], farmFeeds = [], potionsData = [], marketData = [], baitsData = [];
 
 // استيراد جميع الملفات بأمان
 try { 
     const fishJson = require('../json/fishing-config.json') || require('../json/fish.json');
     fishData = fishJson.fishItems || fishJson; 
 } catch(e) {}
+try { baitsData = require('../json/baits.json'); } catch(e) {} // ملف الطعوم (إذا وجد)
 try { farmSeeds = require('../json/seeds.json'); } catch(e) {}
 try { farmFeeds = require('../json/feed-items.json'); } catch(e) {}
 try { potionsData = require('../json/potions.json'); } catch(e) {}
@@ -20,7 +21,7 @@ const ID_TO_IMAGE = {
     'mat_elf_1': 'elf_branch.png', 'mat_elf_2': 'elf_bark.png', 'mat_elf_3': 'elf_flower.png', 'mat_elf_4': 'elf_crystal.png', 'mat_elf_5': 'elf_tear.png',
     'mat_darkelf_1': 'darkelf_obsidian.png', 'mat_darkelf_2': 'darkelf_glass.png', 'mat_darkelf_3': 'darkelf_crystal.png', 'mat_darkelf_4': 'darkelf_void.png', 'mat_darkelf_5': 'darkelf_ash.png',
     'mat_seraphim_1': 'seraphim_feathe.png', 'mat_seraphim_2': 'seraphim_halo.png', 'mat_seraphim_3': 'seraphim_crystal.png', 'mat_seraphim_4': 'seraphim_core.png', 'mat_seraphim_5': 'seraphim_chalice.png',
-    'mat_demon_1': 'demon_ember.png', 'mat_demon_2': 'demon_horn.png', 'mat_demon_3': 'demon_crystal.png', 'mat_demon_4': 'demon_flame.png', 'mat_demon_5': 'demon_crown.png',
+    'demon_1': 'demon_ember.png', 'mat_demon_2': 'demon_horn.png', 'mat_demon_3': 'demon_crystal.png', 'mat_demon_4': 'demon_flame.png', 'mat_demon_5': 'demon_crown.png',
     'mat_vampire_1': 'vampire_blood.png', 'mat_vampire_2': 'vampire_vial.png', 'mat_vampire_3': 'vampire_fang.png', 'mat_vampire_4': 'vampire_moon.png', 'mat_vampire_5': 'vampire_chalice.png',
     'mat_spirit_1': 'spirit_dust.png', 'mat_spirit_2': 'spirit_remnant.png', 'mat_spirit_3': 'spirit_crystal.png', 'mat_spirit_4': 'spirit_core.png', 'mat_spirit_5': 'spirit_pulse.png',
     'mat_hybrid_1': 'hybrid_claw.png', 'mat_hybrid_2': 'hybrid_fur.png', 'mat_hybrid_3': 'hybrid_bone.png', 'mat_hybrid_4': 'hybrid_crystal.png', 'mat_hybrid_5': 'hybrid_soul.png',
@@ -47,11 +48,21 @@ function buildDictionary() {
             }
         }
     }
+    
+    // 🔥 التعديل هنا: نقل الأسماك لقسم materials بدل fishing عشان ما تزحم قسم الصيد 🔥
     if (fishData && Array.isArray(fishData)) {
         for (const fish of fishData) {
-            ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'fishing', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
+            ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'materials', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
         }
     }
+
+    // إضافة الطعوم لقسم fishing
+    if (baitsData && Array.isArray(baitsData)) {
+        for (const bait of baitsData) {
+            ITEM_DICTIONARY.set(bait.id, { name: bait.name, emoji: bait.emoji || '🪱', category: 'fishing', rarity: 'Common', imgPath: bait.image || null });
+        }
+    }
+
     if (farmSeeds && Array.isArray(farmSeeds)) {
         for (const seed of farmSeeds) {
             ITEM_DICTIONARY.set(seed.id, { name: seed.name, emoji: seed.emoji || '🌾', category: 'farming', rarity: 'Common', imgPath: seed.image || `images/farm/seeds/${seed.id}.png` });
@@ -78,9 +89,12 @@ function buildDictionary() {
 buildDictionary();
 
 function resolveItemInfo(itemId) {
-    // جلب العنصر من القاموس بسرعة البرق (O(1))
     if (ITEM_DICTIONARY.has(itemId)) {
         return ITEM_DICTIONARY.get(itemId);
+    }
+    // في حال كان طعم ولم يتم تحميله من ملف
+    if (itemId.startsWith('bait_')) {
+         return { name: `طعم ${itemId.split('_')[1]}`, emoji: '🪱', category: 'fishing', rarity: 'Common', imgPath: null };
     }
     // عنصر غير معروف
     return { name: itemId, emoji: '📦', category: 'others', rarity: 'Common', imgPath: null };
@@ -89,31 +103,62 @@ function resolveItemInfo(itemId) {
 async function getInventoryCategories(db, userId, guildId) {
     let inventory = [];
     let portfolio = [];
+    let fishingStats = null;
     
-    // 🚀 جلب بيانات المخزن العادي ومحفظة الاستثمارات بالتوازي لسرعة خارقة 🚀
+    // 🚀 جلب بيانات المخزن العادي، محفظة الاستثمارات، وإحصائيات الصيد بالتوازي لسرعة خارقة 🚀
     try {
-        const [invRes, portRes] = await Promise.all([
+        const [invRes, portRes, fishRes] = await Promise.all([
             db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]),
-            db.query(`SELECT * FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId])
+            db.query(`SELECT * FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]),
+            db.query(`SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, [userId, guildId]).catch(()=>({rows:[]})) // جلب السنارة والقارب
         ]);
         inventory = invRes.rows;
         portfolio = portRes.rows;
+        fishingStats = fishRes.rows[0];
     } catch(e) {
         try {
-            const [invRes, portRes] = await Promise.all([
+            const [invRes, portRes, fishRes] = await Promise.all([
                 db.query(`SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]),
-                db.query(`SELECT * FROM user_portfolio WHERE userid = $1 AND guildid = $2`, [userId, guildId])
+                db.query(`SELECT * FROM user_portfolio WHERE userid = $1 AND guildid = $2`, [userId, guildId]),
+                db.query(`SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2 LIMIT 1`, [userId, guildId]).catch(()=>({rows:[]}))
             ]);
             inventory = invRes.rows;
             portfolio = portRes.rows;
+            fishingStats = fishRes.rows[0];
         } catch(err) {
-            console.error("❌ Inventory/Portfolio Fetch Error:", err);
+            console.error("❌ Inventory Fetch Error:", err);
             return { materials: [], fishing: [], farming: [], potions: [], market: [], others: [] };
         }
     }
 
     const categories = { materials: [], fishing: [], farming: [], potions: [], market: [], others: [] };
     
+    // 🔥 إضافة معدات الصيد (السنارة والقارب) لقسم الصيد مباشرة 🔥
+    if (fishingStats) {
+        if (fishingStats.currentRod || fishingStats.currentrod) {
+            categories.fishing.push({
+                id: 'current_rod',
+                name: `سنارة ${fishingStats.currentRod || fishingStats.currentrod}`,
+                emoji: '🎣',
+                category: 'fishing',
+                rarity: 'Rare',
+                quantity: 1, // سنارة واحدة مجهزة
+                imgPath: `images/fishing/rods/${(fishingStats.currentRod || fishingStats.currentrod).toLowerCase()}.png`
+            });
+        }
+        if (fishingStats.currentBoat || fishingStats.currentboat) {
+            categories.fishing.push({
+                id: 'current_boat',
+                name: `قارب ${fishingStats.currentBoat || fishingStats.currentboat}`,
+                emoji: '🛶',
+                category: 'fishing',
+                rarity: 'Epic',
+                quantity: 1, // قارب واحد مجهز
+                imgPath: `images/fishing/boats/${(fishingStats.currentBoat || fishingStats.currentboat).toLowerCase()}.png`
+            });
+        }
+    }
+
     // 📦 فرز عناصر المخزن العادي
     for (const row of inventory) {
         const itemId = row.itemID || row.itemid;
