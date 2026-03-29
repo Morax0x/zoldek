@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, AttachmentBuilder } = require("discord.js");
 const path = require('path');
 const { generateFishingCard } = require('../../generators/fishing-card-generator.js');
 
@@ -63,7 +63,7 @@ module.exports = {
     category: "Economy",
     description: "صيد الأسماك بنظام الشد والجذب الرسومي المستند على ندرة السمكة.",
 
-    async execute(interactionOrMessage) {
+    async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         const user = isSlash ? interactionOrMessage.user : interactionOrMessage.author;
         const guild = interactionOrMessage.guild;
@@ -71,12 +71,18 @@ module.exports = {
         const client = interactionOrMessage.client;
         const sql = client.sql;
 
+        const reply = async (payload) => {
+            if (payload.ephemeral) { delete payload.ephemeral; payload.flags = [MessageFlags.Ephemeral]; }
+            if (isSlash) {
+                if (interactionOrMessage.deferred || interactionOrMessage.replied) return interactionOrMessage.editReply(payload);
+                return interactionOrMessage.reply({ ...payload, fetchReply: true }); 
+            }
+            return interactionOrMessage.reply(payload);
+        };
+
         if (activeFishingSessions.has(user.id)) {
-            const content = "⚠️ **لديك رحلة صيد جارية!** ركز على سنارتك.";
-            if (isSlash) return interactionOrMessage.reply({ content, flags: [MessageFlags.Ephemeral] });
-            return interactionOrMessage.reply(content);
+            return reply({ content: "⚠️ **لديك رحلة صيد جارية!** ركز على سنارتك.", ephemeral: true });
         }
-        
         activeFishingSessions.add(user.id);
 
         try {
@@ -103,10 +109,8 @@ module.exports = {
                 const remaining = lastFish + cooldown - now;
                 const minutes = Math.floor((remaining % 3600000) / 60000);
                 const seconds = Math.floor((remaining % 60000) / 1000).toString().padStart(2, '0');
-                activeFishingSessions.delete(user.id); // تأمين الحذف
-                const content = `⏳ رميت السنارة مؤخراً! الأسماك حذرة الآن، انتظر **${minutes}:${seconds}** دقيقة لتعود للصيد.`;
-                if (isSlash) return interactionOrMessage.reply({ content, flags: [MessageFlags.Ephemeral] });
-                return interactionOrMessage.reply(content);
+                activeFishingSessions.delete(user.id);
+                return reply({ content: `⏳ رميت السنارة مؤخراً! الأسماك حذرة الآن، انتظر **${minutes}:${seconds}** دقيقة لتعود للصيد.` });
             }
 
             let woundedDebuffRes;
@@ -115,11 +119,9 @@ module.exports = {
             
             const woundedDebuff = woundedDebuffRes.rows[0];
             if (woundedDebuff) {
-                activeFishingSessions.delete(user.id); // تأمين الحذف
+                activeFishingSessions.delete(user.id);
                 const minutesLeft = Math.ceil((Number(woundedDebuff.expiresAt || woundedDebuff.expiresat) - now) / 60000);
-                const content = `🩹 | أنت **جريح** حالياً! عليك الراحة لمدة **${minutesLeft}** دقيقة.`;
-                if (isSlash) return interactionOrMessage.reply({ content, flags: [MessageFlags.Ephemeral] });
-                return interactionOrMessage.reply(content);
+                return reply({ content: `🩹 | أنت **جريح** حالياً! عليك الراحة لمدة **${minutesLeft}** دقيقة.`, flags: [MessageFlags.Ephemeral] });
             }
 
             if (user.id !== OWNER_ID) {
@@ -252,24 +254,13 @@ module.exports = {
             let difficultyMultiplier = 1.0 + (totalValue / 2000); 
             difficultyMultiplier = Math.min(1.5, Math.max(1.0, difficultyMultiplier)); 
 
+            if (isSlash) await interactionOrMessage.deferReply();
+
             let desc = `**العدة:** 🎣 ${currentRod.name} | 🚤 ${currentBoat.name}\n🌊 **الموقع:** ${currentLocation.name}`;
             desc += usedBaitName ? `\n🪱 **الطعم:** ${usedBaitName}` : `\n🪱 **الطعم:** لا يوجد - الأسماك الثمينة لن تقترب!`; 
             desc += extraBuffsText; 
 
-            // 🔥 الطريقة الصحيحة والمدرعة لإرسال الرسالة وجلبها للـ Collector 🔥
-            let loadingMsg;
-            if (isSlash) {
-                // استخدام withResponse: true هو الطريقة المعتمدة في v14
-                const response = await interactionOrMessage.reply({ content: `**🌊 يرمي السنارة في الماء...**\n${desc}`, withResponse: true });
-                loadingMsg = response.resource?.message || response;
-                // كإجراء احتياطي، نستخدم fetchReply إذا فشلت الطريقة الأولى
-                if (!loadingMsg || !loadingMsg.createMessageComponentCollector) {
-                    loadingMsg = await interactionOrMessage.fetchReply();
-                }
-            } else {
-                loadingMsg = await interactionOrMessage.reply({ content: `**🌊 يرمي السنارة في الماء...**\n${desc}` });
-            }
-
+            const loadingMsg = await reply({ content: `**🌊 يرمي السنارة في الماء...**\n${desc}` });
             const waitTime = Math.floor(Math.random() * 3000) + 2000; 
 
             setTimeout(async () => {
@@ -328,8 +319,7 @@ module.exports = {
 
                 await sendUpdate();
 
-                // إنشاء الـ Collector على الرسالة نفسها بشكل آمن
-                const collector = loadingMsg.createMessageComponentCollector({
+                const collector = (isSlash ? interactionOrMessage : loadingMsg).createMessageComponentCollector({
                     filter: i => i.user.id === user.id && i.customId.startsWith('fish_'),
                     time: 60000 
                 });
@@ -413,6 +403,7 @@ module.exports = {
                                 if (!playerWeapon || playerWeapon.currentLevel === 0) playerWeapon = { name: "سكين صيد صدئة", currentDamage: 15, currentLevel: 1 };
 
                                 if (pvpCore.startPveBattle) {
+                                    activeFishingSessions.delete(user.id);
                                     await pvpCore.startPveBattle(interactionOrMessage, client, sql, member, monster, playerWeapon);
                                     return; 
                                 }
@@ -425,10 +416,7 @@ module.exports = {
                                     : { name: f.name, count: 1, emoji: f.emoji, rarity: f.rarity };
                             });
 
-                            for (const [fId, info] of Object.entries(summary)) {
-                                try { await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = user_inventory."quantity" + $4`, [guild.id, user.id, fId, info.count]); }
-                                catch(e) { await sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4) ON CONFLICT(guildid, userid, itemid) DO UPDATE SET quantity = user_inventory.quantity + $4`, [guild.id, user.id, fId, info.count]).catch(()=>{}); }
-                            }
+                            // 🔥 تم حذف كود إدخال الأسماك للحقيبة من هنا 🔥
                             
                             if (addXPAndCheckLevel && totalValue > 0) {
                                 const xpEarned = caughtFish.length * 15;
@@ -446,16 +434,16 @@ module.exports = {
                                 if (updateGuildStat) await updateGuildStat(client, guild.id, user.id, 'fish_caught', caughtFish.length);
                             } catch(err) {}
 
-                            let description = "✶ قمـت بصيـد:\n";
+                            let description = "✶ قمـت بصيـد وبيع:\n";
                             for (const info of Object.values(summary)) {
                                 let rarityStar = info.rarity >= 5 ? "🌟" : (info.rarity === 4 ? "✨" : "");
                                 description += `✶ ${info.emoji} ${info.name} ${rarityStar} **x${info.count}**\n`;
                             }
-                            description += `\n✶ قيـمـة الصيد: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
+                            description += `\n✶ قيمـة البيـع المُحصـلة: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
                             description += extraBuffsText; 
 
                             const resultEmbed = new EmbedBuilder()
-                                .setTitle(`✥ الغنيمــة !`) 
+                                .setTitle(`✥ الغنيمــة المُـبـاعـة !`) 
                                 .setDescription(description)
                                 .setColor(Colors.Green)
                                 .setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png');
@@ -469,7 +457,6 @@ module.exports = {
                     } catch (err) {
                         console.error("End Event Error in Fish:", err);
                     } finally {
-                        // 🔥 الحماية النهائية 🔥 إزالة اسم اللاعب من الجلسات النشطة في كل الحالات
                         activeFishingSessions.delete(user.id);
                     }
                 });
@@ -477,13 +464,8 @@ module.exports = {
             }, waitTime);
         } catch (e) {
             console.error("Fish command main error:", e);
-            const content = "❌ حدث خطأ أثناء تجهيز الصيد.";
-            if (isSlash) interactionOrMessage.reply({ content, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-            else interactionOrMessage.reply(content).catch(()=>{});
-        } finally {
-            // إضافة حماية إضافية لو حدث خطأ كبير قبل الدخول في اللوب
-            if (!activeFishingSessions.has(user.id)) return;
-            // يتم تفريغ الجلسة من الـ Timeout أو الـ Collector أعلاه.
+            activeFishingSessions.delete(user.id);
+            reply({ content: "❌ حدث خطأ أثناء تجهيز الصيد." }).catch(()=>{});
         }
     }
 };
