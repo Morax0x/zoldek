@@ -8,7 +8,7 @@
     "price_increment": 2000,
     "base_damage": 80,
     "damage_increment": 35,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleDragon.png"
   },
   {
@@ -20,7 +20,7 @@
     "price_increment": 1500,
     "base_damage": 70,
     "damage_increment": 33,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleHuman.png"
   },
   {
@@ -32,7 +32,7 @@
     "price_increment": 1000,
     "base_damage": 65,
     "damage_increment": 31,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleElf.png"
   },
   {
@@ -44,7 +44,7 @@
     "price_increment": 1000,
     "base_damage": 60,
     "damage_increment": 30,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleDarkElf.png"
   },
   {
@@ -56,7 +56,7 @@
     "price_increment": 1400,
     "base_damage": 55,
     "damage_increment": 28,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleSeraphim.png"
   },
   {
@@ -68,7 +68,7 @@
     "price_increment": 1200,
     "base_damage": 50,
     "damage_increment": 26,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleDemon.png"
   },
   {
@@ -80,7 +80,7 @@
     "price_increment": 900,
     "base_damage": 45,
     "damage_increment": 24,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleVampire.png"
   },
   {
@@ -92,7 +92,7 @@
     "price_increment": 700,
     "base_damage": 40,
     "damage_increment": 22,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleSpirit.png"
   },
   {
@@ -104,7 +104,7 @@
     "price_increment": 800,
     "base_damage": 35,
     "damage_increment": 20,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleHybrid.png"
   },
   {
@@ -116,7 +116,7 @@
     "price_increment": 600,
     "base_damage": 30,
     "damage_increment": 18,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleDwarf.png"
   },
   {
@@ -128,7 +128,7 @@
     "price_increment": 300,
     "base_damage": 20,
     "damage_increment": 15,
-    "max_level": 20,
+    "max_level": 30,
     "image": "https://i.imgur.com/ExampleGhoul.png"
   }
 ]
