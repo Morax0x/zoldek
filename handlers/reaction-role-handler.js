@@ -168,6 +168,49 @@ async function handleReactionRole(interaction, client, db, antiRolesCache) {
             }
             if (uniqueRolesToAdd.length > 0) {
                 await member.roles.add(uniqueRolesToAdd, 'Reaction Role Update');
+                
+                // 🔥==================================================🔥
+                // 🔥 النظام السحري: إعطاء السلاح والمهارة فوراً وبصمت 🔥
+                // 🔥==================================================🔥
+                try {
+                    let raceRolesRes;
+                    try { 
+                        raceRolesRes = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guild.id]); 
+                    } catch(e) { 
+                        raceRolesRes = await db.query(`SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [guild.id]).catch(()=>({rows:[]})); 
+                    }
+                    
+                    if (raceRolesRes && raceRolesRes.rows.length > 0) {
+                        for (const role of uniqueRolesToAdd) {
+                            const matchedRace = raceRolesRes.rows.find(r => r.roleID === role.id || r.roleid === role.id);
+                            if (matchedRace) {
+                                const raceName = matchedRace.raceName || matchedRace.racename;
+                                const userID = member.id;
+                                const guildID = guild.id;
+
+                                // 1. إعطاء السلاح بلفل 1 بصمت (لا يستبدل إذا كان موجوداً)
+                                try {
+                                    await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1) ON CONFLICT ("userID", "guildID", "raceName") DO NOTHING`, [userID, guildID, raceName]);
+                                } catch(e) {
+                                    await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1) ON CONFLICT (userid, guildid, racename) DO NOTHING`, [userID, guildID, raceName]).catch(()=>{});
+                                }
+
+                                // 2. إعطاء المهارة العرقية بلفل 1 بصمت
+                                const raceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
+                                try {
+                                    await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1) ON CONFLICT ("userID", "guildID", "skillID") DO NOTHING`, [userID, guildID, raceSkillId]);
+                                } catch(e) {
+                                    await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1) ON CONFLICT (userid, guildid, skillid) DO NOTHING`, [userID, guildID, raceSkillId]).catch(()=>{});
+                                }
+                                
+                                console.log(`[Reaction-Roles Auto-Gear] Granted Level 1 Weapon & Skill for ${raceName} to ${member.user.username}`);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("[Auto-Gear Error in Reaction Roles]:", err);
+                }
+                // 🔥================= نهاية النظام السحري =================🔥
             }
         } catch (e) {
             console.error("RR Handler Error (Discord API):", e);
