@@ -56,7 +56,6 @@ async function applyPostBattleUpdates(players, floor, threadChannel, totals) {
     });
 }
 
-// 🔥 إصلاح السمعة والصناديق: الحساب التراكمي يبدأ من نقطة بداية الجلسة الفعلية 🔥
 function calculateSessionLoot(sessionStartFloor, currentFloor) {
     const repMilestones = {
         20: 1, 30: 1, 35: 1, 40: 1, 45: 1, 50: 1,
@@ -69,7 +68,7 @@ function calculateSessionLoot(sessionStartFloor, currentFloor) {
 
     for (let f = sessionStartFloor; f <= currentFloor; f++) {
         if (repMilestones[f]) totalRep += repMilestones[f];
-        if (f % 10 === 0) totalChests++; // صندوق لكل 10 طوابق
+        if (f % 10 === 0) totalChests++; 
     }
     
     return { rep: totalRep, chests: totalChests };
@@ -82,13 +81,10 @@ async function handleRestMenu(context) {
         threadChannel, db, guild, log,
         theme, 
         restImage,
-        sessionStartFloor // استلام رقم الطابق اللي بدأت منه هذه الجلسة
+        sessionStartFloor 
     } = context;
 
-    // تحديد نقطة البداية الفعالة (لو مو موجودة نعتبرها 1)
     const startFloor = sessionStartFloor || 1;
-
-    // 🔥 استدعاء الحساب الخاص بهذه الجلسة فقط 🔥
     const sessionLoot = calculateSessionLoot(startFloor, floor);
     
     let restDesc = `✶ نجحتـم في تصفية الطابق الـ: **${floor}**\n✶ تم استعادة صحة المغامرين بنسبة **%30**\n\n**✶ الغنـائـم المتراكمة لهذه الجلسة:**\n✬ Mora: **${totalAccumulatedCoins.toLocaleString()}** ${EMOJI_MORA}\n✬ XP: **${totalAccumulatedXP.toLocaleString()}** ${EMOJI_XP}`;
@@ -97,7 +93,7 @@ async function handleRestMenu(context) {
         restDesc += `\n🌟 REP: **${sessionLoot.rep}**`;
     }
     if (sessionLoot.chests > 0) {
-        restDesc += `\n🎁 صناديق القاتشا: **${sessionLoot.chests}**`;
+        restDesc += `\n🎁 Box: **${sessionLoot.chests}**`;
     }
 
     const restRow = new ActionRowBuilder().addComponents(
@@ -199,12 +195,10 @@ async function handleRestMenu(context) {
                         players.splice(pIndex, 1); 
                         
                         let extraMsg = "";
-                        // 🔥 حساب وتوزيع السمعة والصناديق الفعلي للمنسحب بناءً على جلسته فقط 🔥
                         const pSessionLoot = calculateSessionLoot(startFloor, floor);
-                        if (pSessionLoot.rep > 0) extraMsg += ` و **${pSessionLoot.rep}** 🌟 سمعة`;
-                        if (pSessionLoot.chests > 0) extraMsg += ` و **${pSessionLoot.chests}** 🎁 صندوق`;
+                        if (pSessionLoot.rep > 0) extraMsg += ` و **${pSessionLoot.rep}** 🌟 REP`;
+                        if (pSessionLoot.chests > 0) extraMsg += ` و **${pSessionLoot.chests}** 🎁 Box`;
 
-                        // نضمن أن الصناديق والسمعة دخلت في حسابه (safeUpdateRepAndChests مستدعاة من rewards.js)
                         if (safeUpdateRepAndChests && db) {
                             await safeUpdateRepAndChests(db, leavingPlayer.id, guild.id, pSessionLoot.rep, pSessionLoot.chests);
                             leavingPlayer.repAndChestsClaimed = true;
