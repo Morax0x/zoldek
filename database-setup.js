@@ -81,6 +81,9 @@ async function setupDatabase(clientOrSql) {
         // 🎁 جدول جديد لإحصائيات القاتشا والصناديق 🎁
         `CREATE TABLE IF NOT EXISTS user_gacha_stats ("userID" TEXT, "guildID" TEXT, "totalOpened" BIGINT DEFAULT 0, "lastOpenedDate" BIGINT DEFAULT 0, PRIMARY KEY ("userID", "guildID"))`,
 
+        // 🎁 جدول نظام الشفقة (Pity) للقاتشا 🎁
+        `CREATE TABLE IF NOT EXISTS user_gacha_pity ("userID" TEXT, "guildID" TEXT, "epic_pity" BIGINT DEFAULT 0, "legendary_pity" BIGINT DEFAULT 0, "last_free_claim" TEXT DEFAULT '', PRIMARY KEY ("userID", "guildID"))`,
+
         `CREATE TABLE IF NOT EXISTS mod_cases ("id" TEXT PRIMARY KEY, "guildID" TEXT, "caseID" BIGINT, "type" TEXT, "targetID" TEXT, "moderatorID" TEXT, "reason" TEXT, "timestamp" BIGINT)`,
         `CREATE TABLE IF NOT EXISTS xp_ignore ("guildID" TEXT, "id" TEXT, "type" TEXT, PRIMARY KEY ("guildID", "id"))`,
         `CREATE TABLE IF NOT EXISTS active_dungeons ("channelID" TEXT PRIMARY KEY, "guildID" TEXT, "hostID" TEXT, "data" TEXT)`,
