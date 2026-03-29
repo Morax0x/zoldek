@@ -62,6 +62,26 @@ function drawAutoScaledArabicText(ctx, text, x, y, maxWidth, maxFontSize, minFon
     ctx.fillText(text, x, y);
 }
 
+// دالة سحرية لرسم الصورة بشكل متناسق بدون ضغط (Aspect Ratio) 📸
+function drawImageProportional(ctx, img, targetX, targetY, maxW, maxH) {
+    const imgRatio = img.width / img.height;
+    const targetRatio = maxW / maxH;
+    let finalW, finalH;
+
+    if (imgRatio > targetRatio) {
+        finalW = maxW;
+        finalH = maxW / imgRatio;
+    } else {
+        finalH = maxH;
+        finalW = maxH * imgRatio;
+    }
+
+    const dx = targetX + (maxW - finalW) / 2;
+    const dy = targetY + (maxH - finalH) / 2;
+
+    ctx.drawImage(img, dx, dy, finalW, finalH);
+}
+
 // 1. الشاشة الرئيسية (الصندوق) - نسخة محسنة السرعة 🚀
 async function generateGachaHub(userObj, moraBalance, flavorText, chestCount = 0) {
     const width = 1200;
@@ -69,7 +89,6 @@ async function generateGachaHub(userObj, moraBalance, flavorText, chestCount = 0
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // 🔥 تحميل الصورتين في نفس الوقت (Parallel) لتسريع العملية للضعف 🔥
     const chestUrl = `${R2_URL}/images/gacha/main_chest.png`;
     const avatarUrl = userObj.displayAvatarURL({ extension: 'png', size: 256 });
     
@@ -203,14 +222,13 @@ async function generateGachaHub(userObj, moraBalance, flavorText, chestCount = 0
     return canvas.toBuffer('image/png');
 }
 
-// 2. شاشة المخزن (المربعات) - نسخة محسنة السرعة 🚀
+// 2. شاشة المخزن (المربعات) - نسخة محسنة السرعة والأبعاد (Aspect Ratio) 🚀
 async function generateGachaInventory(userObj, freeChests, paidChests) {
     const width = 1200;
     const height = 675; 
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // 🔥 تحميل الصور بالتوازي للتسريع 🔥
     const chestUrl = `${R2_URL}/images/gacha/chest.png`;
     const avatarUrl = userObj.displayAvatarURL({ extension: 'png', size: 256 });
 
@@ -290,7 +308,10 @@ async function generateGachaInventory(userObj, freeChests, paidChests) {
     ctx.beginPath(); roundRect(ctx, freeX, startY, boxW, boxH, 20); ctx.fill();
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(46, 204, 113, 0.6)'; ctx.stroke(); 
 
-    if(chestImg) ctx.drawImage(chestImg, freeX + 50, startY + 20, 200, 200);
+    // 🔥 استخدام الدالة الجديدة لرسم صورة الصندوق بدون انضغاط 🔥
+    if (chestImg) {
+        drawImageProportional(ctx, chestImg, freeX + 50, startY + 30, 200, 180);
+    }
 
     ctx.fillStyle = '#2ECC71';
     ctx.font = 'bold 30px "Bein"';
@@ -305,7 +326,10 @@ async function generateGachaInventory(userObj, freeChests, paidChests) {
     ctx.beginPath(); roundRect(ctx, paidX, startY, boxW, boxH, 20); ctx.fill();
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(241, 196, 15, 0.6)'; ctx.stroke(); 
 
-    if(chestImg) ctx.drawImage(chestImg, paidX + 50, startY + 20, 200, 200);
+    // 🔥 استخدام الدالة الجديدة لرسم صورة الصندوق بدون انضغاط 🔥
+    if (chestImg) {
+        drawImageProportional(ctx, chestImg, paidX + 50, startY + 30, 200, 180);
+    }
 
     ctx.fillStyle = '#F1C40F';
     ctx.font = 'bold 30px "Bein"';
