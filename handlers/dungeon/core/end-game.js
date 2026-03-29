@@ -86,27 +86,54 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         else if (p.isDead && p.deathFloor) effectiveEndFloor = p.deathFloor; 
 
         let repReward = 0;
+        let earnedChests = 0; 
+
         for (let f = sessionStartFloor; f <= effectiveEndFloor; f++) {
             if (repMilestones[f]) repReward += repMilestones[f];
+            // 🔥 كل 10 طوابق مكافأة صندوق 🔥
+            if (f % 10 === 0) earnedChests++;
         }
 
+        // 🛡️ نظام الحفظ الفولاذي لنقاط السمعة 🛡️
         if (repReward > 0) {
+            let hasRepRecord = false;
+            let currentRep = 0;
             try {
-                await sql.query(`
-                    INSERT INTO user_reputation ("userID", "guildID", "rep_points") 
-                    VALUES ($1, $2, $3) 
-                    ON CONFLICT ("userID", "guildID") 
-                    DO UPDATE SET "rep_points" = COALESCE(user_reputation."rep_points", 0) + $4
-                `, [p.id, guildId, repReward, repReward]);
-            } catch (err1) {
-                try {
-                    await sql.query(`
-                        INSERT INTO user_reputation (userid, guildid, rep_points) 
-                        VALUES ($1, $2, $3) 
-                        ON CONFLICT (userid, guildid) 
-                        DO UPDATE SET rep_points = COALESCE(user_reputation.rep_points, 0) + $4
-                    `, [p.id, guildId, repReward, repReward]);
-                } catch (err2) {}
+                const checkRep = await sql.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [p.id, guildId]).catch(()=> sql.query(`SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [p.id, guildId]));
+                if (checkRep && checkRep.rows && checkRep.rows.length > 0) {
+                    hasRepRecord = true;
+                    currentRep = Number(checkRep.rows[0].rep_points || checkRep.rows[0].rep_Points || 0);
+                }
+            } catch(e){}
+
+            const newRep = currentRep + repReward;
+            if (hasRepRecord) {
+                await sql.query(`UPDATE user_reputation SET "rep_points" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [newRep, p.id, guildId]).catch(()=> sql.query(`UPDATE user_reputation SET rep_points = $1 WHERE userid = $2 AND guildid = $3`, [newRep, p.id, guildId]).catch(()=>{}));
+            } else {
+                await sql.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3)`, [p.id, guildId, newRep]).catch(()=> sql.query(`INSERT INTO user_reputation (userid, guildid, rep_points) VALUES ($1, $2, $3)`, [p.id, guildId, newRep]).catch(()=>{}));
+            }
+        }
+
+        // 🛡️ نظام الحفظ الفولاذي للصناديق (Gacha Chests) 🛡️
+        if (earnedChests > 0) {
+            let hasInvRecord = false;
+            let currentQty = 0;
+            let invRowId = null;
+            try {
+                const checkInv = await sql.query(`SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = 'gacha_chest'`, [p.id, guildId]).catch(()=> sql.query(`SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = 'gacha_chest'`, [p.id, guildId]));
+                if (checkInv && checkInv.rows && checkInv.rows.length > 0) {
+                    hasInvRecord = true;
+                    currentQty = Number(checkInv.rows[0].quantity || checkInv.rows[0].Quantity || 0);
+                    invRowId = checkInv.rows[0].id || checkInv.rows[0].ID;
+                }
+            } catch(e){}
+
+            const newQty = Math.min(currentQty + earnedChests, 999);
+
+            if (hasInvRecord) {
+                await sql.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invRowId]).catch(()=> sql.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invRowId]).catch(()=>{}));
+            } else {
+                await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, p.id, newQty]).catch(()=> sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, p.id, newQty]).catch(()=>{}));
             }
         }
 
@@ -116,7 +143,9 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         
         let statusEmoji = p.isDead ? `💀 ${p.deathFloor ? `(مات في ${p.deathFloor})` : ""}` : p.retreatFloor ? `🏃‍♂️ (انسحب في ${p.retreatFloor})` : status === 'camp' ? "⛺ (مخيم)" : "✅";
         let repString = repReward > 0 ? ` | 🌟 سمعة: **${repReward}**` : "";
-        lootString += `✬ <@${p.id}> ${statusEmoji}: ${finalMora.toLocaleString()} ${EMOJI_MORA} | ${finalXp.toLocaleString()} XP${repString}\n`;
+        let chestString = earnedChests > 0 ? ` | 🎁 صناديق: **${earnedChests}**` : "";
+        
+        lootString += `✬ <@${p.id}> ${statusEmoji}: ${finalMora.toLocaleString()} ${EMOJI_MORA} | ${finalXp.toLocaleString()} XP${repString}${chestString}\n`;
     }
 
     let description = `**الطابق:** ${floor}\n\n**✶ تقـريـر المعـركـة:**\nنجم المعركة: ${mvpPlayer ? `<@${mvpPlayer.id}>` : 'لا يوجد'}\n\n${lootString}`;
