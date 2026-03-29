@@ -183,8 +183,8 @@ module.exports = {
             }
 
             let dailyLimit = 0;
-            if (member.roles.cache.has('1422160802416164885')) dailyLimit = 20;
-            else if (member.roles.cache.has('1395674235002945636')) dailyLimit = 10;
+            if (member?.roles?.cache.has('1422160802416164885')) dailyLimit = 20;
+            else if (member?.roles?.cache.has('1395674235002945636')) dailyLimit = 10;
 
             const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
 
@@ -226,9 +226,12 @@ module.exports = {
             await fetchUserData();
             const summaryRandomText = FLAVOR_TEXTS[Math.floor(Math.random() * FLAVOR_TEXTS.length)];
             let files = [];
+            // 🔥 تحديث لقراءة اسم اللاعب من السيرفر (displayName) 🔥
+            const userForImage = { ...user, displayName: member?.displayName || user.globalName || user.username };
+            
             if (generateGachaHub) {
                 try {
-                    const hubBuffer = await generateGachaHub(user, userMora, summaryRandomText, totalChests);
+                    const hubBuffer = await generateGachaHub(userForImage, userMora, summaryRandomText, totalChests);
                     if (hubBuffer) files.push(new AttachmentBuilder(hubBuffer, { name: 'gacha_hub.png' }));
                 } catch(e){}
             }
@@ -242,12 +245,14 @@ module.exports = {
         const showInventoryMenu = async (targetMsg) => {
             await fetchUserData();
             let files = [];
+            // 🔥 تحديث لقراءة اسم اللاعب من السيرفر (displayName) 🔥
+            const userForImage = { ...user, displayName: member?.displayName || user.globalName || user.username };
             
             if (global.generateGachaInventory || (typeof require !== 'undefined')) {
                 try {
                     const { generateGachaInventory } = require('../../generators/gacha-generator.js');
                     if (generateGachaInventory) {
-                        const invBuffer = await generateGachaInventory(user, freeChests, paidChests);
+                        const invBuffer = await generateGachaInventory(userForImage, freeChests, paidChests);
                         if (invBuffer) files.push(new AttachmentBuilder(invBuffer, { name: 'gacha_inventory.png' }));
                     }
                 } catch(e){}
@@ -270,7 +275,6 @@ module.exports = {
             await targetMsg.edit({ embeds: [], components: [row], files }).catch(()=>{});
         };
 
-        // 🔥 نظام التسريع الصاروخي للـ PULLS (التجميع والتنفيذ دفعة واحدة) 🔥
         const executePulls = async (pullCount, isBuying, cost) => {
             if (isBuying) {
                 userMora -= cost;
@@ -298,7 +302,6 @@ module.exports = {
             const rarityOrder = { Common: 0, Uncommon: 1, Rare: 2, Epic: 3, Legendary: 4 };
             let bestResult = null;
 
-            // متغيرات التجميع
             const itemsToAdd = {};
             const skillsToAdd = [];
 
@@ -322,7 +325,6 @@ module.exports = {
                 results.push({ item, rarity });
             }
 
-            // تنفيذ التحديثات بقاعدة البيانات بشكل متوازي (Parallel) لسرعة البرق!
             const dbPromises = [];
 
             for (const skillId of skillsToAdd) {
@@ -400,7 +402,6 @@ module.exports = {
             
             await initialMsg.edit({ files: meteorFiles, components: [], embeds: [] }).catch(()=>{});
             
-            // 🔥 تقليل وقت الانتظار لزيادة الحماس والسرعة (700 ملي ثانية فقط بدلاً من 1200) 🔥
             await new Promise(r => setTimeout(r, 700));
 
             if (pullCount > 10) {
