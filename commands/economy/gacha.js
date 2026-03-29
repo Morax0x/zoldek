@@ -278,8 +278,8 @@ module.exports = {
             await targetMsg.edit({ content: '', embeds: [], components: [row], files }).catch(()=>{});
         };
 
+        // 🔥 نظام التسريع والإصلاح الشامل للتعليق 🔥
         const executePulls = async (pullCount, isBuying, cost) => {
-            // 🔥 الإصلاح الأساسي للخصم السليم 🔥
             if (isBuying) {
                 userMora -= cost;
                 await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [cost, user.id, guildId]).catch(() => db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [cost, user.id, guildId]).catch(()=>{}));
@@ -309,8 +309,7 @@ module.exports = {
             const itemsToAdd = {};
             const skillsToAdd = [];
 
-            await db.query('BEGIN').catch(()=>{});
-            
+            // نقوم بالسحب برمجياً فقط (بسرعة)
             for (let k = 0; k < pullCount; k++) {
                 const { item, rarity } = performPull(pityData, userRace, ownedSkills);
                 
@@ -329,26 +328,24 @@ module.exports = {
                 results.push({ item, rarity });
             }
 
-            const dbPromises = [];
-
+            // 🔥 إدخال البيانات للداتا بيز بالتسلسل بدون Promise.all لمنع تعليق SQLite 🔥
             for (const skillId of skillsToAdd) {
-                dbPromises.push(db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(() => db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(()=>{})));
+                await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(() => db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(()=>{}));
             }
 
             for (const [itemId, qty] of Object.entries(itemsToAdd)) {
-                dbPromises.push((async () => {
+                try {
                     let existingItemRes = await db.query(`SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guildId, itemId]).catch(()=> db.query(`SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemId]).catch(()=>({rows:[]})));
                     if (existingItemRes?.rows?.[0]) {
-                        await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, existingItemRes.rows[0].id]).catch(()=> db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qty, existingItemRes.rows[0].id || existingItemRes.rows[0].ID]).catch(()=>{}));
+                        const rowId = existingItemRes.rows[0].id || existingItemRes.rows[0].ID;
+                        await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, rowId]).catch(()=> db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qty, rowId]).catch(()=>{}));
                     } else {
                         await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]).catch(()=>{}));
                     }
-                })());
+                } catch(e) {}
             }
 
-            await Promise.all(dbPromises);
             await db.query(`UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]).catch(()=>{});
-            await db.query('COMMIT').catch(()=>{});
 
             return { bestResult, results };
         };
@@ -405,7 +402,8 @@ module.exports = {
             
             await initialMsg.edit({ files: meteorFiles, components: [], embeds: [] }).catch(()=>{});
             
-            await new Promise(r => setTimeout(r, 700));
+            // 🔥 تسريع التحميل للصورة اللي تليها 🔥
+            await new Promise(r => setTimeout(r, 400));
 
             if (pullCount > 1) {
                 let currentIndex = 0;
