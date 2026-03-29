@@ -8,7 +8,7 @@
     "price_increment": 700,
     "base_value": 15,
     "value_increment": 2,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "%",
     "cooldown": 3
   },
@@ -21,7 +21,7 @@
     "price_increment": 600,
     "base_value": 15,
     "value_increment": 2,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "%",
     "cooldown": 3
   },
@@ -34,7 +34,7 @@
     "price_increment": 1000,
     "base_value": 10,
     "value_increment": 2,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "%",
     "cooldown": 4
   },
@@ -47,7 +47,7 @@
     "price_increment": 500,
     "base_value": 15,
     "value_increment": 2,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "%",
     "cooldown": 4
   },
@@ -60,7 +60,7 @@
     "price_increment": 1200,
     "base_value": 15,
     "value_increment": 2,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "%",
     "cooldown": 3
   },
@@ -86,7 +86,7 @@
     "price_increment": 900,
     "base_value": 10,
     "value_increment": 2,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "%",
     "cooldown": 4
   },
@@ -99,7 +99,7 @@
     "price_increment": 1100,
     "base_value": 20,
     "value_increment": 3,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "%",
     "cooldown": 3
   },
@@ -125,7 +125,7 @@
     "price_increment": 600,
     "base_value": 60,
     "value_increment": 5,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "TrueDMG_Burn",
     "cooldown": 3
   },
@@ -138,7 +138,7 @@
     "price_increment": 600,
     "base_value": 55,
     "value_increment": 5,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Cleanse_Buff_Shield",
     "cooldown": 4
   },
@@ -151,7 +151,7 @@
     "price_increment": 600,
     "base_value": 45,
     "value_increment": 4.5,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Scale_MissingHP_Heal",
     "cooldown": 3
   },
@@ -164,7 +164,7 @@
     "price_increment": 600,
     "base_value": 40,
     "value_increment": 3.8,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Sacrifice_Crit",
     "cooldown": 3
   },
@@ -177,7 +177,7 @@
     "price_increment": 600,
     "base_value": 50,
     "value_increment": 4.8,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Stun_Vulnerable",
     "cooldown": 5
   },
@@ -190,7 +190,7 @@
     "price_increment": 600,
     "base_value": 45,
     "value_increment": 4.1,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Confusion",
     "cooldown": 4
   },
@@ -203,7 +203,7 @@
     "price_increment": 600,
     "base_value": 50,
     "value_increment": 4.5,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Lifesteal_Overheal",
     "cooldown": 3
   },
@@ -216,7 +216,7 @@
     "price_increment": 600,
     "base_value": 35,
     "value_increment": 3.7,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Chaos_RNG",
     "cooldown": 4
   },
@@ -229,7 +229,7 @@
     "price_increment": 600,
     "base_value": 45,
     "value_increment": 4.5,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Spirit_RNG",
     "cooldown": 4
   },
@@ -242,7 +242,7 @@
     "price_increment": 600,
     "base_value": 35,
     "value_increment": 3.3,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Reflect_Tank",
     "cooldown": 4
   },
@@ -255,7 +255,7 @@
     "price_increment": 600,
     "base_value": 30,
     "value_increment": 3.1,
-    "max_level": 20,
+    "max_level": 30,
     "stat_type": "Execute_Heal",
     "cooldown": 3
   }
