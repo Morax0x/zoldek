@@ -317,7 +317,6 @@ module.exports = {
             return message.reply("نـعـم .. ؟").catch(() => {});
         }
 
-        // 🔥 احتكار الذكاء الاصطناعي لك فقط أو للقنوات المسموحة 🔥
         if (message.mentions.has(client.user) && !message.author.bot && !message.content.startsWith(Prefix)) {
             
             if (message.reference) {
@@ -355,7 +354,6 @@ module.exports = {
                 const OWNER_ID = "1145327691772481577"; 
                 const isOwnerMentioning = message.author.id === OWNER_ID;
 
-                // 👑 تفعيل رتبة المستشار لتخطي القيود 👑
                 let isWisdomKing = false;
                 try {
                     if (settings && (settings.roleAdvisor || settings.roleadvisor) && message.member?.roles.cache.has(settings.roleAdvisor || settings.roleadvisor)) {
@@ -363,7 +361,6 @@ module.exports = {
                     }
                 } catch(e) {}
 
-                // 👑 قاعدة الإمبراطور والمستشارين للذكاء الاصطناعي:
                 if (!aiChannelData) {
                     if (message.channel.parentId && aiConfig.isRestrictedCategory(message.channel.parentId)) {
                         const paidStatus = aiConfig.getPaidChannelStatus(message.channel.id);
@@ -381,16 +378,14 @@ module.exports = {
                             }
                         }
                     } else {
-                        // قناة عادية جداً ليست مخصصة للذكاء
-                        if (!isOwnerMentioning && !isWisdomKing) return; // يتم تجاهل العضو العادي بصمت
-                        aiChannelData = { nsfw: 0 }; // السماح للإمبراطور والمستشار
+                        if (!isOwnerMentioning && !isWisdomKing) return; 
+                        aiChannelData = { nsfw: 0 }; 
                     }
                 }
 
                 let canChat = true;
-                let isTrackedUser = !isOwnerMentioning && !isWisdomKing; // لا يتم تتبع الإمبراطور ولا المستشار
+                let isTrackedUser = !isOwnerMentioning && !isWisdomKing; 
 
-                // 🔥 سد ثغرة الاستخدام اللانهائي المدرعة 🔥
                 if (isTrackedUser) {
                     try {
                         const usageStatus = await aiLimitHandler.checkUserUsage(message.member, db);
@@ -400,9 +395,9 @@ module.exports = {
                             const bal = Number(usageStatus.purchasedBalance) || 0;
                             
                             if (limit === 0 && bal === 0 && daily < 10) {
-                                canChat = true; // 10 رسائل مجانية فقط للجدد
+                                canChat = true; 
                             } else {
-                                canChat = false; // بلوك وإيقاف!
+                                canChat = false; 
                             }
                         }
                     } catch(e) {
@@ -462,7 +457,6 @@ module.exports = {
                         return;
                     }
 
-                    // 🔥 التصليح الجذري للثغرة: تسجيل الخصم بقوة حتى لا يستعملوه مجاناً 🔥
                     if (isTrackedUser) {
                         try {
                             await aiLimitHandler.incrementUsage(message.member, db);
@@ -492,7 +486,6 @@ module.exports = {
                     }
 
                 } catch (err) {
-                    // تم إزالة releasePendingUsage من هنا لمنع استغلال الخطأ للدردشة المجانية
                     console.error("[AI Chat Error]:", err);
                 }
                 return; 
@@ -701,7 +694,29 @@ module.exports = {
 
         } catch (err) {}
 
-        // 🔥 احتكار أوامر البريفكس للإمبراطور أو للقنوات المسموحة 🔥
+        // 🔥 نظام السماح لأوامر الاقتصاد في الكازينو بدون بريفكس 🔥
+        if (settings && (((settings.casinoChannelID || settings.casinochannelid) && message.channel.id === (settings.casinoChannelID || settings.casinochannelid)) || ((settings.casinoChannelID2 || settings.casinochannelid2) && message.channel.id === (settings.casinoChannelID2 || settings.casinochannelid2)))) {
+            const args = message.content.trim().split(/ +/);
+            const commandName = args.shift().toLowerCase();
+            
+            // نبحث في الأوامر سواء باسمها الأساسي أو بأسماءها البديلة (Aliases)
+            const command = client.commands.find(cmd => 
+                (cmd.name && cmd.name.toLowerCase() === commandName) || 
+                (cmd.aliases && cmd.aliases.includes(commandName))
+            );
+
+            // لو الأمر موجود وتصنيفه Economy، أو RPG (لأن الصناديق/gacha مصنفة RPG)
+            if (command && (command.category === "Economy" || command.category === "RPG")) {
+                if (!(await checkPermissions(message, command))) return;
+                try {
+                    args.prefix = ""; // وهمي عشان يشتغل بدون مشاكل
+                    await command.execute(message, args); 
+                } catch (error) { console.error(error); }
+                return;
+            }
+        }
+
+        // 🔥 نظام الأوامر المعتاد (بالبريفكس) 🔥
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -712,14 +727,10 @@ module.exports = {
                     let isAllowed = false;
                     const OWNER_ID = "1145327691772481577";
 
-                    // 👑 قاعدة الإمبراطور للأوامر:
                     if (message.author.id === OWNER_ID) { 
                         isAllowed = true; 
-                    } else if (settings && ((settings.casinoChannelID || settings.casinochannelid) === message.channel.id || (settings.casinoChannelID2 || settings.casinochannelid2) === message.channel.id) && command.category === 'Economy') { 
-                        isAllowed = true; // السماح في الكازينو
                     } else {
                         try {
-                            // التحقق مما إذا كانت القناة مسموحة يدوياً
                             let channelPermRes;
                             try { channelPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2 AND "channelID" = $3`, [message.guild.id, command.name, message.channel.id]); }
                             catch(e) { channelPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2 AND channelid = $3`, [message.guild.id, command.name, message.channel.id]).catch(()=>({rows:[]})); }
@@ -731,7 +742,7 @@ module.exports = {
                             }
 
                             if ((channelPermRes && channelPermRes.rows.length > 0) || (categoryPermRes && categoryPermRes.rows.length > 0)) { 
-                                isAllowed = true; // السماح إذا تمت إضافتها عبر الصلاحيات
+                                isAllowed = true; 
                             }
                         } catch (err) {}
                     }
@@ -753,7 +764,6 @@ module.exports = {
                             }
                         }
                     } else {
-                        // التجاهل الصامت التام لأي عضو يحاول استخدام الأوامر
                         return; 
                     }
                     return; 
@@ -793,17 +803,6 @@ module.exports = {
                 }
             }
         } catch (err) {}
-
-        if (settings && (((settings.casinoChannelID || settings.casinochannelid) && message.channel.id === (settings.casinoChannelID || settings.casinochannelid)) || ((settings.casinoChannelID2 || settings.casinochannelid2) && message.channel.id === (settings.casinoChannelID2 || settings.casinochannelid2)))) {
-            const args = message.content.trim().split(/ +/);
-            const commandName = args.shift().toLowerCase();
-            const command = client.commands.find(cmd => (cmd.name && cmd.name.toLowerCase() === commandName) || (cmd.aliases && cmd.aliases.includes(commandName)));
-            if (command && command.category === "Economy") {
-                if (!(await checkPermissions(message, command))) return;
-                try { await command.execute(message, args); } catch (error) {}
-                return;
-            }
-        }
 
         try {
             const content = message.content.trim();
