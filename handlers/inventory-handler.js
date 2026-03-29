@@ -1,18 +1,16 @@
 const upgradeMats = require('../json/upgrade-materials.json');
 let fishData = [], farmSeeds = [], farmFeeds = [], potionsData = [], marketData = [], baitsData = [];
 
-// استيراد جميع الملفات بأمان
 try { 
     const fishJson = require('../json/fishing-config.json') || require('../json/fish.json');
     fishData = fishJson.fishItems || fishJson; 
 } catch(e) {}
-try { baitsData = require('../json/baits.json'); } catch(e) {} // ملف الطعوم (إذا وجد)
+try { baitsData = require('../json/baits.json'); } catch(e) {}
 try { farmSeeds = require('../json/seeds.json'); } catch(e) {}
 try { farmFeeds = require('../json/feed-items.json'); } catch(e) {}
 try { potionsData = require('../json/potions.json'); } catch(e) {}
 try { marketData = require('../json/market-items.json'); } catch(e) {}
 
-// 🔥 القاموس السريع جداً (لزيادة سرعة قراءة المخزن بنسبة 99%) 🔥
 const ITEM_DICTIONARY = new Map();
 
 const ID_TO_IMAGE = {
@@ -31,7 +29,6 @@ const ID_TO_IMAGE = {
     'book_race_1': 'race_book_stone.png', 'book_race_2': 'race_book_ancestor.png', 'book_race_3': 'race_book_secrets.png', 'book_race_4': 'race_book_covenant.png', 'book_race_5': 'race_book_pact.png'
 };
 
-// بناء القاموس مرة واحدة فقط عند بدء التشغيل
 function buildDictionary() {
     if (upgradeMats && upgradeMats.weapon_materials) {
         for (const race of upgradeMats.weapon_materials) {
@@ -49,14 +46,12 @@ function buildDictionary() {
         }
     }
     
-    // نقل الأسماك لقسم materials بدل fishing عشان ما تزحم قسم الصيد
     if (fishData && Array.isArray(fishData)) {
         for (const fish of fishData) {
             ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'materials', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
         }
     }
 
-    // إضافة الطعوم لقسم fishing
     if (baitsData && Array.isArray(baitsData)) {
         for (const bait of baitsData) {
             ITEM_DICTIONARY.set(bait.id, { name: bait.name, emoji: bait.emoji || '🪱', category: 'fishing', rarity: 'Common', imgPath: bait.image || null });
@@ -85,18 +80,15 @@ function buildDictionary() {
     }
 }
 
-// تنفيذ البناء فوراً
 buildDictionary();
 
 function resolveItemInfo(itemId) {
     if (ITEM_DICTIONARY.has(itemId)) {
         return ITEM_DICTIONARY.get(itemId);
     }
-    // في حال كان طعم ولم يتم تحميله من ملف
     if (itemId.startsWith('bait_')) {
          return { name: `طعم ${itemId.split('_')[1]}`, emoji: '🪱', category: 'fishing', rarity: 'Common', imgPath: null };
     }
-    // عنصر غير معروف
     return { name: itemId, emoji: '📦', category: 'others', rarity: 'Common', imgPath: null };
 }
 
@@ -105,12 +97,11 @@ async function getInventoryCategories(db, userId, guildId) {
     let portfolio = [];
     let fishingStats = null;
     
-    // 🚀 جلب بيانات المخزن العادي، محفظة الاستثمارات، وإحصائيات الصيد بالتوازي لسرعة خارقة 🚀
     try {
         const [invRes, portRes, fishRes] = await Promise.all([
             db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]),
             db.query(`SELECT * FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]),
-            db.query(`SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, [userId, guildId]).catch(()=>({rows:[]})) // جلب السنارة والقارب
+            db.query(`SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, [userId, guildId]).catch(()=>({rows:[]}))
         ]);
         inventory = invRes.rows;
         portfolio = portRes.rows;
@@ -126,14 +117,13 @@ async function getInventoryCategories(db, userId, guildId) {
             portfolio = portRes.rows;
             fishingStats = fishRes.rows[0];
         } catch(err) {
-            console.error("❌ Inventory Fetch Error:", err);
+            console.error(err);
             return { materials: [], fishing: [], farming: [], potions: [], market: [], others: [] };
         }
     }
 
     const categories = { materials: [], fishing: [], farming: [], potions: [], market: [], others: [] };
     
-    // 🔥 إضافة معدات الصيد (السنارة والقارب) لقسم الصيد مباشرة 🔥
     if (fishingStats) {
         if (fishingStats.currentRod || fishingStats.currentrod) {
             const rodName = fishingStats.currentRod || fishingStats.currentrod;
@@ -144,7 +134,7 @@ async function getInventoryCategories(db, userId, guildId) {
                 category: 'fishing',
                 rarity: 'Rare',
                 quantity: 1, 
-                imgPath: `images/fish/fishing/${rodName.toLowerCase().replace(' ', '_')}.png` // تصحيح مسار الصورة
+                imgPath: `images/fish/fishing/${rodName.toLowerCase().replace(' ', '_')}.png`
             });
         }
         if (fishingStats.currentBoat || fishingStats.currentboat) {
@@ -156,19 +146,17 @@ async function getInventoryCategories(db, userId, guildId) {
                 category: 'fishing',
                 rarity: 'Epic',
                 quantity: 1, 
-                imgPath: `images/fish/ships/${boatName.toLowerCase().replace(' ', '_')}.png` // تصحيح مسار الصورة
+                imgPath: `images/fish/ships/${boatName.toLowerCase().replace(' ', '_')}.png`
             });
         }
     }
 
-    // 📦 فرز عناصر المخزن العادي
     for (const row of inventory) {
         const itemId = row.itemID || row.itemid;
         const quantity = Number(row.quantity) || 0;
         
         if (quantity <= 0) continue;
         
-        // 🔥 التعديل السحري هنا: تجاهل صناديق القاتشا من العرض في الحقيبة العادية 🔥
         if (itemId === 'gacha_chest' || itemId === 'free_gacha_chest') continue;
         
         const itemInfo = resolveItemInfo(itemId);
@@ -180,7 +168,6 @@ async function getInventoryCategories(db, userId, guildId) {
         }
     }
 
-    // 💼 فرز عناصر المحفظة الاستثمارية (السوق/الممتلكات)
     for (const row of portfolio) {
         const itemId = row.itemID || row.itemid;
         const quantity = Number(row.quantity) || 0;
@@ -190,10 +177,18 @@ async function getInventoryCategories(db, userId, guildId) {
 
         const itemInfo = resolveItemInfo(itemId);
         
-        // دمجها بقسم السوق ليتم عرضها في الحقيبة
         categories.market.push({ ...itemInfo, quantity, id: itemId, purchasePrice });
     }
     
+    const rarityWeights = { 'Legendary': 5, 'Epic': 4, 'Rare': 3, 'Uncommon': 2, 'Common': 1 };
+    if (categories.materials && categories.materials.length > 0) {
+        categories.materials.sort((a, b) => {
+            const weightA = rarityWeights[a.rarity] || 1;
+            const weightB = rarityWeights[b.rarity] || 1;
+            return weightB - weightA;
+        });
+    }
+
     return categories;
 }
 
