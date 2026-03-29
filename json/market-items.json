@@ -1,56 +1,65 @@
 [
-    { 
-        "id": "APPLE", 
-        "name": "أسهم Apple <:aapple:1435884007484293161>", 
-        "description": "أسهم شركة تكنولوجيا عملاقة.", 
-        "price": 1500 
-    },
-    { 
-        "id": "ANDROID", 
-        "name": "أسهم Android <:android:1435885726519656578>", 
-        "description": "أسهم قطاع الهواتف الذكية والبرمجيات.", 
-        "price": 1200 
-    },
-    { 
-        "id": "TESLA", 
-        "name": "أسهم Tesla <:tesla:1437395355170771016>", 
-        "description": "أسهم سيارات كهربائية (متقلبة).", 
-        "price": 2500 
-    },
-    { 
-        "id": "GOLD", 
-        "name": "سبائك ذهب <:gold:1437395402474127382>", 
-        "description": "استثمار آمن ومستقر.", 
-        "price": 5000 
-    },
-    { 
-        "id": "LAND", 
-        "name": "قطعة أرض 🏞️", 
-        "description": "عقار في منطقة سكنية.", 
-        "price": 8000 
-    },
-    { 
-        "id": "BITCOIN", 
-        "name": "بيتكوين <:ss:1437395376738013244>₿", 
-        "description": "عملة رقمية مشفرة. مخاطرة عالية جداً!", 
-        "price": 4500 
-    },
-    { 
-        "id": "SPACEX", 
-        "name": "أسهم SpaceX 🚀", 
-        "description": "أسهم شركة الفضاء الخاصة (نادرة).", 
-        "price": 4000 
-    },
-    { 
-        "id": "SILVER", 
-        "name": "سبائك فضة <:pngimg:1437395419544944713>", 
-        "description": "معدن ثمين أقل سعراً من الذهب.", 
-        "price": 2000 
-    },
-    { 
-        "id": "ART", 
-        "name": "لوحة فنية نادرة <:atr:1437395490168639550>", 
-        "description": "قطعة فنية أصلية. تزداد قيمتها ببطء.", 
-        "price": 12000 
-    }
+  {
+    "id": "APPLE",
+    "name": "أسهم Apple",
+    "description": "أسهم شركة تكنولوجيا عملاقة.",
+    "price": 1500,
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/apple.png"
+  },
+  {
+    "id": "ANDROID",
+    "name": "أسهم Android",
+    "description": "أسهم قطاع الهواتف الذكية والبرمجيات.",
+    "price": 1200,
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/android.png"
+  },
+  {
+    "id": "TESLA",
+    "name": "أسهم Tesla",
+    "description": "أسهم سيارات كهربائية (متقلبة).",
+    "price": 2500,
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/tesla.png"
+  },
+  {
+    "id": "GOLD",
+    "name": "سبائك ذهب",
+    "description": "استثمار آمن ومستقر.",
+    "price": 5000,
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/gold.png"
+  },
+  {
+    "id": "LAND",
+    "name": "قطعة أرض",
+    "description": "عقار في منطقة سكنية.",
+    "price": 8000,
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/land.png"
+  },
+  {
+    "id": "BITCOIN",
+    "name": "بيتكوين",
+    "description": "عملة رقمية مشفرة. مخاطرة عالية جداً!",
+    "price": 4500,
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/bitcoin.png"
+  },
+  {
+    "id": "SPACEX",
+    "name": "أسهم SpaceX",
+    "description": "أسهم شركة الفضاء الخاصة (نادرة).",
+    "price": 4000,
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/spacex.png"
+  },
+  {
+    "id": "SILVER",
+    "name": "سبائك فضة",
+    "description": "معدن ثمين أقل سعراً من الذهب.",
+    "price": 2000,
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/silver.png"
+  },
+  {
+    "id": "ART",
+    "name": "لوحة فنية نادرة",
+    "description": "قطعة فنية أصلية. تزداد قيمتها ببطء.",
+    "price": 12000,
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/art.png"
+  }
 ]
