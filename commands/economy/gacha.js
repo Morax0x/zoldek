@@ -278,26 +278,27 @@ module.exports = {
             await targetMsg.edit({ content: '', embeds: [], components: [row], files }).catch(()=>{});
         };
 
-        // 🔥 نظام التسريع والإصلاح الشامل للتعليق 🔥
         const executePulls = async (pullCount, isBuying, cost) => {
+            // 🔥 الخصم الفوري والمباشر من المتغير ومن الداتا بيز 🔥
             if (isBuying) {
                 userMora -= cost;
-                await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [cost, user.id, guildId]).catch(() => db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [cost, user.id, guildId]).catch(()=>{}));
+                await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [userMora, user.id, guildId]).catch(() => db.query(`UPDATE levels SET mora = $1 WHERE userid = $2 AND guildid = $3`, [userMora, user.id, guildId]).catch(()=>{}));
             } else {
                 let remaining = pullCount;
                 let consumeFree = Math.min(freeChests, remaining);
                 remaining -= consumeFree;
                 let consumePaid = Math.min(paidChests, remaining);
                 
+                freeChests -= consumeFree;
+                paidChests -= consumePaid;
+                
                 if (consumeFree > 0) {
-                    await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, [consumeFree, user.id, guildId]).catch(() => db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'free_gacha_chest'`, [consumeFree, user.id, guildId]).catch(()=>{}));
+                    await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, [freeChests, user.id, guildId]).catch(() => db.query(`UPDATE user_inventory SET quantity = $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'free_gacha_chest'`, [freeChests, user.id, guildId]).catch(()=>{}));
                 }
                 if (consumePaid > 0) {
-                    await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, [consumePaid, user.id, guildId]).catch(() => db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'gacha_chest'`, [consumePaid, user.id, guildId]).catch(()=>{}));
+                    await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, [paidChests, user.id, guildId]).catch(() => db.query(`UPDATE user_inventory SET quantity = $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'gacha_chest'`, [paidChests, user.id, guildId]).catch(()=>{}));
                 }
                 
-                freeChests = Math.max(0, freeChests - consumeFree);
-                paidChests = Math.max(0, paidChests - consumePaid);
                 totalChests = freeChests + paidChests;
             }
 
@@ -309,7 +310,7 @@ module.exports = {
             const itemsToAdd = {};
             const skillsToAdd = [];
 
-            // نقوم بالسحب برمجياً فقط (بسرعة)
+            // توليد النواتج
             for (let k = 0; k < pullCount; k++) {
                 const { item, rarity } = performPull(pityData, userRace, ownedSkills);
                 
@@ -328,24 +329,25 @@ module.exports = {
                 results.push({ item, rarity });
             }
 
-            // 🔥 إدخال البيانات للداتا بيز بالتسلسل بدون Promise.all لمنع تعليق SQLite 🔥
+            // الحفظ في الخلفية لتسريع الرد
             for (const skillId of skillsToAdd) {
-                await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(() => db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(()=>{}));
+                db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(() => db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(()=>{}));
             }
 
             for (const [itemId, qty] of Object.entries(itemsToAdd)) {
-                try {
-                    let existingItemRes = await db.query(`SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guildId, itemId]).catch(()=> db.query(`SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemId]).catch(()=>({rows:[]})));
+                db.query(`SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guildId, itemId])
+                .catch(()=> db.query(`SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemId]).catch(()=>({rows:[]})))
+                .then(existingItemRes => {
                     if (existingItemRes?.rows?.[0]) {
                         const rowId = existingItemRes.rows[0].id || existingItemRes.rows[0].ID;
-                        await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, rowId]).catch(()=> db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qty, rowId]).catch(()=>{}));
+                        db.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, rowId]).catch(()=> db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qty, rowId]).catch(()=>{}));
                     } else {
-                        await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]).catch(()=>{}));
+                        db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]).catch(()=>{}));
                     }
-                } catch(e) {}
+                });
             }
 
-            await db.query(`UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]).catch(()=>{});
+            db.query(`UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]).catch(()=>{});
 
             return { bestResult, results };
         };
@@ -402,7 +404,6 @@ module.exports = {
             
             await initialMsg.edit({ files: meteorFiles, components: [], embeds: [] }).catch(()=>{});
             
-            // 🔥 تسريع التحميل للصورة اللي تليها 🔥
             await new Promise(r => setTimeout(r, 400));
 
             if (pullCount > 1) {
