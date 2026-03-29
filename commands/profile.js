@@ -17,7 +17,6 @@ const skillsConfig = require('../json/skills-config.json');
 let marketConfig = [];
 try { marketConfig = require('../json/market-items.json'); } catch(e) {}
 
-// 🔥 جلب آيديات الطعوم بدقة من المكتبة عشان ما تختفي 🔥
 let validBaitIDs = ['worm', 'cricket', 'shrimp', 'squid', 'magic'];
 try {
     const fishingConf = require('../json/fishing-config.json');
@@ -142,7 +141,6 @@ module.exports = {
             let selectedIndex = 0; 
             let activeItemDetails = null; 
 
-            // 🔥 فلترة الاختصارات عشان تشتغل ببريفكس وبدون بريفكس (كازينو) 🔥
             let commandTrigger = "";
             if (!isSlash) {
                 const firstWord = interactionOrMessage.content.trim().split(/ +/)[0].toLowerCase();
@@ -158,7 +156,6 @@ module.exports = {
                 invCategory = 'market';
             }
 
-            // 🔥 الدالة الخارقة لمعالجة الأغراض والفلترة الإجبارية 🔥
             const getNormalInventoryItems = async (cat) => {
                 let fetchedItems = [];
                 try {
@@ -168,7 +165,6 @@ module.exports = {
                         let info = resolveItemInfoLocal(itemId);
                         info = { ...info }; 
                         
-                        // 1. الأسماك (أي شيء يبدأ بـ fish_) نطرده للموارد!
                         if (itemId.startsWith('fish_')) {
                             info.category = 'موارد';
                         } else {
@@ -178,21 +174,19 @@ module.exports = {
                             else if (info.category === 'potions' || info.category === 'others') info.category = 'أخرى';
                         }
 
-                        // 2. حماية قسم الصيد: لا يدخل إلا طعم، سنارة، أو قارب!
                         if (info.category === 'صيد') {
                             const isBait = validBaitIDs.includes(itemId);
                             const isRod = itemId.startsWith('rod_') || itemId === 'current_rod';
                             const isBoat = itemId.startsWith('boat_') || itemId === 'current_boat';
                             
                             if (!isBait && !isRod && !isBoat) {
-                                info.category = 'أخرى'; // أي شيء ثاني ينطرد
+                                info.category = 'أخرى'; 
                             }
                         }
 
                         return { ...info, quantity: row.quantity, id: itemId };
                     });
 
-                    // 3. إضافة السنارة والقارب لقسم الصيد من جدول الـ user_fishing
                     if (cat === 'صيد') {
                         let fishRes = await db.query(`SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
                         if(!fishRes?.rows?.[0]) fishRes = await db.query(`SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2 LIMIT 1`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
@@ -319,7 +313,9 @@ module.exports = {
 
                 if (currentView === 'inventory') {
                     if (invCategory === 'main') {
-                        const buffer = await generateMainHub(targetMember, db, totalMora);
+                        // 🔥 إخفاء المورا في الخيمة (Main Hub) للضيوف المتطفلين 🔥
+                        const displayMora = (targetUser.id === TARGET_OWNER_ID && authorUser.id !== TARGET_OWNER_ID) ? "???" : totalMora.toLocaleString();
+                        const buffer = await generateMainHub(targetMember, db, displayMora);
                         
                         const row1 = new ActionRowBuilder().addComponents(
                             new ButtonBuilder().setCustomId(`c_mat_${authorUser.id}`).setLabel('مـوارد').setStyle(ButtonStyle.Primary).setEmoji('💎'), 
@@ -344,7 +340,6 @@ module.exports = {
                             new ButtonBuilder().setCustomId(`d_back_${authorUser.id}`).setLabel('العـودة').setStyle(ButtonStyle.Danger).setEmoji('↩️')
                         );
                         
-                        // لا يمكنك إرسال السنارة أو القارب لأنها أغراض غير قابلة للمبادلة
                         if (targetUser.id === authorUser.id && !['current_rod', 'current_boat'].includes(activeItemDetails.id)) {
                             btnRow.addComponents(new ButtonBuilder().setCustomId(`trade_init_${authorUser.id}`).setLabel('إعـطـاء').setStyle(ButtonStyle.Primary).setEmoji('🎁'));
                         }
@@ -359,7 +354,6 @@ module.exports = {
                     let items = [];
                     let totalValue = 0;
 
-                    // 🔥 قسم الممتلكات 🔥
                     if (invCategory === 'market') {
                         let portfolio = [];
                         let dbMarketRes = { rows: [] };
@@ -397,6 +391,13 @@ module.exports = {
                         const totalPages = Math.max(1, Math.ceil(items.length / 9)); 
                         const slice = items.slice((invPage-1)*9, invPage*9);
 
+                        // 🔥 التوجيه الذكي للمؤشر: مستحيل يروح على فراغ 🔥
+                        if (slice.length > 0 && selectedIndex >= slice.length) {
+                            selectedIndex = slice.length - 1;
+                        } else if (slice.length === 0) {
+                            selectedIndex = 0;
+                        }
+
                         let buffer;
                         if (generatePortfolioCard) {
                             buffer = await generatePortfolioCard(cleanName, slice, invPage, totalPages, totalValue);
@@ -412,12 +413,18 @@ module.exports = {
 
                         return { content: '', files: [new AttachmentBuilder(buffer, { name: 'portfolio.png' })], components: [row1] };
                     } 
-                    // 🔥 باقي أقسام الحقيبة العادية والفلتر الجذري للأسماك 🔥
                     else {
                         items = await getNormalInventoryItems(invCategory);
 
                         const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
                         const slice = items.slice((invPage-1)*ITEMS_PER_PAGE, invPage*ITEMS_PER_PAGE);
+
+                        // 🔥 التوجيه الذكي للمؤشر: يمنع التحرك لمربعات فارغة 🔥
+                        if (slice.length > 0 && selectedIndex >= slice.length) {
+                            selectedIndex = slice.length - 1;
+                        } else if (slice.length === 0) {
+                            selectedIndex = 0;
+                        }
 
                         const buffer = await generateInventoryCard(cleanName, invCategory, slice, invPage, totalPages, selectedIndex);
 
@@ -452,6 +459,8 @@ module.exports = {
             };
 
             const msg = await reply(await renderView());
+            
+            // 🔥 نظام التايم آوت الإجباري (5 دقائق وتمسح الأزرار) 🔥
             const collector = msg.createMessageComponentCollector({ filter: i => true, time: 300000 });
 
             collector.on('collect', async (i) => {
@@ -598,17 +607,30 @@ module.exports = {
                     return i.reply({ content: '❌ لا يمكنك التحكم في حقيبة غيرك!', flags: [MessageFlags.Ephemeral] });
                 }
 
-                if (id.startsWith('v_inv_')) { await i.deferUpdate(); currentView = 'inventory'; invCategory = 'main'; selectedIndex = 0; activeItemDetails = null; }
+                // 🔥 التنقل الذكي بين الأقسام (يمنعك تدخل قسم فارغ) 🔥
+                if (id.startsWith('c_') || id.startsWith('v_port_')) {
+                    await i.deferUpdate();
+                    let targetCat = '';
+                    if (id.startsWith('c_mat_')) targetCat = 'موارد';
+                    else if (id.startsWith('c_fis_')) targetCat = 'صيد';
+                    else if (id.startsWith('c_far_')) targetCat = 'مزرعة';
+                    else if (id.startsWith('c_oth_')) targetCat = 'أخرى';
+                    else if (id.startsWith('v_port_')) targetCat = 'market';
+
+                    if (targetCat === 'market') {
+                        let portRes = await db.query(`SELECT 1 FROM user_portfolio WHERE "guildID" = $1 AND "userID" = $2 LIMIT 1`, [guildId, targetUser.id]).catch(()=>({rows:[]}));
+                        if (portRes.rows.length === 0) return i.followUp({ content: `❌ عذراً، لا توجد لديك أي ممتلكات استثمارية حالياً!`, flags: [MessageFlags.Ephemeral] });
+                        currentView = 'inventory'; invCategory = 'market'; invPage = 1; selectedIndex = 0; activeItemDetails = null;
+                    } else if (targetCat) {
+                        const checkItems = await getNormalInventoryItems(targetCat);
+                        if (checkItems.length === 0) return i.followUp({ content: `❌ قسم **${targetCat}** فارغ تماماً!`, flags: [MessageFlags.Ephemeral] });
+                        currentView = 'inventory'; invCategory = targetCat; invPage = 1; selectedIndex = 0; activeItemDetails = null;
+                    }
+                }
+                else if (id.startsWith('v_inv_')) { await i.deferUpdate(); currentView = 'inventory'; invCategory = 'main'; selectedIndex = 0; activeItemDetails = null; }
                 else if (id.startsWith('v_com_')) { await i.deferUpdate(); currentView = 'combat'; skillPage = 0; activeItemDetails = null; }
                 else if (id.startsWith('v_pro_')) { await i.deferUpdate(); currentView = 'profile'; activeItemDetails = null; }
-                else if (id.startsWith('v_port_')) { await i.deferUpdate(); currentView = 'inventory'; invCategory = 'market'; invPage = 1; selectedIndex = 0; activeItemDetails = null; }
-                
                 else if (id.startsWith('cat_main_')) { await i.deferUpdate(); invCategory = 'main'; activeItemDetails = null; }
-                else if (id.startsWith('c_mat_')) { await i.deferUpdate(); currentView = 'inventory'; invCategory = 'موارد'; invPage = 1; selectedIndex = 0; activeItemDetails = null; }
-                else if (id.startsWith('c_fis_')) { await i.deferUpdate(); currentView = 'inventory'; invCategory = 'صيد'; invPage = 1; selectedIndex = 0; activeItemDetails = null; }
-                else if (id.startsWith('c_far_')) { await i.deferUpdate(); currentView = 'inventory'; invCategory = 'مزرعة'; invPage = 1; selectedIndex = 0; activeItemDetails = null; }
-                else if (id.startsWith('c_oth_')) { await i.deferUpdate(); currentView = 'inventory'; invCategory = 'أخرى'; invPage = 1; selectedIndex = 0; activeItemDetails = null; }
-                
                 else if (id.startsWith('inv_n_')) { await i.deferUpdate(); invPage++; selectedIndex = 0; activeItemDetails = null; }
                 else if (id.startsWith('inv_p_')) { await i.deferUpdate(); invPage--; selectedIndex = 0; activeItemDetails = null; }
                 else if (id.startsWith('sk_n_')) { await i.deferUpdate(); skillPage++; }
@@ -631,45 +653,19 @@ module.exports = {
                     else if (moveType === 'd2') { selectedIndex = ((row + 2) % 3) * 5 + col; }
                     else if (moveType === 'u2') { selectedIndex = ((row - 2 + 3) % 3) * 5 + col; }
                     else if (moveType === 'ok') {
-                        let items = [];
-                        if (invCategory === 'market') {
-                            const [portfolioRes, dbMarketRes] = await Promise.all([
-                                db.query(`SELECT * FROM user_portfolio WHERE "guildID" = $1 AND "userID" = $2`, [guildId, targetUser.id]).catch(() => db.query(`SELECT * FROM user_portfolio WHERE guildid = $1 AND userid = $2`, [guildId, targetUser.id]).catch(()=>({rows:[]}))),
-                                db.query("SELECT * FROM market_items").catch(()=>({rows:[]}))
-                            ]);
-                            const portfolio = portfolioRes?.rows || [];
-                            const market = new Map(marketConfig.map(item => [item.id, item]));
-                            let dbMarketPrices = new Map((dbMarketRes?.rows || []).map(row => [row.id, Number(row.currentPrice || row.currentprice)]));
-
-                            for (const row of portfolio) {
-                                const itemID = row.itemID || row.itemid;
-                                const marketItem = market.get(itemID);
-                                if (!marketItem) continue;
-                                let currentPrice = dbMarketPrices.has(itemID) ? dbMarketPrices.get(itemID) : marketItem.price;
-                                const quantity = Number(row.quantity) || 0;
-                                if (quantity <= 0) continue;
-                                let purchasePrice = Number(row.purchasePrice || row.purchaseprice) || 0;
-                                const info = resolveItemInfoLocal(itemID);
-                                
-                                info.description = `${info.description || ''}\n\n📊 السعر الحالي: ${currentPrice.toLocaleString()} 🪙\n💰 سعر الشراء: ${purchasePrice.toLocaleString()} 🪙\n💎 القيمة الإجمالية: ${(currentPrice * quantity).toLocaleString()} 🪙`;
-                                items.push({ ...info, quantity, id: itemID });
-                            }
-                        } else {
-                            // نستخدم الفنكشن الخارقة بدل القراءة المباشرة عشان تشتغل التفاصيل (OK Button) بذكاء
-                            items = await getNormalInventoryItems(invCategory);
-                        }
-
-                        const slice = items.slice((invPage-1)*ITEMS_PER_PAGE, invPage*ITEMS_PER_PAGE);
-                        
-                        if (slice[selectedIndex]) {
-                            activeItemDetails = slice[selectedIndex];
-                        } else {
-                            return i.followUp({ content: `❌ هذا المربع فارغ يا عزيزي.`, flags: [MessageFlags.Ephemeral] });
-                        }
+                        // الكود الذكي الآن يضمن أن المؤشر لا يقف على فراغ، لذا الزر سيعمل دائماً
+                        activeItemDetails = true; // مجرد تفعيل لإعادة الريندر والتفاصيل ستظهر من slice
                     }
                 }
                 
                 await msg.edit(await renderView());
+            });
+
+            // 🔥 الإغلاق التلقائي ومسح الأزرار بعد 5 دقائق 🔥
+            collector.on('end', () => {
+                if(msg && msg.editable) {
+                    msg.edit({ components: [] }).catch(() => null);
+                }
             });
 
         } catch (error) {
