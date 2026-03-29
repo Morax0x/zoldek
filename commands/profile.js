@@ -17,6 +17,13 @@ const skillsConfig = require('../json/skills-config.json');
 let marketConfig = [];
 try { marketConfig = require('../json/market-items.json'); } catch(e) {}
 
+// 🔥 جلب آيديات الطعوم بدقة من المكتبة عشان ما تختفي 🔥
+let validBaitIDs = ['worm', 'cricket', 'shrimp', 'squid', 'magic'];
+try {
+    const fishingConf = require('../json/fishing-config.json');
+    if (fishingConf.baits) validBaitIDs = fishingConf.baits.map(b => b.id);
+} catch(e) {}
+
 let calculateRequiredXP;
 try { ({ calculateRequiredXP } = require('../handlers/handler-utils.js')); } 
 catch (e) {
@@ -100,7 +107,7 @@ module.exports = {
 
     name: 'profile',
     aliases: ['p', 'بروفايل', 'بطاقة', 'كارد', 'card', 'inv', 'inventory', 'شنطة', 'اغراض', 'حقيبة', 'مهاراتي', 'skills', 'ms', 'عتاد', 'قدراتي', 'محفظتي', 'استثماراتي', 'ممتلكات', 'portfolio'], 
-    category: "Economy", // مصنف كـ Economy ليعمل في الكازينو إذا كان الكازينو يشترط ذلك
+    category: "Economy", 
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
@@ -135,7 +142,7 @@ module.exports = {
             let selectedIndex = 0; 
             let activeItemDetails = null; 
 
-            // 🔥 فلترة التريجر عشان الاختصارات تشتغل صح بدون بريفكس 🔥
+            // 🔥 فلترة الاختصارات عشان تشتغل ببريفكس وبدون بريفكس (كازينو) 🔥
             let commandTrigger = "";
             if (!isSlash) {
                 const firstWord = interactionOrMessage.content.trim().split(/ +/)[0].toLowerCase();
@@ -150,6 +157,59 @@ module.exports = {
                 currentView = 'inventory'; 
                 invCategory = 'market';
             }
+
+            // 🔥 الدالة الخارقة لمعالجة الأغراض والفلترة الإجبارية 🔥
+            const getNormalInventoryItems = async (cat) => {
+                let fetchedItems = [];
+                try {
+                    const invQuery = await db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
+                    let tempItems = (invQuery?.rows || []).map(row => {
+                        const itemId = row.itemID || row.itemid;
+                        let info = resolveItemInfoLocal(itemId);
+                        info = { ...info }; 
+                        
+                        // 1. الأسماك (أي شيء يبدأ بـ fish_) نطرده للموارد!
+                        if (itemId.startsWith('fish_')) {
+                            info.category = 'موارد';
+                        } else {
+                            if (info.category === 'materials') info.category = 'موارد';
+                            else if (info.category === 'fishing' || info.category === 'fishing_gear') info.category = 'صيد';
+                            else if (info.category === 'farming') info.category = 'مزرعة';
+                            else if (info.category === 'potions' || info.category === 'others') info.category = 'أخرى';
+                        }
+
+                        // 2. حماية قسم الصيد: لا يدخل إلا طعم، سنارة، أو قارب!
+                        if (info.category === 'صيد') {
+                            const isBait = validBaitIDs.includes(itemId);
+                            const isRod = itemId.startsWith('rod_') || itemId === 'current_rod';
+                            const isBoat = itemId.startsWith('boat_') || itemId === 'current_boat';
+                            
+                            if (!isBait && !isRod && !isBoat) {
+                                info.category = 'أخرى'; // أي شيء ثاني ينطرد
+                            }
+                        }
+
+                        return { ...info, quantity: row.quantity, id: itemId };
+                    });
+
+                    // 3. إضافة السنارة والقارب لقسم الصيد من جدول الـ user_fishing
+                    if (cat === 'صيد') {
+                        let fishRes = await db.query(`SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
+                        if(!fishRes?.rows?.[0]) fishRes = await db.query(`SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2 LIMIT 1`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
+                        
+                        const fishingStats = fishRes?.rows?.[0];
+                        if (fishingStats) {
+                            const cRod = fishingStats.currentRod || fishingStats.currentrod;
+                            const cBoat = fishingStats.currentBoat || fishingStats.currentboat;
+                            
+                            if (cRod) tempItems.unshift({ id: 'current_rod', name: `سنارة ${cRod}`, emoji: '🎣', category: 'صيد', rarity: 'Rare', quantity: 1, imgPath: `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/${cRod.toLowerCase()}.png` });
+                            if (cBoat) tempItems.unshift({ id: 'current_boat', name: `قارب ${cBoat}`, emoji: '🚤', category: 'صيد', rarity: 'Epic', quantity: 1, imgPath: `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/${cBoat.toLowerCase()}.png` });
+                        }
+                    }
+                    fetchedItems = tempItems.filter(it => it.category === cat);
+                } catch(e) { console.error(e); }
+                return fetchedItems;
+            };
 
             const renderView = async () => {
                 let levelData = null;
@@ -284,7 +344,8 @@ module.exports = {
                             new ButtonBuilder().setCustomId(`d_back_${authorUser.id}`).setLabel('العـودة').setStyle(ButtonStyle.Danger).setEmoji('↩️')
                         );
                         
-                        if (targetUser.id === authorUser.id) {
+                        // لا يمكنك إرسال السنارة أو القارب لأنها أغراض غير قابلة للمبادلة
+                        if (targetUser.id === authorUser.id && !['current_rod', 'current_boat'].includes(activeItemDetails.id)) {
                             btnRow.addComponents(new ButtonBuilder().setCustomId(`trade_init_${authorUser.id}`).setLabel('إعـطـاء').setStyle(ButtonStyle.Primary).setEmoji('🎁'));
                         }
 
@@ -298,7 +359,7 @@ module.exports = {
                     let items = [];
                     let totalValue = 0;
 
-                    // 🔥 قسم الممتلكات (Market Portfolio) 🔥
+                    // 🔥 قسم الممتلكات 🔥
                     if (invCategory === 'market') {
                         let portfolio = [];
                         let dbMarketRes = { rows: [] };
@@ -353,34 +414,8 @@ module.exports = {
                     } 
                     // 🔥 باقي أقسام الحقيبة العادية والفلتر الجذري للأسماك 🔥
                     else {
-                        try {
-                            const invQuery = await db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
-                            
-                            items = (invQuery?.rows || []).map(row => {
-                                const itemId = row.itemID || row.itemid;
-                                const info = resolveItemInfoLocal(itemId);
-                                
-                                // 🔥 فلتر إجباري مدرّع للأسماك 🔥
-                                // أي عنصر يحتوي على كلمة fish يُنقل إجبارياً إلى الموارد.
-                                if (itemId.toLowerCase().includes('fish')) {
-                                    info.category = 'موارد';
-                                }
-                                
-                                // توحيد الأسماء الإنجليزية للعربية حتى تتطابق مع القوائم
-                                if (info.category === 'materials') info.category = 'موارد';
-                                if (info.category === 'fishing' || info.category === 'fishing_gear') info.category = 'صيد';
-                                if (info.category === 'farming') info.category = 'مزرعة';
-                                if (info.category === 'potions' || info.category === 'others') info.category = 'أخرى';
+                        items = await getNormalInventoryItems(invCategory);
 
-                                // تنظيف أخير: أي شيء في قسم الصيد وليس طعماً أو صنارة يُنقل للموارد!
-                                if (info.category === 'صيد' && !itemId.toLowerCase().includes('bait') && !itemId.toLowerCase().includes('rod') && !itemId.toLowerCase().includes('boat')) {
-                                    info.category = 'موارد';
-                                }
-
-                                return { ...info, quantity: row.quantity, id: itemId };
-                            }).filter(i => i.category === invCategory);
-                        } catch(e) {}
-                        
                         const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
                         const slice = items.slice((invPage-1)*ITEMS_PER_PAGE, invPage*ITEMS_PER_PAGE);
 
@@ -620,22 +655,8 @@ module.exports = {
                                 items.push({ ...info, quantity, id: itemID });
                             }
                         } else {
-                            const invQuery = await db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
-                            items = (invQuery?.rows || []).map(row => {
-                                const itemId = row.itemID || row.itemid;
-                                const info = resolveItemInfoLocal(itemId);
-                                
-                                if (itemId.toLowerCase().includes('fish')) info.category = 'موارد';
-                                if (info.category === 'materials') info.category = 'موارد';
-                                if (info.category === 'fishing' || info.category === 'fishing_gear') info.category = 'صيد';
-                                if (info.category === 'farming') info.category = 'مزرعة';
-                                if (info.category === 'potions' || info.category === 'others') info.category = 'أخرى';
-                                if (info.category === 'صيد' && !itemId.toLowerCase().includes('bait') && !itemId.toLowerCase().includes('rod') && !itemId.toLowerCase().includes('boat')) {
-                                    info.category = 'موارد';
-                                }
-
-                                return { ...info, quantity: row.quantity, id: itemId };
-                            }).filter(it => it.category === invCategory);
+                            // نستخدم الفنكشن الخارقة بدل القراءة المباشرة عشان تشتغل التفاصيل (OK Button) بذكاء
+                            items = await getNormalInventoryItems(invCategory);
                         }
 
                         const slice = items.slice((invPage-1)*ITEMS_PER_PAGE, invPage*ITEMS_PER_PAGE);
