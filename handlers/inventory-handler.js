@@ -49,7 +49,7 @@ function buildDictionary() {
         }
     }
     
-    // 🔥 التعديل هنا: نقل الأسماك لقسم materials بدل fishing عشان ما تزحم قسم الصيد 🔥
+    // نقل الأسماك لقسم materials بدل fishing عشان ما تزحم قسم الصيد
     if (fishData && Array.isArray(fishData)) {
         for (const fish of fishData) {
             ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'materials', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
@@ -136,25 +136,27 @@ async function getInventoryCategories(db, userId, guildId) {
     // 🔥 إضافة معدات الصيد (السنارة والقارب) لقسم الصيد مباشرة 🔥
     if (fishingStats) {
         if (fishingStats.currentRod || fishingStats.currentrod) {
+            const rodName = fishingStats.currentRod || fishingStats.currentrod;
             categories.fishing.push({
                 id: 'current_rod',
-                name: `سنارة ${fishingStats.currentRod || fishingStats.currentrod}`,
+                name: `سنارة ${rodName}`,
                 emoji: '🎣',
                 category: 'fishing',
                 rarity: 'Rare',
-                quantity: 1, // سنارة واحدة مجهزة
-                imgPath: `images/fishing/rods/${(fishingStats.currentRod || fishingStats.currentrod).toLowerCase()}.png`
+                quantity: 1, 
+                imgPath: `images/fish/fishing/${rodName.toLowerCase().replace(' ', '_')}.png` // تصحيح مسار الصورة
             });
         }
         if (fishingStats.currentBoat || fishingStats.currentboat) {
+            const boatName = fishingStats.currentBoat || fishingStats.currentboat;
             categories.fishing.push({
                 id: 'current_boat',
-                name: `قارب ${fishingStats.currentBoat || fishingStats.currentboat}`,
+                name: `قارب ${boatName}`,
                 emoji: '🛶',
                 category: 'fishing',
                 rarity: 'Epic',
-                quantity: 1, // قارب واحد مجهز
-                imgPath: `images/fishing/boats/${(fishingStats.currentBoat || fishingStats.currentboat).toLowerCase()}.png`
+                quantity: 1, 
+                imgPath: `images/fish/ships/${boatName.toLowerCase().replace(' ', '_')}.png` // تصحيح مسار الصورة
             });
         }
     }
@@ -165,6 +167,9 @@ async function getInventoryCategories(db, userId, guildId) {
         const quantity = Number(row.quantity) || 0;
         
         if (quantity <= 0) continue;
+        
+        // 🔥 التعديل السحري هنا: تجاهل صناديق القاتشا من العرض في الحقيبة العادية 🔥
+        if (itemId === 'gacha_chest' || itemId === 'free_gacha_chest') continue;
         
         const itemInfo = resolveItemInfo(itemId);
         
