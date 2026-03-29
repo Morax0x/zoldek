@@ -307,6 +307,9 @@ module.exports = {
 
         let finalComponents = [];
         if (startTab !== 'shop') {
+            if (initialData.components && Array.isArray(initialData.components)) {
+                finalComponents.push(...initialData.components);
+            }
             if (initialData.actionRow) finalComponents.push(initialData.actionRow);
             if (initialData.paginationRow) finalComponents.push(initialData.paginationRow);
             finalComponents.push(getNavRow(startTab));
