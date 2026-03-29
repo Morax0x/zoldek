@@ -7,6 +7,17 @@ const marketItems = require('../../json/market-items.json');
 const questsConfig = require('../../json/quests-config.json');
 const weaponsConfig = require('../../json/weapons-config.json');
 const skillsConfig = require('../../json/skills-config.json');
+const upgradeMats = require('../../json/upgrade-materials.json'); // 🔥 تم إضافة موارد التطوير والأرتيفاكت والكتب
+
+let potionsConfig = [];
+try { potionsConfig = require('../../json/potions.json'); } catch(e){}
+
+let fishingConfig = {};
+let validBaitIDs = ['worm', 'cricket', 'shrimp', 'squid', 'magic'];
+try { 
+    fishingConfig = require('../../json/fishing-config.json'); 
+    if (fishingConfig.baits) validBaitIDs = fishingConfig.baits.map(b => b.id);
+} catch(e){}
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const REAL_MARKET_IDS = ['APPLE', 'ANDROID', 'TESLA', 'GOLD', 'LAND', 'BITCOIN', 'SPACEX', 'SILVER', 'ART'];
@@ -165,8 +176,8 @@ module.exports = {
                     { label: '🗳️ فرص التزكية', value: 'rep_chances', description: 'منح فرص تصويت (تزكية) إضافية لليوم', emoji: '🗳️' },
                     { label: '🎟️ إدارة التذاكر', value: 'tickets', emoji: '🎟️' },
                     { label: '⛺ منح خيمة (دانجون)', value: 'dungeon_tent', description: 'تحديد طابق الحفظ في الدانجون', emoji: '⛺' },
-                    { label: '🎒 إدارة العناصر', value: 'items', description: 'إعطاء/سحب الأغراض (حيوانات، أسهم، بذور، أعلاف)', emoji: '🎒' },
-                    { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', description: 'تغيير لفل السلاح أو المهارة', emoji: '⚔️' },
+                    { label: '🎒 إدارة العناصر', value: 'items', description: 'إعطاء/سحب (صناديق، كتب، أرتيفاكت، حيوانات)', emoji: '🎒' },
+                    { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', description: 'تغيير لفل السلاح أو المهارة بدقة', emoji: '⚔️' },
                     { label: '🗑️ تصفير الأسلحة والمهارات', value: 'reset_combat', description: 'مسح جميع مهارات وأسلحة اللاعب بالكامل', emoji: '🗑️' },
                     { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', description: 'تغيير السنارة، القارب، أو موقع الشاطئ', emoji: '🎣' }, 
                     { label: '🛡️ إعطاء درع ميديا', value: 'media_shield', emoji: '🛡️' },
@@ -561,10 +572,10 @@ module.exports = {
             }
             else if (val === 'combat_gear') {
                 const modalId = `mod_gear_${Date.now()}`;
-                const modal = new ModalBuilder().setCustomId(modalId).setTitle('تعديل معدات القتال');
+                const modal = new ModalBuilder().setCustomId(modalId).setTitle('تعديل معدات القتال بذكاء');
                 const typeInput = new TextInputBuilder().setCustomId('gear_type').setLabel('النوع (سلاح / مهارة)').setStyle(TextInputStyle.Short).setRequired(true);
-                const nameInput = new TextInputBuilder().setCustomId('gear_name').setLabel('اسم المهارة (اتركه فارغاً إذا كان سلاحاً)').setStyle(TextInputStyle.Short).setRequired(false);
-                const levelInput = new TextInputBuilder().setCustomId('gear_level').setLabel('المستوى الجديد (أرقام فقط)').setStyle(TextInputStyle.Short).setRequired(true);
+                const nameInput = new TextInputBuilder().setCustomId('gear_name').setLabel('اسم المهارة (أو اسم العرق لتعديل السلاح)').setStyle(TextInputStyle.Short).setRequired(false);
+                const levelInput = new TextInputBuilder().setCustomId('gear_level').setLabel('المستوى الجديد (أرقام فقط - 0 للحذف)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(nameInput), new ActionRowBuilder().addComponents(levelInput));
                 await interaction.showModal(modal);
 
@@ -580,11 +591,24 @@ module.exports = {
 
                     let successMessage = "";
 
+                    // 🔥 نظام ذكي ودقيق جداً للأسلحة 🔥
                     if (type.includes('سلاح')) {
-                        const userRace = await getUserRace(targetMember, db);
-                        if (!userRace) return modalSubmit.editReply({ content: "❌ هذا اللاعب لا يمتلك أي عرق حالياً، لا يمكن ترقية سلاحه! أعطه رتبة عرق أولاً." });
+                        let raceName = null;
                         
-                        const raceName = userRace.raceName || userRace.racename;
+                        // إذا الإدمن كتب اسم العرق في الحقل (عشان يعطيه سلاح عرق مختلف)
+                        if (name && name.trim().length > 1) {
+                            const searchRace = normalize(name);
+                            const foundConf = weaponsConfig.find(w => normalize(w.race).includes(searchRace));
+                            if (foundConf) raceName = foundConf.race;
+                        }
+                        
+                        // إذا ما كتب شيء، ناخذ عرقه الحالي بالديسكورد
+                        if (!raceName) {
+                            const userRace = await getUserRace(targetMember, db);
+                            if (userRace) raceName = userRace.raceName || userRace.racename;
+                        }
+                        
+                        if (!raceName) return modalSubmit.editReply({ content: "❌ لم يتم تحديد عرق للبحث، وهذا اللاعب لا يمتلك رتبة عرق حالياً. يرجى كتابة اسم العرق في حقل 'الاسم'." });
 
                         if (level === 0) {
                             try { await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [userID, guildID, raceName]); }
@@ -596,33 +620,37 @@ module.exports = {
                             } catch(e) {
                                 await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4) ON CONFLICT (userid, guildid, racename) DO UPDATE SET weaponlevel = EXCLUDED.weaponlevel`, [userID, guildID, raceName, level]).catch(()=>{});
                             }
-                            successMessage = `✅ تم ضبط مستوى سلاح (${raceName}) لـ ${targetUser} إلى **Lv.${level}**.`;
+                            successMessage = `✅ تم إعطاء / ضبط مستوى سلاح (${raceName}) لـ ${targetUser} ليصبح **Lv.${level}**.`;
                         }
                     } 
+                    // 🔥 نظام ذكي ودقيق للبحث عن المهارات 🔥
                     else if (type.includes('مهارة') || type.includes('مهاره')) {
-                        if (!name) return modalSubmit.editReply({ content: "❌ يرجى كتابة اسم المهارة أو أي تلميح للبحث عنها." });
+                        if (!name) return modalSubmit.editReply({ content: "❌ يرجى كتابة اسم المهارة." });
                         
                         const searchName = normalize(name);
-                        const foundSkill = skillsConfig.find(s => normalize(s.name).includes(searchName) || s.id.toLowerCase().includes(searchName));
+                        // التطابق التام أولاً
+                        let foundSkill = skillsConfig.find(s => normalize(s.name) === searchName || s.id.toLowerCase() === name.toLowerCase().trim());
+                        // إذا لم يجد تطابق تام، يبحث بجزء من النص
+                        if (!foundSkill) foundSkill = skillsConfig.find(s => normalize(s.name).includes(searchName));
                         
-                        if (!foundSkill) return modalSubmit.editReply({ content: `❌ لم أتمكن من العثور على مهارة تطابق كلمة: "${name}"` });
+                        if (!foundSkill) return modalSubmit.editReply({ content: `❌ لم أتمكن من العثور على مهارة تطابق: "${name}"` });
                         
                         const skillId = foundSkill.id;
 
                         if (level === 0) {
                             try { await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [userID, guildID, skillId]); }
                             catch(e) { await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [userID, guildID, skillId]).catch(()=>{}); }
-                            successMessage = `✅ تم إزالة المهارة (${foundSkill.name}) لـ ${targetUser}.`;
+                            successMessage = `✅ تم سحب المهارة (${foundSkill.name}) من ${targetUser}.`;
                         } else {
                             try {
                                 await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "skillID") DO UPDATE SET "skillLevel" = EXCLUDED."skillLevel"`, [userID, guildID, skillId, level]);
                             } catch(e) {
                                 await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4) ON CONFLICT (userid, guildid, skillid) DO UPDATE SET skilllevel = EXCLUDED.skilllevel`, [userID, guildID, skillId, level]).catch(()=>{});
                             }
-                            successMessage = `✅ تم ضبط مستوى مهارة (${foundSkill.name}) لـ ${targetUser} إلى **Lv.${level}**.`;
+                            successMessage = `✅ تم إعطاء / ضبط مستوى مهارة (${foundSkill.name}) لـ ${targetUser} لتصبح **Lv.${level}**.`;
                         }
                     } else {
-                        return modalSubmit.editReply({ content: "❌ نوع غير معروف. استخدم (سلاح / مهارة)." });
+                        return modalSubmit.editReply({ content: "❌ نوع غير معروف. اكتب (سلاح) أو (مهارة)." });
                     }
 
                     const summaryEmbed = await getGearSummaryEmbed(userID, guildID, db, targetUser);
@@ -678,10 +706,10 @@ module.exports = {
             }
             else if (val === 'items') {
                 const modalId = `mod_item_${Date.now()}`;
-                const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة العناصر');
+                const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة العناصر الشاملة');
                 const actionInput = new TextInputBuilder().setCustomId('itm_action').setLabel('الإجراء (اعطاء / ازالة)').setStyle(TextInputStyle.Short).setRequired(true);
-                const nameInput = new TextInputBuilder().setCustomId('itm_name').setLabel('اسم العنصر').setStyle(TextInputStyle.Short).setRequired(true);
-                const qtyInput = new TextInputBuilder().setCustomId('itm_qty').setLabel('الكمية').setStyle(TextInputStyle.Short).setRequired(true);
+                const nameInput = new TextInputBuilder().setCustomId('itm_name').setLabel('اسم العنصر أو الكود الدقيق').setStyle(TextInputStyle.Short).setRequired(true);
+                const qtyInput = new TextInputBuilder().setCustomId('itm_qty').setLabel('الكمية (أرقام فقط)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(actionInput), new ActionRowBuilder().addComponents(nameInput), new ActionRowBuilder().addComponents(qtyInput));
                 await interaction.showModal(modal);
 
@@ -693,8 +721,56 @@ module.exports = {
                     const name = modalSubmit.fields.getTextInputValue('itm_name');
                     const qty = parseInt(modalSubmit.fields.getTextInputValue('itm_qty')) || 1;
 
-                    const item = this.findItem(name);
-                    if (!item) return modalSubmit.editReply({ content: `❌ لم يتم العثور على عنصر باسم "${name}".\n*(تلميح: تأكد من كتابة اسم الحيوان، أو السهم، أو العلف بشكل صحيح).*` });
+                    // 🔥 دالة بحث شاملة في جميع الملفات للوصول لأي عنصر (بما فيها الأرتيفاكت وموارد التطوير) 🔥
+                    const findUniversalItem = (searchQuery) => {
+                        const input = normalize(searchQuery);
+                        const rawId = searchQuery.toLowerCase().trim();
+                        let found = null;
+
+                        found = shopItems.find(i => normalize(i.name) === input || i.id.toLowerCase() === rawId);
+                        if (found && !marketItems.some(m => m.id === found.id) && !farmAnimals.some(f => f.id === found.id)) return { ...found, type: 'inventory' };
+
+                        found = marketItems.find(i => normalize(i.name) === input || i.id.toLowerCase() === rawId);
+                        if (found) return { ...found, type: 'market' };
+
+                        found = farmAnimals.find(i => normalize(i.name) === input || String(i.id).toLowerCase() === rawId);
+                        if (found) return { ...found, type: 'farm' };
+
+                        found = seedsData.find(i => normalize(i.name) === input || String(i.id).toLowerCase() === rawId);
+                        if (found) return { ...found, type: 'inventory' };
+
+                        found = feedItems.find(i => normalize(i.name) === input || String(i.id).toLowerCase() === rawId);
+                        if (found) return { ...found, type: 'inventory' };
+
+                        if (potionsConfig.length) {
+                            found = potionsConfig.find(i => normalize(i.name) === input || i.id.toLowerCase() === rawId);
+                            if (found) return { ...found, type: 'inventory' };
+                        }
+
+                        if (upgradeMats.weapon_materials) {
+                            for (const race of upgradeMats.weapon_materials) {
+                                const mat = race.materials.find(m => normalize(m.name) === input || m.id.toLowerCase() === rawId);
+                                if (mat) return { ...mat, type: 'inventory' };
+                            }
+                        }
+                        
+                        if (upgradeMats.skill_books) {
+                            for (const cat of upgradeMats.skill_books) {
+                                const book = cat.books.find(b => normalize(b.name) === input || b.id.toLowerCase() === rawId);
+                                if (book) return { ...book, type: 'inventory' };
+                            }
+                        }
+
+                        if (fishingConfig.baits) {
+                            found = fishingConfig.baits.find(b => normalize(b.name) === input || b.id.toLowerCase() === rawId);
+                            if (found) return { ...found, type: 'inventory' };
+                        }
+
+                        return null;
+                    };
+
+                    const item = findUniversalItem(name);
+                    if (!item) return modalSubmit.editReply({ content: `❌ لم يتم العثور على عنصر يطابق: "${name}".\n*(تلميح: يمكنك استخدام الآيدي الخاص بالعنصر أو اسمه كاملاً. يدعم الأرتيفاكت والموارد أيضاً).*` });
 
                     if (action.includes('اعطاء') || action.includes('اضاف')) {
                         if (item.type === 'market') {
@@ -712,7 +788,8 @@ module.exports = {
                             const now = Date.now();
                             try { await db.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, item.id, qty, now, now]); }
                             catch(e) { await db.query(`INSERT INTO user_farm (guildid, userid, animalid, quantity, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, item.id, qty, now, now]).catch(()=>{}); }
-                        } else if (item.type === 'feed' || item.type === 'seed') {
+                        } else {
+                            // كل ما يندرج تحت inventory (بذور، أكل، صناديق، موارد، أرتيفاكت، كتب، جرع)
                             try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $4`, [guildID, userID, item.id, qty]); }
                             catch(e) { 
                                 let invItemRes = await db.query(`SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userID, guildID, item.id]).catch(()=>({rows:[]}));
@@ -723,7 +800,7 @@ module.exports = {
                                 }
                             }
                         }
-                        await modalSubmit.editReply({ content: `✅ تم إضافة **${qty}** × **${item.name}** لـ ${targetUser}.` });
+                        await modalSubmit.editReply({ content: `✅ تم إضافة **${qty}** × **${item.name}** إلى ${targetUser}.` });
                     } 
                     else if (action.includes('ازال') || action.includes('سحب')) {
                         if (item.type === 'market') {
@@ -732,7 +809,7 @@ module.exports = {
                         } else if (item.type === 'farm') {
                             try { await db.query(`UPDATE user_farm SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "animalID" = $4`, [qty, userID, guildID, item.id]); }
                             catch(e) { await db.query(`UPDATE user_farm SET quantity = GREATEST(0, quantity - $1) WHERE userid = $2 AND guildid = $3 AND animalid = $4`, [qty, userID, guildID, item.id]).catch(()=>{}); }
-                        } else if (item.type === 'feed' || item.type === 'seed') {
+                        } else {
                             try { await db.query(`UPDATE user_inventory SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [qty, userID, guildID, item.id]); }
                             catch(e) { await db.query(`UPDATE user_inventory SET quantity = GREATEST(0, quantity - $1) WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [qty, userID, guildID, item.id]).catch(()=>{}); }
                         }
@@ -980,26 +1057,5 @@ module.exports = {
         await client.setLevel({ ...client.defaultData, user: userID, guild: guildID });
 
         await interaction.editReply({ content: `☢️ **تم تصفير حساب ${targetUser} ومسح جميع بياناته بالكامل!**` });
-    },
-
-    findItem(nameOrID) {
-        const input = normalize(nameOrID);
-        
-        let item = shopItems.find(i => normalize(i.name) === input || i.id.toLowerCase() === nameOrID.toLowerCase());
-        if (item && !marketItems.some(m => m.id === item.id) && !farmAnimals.some(f => f.id === item.id)) return { ...item, type: 'shop_special' };
-        
-        item = marketItems.find(i => normalize(i.name) === input || i.id.toLowerCase() === nameOrID.toLowerCase());
-        if (item) return { ...item, type: 'market' };
-        
-        item = farmAnimals.find(i => normalize(i.name) === input || String(i.id).toLowerCase() === nameOrID.toLowerCase());
-        if (item) return { ...item, type: 'farm' };
-
-        item = seedsData.find(i => normalize(i.name) === input || String(i.id).toLowerCase() === nameOrID.toLowerCase());
-        if (item) return { ...item, type: 'seed' };
-
-        item = feedItems.find(i => normalize(i.name) === input || String(i.id).toLowerCase() === nameOrID.toLowerCase());
-        if (item) return { ...item, type: 'feed' };
-
-        return null;
     }
 };
