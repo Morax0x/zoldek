@@ -162,7 +162,6 @@ module.exports = {
                 invRes.rows.forEach(r => {
                     const id = r.itemID || r.itemid;
                     const qty = Number(r.quantity || r.Quantity) || 0;
-                    // 🔥 تصحيح ومنع السالب 🔥
                     if (id === 'free_gacha_chest') freeChests = Math.max(0, qty);
                     if (id === 'gacha_chest') paidChests = Math.max(0, qty);
                 });
@@ -204,7 +203,6 @@ module.exports = {
                     await db.query(`UPDATE user_gacha_pity SET "last_free_claim" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [todaySaudi, user.id, guildId]).catch(()=> db.query(`UPDATE user_gacha_pity SET last_free_claim = $1 WHERE userid = $2 AND guildid = $3`, [todaySaudi, user.id, guildId]));
                     pityData.last_free_claim = todaySaudi;
 
-                    // 🔥 تحديث الجملة لتشكر اللاعب لدعمه الإمبراطورية 🔥
                     (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).send({ content: `🎁 <@${user.id}> **مكافأة يومية!** لأنك أحد داعمي الإمبراطورية، لقد استلمت **${dailyLimit}** صناديق مجانية.` }).catch(()=>{});
                 }
             }
@@ -274,7 +272,6 @@ module.exports = {
             if (totalChests >= 10) {
                 row.addComponents(new ButtonBuilder().setCustomId('open_chest_10').setLabel('فتح 10').setEmoji('🌟').setStyle(ButtonStyle.Success));
             }
-            // 🔥 إزالة زر فتح الكل نهائياً 🔥
             
             row.addComponents(new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('رجوع').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
             
@@ -282,21 +279,21 @@ module.exports = {
         };
 
         const executePulls = async (pullCount, isBuying, cost) => {
+            // 🔥 الإصلاح الأساسي للخصم السليم 🔥
             if (isBuying) {
                 userMora -= cost;
-                await db.query(`UPDATE levels SET "mora" = GREATEST(CAST("mora" AS INTEGER) - $1, 0) WHERE "user" = $2 AND "guild" = $3`, [cost, user.id, guildId]).catch(() => db.query(`UPDATE levels SET mora = MAX(CAST(mora AS INTEGER) - $1, 0) WHERE userid = $2 AND guildid = $3`, [cost, user.id, guildId]).catch(()=>{}));
+                await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [cost, user.id, guildId]).catch(() => db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [cost, user.id, guildId]).catch(()=>{}));
             } else {
                 let remaining = pullCount;
                 let consumeFree = Math.min(freeChests, remaining);
                 remaining -= consumeFree;
                 let consumePaid = Math.min(paidChests, remaining);
                 
-                // 🔥 حماية لمنع السالب بـ GREATEST و MAX 🔥
                 if (consumeFree > 0) {
-                    await db.query(`UPDATE user_inventory SET "quantity" = GREATEST(CAST("quantity" AS INTEGER) - $1, 0) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, [consumeFree, user.id, guildId]).catch(() => db.query(`UPDATE user_inventory SET quantity = MAX(CAST(quantity AS INTEGER) - $1, 0) WHERE userid = $2 AND guildid = $3 AND itemid = 'free_gacha_chest'`, [consumeFree, user.id, guildId]).catch(()=>{}));
+                    await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, [consumeFree, user.id, guildId]).catch(() => db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'free_gacha_chest'`, [consumeFree, user.id, guildId]).catch(()=>{}));
                 }
                 if (consumePaid > 0) {
-                    await db.query(`UPDATE user_inventory SET "quantity" = GREATEST(CAST("quantity" AS INTEGER) - $1, 0) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, [consumePaid, user.id, guildId]).catch(() => db.query(`UPDATE user_inventory SET quantity = MAX(CAST(quantity AS INTEGER) - $1, 0) WHERE userid = $2 AND guildid = $3 AND itemid = 'gacha_chest'`, [consumePaid, user.id, guildId]).catch(()=>{}));
+                    await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, [consumePaid, user.id, guildId]).catch(() => db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'gacha_chest'`, [consumePaid, user.id, guildId]).catch(()=>{}));
                 }
                 
                 freeChests = Math.max(0, freeChests - consumeFree);
@@ -361,7 +358,6 @@ module.exports = {
         if (!initialMsg) return;
         
         const channelCollector = (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).createMessageComponentCollector({
-            // 🔥 إزالة open_chest_all من الفلتر 🔥
             filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10'].includes(i.customId),
             time: 300000 
         });
@@ -395,7 +391,6 @@ module.exports = {
                 if (userMora < cost) return i.followUp({ content: "❌ لا تملك المورا الكافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             } else {
                 if (i.customId === 'open_chest_10') pullCount = 10;
-                // 🔥 حماية ضد المزعجين اللي يضغطون بسرعة بدون رصيد كافي 🔥
                 if (totalChests < pullCount) return i.followUp({ content: "❌ لا تملك صناديق كافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             }
 
@@ -412,7 +407,6 @@ module.exports = {
             
             await new Promise(r => setTimeout(r, 700));
 
-            // 🔥 توحيد النتيجة: لو سحب 10 (سواء بفلوس أو مجاني) يدخل هنا ويطلع له الصفحات 🔥
             if (pullCount > 1) {
                 let currentIndex = 0;
                 const getPagePayload = async (idx) => {
@@ -460,7 +454,6 @@ module.exports = {
                 });
 
             } else {
-                // سحب فردي فقط 1
                 let files = [];
                 if (generateGachaCard && bestResult && bestResult.item.imgPath) {
                     try {
