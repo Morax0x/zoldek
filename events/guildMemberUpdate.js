@@ -24,6 +24,43 @@ module.exports = {
         const userID = newMember.id;
 
         try {
+            // 🔥 [النظام السحري] - إعطاء السلاح والمهارة تلقائياً بمجرد استلام رتبة العرق 🔥
+            const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
+            if (addedRoles.size > 0) {
+                let raceRolesRes;
+                try { 
+                    raceRolesRes = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guildID]); 
+                } catch(e) { 
+                    raceRolesRes = await db.query(`SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [guildID]).catch(()=>({rows:[]})); 
+                }
+                
+                if (raceRolesRes && raceRolesRes.rows.length > 0) {
+                    for (const role of addedRoles.values()) {
+                        const matchedRace = raceRolesRes.rows.find(r => r.roleID === role.id || r.roleid === role.id);
+                        if (matchedRace) {
+                            const raceName = matchedRace.raceName || matchedRace.racename;
+                            
+                            // 1. إعطاء السلاح الخاص بالعرق بلفل 1 (بدون تصفير إذا كان يملكه سابقاً)
+                            try {
+                                await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1) ON CONFLICT ("userID", "guildID", "raceName") DO NOTHING`, [userID, guildID, raceName]);
+                            } catch(e) {
+                                await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1) ON CONFLICT (userid, guildid, racename) DO NOTHING`, [userID, guildID, raceName]).catch(()=>{});
+                            }
+
+                            // 2. إعطاء المهارة الخاصة بالعرق بلفل 1
+                            const raceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
+                            try {
+                                await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1) ON CONFLICT ("userID", "guildID", "skillID") DO NOTHING`, [userID, guildID, raceSkillId]);
+                            } catch(e) {
+                                await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1) ON CONFLICT (userid, guildid, skillid) DO NOTHING`, [userID, guildID, raceSkillId]).catch(()=>{});
+                            }
+                            
+                            console.log(`[Auto-Gear] Granted Level 1 Weapon & Skill for ${raceName} to ${newMember.user.username}`);
+                        }
+                    }
+                }
+            }
+
             if (oldMember.nickname !== newMember.nickname) {
                 if (recentNicknameUpdates.has(userID)) return;
 
