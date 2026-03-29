@@ -141,6 +141,7 @@ module.exports = {
             let selectedIndex = 0; 
             let activeItemDetails = null; 
 
+            // 🔥 فلترة الاختصارات (الكازينو) 🔥
             let commandTrigger = "";
             if (!isSlash) {
                 const firstWord = interactionOrMessage.content.trim().split(/ +/)[0].toLowerCase();
@@ -156,6 +157,7 @@ module.exports = {
                 invCategory = 'market';
             }
 
+            // 🔥 الدالة الخارقة لمعالجة الأغراض والفلترة الإجبارية 🔥
             const getNormalInventoryItems = async (cat) => {
                 let fetchedItems = [];
                 try {
@@ -267,6 +269,7 @@ module.exports = {
                     const profData = {
                         user: targetUser, displayName: cleanName, rankInfo, repPoints,
                         level: levelData.level, currentXP: Number(levelData.xp), requiredXP: calculateRequiredXP(levelData.level),
+                        // إخفاء المورا للضيوف على البروفايل
                         mora: (targetUser.id === TARGET_OWNER_ID && authorUser.id !== TARGET_OWNER_ID) ? "???" : totalMora.toLocaleString(),
                         raceName: arabicRaceName, weaponName, weaponDmg: weaponData?.currentDamage || 0,
                         maxHp: PROFILE_BASE_HP + (levelData.level * PROFILE_HP_PER_LEVEL), streakCount: streakData.streakCount || 0,
@@ -344,16 +347,13 @@ module.exports = {
                             btnRow.addComponents(new ButtonBuilder().setCustomId(`trade_init_${authorUser.id}`).setLabel('إعـطـاء').setStyle(ButtonStyle.Primary).setEmoji('🎁'));
                         }
 
-                        return {
-                            content: '',
-                            files: [new AttachmentBuilder(buffer, { name: 'item.png' })],
-                            components: [btnRow]
-                        };
+                        return { content: '', files: [new AttachmentBuilder(buffer, { name: 'item.png' })], components: [btnRow] };
                     }
 
                     let items = [];
                     let totalValue = 0;
 
+                    // 🔥 قسم الممتلكات 🔥
                     if (invCategory === 'market') {
                         let portfolio = [];
                         let dbMarketRes = { rows: [] };
@@ -391,18 +391,26 @@ module.exports = {
                         const totalPages = Math.max(1, Math.ceil(items.length / 9)); 
                         const slice = items.slice((invPage-1)*9, invPage*9);
 
-                        // 🔥 التوجيه الذكي للمؤشر: مستحيل يروح على فراغ 🔥
-                        if (slice.length > 0 && selectedIndex >= slice.length) {
-                            selectedIndex = slice.length - 1;
-                        } else if (slice.length === 0) {
-                            selectedIndex = 0;
-                        }
-
                         let buffer;
                         if (generatePortfolioCard) {
                             buffer = await generatePortfolioCard(cleanName, slice, invPage, totalPages, totalValue);
                         } else {
                             return { content: "❌ عذراً، مكتبة الرسم غير متاحة للممتلكات.", components: [] };
+                        }
+
+                        // 🔥 إذا كان القسم فارغاً: إخفاء أزرار التحكم وإظهار زر العودة فقط 🔥
+                        if (items.length === 0) {
+                            const rowBack = new ActionRowBuilder().addComponents(
+                                new ButtonBuilder().setCustomId(`cat_main_${authorUser.id}`).setLabel('العودة للرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Danger)
+                            );
+                            return { content: '', files: [new AttachmentBuilder(buffer, { name: 'portfolio.png' })], components: [rowBack] };
+                        }
+
+                        // التوجيه الذكي للمؤشر
+                        if (slice.length > 0 && selectedIndex >= slice.length) {
+                            selectedIndex = slice.length - 1;
+                        } else if (slice.length === 0) {
+                            selectedIndex = 0;
                         }
 
                         const row1 = new ActionRowBuilder().addComponents(
@@ -413,20 +421,29 @@ module.exports = {
 
                         return { content: '', files: [new AttachmentBuilder(buffer, { name: 'portfolio.png' })], components: [row1] };
                     } 
+                    // 🔥 باقي أقسام الحقيبة العادية 🔥
                     else {
                         items = await getNormalInventoryItems(invCategory);
 
                         const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
                         const slice = items.slice((invPage-1)*ITEMS_PER_PAGE, invPage*ITEMS_PER_PAGE);
 
-                        // 🔥 التوجيه الذكي للمؤشر: يمنع التحرك لمربعات فارغة 🔥
+                        const buffer = await generateInventoryCard(cleanName, invCategory, slice, invPage, totalPages, selectedIndex);
+
+                        // 🔥 إذا كان القسم فارغاً: إخفاء أزرار الأسهم وإظهار زر العودة فقط 🔥
+                        if (items.length === 0) {
+                            const rowBack = new ActionRowBuilder().addComponents(
+                                new ButtonBuilder().setCustomId(`cat_main_${authorUser.id}`).setLabel('العودة للرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Danger)
+                            );
+                            return { content: '', files: [new AttachmentBuilder(buffer, { name: 'i.png' })], components: [rowBack] };
+                        }
+
+                        // التوجيه الذكي للمؤشر
                         if (slice.length > 0 && selectedIndex >= slice.length) {
                             selectedIndex = slice.length - 1;
                         } else if (slice.length === 0) {
                             selectedIndex = 0;
                         }
-
-                        const buffer = await generateInventoryCard(cleanName, invCategory, slice, invPage, totalPages, selectedIndex);
 
                         const row1 = new ActionRowBuilder().addComponents(
                             new ButtonBuilder().setCustomId(`d_l2_${authorUser.id}`).setEmoji('⏪').setStyle(ButtonStyle.Secondary),
@@ -607,25 +624,16 @@ module.exports = {
                     return i.reply({ content: '❌ لا يمكنك التحكم في حقيبة غيرك!', flags: [MessageFlags.Ephemeral] });
                 }
 
-                // 🔥 التنقل الذكي بين الأقسام (يمنعك تدخل قسم فارغ) 🔥
+                // 🔥 الدخول للأقسام مسموح دائماً ليرى الصورة الفارغة 🔥
                 if (id.startsWith('c_') || id.startsWith('v_port_')) {
                     await i.deferUpdate();
-                    let targetCat = '';
-                    if (id.startsWith('c_mat_')) targetCat = 'موارد';
-                    else if (id.startsWith('c_fis_')) targetCat = 'صيد';
-                    else if (id.startsWith('c_far_')) targetCat = 'مزرعة';
-                    else if (id.startsWith('c_oth_')) targetCat = 'أخرى';
-                    else if (id.startsWith('v_port_')) targetCat = 'market';
-
-                    if (targetCat === 'market') {
-                        let portRes = await db.query(`SELECT 1 FROM user_portfolio WHERE "guildID" = $1 AND "userID" = $2 LIMIT 1`, [guildId, targetUser.id]).catch(()=>({rows:[]}));
-                        if (portRes.rows.length === 0) return i.followUp({ content: `❌ عذراً، لا توجد لديك أي ممتلكات استثمارية حالياً!`, flags: [MessageFlags.Ephemeral] });
-                        currentView = 'inventory'; invCategory = 'market'; invPage = 1; selectedIndex = 0; activeItemDetails = null;
-                    } else if (targetCat) {
-                        const checkItems = await getNormalInventoryItems(targetCat);
-                        if (checkItems.length === 0) return i.followUp({ content: `❌ قسم **${targetCat}** فارغ تماماً!`, flags: [MessageFlags.Ephemeral] });
-                        currentView = 'inventory'; invCategory = targetCat; invPage = 1; selectedIndex = 0; activeItemDetails = null;
-                    }
+                    if (id.startsWith('c_mat_')) { currentView = 'inventory'; invCategory = 'موارد'; }
+                    else if (id.startsWith('c_fis_')) { currentView = 'inventory'; invCategory = 'صيد'; }
+                    else if (id.startsWith('c_far_')) { currentView = 'inventory'; invCategory = 'مزرعة'; }
+                    else if (id.startsWith('c_oth_')) { currentView = 'inventory'; invCategory = 'أخرى'; }
+                    else if (id.startsWith('v_port_')) { currentView = 'inventory'; invCategory = 'market'; }
+                    
+                    invPage = 1; selectedIndex = 0; activeItemDetails = null;
                 }
                 else if (id.startsWith('v_inv_')) { await i.deferUpdate(); currentView = 'inventory'; invCategory = 'main'; selectedIndex = 0; activeItemDetails = null; }
                 else if (id.startsWith('v_com_')) { await i.deferUpdate(); currentView = 'combat'; skillPage = 0; activeItemDetails = null; }
@@ -653,15 +661,49 @@ module.exports = {
                     else if (moveType === 'd2') { selectedIndex = ((row + 2) % 3) * 5 + col; }
                     else if (moveType === 'u2') { selectedIndex = ((row - 2 + 3) % 3) * 5 + col; }
                     else if (moveType === 'ok') {
-                        // الكود الذكي الآن يضمن أن المؤشر لا يقف على فراغ، لذا الزر سيعمل دائماً
-                        activeItemDetails = true; // مجرد تفعيل لإعادة الريندر والتفاصيل ستظهر من slice
+                        // جلب العناصر للتأكد من المربع المحدد
+                        let items = [];
+                        if (invCategory === 'market') {
+                            const [portfolioRes, dbMarketRes] = await Promise.all([
+                                db.query(`SELECT * FROM user_portfolio WHERE "guildID" = $1 AND "userID" = $2`, [guildId, targetUser.id]).catch(() => db.query(`SELECT * FROM user_portfolio WHERE guildid = $1 AND userid = $2`, [guildId, targetUser.id]).catch(()=>({rows:[]}))),
+                                db.query("SELECT * FROM market_items").catch(()=>({rows:[]}))
+                            ]);
+                            const portfolio = portfolioRes?.rows || [];
+                            const market = new Map(marketConfig.map(item => [item.id, item]));
+                            let dbMarketPrices = new Map((dbMarketRes?.rows || []).map(row => [row.id, Number(row.currentPrice || row.currentprice)]));
+
+                            for (const row of portfolio) {
+                                const itemID = row.itemID || row.itemid;
+                                const marketItem = market.get(itemID);
+                                if (!marketItem) continue;
+                                let currentPrice = dbMarketPrices.has(itemID) ? dbMarketPrices.get(itemID) : marketItem.price;
+                                const quantity = Number(row.quantity) || 0;
+                                if (quantity <= 0) continue;
+                                let purchasePrice = Number(row.purchasePrice || row.purchaseprice) || 0;
+                                const info = resolveItemInfoLocal(itemID);
+                                
+                                info.description = `${info.description || ''}\n\n📊 السعر الحالي: ${currentPrice.toLocaleString()} 🪙\n💰 سعر الشراء: ${purchasePrice.toLocaleString()} 🪙\n💎 القيمة الإجمالية: ${(currentPrice * quantity).toLocaleString()} 🪙`;
+                                items.push({ ...info, quantity, id: itemID });
+                            }
+                        } else {
+                            items = await getNormalInventoryItems(invCategory);
+                        }
+
+                        const perPage = invCategory === 'market' ? 9 : ITEMS_PER_PAGE;
+                        const slice = items.slice((invPage-1)*perPage, invPage*perPage);
+                        
+                        if (slice[selectedIndex]) {
+                            activeItemDetails = slice[selectedIndex];
+                        } else {
+                            return i.followUp({ content: `❌ هذا المربع فارغ يا عزيزي.`, flags: [MessageFlags.Ephemeral] });
+                        }
                     }
                 }
                 
                 await msg.edit(await renderView());
             });
 
-            // 🔥 الإغلاق التلقائي ومسح الأزرار بعد 5 دقائق 🔥
+            // 🔥 مسح الأزرار بعد 5 دقائق 🔥
             collector.on('end', () => {
                 if(msg && msg.editable) {
                     msg.edit({ components: [] }).catch(() => null);
