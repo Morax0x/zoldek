@@ -10,7 +10,7 @@ const {
 
 const { EMOJI_MORA, EMOJI_XP } = require('../constants');
 const { getBaseFloorMora, manageCampfires } = require('../utils');
-const { snapshotLootAtFloor20, handleMemberRetreat } = require('../core/rewards');
+const { snapshotLootAtFloor20, handleMemberRetreat, safeUpdateRepAndChests } = require('../core/rewards');
 const { handleLeaderSuccession } = require('../core/battle-utils');
 
 async function applyPostBattleUpdates(players, floor, threadChannel, totals) {
@@ -56,8 +56,8 @@ async function applyPostBattleUpdates(players, floor, threadChannel, totals) {
     });
 }
 
-// 🔥 إصلاح السمعة: الحساب التراكمي يبدأ دائماً من الطابق 1 🔥
-function calculateAccumulatedRep(currentFloor) {
+// 🔥 إصلاح السمعة والصناديق: الحساب التراكمي يبدأ من نقطة بداية الجلسة الفعلية 🔥
+function calculateSessionLoot(sessionStartFloor, currentFloor) {
     const repMilestones = {
         20: 1, 30: 1, 35: 1, 40: 1, 45: 1, 50: 1,
         55: 2, 60: 2, 65: 3, 70: 3, 75: 4, 
@@ -65,13 +65,14 @@ function calculateAccumulatedRep(currentFloor) {
     };
 
     let totalRep = 0;
-    // الحساب يبدأ من 1 دائماً حتى لو استخدم خيمة، لأنه قطع هذه الطوابق مسبقاً
-    for (let f = 1; f <= currentFloor; f++) {
-        if (repMilestones[f]) {
-            totalRep += repMilestones[f];
-        }
+    let totalChests = 0;
+
+    for (let f = sessionStartFloor; f <= currentFloor; f++) {
+        if (repMilestones[f]) totalRep += repMilestones[f];
+        if (f % 10 === 0) totalChests++; // صندوق لكل 10 طوابق
     }
-    return totalRep;
+    
+    return { rep: totalRep, chests: totalChests };
 }
 
 async function handleRestMenu(context) {
@@ -80,16 +81,23 @@ async function handleRestMenu(context) {
         totalAccumulatedCoins, totalAccumulatedXP, 
         threadChannel, db, guild, log,
         theme, 
-        restImage 
+        restImage,
+        sessionStartFloor // استلام رقم الطابق اللي بدأت منه هذه الجلسة
     } = context;
 
-    // 🔥 استدعاء الحساب الصحيح التراكمي للسمعة
-    const currentRep = calculateAccumulatedRep(floor);
+    // تحديد نقطة البداية الفعالة (لو مو موجودة نعتبرها 1)
+    const startFloor = sessionStartFloor || 1;
+
+    // 🔥 استدعاء الحساب الخاص بهذه الجلسة فقط 🔥
+    const sessionLoot = calculateSessionLoot(startFloor, floor);
     
-    let restDesc = `✶ نجحتـم في تصفية الطابق الـ: **${floor}**\n✶ تم استعادة صحة المغامرين بنسبة **%30**\n\n**✶ الغنـائـم المتراكمة:**\n✬ Mora: **${totalAccumulatedCoins.toLocaleString()}** ${EMOJI_MORA}\n✬ XP: **${totalAccumulatedXP.toLocaleString()}** ${EMOJI_XP}`;
+    let restDesc = `✶ نجحتـم في تصفية الطابق الـ: **${floor}**\n✶ تم استعادة صحة المغامرين بنسبة **%30**\n\n**✶ الغنـائـم المتراكمة لهذه الجلسة:**\n✬ Mora: **${totalAccumulatedCoins.toLocaleString()}** ${EMOJI_MORA}\n✬ XP: **${totalAccumulatedXP.toLocaleString()}** ${EMOJI_XP}`;
     
-    if (currentRep > 0) {
-        restDesc += `\n✬ REP: **${currentRep}** 🌟`;
+    if (sessionLoot.rep > 0) {
+        restDesc += `\n🌟 REP: **${sessionLoot.rep}**`;
+    }
+    if (sessionLoot.chests > 0) {
+        restDesc += `\n🎁 صناديق القاتشا: **${sessionLoot.chests}**`;
     }
 
     const restRow = new ActionRowBuilder().addComponents(
@@ -190,11 +198,19 @@ async function handleRestMenu(context) {
                         retreatedPlayers.push(leavingPlayer);
                         players.splice(pIndex, 1); 
                         
-                        let repMsg = "";
-                        const pRep = calculateAccumulatedRep(floor); // 🔥 حساب السمعة الصحيح
-                        if (pRep > 0) repMsg = ` و **${pRep}** 🌟 سمعة`;
+                        let extraMsg = "";
+                        // 🔥 حساب وتوزيع السمعة والصناديق الفعلي للمنسحب بناءً على جلسته فقط 🔥
+                        const pSessionLoot = calculateSessionLoot(startFloor, floor);
+                        if (pSessionLoot.rep > 0) extraMsg += ` و **${pSessionLoot.rep}** 🌟 سمعة`;
+                        if (pSessionLoot.chests > 0) extraMsg += ` و **${pSessionLoot.chests}** 🎁 صندوق`;
 
-                        await i.reply({ content: `👋 **انسحبت!** وحصلت على: **${rewards.mora}** مورا و **${rewards.xp}** XP${repMsg}.`, flags: [MessageFlags.Ephemeral] });
+                        // نضمن أن الصناديق والسمعة دخلت في حسابه (safeUpdateRepAndChests مستدعاة من rewards.js)
+                        if (safeUpdateRepAndChests && db) {
+                            await safeUpdateRepAndChests(db, leavingPlayer.id, guild.id, pSessionLoot.rep, pSessionLoot.chests);
+                            leavingPlayer.repAndChestsClaimed = true;
+                        }
+
+                        await i.reply({ content: `👋 **انسحبت!** وحصلت على: **${rewards.mora}** مورا و **${rewards.xp}** XP${extraMsg}.`, flags: [MessageFlags.Ephemeral] });
                         await threadChannel.send(`💨 **${leavingPlayer.name}** انسحب واكتفى بغنائمه!`).catch(()=>{});
                         
                         if (players.length === 0) decCollector.stop('retreat');
