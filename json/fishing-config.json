@@ -45,7 +45,7 @@
   "boats": [
     { "id": "boat_1", "level": 1, "name": "قـارب خـشيـبـي", "price": 0, "location_id": "beach", "speed_bonus": 0, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_1.png" },
     { "id": "boat_2", "level": 2, "name": "قـارب بـمحـرك", "price": 50000, "location_id": "shallow", "speed_bonus": 60000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_2.png" },
-    { "id": "boat_3", "level": 3, "name": "يـخـت الصيـد", "price": 10000, "location_id": "deep", "speed_bonus": 120000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_3.png" },
+    { "id": "boat_3", "level": 3, "name": "يـخـت الصيـد", "price": 100000, "location_id": "deep", "speed_bonus": 120000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_3.png" },
     { "id": "boat_4", "level": 4, "name": "سفيـنة", "price": 500000, "location_id": "bermuda", "speed_bonus": 180000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_4.png" },
     { "id": "boat_5", "level": 5, "name": "غـواصــة", "price": 150000, "location_id": "trench", "speed_bonus": 240000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_5.png" },
     { "id": "boat_6", "level": 6, "name": "غـواصــة أطلانتس", "price": 200000, "location_id": "atlantis", "speed_bonus": 300000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_6.png" },
