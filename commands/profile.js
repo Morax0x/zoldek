@@ -157,13 +157,17 @@ module.exports = {
                 invCategory = 'market';
             }
 
-            // 🔥 الدالة الخارقة لمعالجة الأغراض والفلترة الإجبارية 🔥
+            // 🔥 الدالة الخارقة لمعالجة الأغراض والفلترة الإجبارية للصناديق 🔥
             const getNormalInventoryItems = async (cat) => {
                 let fetchedItems = [];
                 try {
                     const invQuery = await db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
                     let tempItems = (invQuery?.rows || []).map(row => {
                         const itemId = row.itemID || row.itemid;
+                        
+                        // ❌ استبعاد الصناديق فوراً من العرض ❌
+                        if (itemId === 'gacha_chest' || itemId === 'free_gacha_chest') return null;
+
                         let info = resolveItemInfoLocal(itemId);
                         info = { ...info }; 
                         
@@ -187,7 +191,7 @@ module.exports = {
                         }
 
                         return { ...info, quantity: row.quantity, id: itemId };
-                    });
+                    }).filter(item => item !== null); // تنظيف الـ null
 
                     if (cat === 'صيد') {
                         let fishRes = await db.query(`SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, [targetUser.id, guildId]).catch(()=>({rows:[]}));
