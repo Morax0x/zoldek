@@ -226,8 +226,12 @@ module.exports = {
             await fetchUserData();
             const summaryRandomText = FLAVOR_TEXTS[Math.floor(Math.random() * FLAVOR_TEXTS.length)];
             let files = [];
-            // 🔥 تحديث لقراءة اسم اللاعب من السيرفر (displayName) 🔥
-            const userForImage = { ...user, displayName: member?.displayName || user.globalName || user.username };
+            
+            // 🔥 الكائن الآمن الذي يحافظ على دالة الصورة المدمجة في ديسكورد 🔥
+            const userForImage = {
+                displayName: member?.displayName || user.globalName || user.username,
+                displayAvatarURL: function(opts) { return user.displayAvatarURL(opts); }
+            };
             
             if (generateGachaHub) {
                 try {
@@ -236,17 +240,21 @@ module.exports = {
                 } catch(e){}
             }
             if (targetMsg) {
-                await targetMsg.edit({ components: [getPullButtons(userMora)], files, embeds: [] }).catch(()=>{});
+                await targetMsg.edit({ content: '', components: [getPullButtons(userMora)], files, embeds: [] }).catch(()=>{});
             } else {
-                return { components: [getPullButtons(userMora)], files };
+                return { content: '', components: [getPullButtons(userMora)], files };
             }
         };
 
         const showInventoryMenu = async (targetMsg) => {
             await fetchUserData();
             let files = [];
-            // 🔥 تحديث لقراءة اسم اللاعب من السيرفر (displayName) 🔥
-            const userForImage = { ...user, displayName: member?.displayName || user.globalName || user.username };
+            
+            // 🔥 الكائن الآمن الذي يحافظ على دالة الصورة المدمجة في ديسكورد 🔥
+            const userForImage = {
+                displayName: member?.displayName || user.globalName || user.username,
+                displayAvatarURL: function(opts) { return user.displayAvatarURL(opts); }
+            };
             
             if (global.generateGachaInventory || (typeof require !== 'undefined')) {
                 try {
@@ -272,7 +280,7 @@ module.exports = {
             
             row.addComponents(new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('رجوع').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
             
-            await targetMsg.edit({ embeds: [], components: [row], files }).catch(()=>{});
+            await targetMsg.edit({ content: '', embeds: [], components: [row], files }).catch(()=>{});
         };
 
         const executePulls = async (pullCount, isBuying, cost) => {
