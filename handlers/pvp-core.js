@@ -52,11 +52,13 @@ function cleanDisplayName(name) {
 
 async function getUserRace(member, db) {
     if (!member || !member.guild) return null;
-    const res = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [member.guild.id]);
-    const allRaceRoles = res.rows;
-    if (!member.roles || !member.roles.cache) return null;
-    const userRoleIDs = member.roles.cache.map(r => r.id);
-    return allRaceRoles.find(r => userRoleIDs.includes(r.roleID || r.roleid)) || null;
+    try {
+        const res = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [member.guild.id]);
+        const allRaceRoles = res.rows;
+        if (!member.roles || !member.roles.cache) return null;
+        const userRoleIDs = member.roles.cache.map(r => r.id);
+        return allRaceRoles.find(r => userRoleIDs.includes(r.roleID || r.roleid)) || null;
+    } catch(e) { return null; }
 }
 
 async function getWeaponData(db, member) {
@@ -66,29 +68,33 @@ async function getWeaponData(db, member) {
     const weaponConfig = weaponsConfig.find(w => w.race === raceName);
     if (!weaponConfig) return null;
     
-    const res = await db.query(`SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [member.id, member.guild.id, raceName]);
-    let userWeapon = res.rows[0];
-    if (!userWeapon || Number(userWeapon.weaponLevel || userWeapon.weaponlevel) <= 0) return null;
-    const damage = weaponConfig.base_damage + (weaponConfig.damage_increment * (Number(userWeapon.weaponLevel || userWeapon.weaponlevel) - 1));
-    return { ...weaponConfig, currentDamage: damage, currentLevel: Number(userWeapon.weaponLevel || userWeapon.weaponlevel) };
+    try {
+        const res = await db.query(`SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [member.id, member.guild.id, raceName]);
+        let userWeapon = res.rows[0];
+        if (!userWeapon || Number(userWeapon.weaponLevel || userWeapon.weaponlevel) <= 0) return null;
+        const damage = weaponConfig.base_damage + (weaponConfig.damage_increment * (Number(userWeapon.weaponLevel || userWeapon.weaponlevel) - 1));
+        return { ...weaponConfig, currentDamage: damage, currentLevel: Number(userWeapon.weaponLevel || userWeapon.weaponlevel) };
+    } catch(e) { return null; }
 }
 
 async function getAllSkillData(db, member) {
     const userRace = await getUserRace(member, db);
     const skillsOutput = {};
-    const res = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [member.id, member.guild.id]);
-    const userSkillsData = res.rows;
-      
-    if (userSkillsData) {
-        userSkillsData.forEach(userSkill => {
-            const skillConfig = skillsConfig.find(s => s.id === (userSkill.skillID || userSkill.skillid));
-            const skillLvl = Number(userSkill.skillLevel || userSkill.skilllevel);
-            if (skillConfig && skillLvl > 0) {
-                const effectValue = skillConfig.base_value + (skillConfig.value_increment * (skillLvl - 1));
-                skillsOutput[skillConfig.id] = { ...skillConfig, currentLevel: skillLvl, effectValue: effectValue };
-            }
-        });
-    }
+    try {
+        const res = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [member.id, member.guild.id]);
+        const userSkillsData = res.rows;
+          
+        if (userSkillsData) {
+            userSkillsData.forEach(userSkill => {
+                const skillConfig = skillsConfig.find(s => s.id === (userSkill.skillID || userSkill.skillid));
+                const skillLvl = Number(userSkill.skillLevel || userSkill.skilllevel);
+                if (skillConfig && skillLvl > 0) {
+                    const effectValue = skillConfig.base_value + (skillConfig.value_increment * (skillLvl - 1));
+                    skillsOutput[skillConfig.id] = { ...skillConfig, currentLevel: skillLvl, effectValue: effectValue };
+                }
+            });
+        }
+    } catch(e) {}
 
     if (userRace) {
         const raceName = userRace.raceName || userRace.racename;
@@ -102,17 +108,19 @@ async function getAllSkillData(db, member) {
 }
 
 async function getUserActiveSkill(db, userId, guildId) {
-    const res = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
-    const userSkills = res.rows;
-    if (userSkills.length > 0) {
-        const randomSkillData = userSkills[Math.floor(Math.random() * userSkills.length)];
-        const skillConfig = skillsConfig.find(s => s.id === (randomSkillData.skillID || randomSkillData.skillid));
-        if (skillConfig) {
-            const level = Number(randomSkillData.skillLevel || randomSkillData.skilllevel);
-            const power = skillConfig.base_value + (skillConfig.value_increment * (level - 1));
-            return { name: skillConfig.name, level: level, damage: power };
+    try {
+        const res = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        const userSkills = res.rows;
+        if (userSkills.length > 0) {
+            const randomSkillData = userSkills[Math.floor(Math.random() * userSkills.length)];
+            const skillConfig = skillsConfig.find(s => s.id === (randomSkillData.skillID || randomSkillData.skillid));
+            if (skillConfig) {
+                const level = Number(randomSkillData.skillLevel || randomSkillData.skilllevel);
+                const power = skillConfig.base_value + (skillConfig.value_increment * (level - 1));
+                return { name: skillConfig.name, level: level, damage: power };
+            }
         }
-    }
+    } catch(e) {}
     return null;
 }
 
@@ -225,7 +233,6 @@ function applySkillEffect(battleState, attackerId, skill) {
     if (attacker.effects.weaken > 0) baseAtk *= (1 - attacker.effects.weaken);
 
     switch (statType) {
-        
         case 'Gamble_Dmg': {
             if (Math.random() < 0.5) {
                 const minDmg = 777;
@@ -243,7 +250,6 @@ function applySkillEffect(battleState, attackerId, skill) {
                 return `🎲 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** خسر الرهان... خدش الخصم بـ **${failDmg}** وأذى نفسه بـ **${selfDmg}**!`;
             }
         }
-
         case 'Spirit_RNG': {
             const spiritDmg = Math.floor(baseAtk * 1.3);
             defender.hp -= spiritDmg;
@@ -262,7 +268,6 @@ function applySkillEffect(battleState, attackerId, skill) {
             } else { effectMsg = "(هجوم طيفي)"; }
             return `👻 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** أطلق طيفاً! سبب **${spiritDmg}** ضرر + ${effectMsg}`;
         }
-
         case 'TrueDMG_Burn': { 
             const burnDmgFixed = 50 + (skillLevel * 25);
             defender.effects.burn = burnDmgFixed;
@@ -271,7 +276,6 @@ function applySkillEffect(battleState, attackerId, skill) {
             defender.hp -= dmg;
             return `🐲 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** أحرق خصمه! (${dmg} ضرر + حرق ${burnDmgFixed})`;
         }
-
         case 'Cleanse_Buff_Shield': {
             attacker.effects.poison = 0; attacker.effects.poison_turns = 0;
             attacker.effects.burn = 0; attacker.effects.burn_turns = 0;
@@ -285,7 +289,6 @@ function applySkillEffect(battleState, attackerId, skill) {
             attacker.effects.buff_turns = 2;
             return `⚔️ **${attacker.isMonster ? attacker.name : attacker.member.displayName}** طهر نفسه واكتسب درعاً وقوة!`;
         }
-
         case 'Scale_MissingHP_Heal': {
             const missingHpPercent = (attacker.maxHp - attacker.hp) / attacker.maxHp;
             const extraDmg = Math.floor(baseAtk * missingHpPercent * 2);
@@ -295,7 +298,6 @@ function applySkillEffect(battleState, attackerId, skill) {
             attacker.hp = Math.min(attacker.maxHp, attacker.hp + healVal);
             return `⚖️ **${attacker.isMonster ? attacker.name : attacker.member.displayName}** عاقب خصمه بضرر متصاعد (${dmg}) وشفى نفسه!`;
         }
-
         case 'Sacrifice_Crit': {
             const selfDmg = Math.floor(attacker.maxHp * 0.10);
             attacker.hp -= selfDmg;
@@ -303,7 +305,6 @@ function applySkillEffect(battleState, attackerId, skill) {
             defender.hp -= dmg;
             return `👹 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** ضحى بدمه لتوجيه ضربة مدمرة (${dmg})!`;
         }
-
         case 'Stun_Vulnerable': {
             const dmg = Math.floor(baseAtk * 1.1);
             defender.hp -= dmg;
@@ -311,27 +312,22 @@ function applySkillEffect(battleState, attackerId, skill) {
             defender.effects.weaken = 0.5; defender.effects.weaken_turns = 2;
             return `🍃 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** شل حركة الخصم وجعله هشاً!`;
         }
-
         case 'Confusion': {
             const dmg = Math.floor(baseAtk * 1.2);
             defender.hp -= dmg;
             defender.effects.confusion = true; defender.effects.confusion_turns = 2;
             return `😵 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** أربك خصمه بلعنة الجنون!`;
         }
-
         case 'Lifesteal_Overheal': { 
             const dmg = Math.floor(baseAtk * 1.45); 
             defender.hp -= dmg;
-
             const bleedDmg = 50 + (skillLevel * 25);
             defender.effects.burn = bleedDmg;
             defender.effects.burn_turns = 2;
-
             const healVal = Math.floor(dmg * 0.5);
             const currentHp = attacker.hp || 0;
             const maxHp = attacker.maxHp || 100;
             const missingHp = maxHp - currentHp;
-
             if (healVal > missingHp) {
                 attacker.hp = maxHp;
                 const overflowShield = Math.floor((healVal - missingHp) * 0.5);
@@ -342,14 +338,12 @@ function applySkillEffect(battleState, attackerId, skill) {
                 return `🍷 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** امتص ${healVal} HP وسبب نزيفاً (${bleedDmg})!`;
             }
         }
-
         case 'Chaos_RNG': {
             const dmg = Math.floor(baseAtk * 1.2);
             defender.hp -= dmg;
             const randomEffect = Math.random();
             let effectMsg = "";
             const chaosVal = 50 + (skillLevel * 25);
-
             if (randomEffect < 0.25) {
                 defender.effects.burn = chaosVal; defender.effects.burn_turns = 3; effectMsg = "حرق";
             } else if (randomEffect < 0.50) {
@@ -361,27 +355,22 @@ function applySkillEffect(battleState, attackerId, skill) {
             }
             return `🌀 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** سبب فوضى (${effectMsg})!`;
         }
-
         case 'Dmg_Evasion': {
             const dmg = Math.floor(baseAtk * 1.3);
             defender.hp -= dmg;
             attacker.effects.evasion = 1; attacker.effects.evasion_turns = 1;
             return `👻 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** ضرب واختفى (مراوغة تامة)!`;
         }
-
         case 'Reflect_Tank': {
             attacker.effects.shield += Math.floor(attacker.maxHp * 0.2);
             attacker.effects.rebound_active = 0.4; attacker.effects.rebound_turns = 2;
             return `🔨 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** تحصن بالجبل (دفاع وعكس ضرر)!`;
         }
-
         case 'Execute_Heal': { 
             const dmg = Math.floor(baseAtk * 1.6);
-            
             const ghoulPoison = 50 + (skillLevel * 25);
             defender.effects.poison = ghoulPoison;
             defender.effects.poison_turns = 3;
-
             if (defender.hp - dmg <= 0) {
                 defender.hp = 0;
                 attacker.hp = Math.min(attacker.maxHp, attacker.hp + Math.floor(attacker.maxHp * 0.25));
@@ -390,18 +379,14 @@ function applySkillEffect(battleState, attackerId, skill) {
             defender.hp -= dmg;
             return `🧟 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** نهش خصمه وترك فيه سمّاً (${ghoulPoison})!`;
         }
-
         case 'Poison_Blade': { 
             const directDmg = Math.floor(baseAtk * 1.2); 
             defender.hp -= directDmg;
-            
             const poisonDmg = 50 + (skillLevel * 25); 
             defender.effects.poison = poisonDmg;
             defender.effects.poison_turns = 3;
-
             return `🐍 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** غرز نصل السموم! (${directDmg} ضرر + سم ${poisonDmg})`;
         }
-
         default:
             switch (skill.id) {
                 case 'skill_shielding': 
@@ -427,15 +412,9 @@ function applySkillEffect(battleState, attackerId, skill) {
                     return `📉 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** أضعف خصمه!`;
                 case 'skill_dispel':
                     defender.effects = { 
-                        shield: 0, buff: 0, buff_turns: 0, 
-                        weaken: 0, weaken_turns: 0, 
-                        poison: 0, poison_turns: 0, 
-                        rebound_active: 0, rebound_turns: 0, 
-                        penetrate: 0, burn: 0, burn_turns: 0, 
-                        stun: false, stun_turns: 0, 
-                        confusion: false, confusion_turns: 0, 
-                        evasion: 0, evasion_turns: 0, 
-                        blind: 0, blind_turns: 0 
+                        shield: 0, buff: 0, buff_turns: 0, weaken: 0, weaken_turns: 0, poison: 0, poison_turns: 0, 
+                        rebound_active: 0, rebound_turns: 0, penetrate: 0, burn: 0, burn_turns: 0, 
+                        stun: false, stun_turns: 0, confusion: false, confusion_turns: 0, evasion: 0, evasion_turns: 0, blind: 0, blind_turns: 0 
                     };
                     return `💨 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** بدد كل سحر الخصم!`;
                 case 'skill_cleanse':
@@ -486,85 +465,95 @@ function calculateDamage(attacker, defender, multiplier = 1) {
 }
 
 async function startPvpBattle(i, client, db, challengerMember, opponentMember, bet) {
-    const getLevelResChallenger = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [challengerMember.id, i.guild.id]);
-    const getLevelResOpponent = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [opponentMember.id, i.guild.id]);
-    
-    let challengerData = getLevelResChallenger.rows[0] || { user: challengerMember.id, guild: i.guild.id, level: 0, mora: 0, bank: 0 };
-    let opponentData = getLevelResOpponent.rows[0] || { user: opponentMember.id, guild: i.guild.id, level: 0, mora: 0, bank: 0 };
-    
-    challengerData.mora = Number(challengerData.mora) - bet; 
-    opponentData.mora = Number(opponentData.mora) - bet;
-    
-    await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [challengerData.mora, challengerMember.id, i.guild.id]);
-    await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [opponentData.mora, opponentMember.id, i.guild.id]);
-    
-    const cMaxHp = BASE_HP + (Number(challengerData.level) * HP_PER_LEVEL);
-    const oMaxHp = BASE_HP + (Number(opponentData.level) * HP_PER_LEVEL);
-    
-    const defEffects = () => ({ shield: 0, buff: 0, buff_turns: 0, weaken: 0, weaken_turns: 0, poison: 0, poison_turns: 0, burn: 0, burn_turns: 0, rebound_active: 0, rebound_turns: 0, stun: false, stun_turns: 0, confusion: false, confusion_turns: 0, evasion: 0, evasion_turns: 0, blind: 0, blind_turns: 0 });
+    try {
+        const getLevelResChallenger = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [challengerMember.id, i.guild.id]);
+        const getLevelResOpponent = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [opponentMember.id, i.guild.id]);
+        
+        let challengerData = getLevelResChallenger.rows[0] || { user: challengerMember.id, guild: i.guild.id, level: 0, mora: 0, bank: 0 };
+        let opponentData = getLevelResOpponent.rows[0] || { user: opponentMember.id, guild: i.guild.id, level: 0, mora: 0, bank: 0 };
+        
+        challengerData.mora = Number(challengerData.mora) - bet; 
+        opponentData.mora = Number(opponentData.mora) - bet;
+        
+        await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [challengerData.mora, challengerMember.id, i.guild.id]);
+        await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [opponentData.mora, opponentMember.id, i.guild.id]);
+        
+        const cMaxHp = BASE_HP + (Number(challengerData.level) * HP_PER_LEVEL);
+        const oMaxHp = BASE_HP + (Number(opponentData.level) * HP_PER_LEVEL);
+        
+        const defEffects = () => ({ shield: 0, buff: 0, buff_turns: 0, weaken: 0, weaken_turns: 0, poison: 0, poison_turns: 0, burn: 0, burn_turns: 0, rebound_active: 0, rebound_turns: 0, stun: false, stun_turns: 0, confusion: false, confusion_turns: 0, evasion: 0, evasion_turns: 0, blind: 0, blind_turns: 0 });
 
-    const weaponChallenger = await getWeaponData(db, challengerMember);
-    const weaponOpponent = await getWeaponData(db, opponentMember);
-    const skillsChallenger = await getAllSkillData(db, challengerMember);
-    const skillsOpponent = await getAllSkillData(db, opponentMember);
+        const weaponChallenger = await getWeaponData(db, challengerMember);
+        const weaponOpponent = await getWeaponData(db, opponentMember);
+        const skillsChallenger = await getAllSkillData(db, challengerMember);
+        const skillsOpponent = await getAllSkillData(db, opponentMember);
 
-    const battleState = {
-        isPvE: false, message: null, bet: bet, totalPot: bet * 2, turn: [opponentMember.id, challengerMember.id],
-        log: [`🔥 بدأ القتال!`], skillPage: 0, processingTurn: false,
-        skillCooldowns: { [challengerMember.id]: {}, [opponentMember.id]: {} },
-        players: new Map([
-            [challengerMember.id, { member: challengerMember, hp: cMaxHp, maxHp: cMaxHp, weapon: weaponChallenger, skills: skillsChallenger, effects: defEffects() }],
-            [opponentMember.id, { member: opponentMember, hp: oMaxHp, maxHp: oMaxHp, weapon: weaponOpponent, skills: skillsOpponent, effects: defEffects() }]
-        ])
-    };
-    
-    activePvpBattles.set(i.channel.id, battleState);
-    const { embeds, components } = buildBattleEmbed(battleState);
-    battleState.message = await i.channel.send({ content: `${challengerMember} 🆚 ${opponentMember}`, embeds, components });
+        const battleState = {
+            isPvE: false, message: null, bet: bet, totalPot: bet * 2, turn: [opponentMember.id, challengerMember.id],
+            log: [`🔥 بدأ القتال!`], skillPage: 0, processingTurn: false,
+            skillCooldowns: { [challengerMember.id]: {}, [opponentMember.id]: {} },
+            players: new Map([
+                [challengerMember.id, { member: challengerMember, hp: cMaxHp, maxHp: cMaxHp, weapon: weaponChallenger, skills: skillsChallenger, effects: defEffects() }],
+                [opponentMember.id, { member: opponentMember, hp: oMaxHp, maxHp: oMaxHp, weapon: weaponOpponent, skills: skillsOpponent, effects: defEffects() }]
+            ])
+        };
+        
+        activePvpBattles.set(i.channel.id, battleState);
+        const { embeds, components } = buildBattleEmbed(battleState);
+        battleState.message = await i.channel.send({ content: `${challengerMember} 🆚 ${opponentMember}`, embeds, components });
+    } catch(e) {
+        console.error("Start PvP Error: ", e);
+    }
 }
 
 async function startPveBattle(interaction, client, db, playerMember, monsterData, playerWeaponOverride) {
-    const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [playerMember.id, interaction.guild.id]);
-    let playerData = getLevelRes.rows[0] || { user: playerMember.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0 };
+    try {
+        const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [playerMember.id, interaction.guild.id]);
+        let playerData = getLevelRes.rows[0] || { user: playerMember.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0 };
 
-    const pMaxHp = BASE_HP + (Number(playerData.level) * HP_PER_LEVEL);
-    let finalPlayerWeapon = await getWeaponData(db, playerMember);
-    if (!finalPlayerWeapon || finalPlayerWeapon.currentLevel === 0) {
-        finalPlayerWeapon = playerWeaponOverride || { name: "سكين صيد", currentDamage: 15 };
+        const pMaxHp = BASE_HP + (Number(playerData.level) * HP_PER_LEVEL);
+        let finalPlayerWeapon = await getWeaponData(db, playerMember);
+        if (!finalPlayerWeapon || finalPlayerWeapon.currentLevel === 0) {
+            finalPlayerWeapon = playerWeaponOverride || { name: "سكين صيد", currentDamage: 15 };
+        }
+
+        const mMaxHp = Math.floor(pMaxHp * 0.8);
+        const mDamage = Math.floor(finalPlayerWeapon.currentDamage * 0.9);
+        
+        const defEffects = () => ({ shield: 0, buff: 0, buff_turns: 0, weaken: 0, weaken_turns: 0, poison: 0, poison_turns: 0, burn: 0, burn_turns: 0, rebound_active: 0, rebound_turns: 0, stun: false, stun_turns: 0, confusion: false, confusion_turns: 0, evasion: 0, evasion_turns: 0, blind: 0, blind_turns: 0 });
+
+        const skillsPlayer = await getAllSkillData(db, playerMember);
+
+        const battleState = {
+            isPvE: true, monsterData: monsterData, message: null, turn: [playerMember.id, "monster"],
+            log: [`🦑 **${monsterData.name}** ظهر من الأعماق!`], skillPage: 0, processingTurn: false,
+            skillCooldowns: { [playerMember.id]: {}, "monster": {} },
+            players: new Map([
+                [playerMember.id, { isMonster: false, member: playerMember, hp: pMaxHp, maxHp: pMaxHp, weapon: finalPlayerWeapon, skills: skillsPlayer, effects: defEffects() }],
+                ["monster", { isMonster: true, name: monsterData.name, hp: mMaxHp, maxHp: mMaxHp, weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
+            ])
+        };
+
+        activePveBattles.set(interaction.channel.id, battleState);
+        const { embeds, components } = buildBattleEmbed(battleState);
+        try { await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!**`, embeds: [], components: [] }); } catch (e) {}
+        battleState.message = await interaction.channel.send({ content: `⚔️ **قتال ضد وحش!** ${playerMember}`, embeds, components });
+    } catch(e) {
+        console.error("Start PvE Error: ", e);
     }
-
-    const mMaxHp = Math.floor(pMaxHp * 0.8);
-    const mDamage = Math.floor(finalPlayerWeapon.currentDamage * 0.9);
-    
-    const defEffects = () => ({ shield: 0, buff: 0, buff_turns: 0, weaken: 0, weaken_turns: 0, poison: 0, poison_turns: 0, burn: 0, burn_turns: 0, rebound_active: 0, rebound_turns: 0, stun: false, stun_turns: 0, confusion: false, confusion_turns: 0, evasion: 0, evasion_turns: 0, blind: 0, blind_turns: 0 });
-
-    const skillsPlayer = await getAllSkillData(db, playerMember);
-
-    const battleState = {
-        isPvE: true, monsterData: monsterData, message: null, turn: [playerMember.id, "monster"],
-        log: [`🦑 **${monsterData.name}** ظهر من الأعماق!`], skillPage: 0, processingTurn: false,
-        skillCooldowns: { [playerMember.id]: {}, "monster": {} },
-        players: new Map([
-            [playerMember.id, { isMonster: false, member: playerMember, hp: pMaxHp, maxHp: pMaxHp, weapon: finalPlayerWeapon, skills: skillsPlayer, effects: defEffects() }],
-            ["monster", { isMonster: true, name: monsterData.name, hp: mMaxHp, maxHp: mMaxHp, weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
-        ])
-    };
-
-    activePveBattles.set(interaction.channel.id, battleState);
-    const { embeds, components } = buildBattleEmbed(battleState);
-    try { await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!**`, embeds: [], components: [] }); } catch (e) {}
-    battleState.message = await interaction.channel.send({ content: `⚔️ **قتال ضد وحش!** ${playerMember}`, embeds, components });
 }
 
+// 🔥 دالة إنهاء القتال بعد إصلاح التجميد 🔥
 async function endBattle(battleState, winnerId, db, reason = "win", buffCalculator = null) {
     if (!battleState.message) return;
 
-    const { embeds: finalEmbeds } = buildBattleEmbed(battleState, false);
-    await battleState.message.edit({ embeds: finalEmbeds, components: [] }).catch(() => {});
-
+    // 1️⃣ إعلان الفائز فوراً وإيقاف الأزرار لمنع أي ضغط إضافي
     const channelId = battleState.message.channel.id;
     activePvpBattles.delete(channelId);
     activePveBattles.delete(channelId);
+
+    const { embeds: finalEmbeds } = buildBattleEmbed(battleState, false);
+    await battleState.message.edit({ embeds: finalEmbeds, components: [] }).catch(() => {});
 
     const winner = battleState.players.get(winnerId);
     const loserId = Array.from(battleState.players.keys()).find(id => id !== winnerId);
@@ -580,94 +569,101 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
             const rewardMora = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
             const rewardXP = Math.floor(Math.random() * (300 - 50 + 1)) + 50;
 
-            const client = battleState.message.client;
-            
-            // 🔥 استخدام دالة التلفيل الصامتة لبطولات الوحوش (لا ترسل تهنئة، تعطي XP فقط) 🔥
-            if (addXPAndCheckLevel) {
-                await addXPAndCheckLevel(client, winner.member, db, rewardXP, rewardMora, false).catch(()=>{});
-            } else {
-                const userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [winner.member.id, battleState.message.guild.id]);
-                let userData = userDataRes.rows[0];
-                if(userData) {
-                    userData.mora = Number(userData.mora) + rewardMora;
-                    userData.xp = Number(userData.xp) + rewardXP;
-                    await db.query(`UPDATE levels SET "mora" = $1, "xp" = $2 WHERE "user" = $3 AND "guild" = $4`, [userData.mora, userData.xp, winner.member.id, battleState.message.guild.id]);
-                }
-            }
-
-            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'xp', 0.15]);
-            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'mora', 0.15]);
-
             const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
             embed.setColor(Colors.Gold).setThumbnail(winner.member.displayAvatarURL()).setImage(randomWinImage)
                 .setTitle(`🏆 قهرت ${monster.name}!`)
                 .setDescription(`💰 **الغنيمة:** ${rewardMora} ${EMOJI_MORA}\n✨ **خبرة:** ${rewardXP} XP\n✦ حصلت على تعزيز +15% لمدة 15د`);
+            
+            // نرسل الرسالة فوراً
+            await battleState.message.channel.send({ embeds: [embed] }).catch(()=>{});
+
+            // 2️⃣ تنفيذ عمليات الداتا بيز في الخلفية بدون انتظار 
+            try {
+                const client = battleState.message.client;
+                if (addXPAndCheckLevel) {
+                    await addXPAndCheckLevel(client, winner.member, db, rewardXP, rewardMora, false).catch(()=>{});
+                } else {
+                    await db.query(`UPDATE levels SET "mora" = "mora" + $1, "xp" = "xp" + $2 WHERE "user" = $3 AND "guild" = $4`, [rewardMora, rewardXP, winner.member.id, battleState.message.guild.id]).catch(()=>{});
+                }
+                await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'xp', 0.15]).catch(()=>{});
+                await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'mora', 0.15]).catch(()=>{});
+            } catch(e) {}
+            
         } else {
-            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loser.member.id, -15, expireTime, 'mora', -0.15]);
             const randomLoseImage = LOSE_IMAGES[Math.floor(Math.random() * LOSE_IMAGES.length)];
             embed.setColor(Colors.DarkRed).setImage(randomLoseImage)
                 .setTitle(`💀 هزمك ${battleState.monsterData.name}...`)
                 .setDescription(`✦ حصلت على إضعاف -15% مورا واكس بي لمدة 15د`);
+            
+            await battleState.message.channel.send({ embeds: [embed] }).catch(()=>{});
+
+            try {
+                await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loser.member.id, -15, expireTime, 'mora', -0.15]).catch(()=>{});
+            } catch(e) {}
         }
     } else {
         let finalWinnings = battleState.totalPot;
         let kingText = "";
         let casinoTaxText = "";
 
-        const settingsRes = await db.query(`SELECT "rolePvPKing", "roleCasinoKing" FROM settings WHERE "guild" = $1`, [battleState.message.guild.id]);
-        const settings = settingsRes.rows[0] || {};
+        // 🛡️ حماية صارمة أثناء حساب ضرائب الملك 
+        try {
+            const settingsRes = await db.query(`SELECT "rolePvPKing", "roleCasinoKing" FROM settings WHERE "guild" = $1`, [battleState.message.guild.id]).catch(()=>({rows:[]}));
+            const settings = settingsRes.rows[0] || {};
 
-        const winnerDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [winnerId, battleState.message.guild.id]);
-        let winnerData = winnerDataRes.rows[0] || { user: winnerId, guild: battleState.message.guild.id, mora: 0, bank: 0 };
-        
-        const loserDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [loserId, battleState.message.guild.id]);
-        let loserData = loserDataRes.rows[0] || { user: loserId, guild: battleState.message.guild.id, mora: 0, bank: 0 };
-
-        if (settings && (settings.rolePvPKing || settings.rolepvpking) && winner.member.roles.cache.has(settings.rolePvPKing || settings.rolepvpking)) {
-            const stealAmount = Math.floor(battleState.bet * 0.10);
+            const winnerDataRes = await db.query(`SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [winnerId, battleState.message.guild.id]).catch(()=>({rows:[]}));
+            let winnerData = winnerDataRes.rows[0] || { mora: 0, bank: 0 };
             
-            loserData.mora = Number(loserData.mora);
-            loserData.bank = Number(loserData.bank);
+            const loserDataRes = await db.query(`SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [loserId, battleState.message.guild.id]).catch(()=>({rows:[]}));
+            let loserData = loserDataRes.rows[0] || { mora: 0, bank: 0 };
 
-            if (loserData.mora >= stealAmount) {
-                loserData.mora -= stealAmount;
-            } else if (loserData.bank >= stealAmount) {
-                loserData.bank -= stealAmount;
-            } else {
-                loserData.mora = 0; 
+            if (settings.rolePvPKing && winner.member.roles.cache.has(settings.rolePvPKing)) {
+                const stealAmount = Math.floor(battleState.bet * 0.10);
+                loserData.mora = Number(loserData.mora);
+                loserData.bank = Number(loserData.bank);
+
+                if (loserData.mora >= stealAmount) {
+                    loserData.mora -= stealAmount;
+                } else if (loserData.bank >= stealAmount) {
+                    loserData.bank -= stealAmount;
+                } else {
+                    loserData.mora = 0; 
+                }
+                
+                finalWinnings += stealAmount;
+                kingText = `\n👑 جلالة ملك النزاع نهب **${stealAmount}** إضافية من ثروة الخصم!`;
+                await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [loserData.mora, loserData.bank, loserId, battleState.message.guild.id]).catch(()=>{});
             }
-            
-            finalWinnings += stealAmount;
-            kingText = `\n👑 جلالة ملك النزاع نهب **${stealAmount}** إضافية من ثروة الخصم!`;
-            await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [loserData.mora, loserData.bank, loserId, battleState.message.guild.id]);
-        }
 
-        if (settings && (settings.roleCasinoKing || settings.rolecasinoking) && !winner.member.roles.cache.has(settings.roleCasinoKing || settings.rolecasinoking)) {
-            const kingMembers = battleState.message.guild.roles.cache.get(settings.roleCasinoKing || settings.rolecasinoking)?.members;
-            if (kingMembers && kingMembers.size > 0) {
-                const king = kingMembers.first();
-                const casinoTax = Math.floor(finalWinnings * 0.01);
-                if (casinoTax > 0) {
-                    finalWinnings -= casinoTax;
-                    casinoTaxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
-                    await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, battleState.message.guild.id]);
+            if (settings.roleCasinoKing && !winner.member.roles.cache.has(settings.roleCasinoKing)) {
+                const kingMembers = battleState.message.guild.roles.cache.get(settings.roleCasinoKing)?.members;
+                if (kingMembers && kingMembers.size > 0) {
+                    const king = kingMembers.first();
+                    const casinoTax = Math.floor(finalWinnings * 0.01);
+                    if (casinoTax > 0) {
+                        finalWinnings -= casinoTax;
+                        casinoTaxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
+                        await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, battleState.message.guild.id]).catch(()=>{});
+                    }
                 }
             }
+
+            winnerData.mora = Number(winnerData.mora) + finalWinnings;
+            await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [winnerData.mora, winnerId, battleState.message.guild.id]).catch(()=>{});
+
+            if (updateGuildStat) {
+                updateGuildStat(battleState.message.client, battleState.message.guild.id, winnerId, 'pvp_wins', 1).catch(()=>{});
+            }
+
+            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'mora', 0.15]).catch(()=>{});
+            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'xp', 0.15]).catch(()=>{});
+
+            const loserExpiresAt = Date.now() + (15 * 60 * 1000);
+            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, -15, loserExpiresAt, 'mora', -0.15]).catch(()=>{});
+            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, 0, loserExpiresAt, 'pvp_wounded', 0]).catch(()=>{});
+        } catch(err) {
+            console.error("End PVP DB Error:", err);
         }
-
-        winnerData.mora = Number(winnerData.mora) + finalWinnings;
-        await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [winnerData.mora, winnerId, battleState.message.guild.id]);
-
-        if (updateGuildStat) {
-            updateGuildStat(battleState.message.client, battleState.message.guild.id, winnerId, 'pvp_wins', 1);
-        }
-
-        await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'mora', 0.15]);
-        await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'xp', 0.15]);
-
-        const loserExpiresAt = Date.now() + (15 * 60 * 1000);
-        await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, -15, loserExpiresAt, 'mora', -0.15]);
-        await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, 0, loserExpiresAt, 'pvp_wounded', 0]);
 
         const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
         
@@ -681,9 +677,9 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
                 `✶ الـفائـز: ${winner.member} حصل علـى تعزيـز 15% مورا واكس بي لـ 15د <a:buff:1438796257522094081>\n\n` +
                 `✶ الـخـاسـر: ${loser.member} اصبح جريح وبطور الشفـاء اصابته لعـنة -15% مورا واكس بي لـ 15د <a:Nerf:1438795685280612423>`
             );
+            
+        await battleState.message.channel.send({ embeds: [embed] }).catch(()=>{});
     }
-
-    await battleState.message.channel.send({ embeds: [embed] });
 }
 
 function applyPersistentEffects(battleState, attackerId) {
