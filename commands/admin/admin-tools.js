@@ -7,7 +7,7 @@ const marketItems = require('../../json/market-items.json');
 const questsConfig = require('../../json/quests-config.json');
 const weaponsConfig = require('../../json/weapons-config.json');
 const skillsConfig = require('../../json/skills-config.json');
-const upgradeMats = require('../../json/upgrade-materials.json'); // 🔥 تم إضافة موارد التطوير والأرتيفاكت والكتب
+const upgradeMats = require('../../json/upgrade-materials.json'); 
 
 let potionsConfig = [];
 try { potionsConfig = require('../../json/potions.json'); } catch(e){}
@@ -170,13 +170,14 @@ module.exports = {
                     { label: '📋 فحص الحساب', value: 'check', description: 'عرض إحصائيات اللاعب' },
                     { label: '💰 إدارة المورا والخبرة', value: 'economy', emoji: '🪙' },
                     { label: '🔄 تبديل ونقل حسابين', value: 'swap_accounts', description: 'نقل (اللفل، المورا، الستريك، الأسلحة) بين شخصين', emoji: '🔄' }, 
+                    { label: '🎭 تغيير العرق', value: 'change_race', description: 'تغيير العرق وتصحيح بيانات الأسلحة لمنع التعليق', emoji: '🎭' },
                     { label: '👑 تعيين ملك يدوي', value: 'set_king', description: 'تتويج العضو ورفع نقاطه في اللوحة', emoji: '👑' },
                     { label: '🗑️ إخلاء عرش ملك', value: 'empty_king', description: 'تصفير نقاط عرش معين وطرد الملك الحالي', emoji: '🗑️' },
                     { label: '🌟 إدارة السمعة', value: 'reputation', description: 'إضافة/خصم/تحديد نقاط السمعة', emoji: '🌟' },
                     { label: '🗳️ فرص التزكية', value: 'rep_chances', description: 'منح فرص تصويت (تزكية) إضافية لليوم', emoji: '🗳️' },
                     { label: '🎟️ إدارة التذاكر', value: 'tickets', emoji: '🎟️' },
                     { label: '⛺ منح خيمة (دانجون)', value: 'dungeon_tent', description: 'تحديد طابق الحفظ في الدانجون', emoji: '⛺' },
-                    { label: '🎒 إدارة العناصر', value: 'items', description: 'إعطاء/سحب (صناديق، كتب، أرتيفاكت، حيوانات)', emoji: '🎒' },
+                    { label: '🎒 إدارة العناصر', value: 'items', description: 'إعطاء/سحب (صناديق، أرتيفاكت، موارد، بذور...)', emoji: '🎒' },
                     { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', description: 'تغيير لفل السلاح أو المهارة بدقة', emoji: '⚔️' },
                     { label: '🗑️ تصفير الأسلحة والمهارات', value: 'reset_combat', description: 'مسح جميع مهارات وأسلحة اللاعب بالكامل', emoji: '🗑️' },
                     { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', description: 'تغيير السنارة، القارب، أو موقع الشاطئ', emoji: '🎣' }, 
@@ -197,6 +198,96 @@ module.exports = {
             if (val === 'check') {
                 await this.checkUser(interaction, client, db, targetUser);
             } 
+            // 🔥 نظام تغيير وتصحيح العرق السحري لمنع التعليق 🔥
+            else if (val === 'change_race') {
+                let allRaceRoles = [];
+                try {
+                    const res = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guildID]);
+                    allRaceRoles = res.rows;
+                } catch (e) {
+                    const res = await db.query(`SELECT roleid, racename FROM race_roles WHERE guildid = $1`, [guildID]).catch(()=>({rows:[]}));
+                    allRaceRoles = res.rows;
+                }
+
+                if (allRaceRoles.length === 0) {
+                    return interaction.reply({ content: "❌ لا توجد أعراق مبرمجة في هذا السيرفر حالياً.", flags: [MessageFlags.Ephemeral] });
+                }
+
+                const options = allRaceRoles.slice(0, 25).map(r => ({
+                    label: r.raceName || r.racename,
+                    value: r.roleID || r.roleid,
+                    description: `نقل اللاعب إلى عرق ${r.raceName || r.racename}`
+                }));
+
+                const raceMenu = new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(`mod_race_${Date.now()}`)
+                        .setPlaceholder('🎭 اختر العرق الجديد...')
+                        .addOptions(options)
+                );
+
+                await interaction.update({ content: `🎭 **تغيير وتصحيح عرق ${targetUser}:**\nهذا الخيار سيغير رتبة اللاعب وينقل مستوى سلاحه ومهارته العرقية تلقائياً لمنع تعليق الحساب.\n\nالرجاء اختيار العرق الجديد:`, embeds: [], components: [raceMenu] });
+
+                const raceCollector = panelMsg.createMessageComponentCollector({ filter: i => i.user.id === message.author.id && i.customId.startsWith('mod_race_'), time: 60000 });
+
+                raceCollector.on('collect', async i => {
+                    await i.deferUpdate();
+                    const selectedRoleID = i.values[0];
+                    const selectedRace = allRaceRoles.find(r => (r.roleID || r.roleid) === selectedRoleID);
+                    const newRaceName = selectedRace.raceName || selectedRace.racename;
+
+                    // 1. إزالة الرتب القديمة وإضافة الجديدة
+                    const allRoleIds = allRaceRoles.map(r => r.roleID || r.roleid);
+                    for (const rId of allRoleIds) {
+                        if (rId !== selectedRoleID && targetMember.roles.cache.has(rId)) {
+                            await targetMember.roles.remove(rId).catch(()=>{});
+                        }
+                    }
+                    if (!targetMember.roles.cache.has(selectedRoleID)) {
+                        await targetMember.roles.add(selectedRoleID).catch(()=>{});
+                    }
+
+                    // 2. تصحيح السلاح في الداتا بيز مع حفظ اللفل
+                    let currentWeaponLevel = 1;
+                    try {
+                        const wRes = await db.query(`SELECT "weaponLevel" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, [userID, guildID]);
+                        if (wRes.rows.length > 0) currentWeaponLevel = Number(wRes.rows[0].weaponLevel);
+                        else {
+                            const wRes2 = await db.query(`SELECT weaponlevel FROM user_weapons WHERE userid = $1 AND guildid = $2 LIMIT 1`, [userID, guildID]);
+                            if (wRes2.rows.length > 0) currentWeaponLevel = Number(wRes2.rows[0].weaponlevel);
+                        }
+                    } catch(e) {}
+
+                    try { await db.query(`DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
+                    catch(e) { await db.query(`DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{}); }
+
+                    try { await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, $4)`, [userID, guildID, newRaceName, currentWeaponLevel]); }
+                    catch(e) { await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, $4)`, [userID, guildID, newRaceName, currentWeaponLevel]).catch(()=>{}); }
+
+                    // 3. تصحيح المهارة العرقية مع حفظ اللفل
+                    let currentRaceSkillLevel = 1;
+                    try {
+                        const sRes = await db.query(`SELECT "skillLevel" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" LIKE 'race_%'`, [userID, guildID]);
+                        if (sRes.rows.length > 0) currentRaceSkillLevel = Number(sRes.rows[0].skillLevel);
+                        else {
+                            const sRes2 = await db.query(`SELECT skilllevel FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid LIKE 'race_%'`, [userID, guildID]);
+                            if (sRes2.rows.length > 0) currentRaceSkillLevel = Number(sRes2.rows[0].skilllevel);
+                        }
+                    } catch(e) {}
+
+                    try { await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" LIKE 'race_%'`, [userID, guildID]); }
+                    catch(e) { await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid LIKE 'race_%'`, [userID, guildID]).catch(()=>{}); }
+
+                    const newRaceSkillId = `race_${newRaceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
+                    
+                    try { await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4)`, [userID, guildID, newRaceSkillId, currentRaceSkillLevel]); }
+                    catch(e) { await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, $4)`, [userID, guildID, newRaceSkillId, currentRaceSkillLevel]).catch(()=>{}); }
+
+                    const summaryEmbed = await getGearSummaryEmbed(userID, guildID, db, targetUser);
+                    await i.editReply({ content: `✅ **تم تغيير وتصحيح عرق اللاعب إلى (${newRaceName}) بنجاح!**\nتم تحديث الرتبة، ونقل مستوى السلاح (Lv.${currentWeaponLevel}) والمهارة العرقية (Lv.${currentRaceSkillLevel}) بأمان لتجنب تعليق الحساب.`, embeds: [summaryEmbed], components: [] });
+                    raceCollector.stop();
+                });
+            }
             else if (val === 'economy') {
                 const modalId = `mod_eco_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة الموارد');
@@ -591,18 +682,15 @@ module.exports = {
 
                     let successMessage = "";
 
-                    // 🔥 نظام ذكي ودقيق جداً للأسلحة 🔥
                     if (type.includes('سلاح')) {
                         let raceName = null;
                         
-                        // إذا الإدمن كتب اسم العرق في الحقل (عشان يعطيه سلاح عرق مختلف)
                         if (name && name.trim().length > 1) {
                             const searchRace = normalize(name);
                             const foundConf = weaponsConfig.find(w => normalize(w.race).includes(searchRace));
                             if (foundConf) raceName = foundConf.race;
                         }
                         
-                        // إذا ما كتب شيء، ناخذ عرقه الحالي بالديسكورد
                         if (!raceName) {
                             const userRace = await getUserRace(targetMember, db);
                             if (userRace) raceName = userRace.raceName || userRace.racename;
@@ -623,14 +711,11 @@ module.exports = {
                             successMessage = `✅ تم إعطاء / ضبط مستوى سلاح (${raceName}) لـ ${targetUser} ليصبح **Lv.${level}**.`;
                         }
                     } 
-                    // 🔥 نظام ذكي ودقيق للبحث عن المهارات 🔥
                     else if (type.includes('مهارة') || type.includes('مهاره')) {
                         if (!name) return modalSubmit.editReply({ content: "❌ يرجى كتابة اسم المهارة." });
                         
                         const searchName = normalize(name);
-                        // التطابق التام أولاً
                         let foundSkill = skillsConfig.find(s => normalize(s.name) === searchName || s.id.toLowerCase() === name.toLowerCase().trim());
-                        // إذا لم يجد تطابق تام، يبحث بجزء من النص
                         if (!foundSkill) foundSkill = skillsConfig.find(s => normalize(s.name).includes(searchName));
                         
                         if (!foundSkill) return modalSubmit.editReply({ content: `❌ لم أتمكن من العثور على مهارة تطابق: "${name}"` });
@@ -721,7 +806,7 @@ module.exports = {
                     const name = modalSubmit.fields.getTextInputValue('itm_name');
                     const qty = parseInt(modalSubmit.fields.getTextInputValue('itm_qty')) || 1;
 
-                    // 🔥 دالة بحث شاملة في جميع الملفات للوصول لأي عنصر (بما فيها الأرتيفاكت وموارد التطوير) 🔥
+                    // 🔥 دالة بحث شاملة في جميع الملفات للوصول لأي عنصر 🔥
                     const findUniversalItem = (searchQuery) => {
                         const input = normalize(searchQuery);
                         const rawId = searchQuery.toLowerCase().trim();
@@ -789,7 +874,6 @@ module.exports = {
                             try { await db.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, item.id, qty, now, now]); }
                             catch(e) { await db.query(`INSERT INTO user_farm (guildid, userid, animalid, quantity, purchasetimestamp, lastfedtimestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, item.id, qty, now, now]).catch(()=>{}); }
                         } else {
-                            // كل ما يندرج تحت inventory (بذور، أكل، صناديق، موارد، أرتيفاكت، كتب، جرع)
                             try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT("guildID", "userID", "itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $4`, [guildID, userID, item.id, qty]); }
                             catch(e) { 
                                 let invItemRes = await db.query(`SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userID, guildID, item.id]).catch(()=>({rows:[]}));
