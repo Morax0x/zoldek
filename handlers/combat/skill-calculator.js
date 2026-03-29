@@ -2,10 +2,38 @@ const { cleanDisplayName } = require('../dungeon/utils');
 
 const GLOBAL_SKILL_MULTIPLIER = 5.0;
 
+// 🔥 دالة الصحوة المتأخرة لمهارات الدانجون 🔥
 function calculateSkillRawValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
-    return skillConfig.base_value + (skillConfig.value_increment * (level - 1));
+    
+    const base = skillConfig.base_value;
+    const inc = skillConfig.value_increment;
+    const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
+
+    if (level <= 15) {
+        // الحساب الطبيعي للفل 1 إلى 15
+        return base + (inc * (level - 1));
+    } else {
+        // الحساب الموازن (Endgame Convergence) من 16 إلى 30
+        const valueAt15 = base + (inc * 14);
+        
+        // الهدف النهائي الموحد عند لفل 30 
+        // إذا كانت مهارة نسبة مئوية (زي الهيل والدرع) الهدف يكون 50%
+        // وإذا كانت ضرر (رقم ثابت) الهدف يكون 200 (لأنه بينضرب بـ 5.0 تحت فيصير 1000)
+        const targetValueAt30 = isPercentage ? 50 : 200; 
+        
+        const levelsRemaining = 15; // المسافة بين 15 و 30
+        
+        const valueNeeded = targetValueAt30 - valueAt15;
+        const dynamicIncrement = valueNeeded / levelsRemaining;
+        
+        let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
+        
+        if (level >= 30) return targetValueAt30;
+        
+        return Math.floor(finalValue);
+    }
 }
 
 function getName(entity) {
