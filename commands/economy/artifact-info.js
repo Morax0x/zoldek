@@ -111,7 +111,7 @@ async function generateHubCanvas() {
     ctx.fillText('⚔️ موارد الأسلحة', startX + boxW/2, 340);
     ctx.fillStyle = '#E0E0E0'; ctx.font = `24px ${FONT_MAIN}`;
     ctx.fillText('لكل عرق 5 موارد متدرجة الندرة', startX + boxW/2, 420);
-    ctx.fillText('تُستخدم في ورشة الحدادة لتطوير', startX + boxW/2, 460);
+    ctx.fillText('تستخدم في ورشة الحدادة لتطوير', startX + boxW/2, 460);
     ctx.fillText('سلاح العرق الخاص بك للحد الأقصى.', startX + boxW/2, 500);
 
     // صندوق المهارات
