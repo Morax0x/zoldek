@@ -3,7 +3,7 @@ const { startDungeon } = require("../../handlers/dungeon-handler.js");
 const { manageTickets } = require("../../handlers/dungeon/utils.js");
 
 const OWNER_ID = "1145327691772481577";
-const COOLDOWN_MS = 3 * 60 * 60 * 1000;
+const COOLDOWN_MS = 3 * 60 * 60 * 1000; // 🔥 تم زيادة وقت الانتظار إلى 3 ساعات
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -17,103 +17,131 @@ module.exports = {
     description: "نظام الدانجون المتقدم (PvE)",
 
     async execute(context, args) {
-        // 🔥 تغليف كامل للكود في try-catch لمنع الموت الصامت 🔥
-        try {
-            const isSlash = !!(context.isChatInputCommand && context.isChatInputCommand());
-            let interaction;
+        const isSlash = context.isChatInputCommand === true;
+        let interaction;
 
-            if (isSlash) {
-                interaction = context;
-                // تأمين الرد الأولي لضمان عدم تعليق الديسكورد
-                if (!interaction.deferred && !interaction.replied) {
-                    await interaction.deferReply().catch(()=>{}); 
-                }
-            } else {
-                interaction = {
-                    user: context.author,
-                    guild: context.guild,
-                    member: context.member,
-                    channel: context.channel,
-                    client: context.client,
-                    id: context.id,
-                    isChatInputCommand: false,
-                    deferred: false,
-                    replied: false,
-                    
-                    reply: async (payload) => {
-                        const p = { ...payload }; delete p.flags;
-                        const msg = await context.reply(p);
-                        interaction.replied = true;
-                        interaction.lastBotReply = msg;
-                        return msg;
-                    },
-                    editReply: async (payload) => {
-                        const p = { ...payload }; delete p.flags;
-                        if (interaction.lastBotReply && interaction.lastBotReply.editable) {
-                            return await interaction.lastBotReply.edit(p);
-                        }
-                        const msg = await context.channel.send(p);
-                        interaction.lastBotReply = msg;
-                        return msg;
-                    },
-                    followUp: async (payload) => {
-                        const p = { ...payload }; delete p.flags;
-                        return await context.channel.send(p);
-                    },
-                    fetchReply: async () => interaction.lastBotReply,
-                    deferReply: async () => { interaction.deferred = true; },
-                    deferUpdate: async () => {},
-                    isButton: () => false 
-                };
-            }
-
-            const { client, user, guild } = interaction;
-            const db = client.sql || client.db;
-
-            if (!guild) return await interaction.editReply({ content: "🚫 **يعمل في السيرفرات فقط!**" }).catch(()=>{});
-            if (!db) return await interaction.editReply({ content: "🚫 **قاعدة البيانات غير متصلة!**" }).catch(()=>{});
-
-            let isAbyssKing = false;
-            try {
-                let sRes = await db.query(`SELECT "roleAbyss" FROM settings WHERE "guild" = $1`, [guild.id]).catch(()=>({rows:[]}));
-                if (!sRes.rows.length) sRes = await db.query(`SELECT roleabyss FROM settings WHERE guildid = $1`, [guild.id]).catch(()=>({rows:[]}));
+        // 🛡️ توحيد بيئة العمل لكي تتعامل دالة startDungeon براحة سواء كان سلاش أو بريفكس
+        if (isSlash) {
+            interaction = context;
+        } else {
+            interaction = {
+                user: context.author,
+                guild: context.guild,
+                member: context.member,
+                channel: context.channel,
+                client: context.client,
+                id: context.id,
+                isChatInputCommand: false,
+                deferred: false,
+                replied: false,
                 
-                const settings = sRes.rows[0];
-                if (settings && (settings.roleAbyss || settings.roleabyss) && interaction.member?.roles?.cache?.has(settings.roleAbyss || settings.roleabyss)) {
-                    isAbyssKing = true;
-                }
-            } catch (e) {}
+                // دالة رد ذكية تحفظ الرسالة الأصلية لكي يتم تعديلها لاحقاً
+                reply: async (payload) => {
+                    const safePayload = { ...payload };
+                    delete safePayload.flags; // الرسائل العادية لا تدعم Ephemeral 
+                    const msg = await context.reply(safePayload);
+                    interaction.replied = true;
+                    interaction.lastBotReply = msg;
+                    return msg;
+                },
+                editReply: async (payload) => {
+                    const safePayload = { ...payload };
+                    delete safePayload.flags;
+                    if (interaction.lastBotReply) return interaction.lastBotReply.edit(safePayload);
+                    return context.channel.send(safePayload);
+                },
+                followUp: async (payload) => {
+                    const safePayload = { ...payload };
+                    delete safePayload.flags;
+                    return context.channel.send(safePayload);
+                },
+                deferReply: async () => { interaction.deferred = true; },
+                deferUpdate: async () => {},
+                isButton: () => false 
+            };
+        }
 
-            if (user.id !== OWNER_ID && !isAbyssKing) { 
-                let uRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guild.id]).catch(()=>({rows:[]}));
-                if (!uRes.rows.length) uRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]).catch(()=>({rows:[]}));
+        const { client, user, guild } = interaction;
+        const db = client.sql;
 
-                let uData = uRes.rows[0] || { last_dungeon: 0 };
-                const lastRun = Number(uData.last_dungeon || uData.last_Dungeon || 0);
-                const diff = Date.now() - lastRun;
+        if (!guild) {
+            const errPayload = { content: "🚫 **عذراً، هذا الأمر يعمل فقط داخل السيرفرات!**", flags: [MessageFlags.Ephemeral] };
+            return isSlash ? interaction.reply(errPayload) : interaction.reply(errPayload).then(m => setTimeout(()=>m.delete().catch(()=>null), 5000));
+        }
 
-                if (diff < COOLDOWN_MS) {
-                    const limitInfo = await manageTickets(user.id, guild.id, db, 'check', interaction.member);
-                    const ready = Math.floor((lastRun + COOLDOWN_MS) / 1000);
+        try {
+            await db.query(`ALTER TABLE levels ADD COLUMN IF NOT EXISTS "last_dungeon" BIGINT DEFAULT 0`);
+            await db.query(`ALTER TABLE levels ADD COLUMN IF NOT EXISTS "dungeon_tickets" INTEGER DEFAULT 0`);
+            await db.query(`ALTER TABLE levels ADD COLUMN IF NOT EXISTS "last_ticket_reset" TEXT DEFAULT ''`);
+            await db.query(`CREATE TABLE IF NOT EXISTS dungeon_saves ("hostID" TEXT PRIMARY KEY, "guildID" TEXT, "floor" INTEGER, "timestamp" BIGINT)`);
+        } catch (ignored) {}
 
-                    const cEmbed = new EmbedBuilder()
-                        .setTitle('✥ اسـتـراحـة مـحـارب !')
-                        .setDescription(`★ رويـدك ايهـا المحارب ارتح قليلا قبل غزو الدانجون مجددا !\n\n★ يمكنك غـزو الدانجـون:\n ★ <t:${ready}:R>\n\n★ لديـك **(${limitInfo.tickets}/${limitInfo.max})** تذكرة يمكنك الانضمام لفريق آخر`)
-                        .setThumbnail('https://i.postimg.cc/4xMWNV22/doun.png')
-                        .setColor('Random');
+        let isAbyssKing = false;
+        try {
+            const settingsRes = await db.query(`SELECT "roleAbyss" FROM settings WHERE "guild" = $1`, [guild.id]);
+            const settings = settingsRes.rows[0];
+            if (settings && (settings.roleAbyss || settings.roleabyss) && interaction.member.roles.cache.has(settings.roleAbyss || settings.roleabyss)) {
+                isAbyssKing = true;
+            }
+        } catch (e) {}
 
-                    return await interaction.editReply({ embeds: [cEmbed], flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-                }
+        // التحقق من مهلة الدانجون (Cooldown)
+        if (user.id !== OWNER_ID && !isAbyssKing) { 
+            let userData = await client.getLevel(user.id, guild.id);
+            
+            if (!userData) {
+                userData = { user: user.id, guild: guild.id, xp: 0, level: 1, mora: 0 };
+                await db.query(`INSERT INTO levels ("user", "guild", "xp", "level", "mora") VALUES ($1, $2, 0, 1, 0)`, [user.id, guild.id]);
             }
 
-            // تشغيل الدانجون الحقيقي
-            await startDungeon(interaction, db);
+            const lastRun = Number(userData.last_dungeon) || 0;
+            const now = Date.now();
+            const diff = now - lastRun;
 
+            if (diff < COOLDOWN_MS) {
+                const limitInfo = await manageTickets(user.id, guild.id, db, 'check', interaction.member);
+                const readyTimestamp = Math.floor((lastRun + COOLDOWN_MS) / 1000);
+
+                const cooldownEmbed = new EmbedBuilder()
+                    .setTitle('✥ اسـتـراحـة مـحـارب !')
+                    .setDescription(
+                        `★ رويـدك ايهـا المحارب ارتح قليلا قبل غزو الدانجون مجددا !\n\n` +
+                        `★ يمكنك غـزو الدانجـون:\n ★ <t:${readyTimestamp}:R>\n\n` + 
+                        `★ لديـك **(${limitInfo.tickets}/${limitInfo.max})** تذكرة يمكنك الانضمام لفريق آخر`
+                    )
+                    .setThumbnail('https://i.postimg.cc/4xMWNV22/doun.png')
+                    .setColor(Math.floor(Math.random() * 0xFFFFFF));
+
+                const payload = { 
+                    embeds: [cooldownEmbed], 
+                    flags: [MessageFlags.Ephemeral] 
+                };
+
+                return await interaction.reply(payload);
+            }
+        }
+
+        // إذا كان المالك أو سيد الهاوية، نرسل الرسالة دون أن نعطل الرد الرئيسي لـ startDungeon
+        if (isAbyssKing && user.id !== OWNER_ID) {
+            const kingPayload = { content: "👑 **ملك الهاوية! أبواب الدانجون تفتح لك بلا قيود أو انتظار.**" };
+            if (isSlash) {
+                await interaction.reply({ ...kingPayload, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            } else {
+                interaction.channel.send(kingPayload).then(m => setTimeout(()=>m.delete().catch(()=>null), 5000));
+            }
+        }
+
+        try {
+            // تنفيذ كود الدانجون الخارجي (الذي سيقوم بالرد وتعديل الرسالة)
+            await startDungeon(interaction, db);
         } catch (err) {
-            // 🔥 هنا نقطة الحماية العظمى، إذا صار خطأ بيطبع لك السبب فوراً 🔥
-            console.error("[Dungeon Critical Error]:", err);
-            const errStr = `❌ **عطل فني في الدانجون:**\n\`\`\`js\n${err.message}\n\`\`\``;
-            if (context.channel) await context.channel.send(errStr).catch(()=>{});
+            console.error("[Dungeon Command Error]", err);
+            const errMsg = { content: "❌ حدث خطأ تقني أثناء بدء الدانجون.", flags: [MessageFlags.Ephemeral] };
+            
+            try {
+                if (interaction.replied || interaction.deferred) await interaction.followUp(errMsg);
+                else await interaction.reply(errMsg);
+            } catch (e) {} // تجاهل الأخطاء إذا كانت الرسالة ممسوحة أصلاً
         }
     }
 };
