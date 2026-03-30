@@ -76,7 +76,6 @@ const safeQuery = async (db, qPg, qLite, params) => {
     catch(e) { return await db.query(qLite, params).catch(()=>({rows:[]})); }
 };
 
-// 🔥 استخراج العرق بأمان وبسرعة (بدون المزامنة القديمة البطيئة) 🔥
 async function getUserRaceName(user, guild, db) {
     const member = guild.members.cache.get(user.id) || await guild.members.fetch(user.id).catch(() => null);
     if (!member) return null;
@@ -309,7 +308,6 @@ module.exports = {
         let userDataRes = await safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
         if (!userDataRes?.rows?.[0]) return fakeInteraction.editReply({ content: "❌ لم يتم العثور على بياناتك في البنك." }).catch(()=>{});
 
-        // 🔥 فحص المصير وتحديد العرق إذا لم يكن لديه عرق 🔥
         const currentRace = await getUserRaceName(user, interactionOrMessage.guild, db);
 
         let replyObj;
@@ -443,6 +441,7 @@ module.exports = {
                 }
             } catch (innerError) {
                 console.error("Collector Action Error:", innerError);
+                await i.followUp({ content: "❌ عذراً، حدث خطأ أثناء المعالجة.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             }
         });
 
@@ -456,7 +455,6 @@ module.exports = {
     }
 };
 
-// 🔥 حل مشكلة الانهيار للأسلحة التي لا تملك مستوى بإرسال متطلب وهمي للرسم 🔥
 async function buildWeaponForgeUI(i, user, guildId, db) {
     const raceName = await getUserRaceName(user, i.guild, db);
     if (!raceName) {
@@ -535,10 +533,12 @@ async function handleWeaponBuy(i, user, guildId, db) {
     const raceName = await getUserRaceName(user, i.guild, db);
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        const deductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`, [LEARN_FEE, user.id, guildId]).catch(()=> db.query(`UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`, [LEARN_FEE, user.id, guildId]));
+        let pgQ = `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`;
+        let liteQ = `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`;
+        const deductRes = await safeQuery(db, pgQ, liteQ, [LEARN_FEE, user.id, guildId]);
         if (!deductRes?.rows?.length) throw new Error("Insufficient funds");
 
-        await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, raceName]);
+        await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, raceName]);
         await db.query('COMMIT').catch(()=>{}); 
         
         await buildWeaponForgeUI(i, user, guildId, db); 
@@ -571,17 +571,21 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
 
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        const deductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`, [reqs.moraCost, user.id, guildId]).catch(()=> db.query(`UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`, [reqs.moraCost, user.id, guildId]));
-        
+        let pgQ = `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`;
+        let liteQ = `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`;
+        const deductRes = await safeQuery(db, pgQ, liteQ, [reqs.moraCost, user.id, guildId]);
         if (!deductRes?.rows?.length) throw new Error("Insufficient funds");
 
         for (let r of detailedReqs) {
-            let itemUpdate = await db.query(`UPDATE user_inventory SET "quantity" = GREATEST(CAST("quantity" AS INTEGER) - $1, 0) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4 AND CAST("quantity" AS INTEGER) >= $1 RETURNING "id"`, [r.count, user.id, guildId, r.id]).catch(()=> db.query(`UPDATE user_inventory SET quantity = MAX(CAST(quantity AS INTEGER) - $1, 0) WHERE userid = $2 AND guildid = $3 AND itemid = $4 AND CAST(quantity AS INTEGER) >= $1 RETURNING id`, [r.count, user.id, guildId, r.id]));
+            let pgItem = `UPDATE user_inventory SET "quantity" = GREATEST(CAST("quantity" AS INTEGER) - $1, 0) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4 AND CAST("quantity" AS INTEGER) >= $1 RETURNING "id"`;
+            let liteItem = `UPDATE user_inventory SET quantity = MAX(CAST(quantity AS INTEGER) - $1, 0) WHERE userid = $2 AND guildid = $3 AND itemid = $4 AND CAST(quantity AS INTEGER) >= $1 RETURNING id`;
+            let itemUpdate = await safeQuery(db, pgItem, liteItem, [r.count, user.id, guildId, r.id]);
             if (!itemUpdate?.rows?.length) throw new Error("Insufficient items");
         }
         
-        await db.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, [user.id]).catch(()=> db.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]));
-        await db.query(`UPDATE user_weapons SET "weaponLevel" = "weaponLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, wData.raceName || wData.racename]).catch(()=> db.query(`UPDATE user_weapons SET weaponlevel = weaponlevel + 1 WHERE userid = $1 AND guildid = $2 AND racename = $3`, [user.id, guildId, wData.raceName || wData.racename]));
+        await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]);
+        await safeQuery(db, `UPDATE user_weapons SET "weaponLevel" = "weaponLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, `UPDATE user_weapons SET weaponlevel = weaponlevel + 1 WHERE userid = $1 AND guildid = $2 AND racename = $3`, [user.id, guildId, wData.raceName || wData.racename]);
+        
         await db.query('COMMIT').catch(()=>{}); 
         
         const nextLevel = currentLevel + 1;
@@ -630,13 +634,13 @@ async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
     return await replyWithCanvas(i, user, 'skill_home', { mora: userMora, title: 'أكاديمية السحر' }, [skillSelectRow, getReturnRow()], [], isInitial);
 }
 
-// 🔥 حل مشكلة الانهيار للمهارات التي لا تملك مستوى بإرسال متطلب وهمي للرسم 🔥
 async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     const raceName = await getUserRaceName(user, i.guild, db);
-    const [userMoraRes, skillRes, lvlRes] = await Promise.all([
+    const [userMoraRes, skillRes, lvlRes, wRes] = await Promise.all([
         safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
         safeQuery(db, `SELECT "skillLevel" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `SELECT skilllevel as "skillLevel" FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]),
-        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
+        safeQuery(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT racename FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
     ]);
 
     const userMora = Number(userMoraRes?.rows?.[0]?.mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || 0);
@@ -707,12 +711,14 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
 async function handleSkillLearn(i, user, guildId, db, skillId) {
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        const deductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`, [LEARN_FEE, user.id, guildId]).catch(()=> db.query(`UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`, [LEARN_FEE, user.id, guildId]));
+        let pgQ = `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`;
+        let liteQ = `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`;
+        const deductRes = await safeQuery(db, pgQ, liteQ, [LEARN_FEE, user.id, guildId]);
         if (!deductRes?.rows?.length) throw new Error("Insufficient funds");
 
-        await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
-        await db.query('COMMIT').catch(()=>{}); 
+        await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
         
+        await db.query('COMMIT').catch(()=>{}); 
         await buildSkillUpgradeUI(i, user, guildId, db, skillId);
     } catch(e) {
         await db.query('ROLLBACK').catch(()=>{});
@@ -749,17 +755,21 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
 
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        const deductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`, [reqs.moraCost, user.id, guildId]).catch(()=> db.query(`UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`, [reqs.moraCost, user.id, guildId]));
-
+        let pgQ = `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`;
+        let liteQ = `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`;
+        const deductRes = await safeQuery(db, pgQ, liteQ, [reqs.moraCost, user.id, guildId]);
         if (!deductRes?.rows?.length) throw new Error("Insufficient funds");
         
         for (let r of detailedReqs) {
-            let itemUpdate = await db.query(`UPDATE user_inventory SET "quantity" = GREATEST(CAST("quantity" AS INTEGER) - $1, 0) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4 AND CAST("quantity" AS INTEGER) >= $1 RETURNING "id"`, [r.count, user.id, guildId, r.id]).catch(()=> db.query(`UPDATE user_inventory SET quantity = MAX(CAST(quantity AS INTEGER) - $1, 0) WHERE userid = $2 AND guildid = $3 AND itemid = $4 AND CAST(quantity AS INTEGER) >= $1 RETURNING id`, [r.count, user.id, guildId, r.id]));
+            let pgItem = `UPDATE user_inventory SET "quantity" = GREATEST(CAST("quantity" AS INTEGER) - $1, 0) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4 AND CAST("quantity" AS INTEGER) >= $1 RETURNING "id"`;
+            let liteItem = `UPDATE user_inventory SET quantity = MAX(CAST(quantity AS INTEGER) - $1, 0) WHERE userid = $2 AND guildid = $3 AND itemid = $4 AND CAST(quantity AS INTEGER) >= $1 RETURNING id`;
+            let itemUpdate = await safeQuery(db, pgItem, liteItem, [r.count, user.id, guildId, r.id]);
             if (!itemUpdate?.rows?.length) throw new Error("Insufficient items");
         }
 
-        await db.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, [user.id]).catch(()=> db.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]));
-        await db.query(`UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]).catch(()=> db.query(`UPDATE user_skills SET skilllevel = skilllevel + 1 WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]));
+        await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]);
+        await safeQuery(db, `UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `UPDATE user_skills SET skilllevel = skilllevel + 1 WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]);
+        
         await db.query('COMMIT').catch(()=>{}); 
         
         const nextLevel = currentLevel + 1;
@@ -873,8 +883,10 @@ async function handleSynthesis(i, user, guildId, db, state) {
 
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        const deductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`, [SYNTHESIS_FEE, user.id, guildId]).catch(()=> db.query(`UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`, [SYNTHESIS_FEE, user.id, guildId]));
-
+        let pgQ = `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3 AND (CAST("mora" AS BIGINT) + COALESCE(CAST("bank" AS BIGINT), 0)) >= $1 RETURNING "mora"`;
+        let liteQ = `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3 AND (CAST(mora AS BIGINT) + COALESCE(CAST(bank AS BIGINT), 0)) >= $1 RETURNING mora`;
+        const deductRes = await safeQuery(db, pgQ, liteQ, [SYNTHESIS_FEE, user.id, guildId]);
+        
         if (!deductRes?.rows?.length) throw new Error("Insufficient funds");
 
         let remainingToDeduct = 4;
@@ -888,15 +900,15 @@ async function handleSynthesis(i, user, guildId, db, state) {
             if (remainingToDeduct <= 0) break;
             const q = Number(r.quantity || r.Quantity);
             const deduct = Math.min(q, remainingToDeduct);
-            await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [deduct, r.id || r.ID]).catch(()=> db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [deduct, r.id || r.ID]));
+            await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [deduct, r.id || r.ID]);
             remainingToDeduct -= deduct;
         }
 
-        await db.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, [user.id]).catch(()=> db.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]));
+        await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]);
         
         let targetCheck = await safeQuery(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, state.targetItem]);
-        if (targetCheck?.rows?.[0]) await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, [targetCheck.rows[0].id]).catch(()=> db.query(`UPDATE user_inventory SET quantity = quantity + 1 WHERE id = $1`, [targetCheck.rows[0].id || targetCheck.rows[0].ID]));
-        else await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]).catch(()=> db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]));
+        if (targetCheck?.rows?.[0]) await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, `UPDATE user_inventory SET quantity = quantity + 1 WHERE id = $1`, [targetCheck.rows[0].id || targetCheck.rows[0].ID]);
+        else await safeQuery(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]);
         
         await db.query('COMMIT').catch(()=>{}); 
         
@@ -1016,19 +1028,21 @@ async function handleSmelting(i, user, guildId, db, state, client, qtyToSmelt = 
             if (remainingToDeduct <= 0) break;
             const q = Number(r.quantity || r.Quantity);
             const deduct = Math.min(q, remainingToDeduct);
-            let itemUpdate = await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2 AND CAST("quantity" AS INTEGER) >= $1 RETURNING "id"`, [deduct, r.id || r.ID]).catch(()=> db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2 AND CAST(quantity AS INTEGER) >= $1 RETURNING id`, [deduct, r.id || r.ID]));
+            let pgItem = `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2 AND CAST("quantity" AS INTEGER) >= $1 RETURNING "id"`;
+            let liteItem = `UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2 AND CAST(quantity AS INTEGER) >= $1 RETURNING id`;
+            let itemUpdate = await safeQuery(db, pgItem, liteItem, [deduct, r.id || r.ID]);
             if(!itemUpdate?.rows?.length) throw new Error("Items");
             remainingToDeduct -= deduct;
         }
 
-        await db.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, [user.id]).catch(()=> db.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]));
+        await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]);
         await db.query('COMMIT').catch(()=>{}); 
 
         const memberObj = await i.guild?.members?.fetch(user.id).catch(()=>{});
         if (addXPAndCheckLevel && memberObj) {
             await addXPAndCheckLevel(client, memberObj, db, xpReward, 0, false).catch(()=>{});
         } else {
-            await db.query(`UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, [xpReward, user.id, guildId]).catch(()=> db.query(`UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [xpReward, user.id, guildId]).catch(()=>{}));
+            await safeQuery(db, `UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [xpReward, user.id, guildId]);
             let cacheData = await client.getLevel(user.id, guildId);
             if(cacheData) { cacheData.xp += xpReward; cacheData.totalXP += xpReward; await client.setLevel(cacheData); }
         }
