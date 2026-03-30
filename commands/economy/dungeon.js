@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags } = require("discord.js");
-const { startDungeon } = require("../../handlers/dungeon-battle.js"); // ← تصحيح المسار إلى dungeon-battle.js !!
+const { startDungeon } = require("../../handlers/dungeon-handler.js");
 const { manageTickets } = require("../../handlers/dungeon/utils.js");
 
 const OWNER_ID = "1145327691772481577";
