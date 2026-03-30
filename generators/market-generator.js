@@ -151,7 +151,7 @@ function drawSparkline(ctx, x, y, width, height, isUp, isDown, color) {
     ctx.shadowBlur = 0;
 }
 
-// 🔥🔥 اللوحة الرئيسية (بالتصميم الذكي المتكيف) 🔥🔥
+// 🔥🔥 اللوحة الرئيسية 🔥🔥
 exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, currentPage, totalPages, userAvatarUrl) {
     const CANVAS_WIDTH = 1280;
     const CANVAS_HEIGHT = 960;
@@ -252,12 +252,9 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
     const totalGridWidth = (actualCols * cardW) + ((actualCols - 1) * gapX);
     const totalGridHeight = (actualRows * cardH) + ((actualRows - 1) * gapY);
     
-    // التوسيط التلقائي بناءً على الحجم المتوفر
+    // التوسيط التلقائي
     const START_X = (CANVAS_WIDTH - totalGridWidth) / 2;
     const START_Y = 120 + ((780 - totalGridHeight) / 2);
-
-    // جلب كل الصور للرام بشكل موازي للسرعة
-    const preloadedImages = await Promise.all(items.map(item => getAssetImage(item)));
 
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -275,18 +272,18 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         const glowColor = isUp ? 'rgba(0, 255, 136, 0.6)' : (isDown ? 'rgba(255, 0, 85, 0.6)' : 'rgba(0, 204, 255, 0.6)');
         const borderColor = isUp ? 'rgba(0, 255, 136, 0.8)' : (isDown ? 'rgba(255, 0, 85, 0.8)' : 'rgba(0, 204, 255, 0.8)');
 
-        // رسم البطاقة الأساسية
         drawSciFiPanel(ctx, x, y, cardW, cardH, borderColor, glowColor);
         drawSparkline(ctx, x + 20, y + sparkY, cardW - 40, sparkH, isUp, isDown, mainColor);
 
-        // صورة اللوغو
-        const assetImg = preloadedImages[i];
+        // اللوغو العملاق في اليسار
+        const assetImg = await getAssetImage(item);
         if (assetImg) {
             ctx.shadowColor = glowColor; ctx.shadowBlur = 15;
             ctx.drawImage(assetImg, x + imgX, y + imgY, imgSize, imgSize);
             ctx.shadowBlur = 0;
         }
 
+        // --- النصوص ---
         ctx.textAlign = "left";
         const cleanName = (item.name || "").replace(/<a?:.+?:\d+>/g, '').replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿]/gu, '').trim();
         
@@ -294,7 +291,7 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         ctx.font = `bold ${fontTitle}px ${FONT_FAMILY}`;
         ctx.fillText(cleanName, x + titleX, y + titleY);
         
-        // شارة النسبة الذكية
+        // شارة النسبة
         ctx.fillStyle = isUp ? 'rgba(0, 255, 136, 0.15)' : (isDown ? 'rgba(255, 0, 85, 0.15)' : 'rgba(0, 204, 255, 0.15)');
         roundRect(ctx, x + badgeX, y + badgeY, badgeW, badgeH, 5, true);
         ctx.strokeStyle = mainColor; ctx.lineWidth = 1; ctx.stroke();
@@ -304,13 +301,17 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         const sign = changePercent > 0 ? '+' : '';
         ctx.fillText(`${sign}${(changePercent * 100).toFixed(2)}%`, x + badgeX + 10, y + badgeY + percentYOff);
 
-        // صندوق اتجاه السهم (Trend Box)
+        // 🔥🏹 مربع الأسهم المصغر 
         const boxXAct = x + cardW - boxSize - boxXOff; 
         const boxYAct = y + boxYOff; 
+
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         roundRect(ctx, boxXAct, boxYAct, boxSize, boxSize, 8, true, false);
-        ctx.shadowColor = glowColor; ctx.shadowBlur = 8;
-        ctx.strokeStyle = mainColor; ctx.lineWidth = 1.5;
+
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 8;
+        ctx.strokeStyle = mainColor;
+        ctx.lineWidth = 1.5;
         roundRect(ctx, boxXAct, boxYAct, boxSize, boxSize, 8, false, true);
         ctx.shadowBlur = 0;
 
@@ -342,7 +343,7 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
     return canvas.toBuffer();
 };
 
-// 🎨 2. رسم بطاقة التفاصيل (تبقى كما هي قوية وسريعة)
+// 🎨 2. رسم بطاقة التفاصيل
 exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, currentPrice, changePercent) {
     const CANVAS_WIDTH = 900;
     const CANVAS_HEIGHT = 450;
