@@ -87,28 +87,33 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
     }
 }
 
+// 🔥 نظام التكاليف المتوازن الجديد (وسط) 🔥
 function getUpgradeRequirements(currentLevel, isSkill = false) {
     if (currentLevel >= 30) return null;
     let reqs = [], moraCost = 0;
     const currentTier = Math.floor((currentLevel - 1) / 5); 
     const primaryTier = Math.min(currentTier, 4);
 
-    moraCost = currentLevel * 1500 * (primaryTier + 1);
+    // تكلفة المورا مخفضة لتكون معقولة
+    moraCost = currentLevel * 800 * (primaryTier + 1);
 
     if (primaryTier === 0) {
-        reqs.push({ tier: 0, count: Math.floor(currentLevel * 1.5) + 2 });
+        reqs.push({ tier: 0, count: currentLevel + 2 }); // تدرج بسيط من 3 لـ 7 حبات
     } else {
         const prevTier = primaryTier - 1;
-        reqs.push({ tier: prevTier, count: Math.floor(currentLevel * 2.5) + 5 });
-        reqs.push({ tier: primaryTier, count: Math.floor(currentLevel * 1.2) + 2 });
+        // كميات متوازنة لا ترهق اللاعب
+        reqs.push({ tier: prevTier, count: Math.floor(currentLevel * 0.8) + 3 });
+        reqs.push({ tier: primaryTier, count: Math.floor(currentLevel * 0.5) + 2 });
     }
 
     let finalReqs = [];
     for (let r of reqs) {
-        if (!isSkill) finalReqs.push({ type: 'material', tier: r.tier, count: r.count });
-        else {
+        if (!isSkill) {
+            finalReqs.push({ type: 'material', tier: r.tier, count: r.count });
+        } else {
             finalReqs.push({ type: 'book', tier: r.tier, count: r.count });
-            finalReqs.push({ type: 'material', tier: r.tier, count: Math.max(1, Math.floor(r.count * 0.6)) });
+            // المورد الثانوي للمهارة تم تخفيضه للنصف
+            finalReqs.push({ type: 'material', tier: r.tier, count: Math.max(1, Math.floor(r.count * 0.5)) });
         }
     }
     return { moraCost, materials: finalReqs };
