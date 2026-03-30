@@ -138,7 +138,6 @@ module.exports = {
             return replyTemp("<:5gyy:1414564326496534628> **مـا نستقـبل شـواذ اذلـف**");
         }
 
-        // 🔥 حماية وفصل الاستعلامات لمنع الانهيار الكامل 🔥
         try {
             let isParentRes;
             try { isParentRes = await db.query(`SELECT 1 FROM children WHERE "parentID" = $1 AND "childID" = $2 AND "guildID" = $3 LIMIT 1`, [targetMember.id, message.author.id, guildId]); }
@@ -235,45 +234,45 @@ module.exports = {
             }
 
             if (i.customId === 'accept_marry') {
-                authorData = await client.getLevel(message.author.id, guildId);
-                authorData.mora = Number(authorData.mora) || 0;
-                
-                if (authorData.mora < dowry) {
+                // 🔥 جلب البيانات بعد الانتظار للتأكد من الرصيد الحالي 🔥
+                let currentAuthorData = await client.getLevel(message.author.id, guildId);
+                if (!currentAuthorData || Number(currentAuthorData.mora) < dowry) {
                     return i.update({ content: `❌ **فشلت العملية:** العريس صرف فلوسه أثناء الانتظار!`, components: [], embeds: [] });
                 }
 
                 try {
                     await db.query('BEGIN');
 
-                    // خصم المهر من العريس
-                    authorData.mora -= dowry;
-                    await client.setLevel(authorData);
+                    // خصم المهر من العريس باستخدام الداتابيز مباشرة لضمان الدقة
+                    await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [dowry, message.author.id, guildId])
+                        .catch(() => db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [dowry, message.author.id, guildId]));
 
                     // إضافة المهر للعروس
+                    await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [dowry, targetMember.id, guildId])
+                        .catch(() => db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [dowry, targetMember.id, guildId]));
+                    
+                    // تحديث الكاش بالبوت
+                    currentAuthorData.mora = Number(currentAuthorData.mora) - dowry;
+                    await client.setLevel(currentAuthorData);
                     let targetData = await client.getLevel(targetMember.id, guildId);
-                    if (!targetData) targetData = { id: `${guildId}-${targetMember.id}`, user: targetMember.id, guild: guildId, xp: 0, level: 1, mora: 0 };
-                    targetData.mora = Number(targetData.mora) || 0;
-                    targetData.mora += dowry;
-                    await client.setLevel(targetData);
+                    if (targetData) {
+                        targetData.mora = Number(targetData.mora) + dowry;
+                        await client.setLevel(targetData);
+                    }
 
                     const now = Date.now();
-                    // 🔥 الحماية المزدوجة لتسجيل الزواج 🔥
+                    // تسجل عملية الزواج
                     try {
                         await db.query(`INSERT INTO marriages ("userID", "partnerID", "marriageDate", "guildID", "dowry") VALUES ($1, $2, $3, $4, $5)`, [message.author.id, targetMember.id, now, guildId, dowry]);
-                        await db.query(`INSERT INTO marriages ("userID", "partnerID", "marriageDate", "guildID", "dowry") VALUES ($1, $2, $3, $4, $5)`, [targetMember.id, message.author.id, now, guildId, dowry]);
                     } catch (e) {
-                        await db.query(`INSERT INTO marriages (userid, partnerid, marriagedate, guildid, dowry) VALUES ($1, $2, $3, $4, $5)`, [message.author.id, targetMember.id, now, guildId, dowry]);
-                        await db.query(`INSERT INTO marriages (userid, partnerid, marriagedate, guildid, dowry) VALUES ($1, $2, $3, $4, $5)`, [targetMember.id, message.author.id, now, guildId, dowry]);
+                        await db.query(`INSERT INTO marriages (userid, partnerid, marriagedate, guildid, dowry) VALUES ($1, $2, $3, $4, $5)`, [message.author.id, targetMember.id, now, guildId, dowry]).catch(()=>{});
                     }
 
                     await db.query('COMMIT');
                 } catch (err) {
                     await db.query('ROLLBACK').catch(()=>{});
                     console.error("Marriage Error:", err);
-                    if (err.code === '23505') { 
-                        return i.update({ content: `❌ **حدث خطأ:** يبدو أن البيانات مسجلة مسبقاً.`, components: [], embeds: [] });
-                    }
-                    return i.update({ content: `❌ **حدث خطأ في قاعدة البيانات.**`, components: [], embeds: [] });
+                    return i.update({ content: `❌ **حدث خطأ في قاعدة البيانات ولم يتم إتمام الزواج.**`, components: [], embeds: [] });
                 }
 
                 const acceptGif = ACCEPT_GIFS[Math.floor(Math.random() * ACCEPT_GIFS.length)];
