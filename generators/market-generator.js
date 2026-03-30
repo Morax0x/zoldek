@@ -1,10 +1,10 @@
 const { createCanvas, loadImage } = require("canvas");
 
-// 🔥 نظام الكاش السريع (RAM Preload) من الروابط مباشرة للسرعة القصوى 🔥
+// 🔥 نظام الكاش السريع (RAM Preload) للسرعة القصوى 🔥
 const ASSETS_CACHE = new Map();
 let trendImages = { up: null, down: null, neutral: null };
 
-// دالة جلب الصور من الرابط (السريع والبديل) لضمان التحميل
+// دالة جلب الصور من الرابط (السريع والبديل)
 async function fetchCloudImage(filename) {
     try {
         return await loadImage(`https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/market/${filename}`);
@@ -21,31 +21,34 @@ async function fetchCloudImage(filename) {
 // تحميل صور الأسهم المصممة للرام عند إقلاع الملف لضمان السرعة
 async function preloadGlobalAssets() {
     try {
-        trendImages.up = await fetchCloudImage('up_trend.png');
-        trendImages.down = await fetchCloudImage('down_trend.png');
-        trendImages.neutral = await fetchCloudImage('neutral_trend.png');
-        console.log("✅ [Market Preload]: تم تحميل صور أسهم الاتجاهات المصممة في الذاكرة.");
+        const [up, down, neutral] = await Promise.all([
+            fetchCloudImage('up_trend.png'),
+            fetchCloudImage('down_trend.png'),
+            fetchCloudImage('neutral_trend.png')
+        ]);
+        trendImages = { up, down, neutral };
+        console.log("✅ [Market Preload]: تم تحميل صور أسهم الاتجاهات في الذاكرة.");
     } catch (e) { console.error("[Market Preload Error]:", e.message); }
 }
 
-// دالة جلب لوغوهات الأصول (عملاقة)
+// دالة جلب لوغوهات الأصول من الكاش أو تحميلها
 async function getAssetImage(item) {
     if (ASSETS_CACHE.has(item.id)) return ASSETS_CACHE.get(item.id);
     
+    let img = null;
     if (item.image) {
-        try {
-            const img = await loadImage(item.image);
-            ASSETS_CACHE.set(item.id, img);
-            return img;
-        } catch (e) { }
+        try { img = await loadImage(item.image); } catch (e) {}
     }
     
-    const img = await fetchCloudImage(`${item.id.toLowerCase()}.png`);
+    if (!img) {
+        img = await fetchCloudImage(`${item.id.toLowerCase()}.png`);
+    }
+    
     if (img) ASSETS_CACHE.set(item.id, img);
     return img;
 }
 
-// دالة جلب آفتار المستخدم
+// دالة جلب آفتار المستخدم من الكاش
 async function drawUserAvatar(ctx, url, x, y, size) {
     try {
         if (!ASSETS_CACHE.has(url)) {
@@ -159,9 +162,8 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
     const ctx = canvas.getContext("2d");
     const FONT_FAMILY = '"Arial", sans-serif';
 
-    if (!trendImages.up) trendImages.up = await fetchCloudImage('up_trend.png');
-    if (!trendImages.down) trendImages.down = await fetchCloudImage('down_trend.png');
-    if (!trendImages.neutral) trendImages.neutral = await fetchCloudImage('neutral_trend.png');
+    // تحميل الصور مسبقاً بالتوازي لزيادة السرعة
+    const preloadedImages = await Promise.all(items.map(item => getAssetImage(item)));
 
     const bgGradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
     bgGradient.addColorStop(0, '#04070d'); 
@@ -227,8 +229,8 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         drawSciFiPanel(ctx, x, y, CARD_WIDTH, CARD_HEIGHT, borderColor, glowColor);
         drawSparkline(ctx, x + 20, y + Math.floor(CARD_HEIGHT * 0.7), CARD_WIDTH - 40, 50, isUp, isDown, mainColor);
 
-        // اللوغو العملاق في اليسار
-        const assetImg = await getAssetImage(item);
+        // اللوغو من الصور المحملة مسبقاً
+        const assetImg = preloadedImages[i];
         if (assetImg) {
             ctx.shadowColor = glowColor; ctx.shadowBlur = 15;
             ctx.drawImage(assetImg, x + 15, y + 20, 120, 120);
@@ -239,7 +241,6 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         ctx.textAlign = "left";
         const cleanName = (item.name || "").replace(/<a?:.+?:\d+>/g, '').replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿]/gu, '').trim();
         
-        // تصغير الخط درجة بسيطة لضمان عدم التداخل مع إطار السهم
         ctx.fillStyle = '#ffffff';
         ctx.font = `bold 24px ${FONT_FAMILY}`;
         ctx.fillText(cleanName, x + 140, y + 55);
@@ -256,8 +257,8 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
 
         // 🔥🏹 مربع الأسهم المصغر جداً والمحشور بالزاوية 🔥🏹
         const boxSize = 50;
-        const boxX = x + CARD_WIDTH - boxSize - 15; // محشور لليمين مع هامش 15 بكسل
-        const boxY = y + 15; // هامش علوي 15 بكسل
+        const boxX = x + CARD_WIDTH - boxSize - 15; 
+        const boxY = y + 15; 
 
         // المربع الداخلي (خلفية)
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -274,7 +275,6 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         // السهم المصغر بالداخل
         const trendImg = isUp ? trendImages.up : (isDown ? trendImages.down : trendImages.neutral);
         if (trendImg) {
-            // صورة 40x40 مع 5 بكسل فراغ يمين ويسار
             ctx.drawImage(trendImg, boxX + 5, boxY + 5, 40, 40); 
         }
 
@@ -322,10 +322,6 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     drawSciFiPanel(ctx, 20, 20, CANVAS_WIDTH - 40, CANVAS_HEIGHT - 40, borderColor, glowColor);
-
-    if (!trendImages.up) trendImages.up = await fetchCloudImage('up_trend.png');
-    if (!trendImages.down) trendImages.down = await fetchCloudImage('down_trend.png');
-    if (!trendImages.neutral) trendImages.neutral = await fetchCloudImage('neutral_trend.png');
 
     const assetImg = await getAssetImage(item);
     if (assetImg) {
