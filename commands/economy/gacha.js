@@ -13,7 +13,7 @@ const upgradeMats = require('../../json/upgrade-materials.json');
 const PULL_PRICE = 1000;
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
-// 🔥 نظام القفل لمنع السبام وتسابق البيانات 🔥
+// 🔥 نظام القفل الشامل لمنع السبام والتعليق 🔥
 const activeGachaUsers = new Set();
 
 const FLAVOR_TEXTS = [
@@ -94,10 +94,9 @@ async function execSafe(db, qPg, qLite, params = []) {
     }
 }
 
-// 🔥 دالة الخصم القاضية (تخصم من الذاكرة ومن قاعدة البيانات عشان مستحيل يرجع الرصيد) 🔥
+// 🔥 دالة الخصم الصارمة تقضي على ثغرة الذاكرة 🔥
 async function deductMora(client, db, userId, guildId, amount) {
     try {
-        // 1. تحديث الذاكرة المؤقتة (Cache) حق البوت
         if (client && typeof client.getLevel === 'function') {
             let u = await client.getLevel(userId, guildId);
             if (u) {
@@ -107,7 +106,6 @@ async function deductMora(client, db, userId, guildId, amount) {
         }
     } catch(e) {}
 
-    // 2. تحديث قاعدة البيانات
     let r1 = await execSafe(db, 
         `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, 
         `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, 
@@ -175,6 +173,7 @@ module.exports = {
 
         const reply = async (payload) => isSlash ? interactionOrMessage.editReply(payload).catch(()=>{}) : interactionOrMessage.reply(payload).catch(()=>{});
 
+        // 🔥 نظام منع تشغيل أكثر من صندوق بنفس الوقت لنفس الشخص 🔥
         if (activeGachaUsers.has(user.id)) {
             const msgPayload = { content: '⏳ **الرجاء إنهاء استدعاء الصناديق الحالي أولاً قبل فتح جديد!**', flags: [MessageFlags.Ephemeral] };
             if (isSlash) {
@@ -203,7 +202,7 @@ module.exports = {
         let activePageCollector = null;
 
         const fetchUserData = async () => {
-            // 🔥 نسحب من الذاكرة المؤقتة أولاً لضمان أحدث رصيد للمورا 🔥
+            // سحب الرصيد من الكاش عشان نضمن إنه الأحدث ومستحيل ترجع الفلوس
             let cacheMora = null;
             try {
                 if (client.getLevel) {
@@ -288,7 +287,7 @@ module.exports = {
         };
 
         const generateAndSendHub = async (targetMsg) => {
-            await fetchUserData(); // رح يقرأ من الداتابيز + الذاكرة المحدثة عشان الرصيد ما يكون قديم
+            await fetchUserData(); 
             const summaryRandomText = FLAVOR_TEXTS[Math.floor(Math.random() * FLAVOR_TEXTS.length)];
             let files = [];
             if (generateGachaHub) {
@@ -319,16 +318,9 @@ module.exports = {
             }
 
             const row = new ActionRowBuilder();
-            
-            if (totalChests >= 1) {
-                row.addComponents(new ButtonBuilder().setCustomId('open_chest_1').setLabel('فتح 1').setEmoji('🎁').setStyle(ButtonStyle.Primary));
-            }
-            if (totalChests >= 10) {
-                row.addComponents(new ButtonBuilder().setCustomId('open_chest_10').setLabel('فتح 10').setEmoji('🌟').setStyle(ButtonStyle.Success));
-            }
-            if (totalChests > 1) {
-                row.addComponents(new ButtonBuilder().setCustomId('open_chest_all').setLabel('فتح الكل').setEmoji('🔥').setStyle(ButtonStyle.Danger));
-            }
+            if (totalChests >= 1) row.addComponents(new ButtonBuilder().setCustomId('open_chest_1').setLabel('فتح 1').setEmoji('🎁').setStyle(ButtonStyle.Primary));
+            if (totalChests >= 10) row.addComponents(new ButtonBuilder().setCustomId('open_chest_10').setLabel('فتح 10').setEmoji('🌟').setStyle(ButtonStyle.Success));
+            if (totalChests > 1) row.addComponents(new ButtonBuilder().setCustomId('open_chest_all').setLabel('فتح الكل').setEmoji('🔥').setStyle(ButtonStyle.Danger));
             
             row.addComponents(new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('رجوع').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
             
@@ -336,74 +328,77 @@ module.exports = {
         };
 
         const executePulls = async (pullCount, isBuying, cost) => {
-            if (isBuying) {
-                // الخصم الفعلي من الذاكرة والـ DB
-                let deducted = await deductMora(client, db, user.id, guildId, cost);
-                if (!deducted) return null;
-                userMora -= cost; 
-            } else {
-                let remaining = pullCount;
-                let consumeFree = Math.min(freeChests, remaining);
-                remaining -= consumeFree;
-                let consumePaid = Math.min(paidChests, remaining);
-                
-                if (consumeFree > 0) {
-                    await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'free_gacha_chest'`, [consumeFree, user.id, guildId]);
-                }
-                if (consumePaid > 0) {
-                    await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'gacha_chest'`, [consumePaid, user.id, guildId]);
-                }
-                
-                freeChests -= consumeFree;
-                paidChests -= consumePaid;
-                totalChests = freeChests + paidChests;
-            }
-
-            const results = [];
-            let highestRarityVal = 0;
-            const rarityOrder = { Common: 0, Uncommon: 1, Rare: 2, Epic: 3, Legendary: 4 };
-            let bestResult = null;
-
-            const itemsToAdd = {};
-            const skillsToAdd = [];
-
-            await db.query('BEGIN').catch(()=>{});
-            
-            for (let k = 0; k < pullCount; k++) {
-                const { item, rarity } = performPull(pityData, userRace, ownedSkills);
-                
-                if (rarityOrder[rarity] > highestRarityVal) {
-                    highestRarityVal = rarityOrder[rarity];
-                    bestResult = { item, rarity };
-                }
-
-                if (item.type === 'skill') {
-                    ownedSkills.push(item.id);
-                    skillsToAdd.push(item.id);
+            try {
+                if (isBuying) {
+                    let deducted = await deductMora(client, db, user.id, guildId, cost);
+                    if (!deducted) return null;
+                    userMora -= cost; 
                 } else {
-                    if (!itemsToAdd[item.id]) itemsToAdd[item.id] = 0;
-                    itemsToAdd[item.id]++;
+                    let remaining = pullCount;
+                    let consumeFree = Math.min(freeChests, remaining);
+                    remaining -= consumeFree;
+                    let consumePaid = Math.min(paidChests, remaining);
+                    
+                    if (consumeFree > 0) {
+                        await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'free_gacha_chest'`, [consumeFree, user.id, guildId]);
+                    }
+                    if (consumePaid > 0) {
+                        await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'gacha_chest'`, [consumePaid, user.id, guildId]);
+                    }
+                    
+                    freeChests -= consumeFree;
+                    paidChests -= consumePaid;
+                    totalChests = freeChests + paidChests;
                 }
-                results.push({ item, rarity });
-            }
 
-            for (const skillId of skillsToAdd) {
-                await execSafe(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
-            }
+                const results = [];
+                let highestRarityVal = 0;
+                const rarityOrder = { Common: 0, Uncommon: 1, Rare: 2, Epic: 3, Legendary: 4 };
+                let bestResult = null;
 
-            for (const [itemId, qty] of Object.entries(itemsToAdd)) {
-                let existingItemRes = await execSafe(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemId]);
-                if (!existingItemRes.error && existingItemRes.rows[0]) {
-                    await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qty, existingItemRes.rows[0].id || existingItemRes.rows[0].ID]);
-                } else {
-                    await execSafe(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]);
+                const itemsToAdd = {};
+                const skillsToAdd = [];
+
+                await db.query('BEGIN').catch(()=>{});
+                
+                for (let k = 0; k < pullCount; k++) {
+                    const { item, rarity } = performPull(pityData, userRace, ownedSkills);
+                    
+                    if (rarityOrder[rarity] > highestRarityVal) {
+                        highestRarityVal = rarityOrder[rarity];
+                        bestResult = { item, rarity };
+                    }
+
+                    if (item.type === 'skill') {
+                        ownedSkills.push(item.id);
+                        skillsToAdd.push(item.id);
+                    } else {
+                        if (!itemsToAdd[item.id]) itemsToAdd[item.id] = 0;
+                        itemsToAdd[item.id]++;
+                    }
+                    results.push({ item, rarity });
                 }
+
+                for (const skillId of skillsToAdd) {
+                    await execSafe(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
+                }
+
+                for (const [itemId, qty] of Object.entries(itemsToAdd)) {
+                    let existingItemRes = await execSafe(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemId]);
+                    if (!existingItemRes.error && existingItemRes.rows[0]) {
+                        await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qty, existingItemRes.rows[0].id || existingItemRes.rows[0].ID]);
+                    } else {
+                        await execSafe(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]);
+                    }
+                }
+
+                await execSafe(db, `UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, `UPDATE user_gacha_pity SET epic_pity = $1, legendary_pity = $2 WHERE userid = $3 AND guildid = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]);
+                await db.query('COMMIT').catch(()=>{});
+
+                return { bestResult, results };
+            } catch (e) {
+                return null;
             }
-
-            await execSafe(db, `UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, `UPDATE user_gacha_pity SET epic_pity = $1, legendary_pity = $2 WHERE userid = $3 AND guildid = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]);
-            await db.query('COMMIT').catch(()=>{});
-
-            return { bestResult, results };
         };
 
         const initialPayload = await generateAndSendHub();
@@ -426,151 +421,154 @@ module.exports = {
             }
             isProcessing = true;
 
-            try { await i.deferUpdate().catch(()=>{}); } catch (err) { isProcessing = false; return; }
+            try {
+                try { await i.deferUpdate().catch(()=>{}); } catch (err) { return; }
 
-            if (i.customId === 'gacha_inventory') {
-                await showInventoryMenu(initialMsg);
-                isProcessing = false;
-                return;
-            }
-
-            if (i.customId === 'gacha_return_hub') {
-                if (activePageCollector) {
-                    activePageCollector.stop('return_hub');
-                    activePageCollector = null;
-                }
-                await generateAndSendHub(initialMsg);
-                isProcessing = false;
-                return;
-            }
-
-            await fetchUserData();
-            
-            let isBuying = i.customId.startsWith('gacha_');
-            let pullCount = 1;
-            let cost = 0;
-
-            if (isBuying) {
-                pullCount = i.customId === 'gacha_10' ? 10 : 1;
-                cost = pullCount * PULL_PRICE;
-                if (userMora < cost) {
-                    await i.followUp({ content: "❌ لا تملك المورا الكافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-                    isProcessing = false;
+                if (i.customId === 'gacha_inventory') {
+                    await showInventoryMenu(initialMsg);
                     return;
                 }
-            } else {
-                if (i.customId === 'open_chest_10') pullCount = 10;
-                else if (i.customId === 'open_chest_all') pullCount = Math.min(totalChests, 50); 
-                if (totalChests < pullCount) {
-                    await i.followUp({ content: "❌ لا تملك صناديق كافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-                    isProcessing = false;
+
+                if (i.customId === 'gacha_return_hub') {
+                    if (activePageCollector) {
+                        activePageCollector.stop('return_hub');
+                        activePageCollector = null;
+                    }
+                    await generateAndSendHub(initialMsg);
                     return;
                 }
-            }
 
-            await initialMsg.edit({ components: [], embeds: [] }).catch(()=>{});
+                if (['gacha_next', 'gacha_skip'].includes(i.customId)) return;
 
-            const pullsData = await executePulls(pullCount, isBuying, cost);
-            if (!pullsData) {
-                await i.followUp({ content: "❌ فشل خصم المورا! تأكد من رصيدك.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-                isProcessing = false;
-                return;
-            }
-            const { bestResult, results } = pullsData;
-
-            const prefix = pullCount > 1 ? 'ten_' : 'single_';
-            const meteorFileName = `${prefix}${bestResult.rarity}.png`;
-            const meteorUrl = `${R2_URL}/images/gacha/${meteorFileName}`;
-            let meteorFiles = [new AttachmentBuilder(meteorUrl, { name: meteorFileName })];
-            
-            await initialMsg.edit({ files: meteorFiles, components: [], embeds: [] }).catch(()=>{});
-            
-            await new Promise(r => setTimeout(r, 700));
-
-            if (pullCount > 10) {
-                let files = [];
-                if (generateGachaCard && bestResult.item.imgPath) {
-                    try {
-                        const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
-                        if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_best.png` }));
-                    } catch(e){}
-                }
+                await fetchUserData();
                 
-                const summaryEmbed = new EmbedBuilder()
-                    .setTitle(`📦 تم فتح ${pullCount} صندوق`)
-                    .setColor(Colors.Green)
-                    .setDescription(`**أفضل عنصر حصلت عليه:**\n✨ ${bestResult.item.emoji} ${bestResult.item.name} (${bestResult.rarity})\n\n> تم إضافة جميع العناصر المتبقية إلى حقيبتك بنجاح.`);
+                let isBuying = i.customId.startsWith('gacha_');
+                let pullCount = 1;
+                let cost = 0;
 
-                await initialMsg.edit({ embeds: [summaryEmbed], files, components: [getReturnButton()] }).catch(()=>{});
+                if (isBuying) {
+                    pullCount = i.customId === 'gacha_10' ? 10 : 1;
+                    cost = pullCount * PULL_PRICE;
+                    if (userMora < cost) {
+                        await i.followUp({ content: "❌ لا تملك المورا الكافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                        return;
+                    }
+                } else {
+                    if (i.customId === 'open_chest_10') pullCount = 10;
+                    else if (i.customId === 'open_chest_all') pullCount = Math.min(totalChests, 50); 
+                    if (totalChests < pullCount) {
+                        await i.followUp({ content: "❌ لا تملك صناديق كافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                        return;
+                    }
+                }
 
-            } else if (pullCount > 1) {
-                let currentIndex = 0;
-                const getPagePayload = async (idx) => {
-                    if (idx >= results.length) idx = results.length - 1;
-                    if (idx < 0) idx = 0;
+                await initialMsg.edit({ components: [], embeds: [] }).catch(()=>{});
 
-                    const res = results[idx];
+                const pullsData = await executePulls(pullCount, isBuying, cost);
+                if (!pullsData) {
+                    await i.followUp({ content: "❌ فشل خصم المورا! تأكد من رصيدك.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                    return;
+                }
+
+                const { bestResult, results } = pullsData;
+
+                const prefix = pullCount > 1 ? 'ten_' : 'single_';
+                const meteorFileName = `${prefix}${bestResult.rarity}.png`;
+                const meteorUrl = `${R2_URL}/images/gacha/${meteorFileName}`;
+                let meteorFiles = [new AttachmentBuilder(meteorUrl, { name: meteorFileName })];
+                
+                await initialMsg.edit({ files: meteorFiles, components: [], embeds: [] }).catch(()=>{});
+                
+                await new Promise(r => setTimeout(r, 700));
+
+                if (pullCount > 10) {
                     let files = [];
-                    if (generateGachaCard && res.item.imgPath) {
+                    if (generateGachaCard && bestResult.item.imgPath) {
                         try {
-                            const buffer = await generateGachaCard(res.item, res.rarity);
-                            if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_${idx}.png` }));
+                            const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
+                            if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_best.png` }));
                         } catch(e){}
                     }
-
-                    const row = new ActionRowBuilder();
-                    if (idx < pullCount - 1) {
-                        row.addComponents(
-                            new ButtonBuilder().setCustomId('gacha_next').setLabel('التالي').setEmoji('➡️').setStyle(ButtonStyle.Primary),
-                            new ButtonBuilder().setCustomId('gacha_skip').setLabel('تخطي').setEmoji('⏭️').setStyle(ButtonStyle.Secondary),
-                            new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('الرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Danger)
-                        );
-                    } else {
-                        row.addComponents(
-                            new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('الرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Success)
-                        );
-                    }
-                    return { components: [row], files };
-                };
-
-                await initialMsg.edit(await getPagePayload(0)).catch(()=>{});
-
-                activePageCollector = initialMsg.createMessageComponentCollector({
-                    filter: btn => btn.user.id === user.id && ['gacha_next', 'gacha_skip'].includes(btn.customId),
-                    time: 120000 
-                });
-
-                let isPaging = false;
-                activePageCollector.on('collect', async btn => {
-                    if (isPaging) {
-                        return btn.reply({ content: '⏳ يرجى الانتظار، جاري تحميل الصورة...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-                    }
-                    isPaging = true;
-                    try { await btn.deferUpdate().catch(()=>{}); } catch(e) { isPaging = false; return; }
                     
-                    if (btn.customId === 'gacha_skip') {
-                        currentIndex = pullCount - 1; 
-                        await initialMsg.edit(await getPagePayload(currentIndex)).catch(()=>{});
-                    } else if (btn.customId === 'gacha_next') {
-                        if (currentIndex < pullCount - 1) {
-                            currentIndex++;
-                            await initialMsg.edit(await getPagePayload(currentIndex)).catch(()=>{});
-                        }
-                    }
-                    isPaging = false;
-                });
+                    const summaryEmbed = new EmbedBuilder()
+                        .setTitle(`📦 تم فتح ${pullCount} صندوق`)
+                        .setColor(Colors.Green)
+                        .setDescription(`**أفضل عنصر حصلت عليه:**\n✨ ${bestResult.item.emoji} ${bestResult.item.name} (${bestResult.rarity})\n\n> تم إضافة جميع العناصر المتبقية إلى حقيبتك بنجاح.`);
 
-            } else {
-                let files = [];
-                if (generateGachaCard && bestResult && bestResult.item.imgPath) {
-                    try {
-                        const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
-                        if (buffer) files.push(new AttachmentBuilder(buffer, { name: 'gacha_best.png' }));
-                    } catch(e){}
+                    await initialMsg.edit({ embeds: [summaryEmbed], files, components: [getReturnButton()] }).catch(()=>{});
+
+                } else if (pullCount > 1) {
+                    let currentIndex = 0;
+                    const getPagePayload = async (idx) => {
+                        if (idx >= results.length) idx = results.length - 1;
+                        if (idx < 0) idx = 0;
+
+                        const res = results[idx];
+                        let files = [];
+                        if (generateGachaCard && res.item.imgPath) {
+                            try {
+                                const buffer = await generateGachaCard(res.item, res.rarity);
+                                if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_${idx}.png` }));
+                            } catch(e){}
+                        }
+
+                        const row = new ActionRowBuilder();
+                        if (idx < pullCount - 1) {
+                            row.addComponents(
+                                new ButtonBuilder().setCustomId('gacha_next').setLabel('التالي').setEmoji('➡️').setStyle(ButtonStyle.Primary),
+                                new ButtonBuilder().setCustomId('gacha_skip').setLabel('تخطي').setEmoji('⏭️').setStyle(ButtonStyle.Secondary),
+                                new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('الرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Danger)
+                            );
+                        } else {
+                            row.addComponents(
+                                new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('الرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Success)
+                            );
+                        }
+                        return { components: [row], files };
+                    };
+
+                    await initialMsg.edit(await getPagePayload(0)).catch(()=>{});
+
+                    activePageCollector = initialMsg.createMessageComponentCollector({
+                        filter: btn => btn.user.id === user.id && ['gacha_next', 'gacha_skip'].includes(btn.customId),
+                        time: 120000 
+                    });
+
+                    let isPaging = false;
+                    activePageCollector.on('collect', async btn => {
+                        if (isPaging) {
+                            return btn.reply({ content: '⏳ يرجى الانتظار، جاري تحميل الصورة...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                        }
+                        isPaging = true;
+                        try { await btn.deferUpdate().catch(()=>{}); } catch(e) { isPaging = false; return; }
+                        
+                        if (btn.customId === 'gacha_skip') {
+                            currentIndex = pullCount - 1; 
+                            await initialMsg.edit(await getPagePayload(currentIndex)).catch(()=>{});
+                        } else if (btn.customId === 'gacha_next') {
+                            if (currentIndex < pullCount - 1) {
+                                currentIndex++;
+                                await initialMsg.edit(await getPagePayload(currentIndex)).catch(()=>{});
+                            }
+                        }
+                        isPaging = false;
+                    });
+
+                } else {
+                    let files = [];
+                    if (generateGachaCard && bestResult && bestResult.item && bestResult.item.imgPath) {
+                        try {
+                            const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
+                            if (buffer) files.push(new AttachmentBuilder(buffer, { name: 'gacha_best.png' }));
+                        } catch(e){}
+                    }
+                    await initialMsg.edit({ components: [getReturnButton()], files, content: '' }).catch(()=>{});
                 }
-                await initialMsg.edit({ components: [getReturnButton()], files, content: '' }).catch(()=>{});
+            } catch (e) {
+                // Ignore silent errors
+            } finally {
+                isProcessing = false; // فك القفل دائماً عشان ما يعلق
             }
-            isProcessing = false;
         });
 
         channelCollector.on('end', () => { 
