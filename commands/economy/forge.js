@@ -71,30 +71,21 @@ function resolveText(val) {
     return String(val);
 }
 
-// 🔥 نظام المعالجة الذاتية لقاعدة البيانات (Self-Healing DB System) 🔥
+// 🔥 نظام المعالجة الذاتية لقاعدة البيانات (نظيف وبدون رسائل الكونسول) 🔥
 const safeQuery = async (db, qPg, params) => {
     try { 
         return await db.query(qPg, params); 
     } catch(e) { 
-        // إذا كان الخطأ بسبب العداد المخبط (Sequence Sync Issue)
         if (e.message && e.message.includes('violates unique constraint') && e.message.includes('_pkey')) {
             try {
-                // نستخرج اسم الجدول اللي فيه المشكلة من رسالة الخطأ
                 const match = e.message.match(/"([a-zA-Z0-9_]+)_pkey"/);
                 if (match && match[1]) {
                     const tableName = match[1];
-                    console.log(`[Auto-Fix] Repairing broken sequence for table: ${tableName}...`);
-                    // أمر إصلاح العداد إجبارياً
                     await db.query(`SELECT setval('${tableName}_id_seq', COALESCE((SELECT MAX(id) FROM ${tableName}), 0) + 1, false)`);
-                    console.log(`[Auto-Fix] ✅ Sequence fixed! Retrying query...`);
-                    // إعادة تنفيذ الطلب بعد الإصلاح
                     return await db.query(qPg, params); 
                 }
-            } catch(fixErr) {
-                console.error("❌ Failed to auto-fix sequence:", fixErr.message);
-            }
+            } catch(fixErr) {}
         }
-        console.error("\n❌ [DB ERROR]:", e.message);
         return {rows:[]};
     }
 };
@@ -297,9 +288,7 @@ async function replyWithCanvas(i, user, view, data, components, isInitial = fals
                 return returnMessage || i; 
             }
         }
-    } catch (e) {
-        console.error("Canvas Error in Forge:", e);
-    }
+    } catch (e) {}
     return i;
 }
 
