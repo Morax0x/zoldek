@@ -2,29 +2,10 @@ const { cleanDisplayName } = require('../dungeon/utils');
 
 const GLOBAL_SKILL_MULTIPLIER = 5.0;
 
-// 🔥 دالة التوحيد الإجباري (الصحوة من لفل 16) لمهارات الدانجون 🔥
 function calculateSkillRawValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
-    
-    const base = skillConfig.base_value;
-    const inc = skillConfig.value_increment;
-    const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
-
-    if (level <= 15) {
-        // من 1 إلى 15: قوة العرق الطبيعية والتفاوت
-        return Math.floor(base + (inc * (level - 1)));
-    } else {
-        // من 16 إلى 30: توحيد إجباري للمهارات لجميع اللاعبين!
-        const valueAt15 = base + (inc * 14);
-        const targetValueAt30 = isPercentage ? 50 : 200; 
-        const levelsRemaining = 15;
-        const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
-        
-        let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
-        if (level >= 30) return targetValueAt30;
-        return Math.floor(finalValue);
-    }
+    return skillConfig.base_value + (skillConfig.value_increment * (level - 1));
 }
 
 function getName(entity) {
