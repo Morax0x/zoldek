@@ -1,6 +1,5 @@
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 
-// تسجيل الخطوط
 try {
     GlobalFonts.registerFromPath('fonts/bein-ar-normal.ttf', 'Bein');
     GlobalFonts.registerFromPath('efonts/NotoEmoj.ttf', 'Emoji');
@@ -183,7 +182,7 @@ async function getInventoryCategories(db, userId, guildId) {
             const res = await db.query(`SELECT "rodLevel", "boatLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
             if (res.rows.length > 0) userData = res.rows[0];
         } catch(e) {
-            const res = await db.query(`SELECT rodlevel, boatlevel FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
+            const res = await db.query(`SELECT rodlevel, boatlevel FROM levels WHERE userid = $1 AND guildid = $2`).catch(()=>({rows:[]}));
             if (res.rows.length > 0) userData = res.rows[0];
         }
 
@@ -851,14 +850,12 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
     
-    // خلفية راقية بستايل التداول والشاشات
     const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
     bgGrad.addColorStop(0, '#0f172a'); 
     bgGrad.addColorStop(1, '#020617'); 
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, width, height);
 
-    // إضافة شبكة خفيفة (Grid) لتعطي طابع الأسواق
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
     ctx.lineWidth = 1;
     for (let i = 0; i < width; i += 40) {
@@ -868,7 +865,6 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(width, i); ctx.stroke();
     }
 
-    // جزيئات خفيفة في الخلفية
     ctx.fillStyle = '#FFFFFF';
     for(let i=0; i<100; i++) {
         const px = Math.random() * width;
@@ -909,15 +905,6 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
     ctx.textAlign = 'right';
     ctx.fillText(`[ ${page} / ${totalPages || 1} ]`, width - 30, 70);
 
-    const cols = 3;
-    const rows = 3;
-    const cardW = 350;
-    const cardH = 220;
-    const gapX = 45;
-    const gapY = 30;
-    const startX = (width - ((cols * cardW) + ((cols - 1) * gapX))) / 2;
-    const startY = 170; 
-
     if (!items || items.length === 0) {
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 40px "Bein"'; 
@@ -925,6 +912,28 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         ctx.fillText('المحفظة فارغة حالياً', width / 2, height / 2);
         return canvas.toBuffer('image/png', { compressionLevel: 1, filters: canvas.PNG_FILTER_NONE });
     }
+
+    let cols, cardW, cardH, gapX, gapY, imgSize, fontTitle, fontText, paddingY;
+
+    if (items.length === 1) {
+        cols = 1; cardW = 800; cardH = 450; gapX = 0; gapY = 0;
+        imgSize = 150; fontTitle = 42; fontText = 30; paddingY = 40;
+    } else if (items.length === 2) {
+        cols = 2; cardW = 520; cardH = 380; gapX = 60; gapY = 0;
+        imgSize = 120; fontTitle = 32; fontText = 26; paddingY = 30;
+    } else if (items.length <= 4) {
+        cols = 2; cardW = 500; cardH = 280; gapX = 60; gapY = 40;
+        imgSize = 90; fontTitle = 28; fontText = 22; paddingY = 20;
+    } else {
+        cols = 3; cardW = 350; cardH = 220; gapX = 45; gapY = 30;
+        imgSize = 65; fontTitle = 24; fontText = 20; paddingY = 12;
+    }
+
+    const actualCols = Math.min(items.length, cols);
+    const actualRows = Math.ceil(items.length / cols);
+    const startX = (width - ((actualCols * cardW) + ((actualCols - 1) * gapX))) / 2;
+    const gridTotalHeight = (actualRows * cardH) + ((actualRows - 1) * gapY);
+    const startY = headerH + ((height - headerH - 50 - gridTotalHeight) / 2);
 
     for (let i = 0; i < items.length; i++) {
         const col = i % cols;
@@ -939,9 +948,8 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
 
         const cleanName = item.name.replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿🪙]/gu, '').trim();
 
-        const imgSize = 65; 
-        const imgX = x + cardW - imgSize - 15;
-        const imgY = y + 12; 
+        const imgX = x + cardW - imgSize - 20;
+        const imgY = y + paddingY; 
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.beginPath(); roundRect(ctx, imgX, imgY, imgSize, imgSize, 10); ctx.fill();
@@ -950,7 +958,7 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         if (item.imgPath) {
             const img = await getCachedImage(item.imgPath);
             if (img) {
-                const padding = 8; 
+                const padding = imgSize * 0.12; 
                 const drawSize = imgSize - (padding * 2);
                 ctx.save();
                 ctx.beginPath();
@@ -960,7 +968,7 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
                 ctx.restore();
             } else {
                 ctx.fillStyle = '#fff';
-                ctx.font = '28px "Emoji", "Arial"';
+                ctx.font = `${imgSize * 0.45}px "Emoji", "Arial"`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText('📈', imgX + imgSize/2, imgY + imgSize/2);
@@ -970,16 +978,16 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         ctx.fillStyle = '#FFFFFF';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
-        drawAutoScaledText(ctx, cleanName, imgX - 15, imgY + imgSize/2, cardW - imgSize - 45, 24, 14);
+        drawAutoScaledText(ctx, cleanName, imgX - 20, imgY + imgSize/2, cardW - imgSize - 60, fontTitle, 14);
 
-        const sepY = imgY + imgSize + 12; 
+        const sepY = imgY + imgSize + paddingY; 
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.beginPath(); ctx.moveTo(x + 15, sepY); ctx.lineTo(x + cardW - 15, sepY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + 20, sepY); ctx.lineTo(x + cardW - 20, sepY); ctx.stroke();
 
-        let textY = sepY + 22; 
-        const spacing = 26; 
-        const textRightX = x + cardW - 20;
-        const textLeftX = x + 20;
+        let textY = sepY + paddingY; 
+        const spacing = fontText + (paddingY * 0.8); 
+        const textRightX = x + cardW - 25;
+        const textLeftX = x + 25;
 
         const profit = (item.currentPrice - item.purchasePrice) * item.quantity;
         const isProfit = profit >= 0;
@@ -993,13 +1001,14 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         ];
 
         for (const r of rowsData) {
-            ctx.font = '20px "Bein"';
+            ctx.font = `${fontText}px "Bein"`;
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = '#A8B8D0';
             ctx.fillText(r.label, textRightX, textY);
 
             ctx.textAlign = 'left';
+            ctx.font = `bold ${fontText + 2}px "Bein"`;
             ctx.fillStyle = r.color;
             ctx.fillText(r.val, textLeftX, textY);
 
