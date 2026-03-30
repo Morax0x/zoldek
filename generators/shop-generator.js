@@ -5,6 +5,8 @@ try {
     GlobalFonts.registerFromPath(path.join(__dirname, '../fonts/cairo-Pandaify'), 'Cairo');
 } catch (e) {}
 
+const imageCache = new Map();
+
 async function generateGlobalShopBoard(allItems) {
     const columns = 4;
     const boxSize = 240;
@@ -41,6 +43,20 @@ async function generateGlobalShopBoard(allItems) {
     ctx.font = '22px "Cairo", sans-serif';
     ctx.fillText('اختر العنصر الذي تود شراءه من القائمة بالأسفل', canvasWidth / 2, 120);
 
+    const imagePromises = allItems.map(async (item) => {
+        if (!item.image) return null;
+        if (imageCache.has(item.image)) return imageCache.get(item.image);
+        try {
+            const img = await loadImage(item.image);
+            imageCache.set(item.image, img);
+            return img;
+        } catch (e) {
+            return null;
+        }
+    });
+
+    const preloadedImages = await Promise.all(imagePromises);
+
     for (let i = 0; i < allItems.length; i++) {
         const item = allItems[i];
         const row = Math.floor(i / columns);
@@ -58,14 +74,10 @@ async function generateGlobalShopBoard(allItems) {
         ctx.lineWidth = 3;
         ctx.stroke();
 
-        try {
-            if (item.image) {
-                const itemImage = await loadImage(item.image);
-                ctx.drawImage(itemImage, x + 60, y + 25, 120, 120);
-            } else {
-                throw new Error("No image");
-            }
-        } catch (e) {
+        const itemImg = preloadedImages[i];
+        if (itemImg) {
+            ctx.drawImage(itemImg, x + 60, y + 25, 120, 120);
+        } else {
             ctx.fillStyle = '#252533';
             ctx.beginPath();
             ctx.roundRect(x + 60, y + 25, 120, 120, 15);
