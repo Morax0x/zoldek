@@ -84,7 +84,6 @@ async function getUserBal(db, userId, guildId) {
     return { mora: Number(r.rows[0].mora || r.rows[0].Mora || 0), bank: Number(r.rows[0].bank || r.rows[0].Bank || 0) };
 }
 
-// 🔥 نظام استرجاع تعب الصيادين القدامى (Migration) 🔥
 async function safeGetFishing(db, userId, guildId) {
     await execSafe(db, 
         `CREATE TABLE IF NOT EXISTS user_fishing ("userID" TEXT, "guildID" TEXT, "rodLevel" BIGINT DEFAULT 1, "currentRod" TEXT DEFAULT 'سنارة خشبية', "boatLevel" BIGINT DEFAULT 1, "currentBoat" TEXT DEFAULT 'قارب خشب', PRIMARY KEY ("userID", "guildID"))`,
@@ -95,7 +94,6 @@ async function safeGetFishing(db, userId, guildId) {
     
     if (r.rows && r.rows.length > 0) return r.rows[0];
 
-    // إذا ما عنده بالجدول الجديد، ندور بالقديم
     let oldR = await execSafe(db, `SELECT "rodLevel", "boatLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT rodLevel, boatLevel FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
     
     if (oldR.rows && oldR.rows.length > 0) {
@@ -112,7 +110,6 @@ async function safeGetFishing(db, userId, guildId) {
             const rodName = rodData ? rodData.name : 'سنارة خشبية';
             const boatName = boatData ? boatData.name : 'قارب خشب';
 
-            // نسجلهم بالجدول الجديد عشان ما عاد ينعاد هالموال
             await execSafe(db, 
                 `INSERT INTO user_fishing ("userID", "guildID", "rodLevel", "currentRod", "boatLevel", "currentBoat") VALUES ($1, $2, $3, $4, $5, $6)`, 
                 `INSERT INTO user_fishing (userid, guildid, rodlevel, currentrod, boatlevel, currentboat) VALUES ($1, $2, $3, $4, $5, $6)`, 
@@ -325,6 +322,19 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             if (itemData.id === 'personal_guard_1d') { 
                 let r = await execSafe(db, `UPDATE levels SET "hasGuard" = LEAST(COALESCE("hasGuard", 0) + 3, 6), "guardExpires" = 0 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET hasguard = LEAST(COALESCE(hasguard, 0) + 3, 6), guardexpires = 0 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
                 if(r.error) success = false;
+                else {
+                    // 🔥 تحديث الحارس الشخصي في الذاكرة المؤقتة (عشان يشتغل مع السرقة فوراً) 🔥
+                    try {
+                        if (client && typeof client.getLevel === 'function') {
+                            let u = await client.getLevel(interaction.user.id, interaction.guild.id);
+                            if (u) {
+                                u.hasGuard = Math.min((Number(u.hasGuard || u.hasguard || 0) + 3), 6);
+                                u.guardExpires = 0;
+                                await client.setLevel(u);
+                            }
+                        }
+                    } catch(e){}
+                }
             }
             else if (itemData.category === 'potions' || itemData.id.startsWith('potion_')) { 
                 if(ensureInventoryTable) await ensureInventoryTable(db); 
@@ -703,6 +713,18 @@ async function _handleReplaceGuard(i, client, db) {
         if (upd.error) {
             await refundMora(client, db, userId, guildId, item.price);
             return await i.followUp({ content: `❌ حدث خطأ داخلي أثناء تحديث الحارس الشخصي، تم استرجاع أموالك.`, flags: MessageFlags.Ephemeral });
+        } else {
+            // 🔥 تحديث الحارس في الذاكرة المؤقتة (عشان يمسك الحرامية فوراً) 🔥
+            try {
+                if (client && typeof client.getLevel === 'function') {
+                    let u = await client.getLevel(userId, guildId);
+                    if (u) {
+                        u.hasGuard = Math.min((Number(u.hasGuard || u.hasguard || 0) + 3), 6);
+                        u.guardExpires = 0;
+                        await client.setLevel(u);
+                    }
+                }
+            } catch(e){}
         }
         
         const successEmbed = new EmbedBuilder()
