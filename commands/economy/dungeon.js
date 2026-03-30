@@ -17,13 +17,14 @@ module.exports = {
     description: "نظام الدانجون المتقدم (PvE)",
 
     async execute(context, args) {
-        const isSlash = context.isChatInputCommand === true;
+        // 🔥 التصحيح الجذري للتعرف على أوامر السلاش 🔥
+        const isSlash = typeof context.isChatInputCommand === 'function' && context.isChatInputCommand();
         let interaction;
 
-        // 🛡️ توحيد بيئة العمل لكي تتعامل دالة startDungeon براحة سواء كان سلاش أو بريفكس
+        // 🛡️ توحيد بيئة العمل لكي تتعامل دالة startDungeon براحة
         if (isSlash) {
             interaction = context;
-            await interaction.deferReply().catch(()=>{}); // 🔥 تأخير الرد عشان ما يعلق الديسكورد
+            await interaction.deferReply().catch(()=>{}); // تأخير الرد عشان ما يعلق الديسكورد
         } else {
             interaction = {
                 user: context.author,
@@ -36,10 +37,9 @@ module.exports = {
                 deferred: false,
                 replied: false,
                 
-                // دالة رد ذكية تحفظ الرسالة الأصلية لكي يتم تعديلها لاحقاً
                 reply: async (payload) => {
                     const safePayload = { ...payload };
-                    delete safePayload.flags; // الرسائل العادية لا تدعم Ephemeral 
+                    delete safePayload.flags; 
                     const msg = await context.reply(safePayload);
                     interaction.replied = true;
                     interaction.lastBotReply = msg;
@@ -70,7 +70,6 @@ module.exports = {
             return isSlash ? interaction.editReply(errPayload) : interaction.reply(errPayload);
         }
 
-        // إزالة الجزء الخاص بالـ ALTER TABLE من هنا لتخفيف الضغط لأنه يُدار من ملف Database Manager
         let isAbyssKing = false;
         try {
             const settingsRes = await db.query(`SELECT "roleAbyss" FROM settings WHERE "guild" = $1`, [guild.id]);
@@ -80,7 +79,6 @@ module.exports = {
             }
         } catch (e) {}
 
-        // التحقق من مهلة الدانجون (Cooldown)
         if (user.id !== OWNER_ID && !isAbyssKing) { 
             let userDataRes;
             try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guild.id]); }
@@ -120,7 +118,6 @@ module.exports = {
         }
 
         try {
-            // توجيه الدالة الصحيحة من dungeon-handler.js
             await startDungeon(interaction, db);
         } catch (err) {
             console.error("[Dungeon Command Error]", err);
