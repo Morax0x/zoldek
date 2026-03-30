@@ -87,7 +87,6 @@ const safeQuery = async (db, qPg, params) => {
             } catch(fixErr) {}
         }
         
-        // التوافق الشامل لمنع ضياع الأرصدة أو تعطيل الأزرار!
         let fallbackQuery = qPg
             .replace(/"userID"/gi, "userid")
             .replace(/"guildID"/gi, "guildid")
@@ -101,7 +100,7 @@ const safeQuery = async (db, qPg, params) => {
             .replace(/"bank"/gi, "bank")
             .replace(/"level"/gi, "level")
             .replace(/"id"/gi, "id")
-            .replace(/"user"/gi, "userid") // هنا كان الخطأ القاتل اللي يخفي المورا!
+            .replace(/"user"/gi, "userid")
             .replace(/"guild"/gi, "guildid");
         
         if (fallbackQuery !== qPg) {
