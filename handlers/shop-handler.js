@@ -25,10 +25,8 @@ const CUSTOM_XP_RATE = 5;
 const MAX_POTION_LIMIT = 999;
 const MAX_FARM_LIMIT = 1000;
 
-// نظام القفل لمنع السبام
 const activeShopUsers = new Set();
 
-// تنفيذ آمن لقواعد البيانات (يدعم نوعين من الجداول)
 async function execSafe(db, queryPg, queryLite, params = []) {
     try {
         let res = await db.query(queryPg, params);
@@ -43,7 +41,6 @@ async function execSafe(db, queryPg, queryLite, params = []) {
     }
 }
 
-// 🔥 دالة خصم الفلوس من الداتابيز والذاكرة المؤقتة (عشان مستحيل ترجع الفلوس) 🔥
 async function deductMora(client, db, userId, guildId, amount) {
     try {
         if (client && typeof client.getLevel === 'function') {
@@ -63,7 +60,6 @@ async function deductMora(client, db, userId, guildId, amount) {
     return !r1.error;
 }
 
-// 🔥 دالة استرجاع الفلوس للطوارئ 🔥
 async function refundMora(client, db, userId, guildId, amount) {
     try {
         if (client && typeof client.getLevel === 'function') {
@@ -88,13 +84,45 @@ async function getUserBal(db, userId, guildId) {
     return { mora: Number(r.rows[0].mora || r.rows[0].Mora || 0), bank: Number(r.rows[0].bank || r.rows[0].Bank || 0) };
 }
 
+// 🔥 نظام استرجاع تعب الصيادين القدامى (Migration) 🔥
 async function safeGetFishing(db, userId, guildId) {
     await execSafe(db, 
         `CREATE TABLE IF NOT EXISTS user_fishing ("userID" TEXT, "guildID" TEXT, "rodLevel" BIGINT DEFAULT 1, "currentRod" TEXT DEFAULT 'سنارة خشبية', "boatLevel" BIGINT DEFAULT 1, "currentBoat" TEXT DEFAULT 'قارب خشب', PRIMARY KEY ("userID", "guildID"))`,
         `CREATE TABLE IF NOT EXISTS user_fishing (userid TEXT, guildid TEXT, rodlevel BIGINT DEFAULT 1, currentrod TEXT DEFAULT 'سنارة خشبية', boatlevel BIGINT DEFAULT 1, currentboat TEXT DEFAULT 'قارب خشب', PRIMARY KEY (userid, guildid))`
     );
+    
     let r = await execSafe(db, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
-    return r.rows[0] || null;
+    
+    if (r.rows && r.rows.length > 0) return r.rows[0];
+
+    // إذا ما عنده بالجدول الجديد، ندور بالقديم
+    let oldR = await execSafe(db, `SELECT "rodLevel", "boatLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT rodLevel, boatLevel FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+    
+    if (oldR.rows && oldR.rows.length > 0) {
+        let oldRodLvl = Number(oldR.rows[0].rodLevel || oldR.rows[0].rodlevel || 0);
+        let oldBoatLvl = Number(oldR.rows[0].boatLevel || oldR.rows[0].boatlevel || 0);
+
+        if (oldRodLvl > 0 || oldBoatLvl > 0) {
+            oldRodLvl = Math.max(1, oldRodLvl);
+            oldBoatLvl = Math.max(1, oldBoatLvl);
+
+            const rodData = finalRods.find(r => r.level === oldRodLvl) || finalRods[0];
+            const boatData = finalBoats.find(b => b.level === oldBoatLvl) || finalBoats[0];
+
+            const rodName = rodData ? rodData.name : 'سنارة خشبية';
+            const boatName = boatData ? boatData.name : 'قارب خشب';
+
+            // نسجلهم بالجدول الجديد عشان ما عاد ينعاد هالموال
+            await execSafe(db, 
+                `INSERT INTO user_fishing ("userID", "guildID", "rodLevel", "currentRod", "boatLevel", "currentBoat") VALUES ($1, $2, $3, $4, $5, $6)`, 
+                `INSERT INTO user_fishing (userid, guildid, rodlevel, currentrod, boatlevel, currentboat) VALUES ($1, $2, $3, $4, $5, $6)`, 
+                [userId, guildId, oldRodLvl, rodName, oldBoatLvl, boatName]
+            );
+
+            return { rodLevel: oldRodLvl, currentRod: rodName, boatLevel: oldBoatLvl, currentBoat: boatName };
+        }
+    }
+    return null;
 }
 
 async function safeGetInv(db, userId, guildId, itemId) {
@@ -685,7 +713,7 @@ async function _handleReplaceGuard(i, client, db) {
 
         await i.followUp({ embeds: [successEmbed], flags: MessageFlags.Ephemeral });
         await sendShopLog(client, db, guildId, i.member, "حارس شخصي (تجديد)", item.price, "شراء");
-    } catch (error) { }
+    } catch (error) {}
 }
 
 async function _handleReplaceBuffButton(i, client, db) {
@@ -855,7 +883,7 @@ async function handleShopModal(i, client, db) {
         const guildId = i.guild.id;
 
         if (activeShopUsers.has(userId)) {
-            return await i.reply({ content: '⏳ انتظر ثواني لين تخلص عمليتك الحالية!', flags: MessageFlags.Ephemeral });
+            return await i.reply({ content: '⏳ انتظر ثواني لين تخلص عمليتك الحالية بمتجر المزرعة/الخبرة!', flags: MessageFlags.Ephemeral });
         }
         activeShopUsers.add(userId);
 
@@ -863,7 +891,9 @@ async function handleShopModal(i, client, db) {
             await i.deferReply({ flags: MessageFlags.Ephemeral });
             
             let userLoanRes = await execSafe(db, `SELECT 1 FROM user_loans WHERE "userID" = $1 AND "guildID" = $2 AND "remainingAmount" > 0`, `SELECT 1 FROM user_loans WHERE userid = $1 AND guildid = $2 AND remainingamount > 0`, [userId, guildId]);
-            if (userLoanRes.rows.length > 0) return await i.editReply({ content: `❌ لا يمكنك تبادل الخبرة بينما عليك قرض في البنك.` });
+            if (userLoanRes.rows.length > 0) {
+                return await i.editReply({ content: `❌ لا يمكنك تبادل الخبرة بينما عليك قرض في البنك.` });
+            }
             
             let bal = await getUserBal(db, userId, guildId);
             const amountString = i.fields.getTextInputValue('xp_amount_input').trim().toLowerCase();
@@ -882,39 +912,28 @@ async function handleShopModal(i, client, db) {
                 return await i.editReply({ content: msg });
             }
             
-            // 🔥 نضيف الـ XP أولاً وينتظر لين يخلص النظام حقتك 🔥
-            try {
-                if (addXPAndCheckLevel) {
-                    await addXPAndCheckLevel(client, i.member, db, amountToBuy, 0, false).catch(()=>{});
-                    await new Promise(r => setTimeout(r, 1000));
-                } else {
-                    let updXP = await execSafe(db, 
-                        `UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, 
-                        `UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, 
-                        [amountToBuy, userId, guildId]
-                    );
-                    if (updXP.error) throw new Error("XP UPDATE FAILED");
-                }
-
-                // 🔥 بعدين نخصم المورا عشان النظام حقك ما يقدر يسترجعها 🔥
-                let deducted = await deductMora(client, db, userId, guildId, totalCost);
-                if(!deducted) {
-                    // الخصم فشل، بس الخبرة انضافت. نادرة الحدوث.
-                }
-
-                const successEmbed = new EmbedBuilder()
-                    .setTitle('✅ تمت عملية التبادل بنجاح')
-                    .setColor(Colors.Green)
-                    .setDescription(`📦 **العنصر:** ${amountToBuy.toLocaleString()} إكس بي (XP)\n💰 **التكلفة:** ${totalCost.toLocaleString()} ${EMOJI_MORA}\n*(التحويل: 1 إكس بي = ${CUSTOM_XP_RATE} مورا)*`)
-                    .setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
-
-                await i.editReply({ content: null, embeds: [successEmbed] });
-                await sendShopLog(client, db, guildId, i.member, `شراء ${amountToBuy} XP`, totalCost, "تبادل خبرة");
-
-            } catch(e) {
-                return await i.editReply({ content: '❌ السيرفر علق وما زاد خبرتك.' });
+            if (addXPAndCheckLevel) {
+                await addXPAndCheckLevel(client, i.member, db, amountToBuy, 0, false).catch(()=>{});
+                await new Promise(r => setTimeout(r, 1500));
+            } else {
+                await execSafe(db, `UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [amountToBuy, userId, guildId]);
             }
-        } catch (e) {} finally {
+
+            let deducted = await deductMora(client, db, userId, guildId, totalCost);
+            if(!deducted) {}
+
+            const successEmbed = new EmbedBuilder()
+                .setTitle('✅ تمت عملية التبادل بنجاح')
+                .setColor(Colors.Green)
+                .setDescription(`📦 **العنصر:** ${amountToBuy.toLocaleString()} إكس بي (XP)\n💰 **التكلفة:** ${totalCost.toLocaleString()} ${EMOJI_MORA}\n*(التحويل: 1 إكس بي = ${CUSTOM_XP_RATE} مورا)*`)
+                .setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
+
+            await i.editReply({ content: null, embeds: [successEmbed] });
+            await sendShopLog(client, db, guildId, i.member, `شراء ${amountToBuy} XP`, totalCost, "تبادل خبرة");
+
+        } catch (e) { 
+            await i.editReply({ content: '❌ حدث خطأ غير متوقع، حاول مجدداً.' }).catch(()=>{});
+        } finally {
             activeShopUsers.delete(userId);
         }
         return true;
