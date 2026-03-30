@@ -1,9 +1,19 @@
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const path = require('path');
+const fs = require('fs');
 
+// تسجيل الخطوط
 try {
-    GlobalFonts.registerFromPath('fonts/bein-ar-normal.ttf', 'Bein');
-    GlobalFonts.registerFromPath('efonts/NotoEmoj.ttf', 'Emoji');
+    const fontsDir = path.join(process.cwd(), 'fonts');
+    const beinPath = path.join(fontsDir, 'bein-ar-normal.ttf');
+    const emojiPath = path.join(fontsDir, 'NotoEmoj.ttf');
+    
+    if (fs.existsSync(beinPath)) GlobalFonts.registerFromPath(beinPath, 'Bein');
+    if (fs.existsSync(emojiPath)) GlobalFonts.registerFromPath(emojiPath, 'Emoji');
 } catch (e) {}
+
+const FONT_MAIN = '"Bein", "Arial", sans-serif';
+const FONT_EMOJI = '"Emoji", "Arial", sans-serif';
 
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
@@ -231,10 +241,10 @@ async function getInventoryCategories(db, userId, guildId) {
 
 function drawAutoScaledText(ctx, text, x, y, maxWidth, maxFontSize, minFontSize = 10) {
     let currentFontSize = maxFontSize;
-    ctx.font = `bold ${currentFontSize}px "Bein", "Emoji"`;
+    ctx.font = `bold ${currentFontSize}px ${FONT_MAIN}`;
     while (ctx.measureText(text).width > maxWidth && currentFontSize > minFontSize) {
         currentFontSize--;
-        ctx.font = `bold ${currentFontSize}px "Bein", "Emoji"`;
+        ctx.font = `bold ${currentFontSize}px ${FONT_MAIN}`;
     }
     ctx.fillText(text, x, y);
 }
@@ -948,8 +958,10 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
 
         const cleanName = item.name.replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿🪙]/gu, '').trim();
 
+        // 🔥 التصحيح الذكي (Vertical Centering) لصورة اللوغو والنصوص بجنب بعض 🔥
+        const topAreaH = cardH * 0.45; // مساحة القسم العلوي المخصصة للاسم والصورة
         const imgX = x + cardW - imgSize - 20;
-        const imgY = y + paddingY; 
+        const imgY = y + (topAreaH - imgSize) / 2; 
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.beginPath(); roundRect(ctx, imgX, imgY, imgSize, imgSize, 10); ctx.fill();
@@ -978,14 +990,17 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         ctx.fillStyle = '#FFFFFF';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
-        drawAutoScaledText(ctx, cleanName, imgX - 20, imgY + imgSize/2, cardW - imgSize - 60, fontTitle, 14);
+        drawAutoScaledText(ctx, cleanName, imgX - 20, y + topAreaH / 2, cardW - imgSize - 60, fontTitle, 14);
 
-        const sepY = imgY + imgSize + paddingY; 
+        const sepY = imgY + imgSize + (paddingY * 0.5); 
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
         ctx.beginPath(); ctx.moveTo(x + 20, sepY); ctx.lineTo(x + cardW - 20, sepY); ctx.stroke();
 
-        let textY = sepY + paddingY; 
-        const spacing = fontText + (paddingY * 0.8); 
+        // 🔥 التصحيح الذكي لتوسيط الأرقام في المساحة السفلية 🔥
+        const bottomAreaH = cardH - (sepY - y);
+        const totalTextH = (4 * fontText) + (3 * (paddingY * 0.6));
+        let textY = sepY + (bottomAreaH - totalTextH) / 2; 
+        const spacing = fontText + (paddingY * 0.6); 
         const textRightX = x + cardW - 25;
         const textLeftX = x + 25;
 
@@ -1003,7 +1018,7 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         for (const r of rowsData) {
             ctx.font = `${fontText}px "Bein"`;
             ctx.textAlign = 'right';
-            ctx.textBaseline = 'middle';
+            ctx.textBaseline = 'top'; // غيرتها لـ top عشان الحسبة تكون دقيقة
             ctx.fillStyle = '#A8B8D0';
             ctx.fillText(r.label, textRightX, textY);
 
