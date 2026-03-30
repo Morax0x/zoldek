@@ -1,8 +1,10 @@
 const { EmbedBuilder, Colors, SlashCommandBuilder } = require("discord.js");
 const weaponsConfig = require('../../json/weapons-config.json');
+const upgradeMats = require('../../json/upgrade-materials.json');
 const { getUserRace, getWeaponData, cleanDisplayName } = require('../../handlers/pvp-core.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
+const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
 const RACE_TRANSLATIONS = new Map([
     ['Human', 'بشري'],
@@ -22,19 +24,48 @@ const REVERSE_RACE_TRANSLATIONS = new Map(
     Array.from(RACE_TRANSLATIONS, a => [a[1].toLowerCase(), a[0]])
 );
 
-const WEAPON_TIPS = new Map([
-    ['Dragon', 'سلاح التنين يسبب ضرراً هائلاً. قم بزيادة مستواه لزيادة الضرر الأساسي.'],
-    ['Human', 'سلاح متوازن. قم بتطويره لزيادة الضرر بشكل ثابت مع كل مستوى.'],
-    ['Seraphim', 'سلاح سماوي. تطويره يزيد من ضرره بشكل ملحوظ.'],
-    ['Demon', 'سلاح مدمر. تكلفة تطويره تزيد بسرعة، لكن ضرره يستحق ذلك.'],
-    ['Elf', 'سلاح رشيق. ضرره الأساسي متوسط وتكلفته معقولة.'],
-    ['Dark Elf', 'سلاح ظلامي. يشتهر بضرره العالي وتكلفته المرتفعة.'],
-    ['Vampire', 'سلاح مصاص الدماء. كل مستوى يزيد من ضرره بشكل جيد.'],
-    ['Hybrid', 'سلاح هجين. ضرره وتكلفته متوسطان ومتوازنان.'],
-    ['Spirit', 'سلاح الأرواح. يركز على ضرر أساسي جيد وتطويرات مكلفة.'],
-    ['Dwarf', 'سلاح الأقزام. قوي ومتين، ضرره يزداد بشكل جيد.'],
-    ['Ghoul', 'سلاح الغيلان. تكلفته الأولية منخفضة ولكن ضرره يزداد بقوة.']
-]);
+// 🔥 دالة سحب صورة السلاح بذكاء عبر موارد الترقية 🔥
+function getWeaponImageURL(raceName) {
+    if (!raceName) return null;
+    const raceMats = upgradeMats.weapon_materials.find(m => m.race.toLowerCase() === raceName.toLowerCase());
+    if (raceMats && raceMats.materials.length > 0) {
+        const firstMatId = raceMats.materials[0].id;
+        const raceFolder = raceName.toLowerCase().replace(/\s+/g, '_');
+        
+        // استنتاج اسم الصورة من الدليل اللي عندك في الانفنتوري
+        const ID_TO_IMAGE = {
+            'mat_dragon_1': 'dragon_ash.png', 'mat_human_1': 'human_iron.png',
+            'mat_elf_1': 'elf_branch.png', 'mat_darkelf_1': 'darkelf_obsidian.png',
+            'mat_seraphim_1': 'seraphim_feathe.png', 'demon_1': 'demon_ember.png', 'mat_demon_1': 'demon_ember.png',
+            'mat_vampire_1': 'vampire_blood.png', 'mat_spirit_1': 'spirit_dust.png',
+            'mat_hybrid_1': 'hybrid_claw.png', 'mat_dwarf_1': 'dwarf_copper.png',
+            'mat_ghoul_1': 'ghoul_bone.png'
+        };
+
+        const imgName = ID_TO_IMAGE[firstMatId] || `${firstMatId}.png`;
+        return `${R2_URL}/images/materials/${raceFolder}/${imgName}`;
+    }
+    return null;
+}
+
+// 🔥 دالة الحسبة الموحدة للسلاح (Hard Sync) 🔥
+function calculateDisplayedDamage(weaponConfig, level) {
+    if (!weaponConfig || level < 1) return 15;
+    const base = weaponConfig.base_damage;
+    const inc = weaponConfig.damage_increment;
+
+    if (level <= 15) {
+        return Math.floor(base + (inc * (level - 1)));
+    } else {
+        const damageAt15 = base + (inc * 14);
+        const targetDamageAt30 = 800;
+        const levelsRemaining = 15; 
+        const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
+        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
+        if (level >= 30) return targetDamageAt30;
+        return Math.floor(finalDamage);
+    }
+}
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -135,7 +166,6 @@ module.exports = {
             const user = targetMember.user;
             const cleanName = cleanDisplayName(user.displayName);
 
-            // 🔥 تم التعديل هنا: تصحيح الترتيب ليتوافق مع pvp-core.js (targetMember ثم db)
             const userRace = await getUserRace(targetMember, db);
             const weaponData = await getWeaponData(db, targetMember);
 
@@ -144,13 +174,16 @@ module.exports = {
             }
 
             if (!weaponData) {
-                return replyError(`❌ **${cleanName}** يمتلك عرق \`${userRace.raceName || userRace.racename}\` لكنه لم يشتري السلاح بعد من المتجر.`);
+                return replyError(`❌ **${cleanName}** يمتلك عرق \`${userRace.raceName || userRace.racename}\` لكنه لم يصنع سلاحه الأساسي بعد من الحدادة.`);
             }
+
+            const actualDamage = calculateDisplayedDamage(weaponData, weaponData.currentLevel);
+            const weaponImage = getWeaponImageURL(weaponData.race);
 
             const description = [
                 `✥ **الـعـرق:** \`${weaponData.race}\``,
                 `✶ **المستوى الحالي:** \`Lv. ${weaponData.currentLevel} / ${weaponData.max_level}\``,
-                `✶ **الضرر الحالي:** \`${weaponData.currentDamage}\` DMG`,
+                `✶ **الضرر الحالي:** \`${actualDamage}\` DMG`,
             ].join('\n');
 
             const embed = new EmbedBuilder()
@@ -159,6 +192,10 @@ module.exports = {
                 .addFields(
                     { name: "✶ مواصفات السلاح الحالي", value: description }
                 );
+
+            if (weaponImage) {
+                embed.setThumbnail(weaponImage);
+            }
 
             return reply({ embeds: [embed] });
 
@@ -180,14 +217,16 @@ module.exports = {
                 return replyError('❌ لم أتمكن من العثور على سلاح أو عرق بهذا الاسم.');
             }
 
+            const damageAt15 = calculateDisplayedDamage(weapon, 15);
+            const damageAt30 = calculateDisplayedDamage(weapon, 30);
+            const weaponImage = getWeaponImageURL(weapon.race);
+
             const description = [
                 `✥ **الـعـرق:** \`${weapon.race}\``,
                 `✶ **الضرر الأساسي (Lv.1):** \`${weapon.base_damage}\` DMG`,
-                `✶ **الزيادة لكل تطوير:** \`+${weapon.damage_increment}\` DMG`,
+                `✶ **الضرر في (Lv.15):** \`${damageAt15}\` DMG`,
+                `✶ **الضرر عند الصحوة (Lv.30):** \`${damageAt30}\` DMG`,
                 `✶ **أقصى مستوى:** \`Lv. ${weapon.max_level}\``,
-                `\n`,
-                `✬ **السعر الأساسي (Lv.1):** \`${weapon.base_price.toLocaleString()}\` ${EMOJI_MORA}`,
-                `✬ **زيادة السعر لكل لفل:** \`+${weapon.price_increment.toLocaleString()}\` ${EMOJI_MORA}`,
             ].join('\n');
 
             const embed = new EmbedBuilder()
@@ -195,8 +234,12 @@ module.exports = {
                 .setColor(Colors.Blue)
                 .addFields(
                     { name: "✶ المواصفات الأساسية", value: description },
-                    { name: "✥ نصيحة للحصول عليه", value: `هذا السلاح مخصص لعرق **${weapon.race}** فقط. يمكنك شراؤه وتطويره من المتجر.` }
+                    { name: "✥ نظام الصحوة الإجباري", value: `ابتداءً من المستوى 16، سيتم توحيد قوة جميع الأسلحة لتصل إلى **800 ضرر** في المستوى 30، لضمان توازن المعارك النهائية.` }
                 );
+
+            if (weaponImage) {
+                embed.setThumbnail(weaponImage);
+            }
 
             return reply({ embeds: [embed] });
         } else {
