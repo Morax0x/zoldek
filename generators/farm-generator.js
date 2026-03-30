@@ -206,16 +206,17 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
     ctx.fillStyle = '#FFD700';
     ctx.fillText(`الدخل اليومي: ${totalIncome.toLocaleString()} مورا`, avatarX + avatarSize + 30, 95);
 
+    // 🔥 زيادة الأحجام والمقاسات عشان النصوص تطلع كبيرة وواضحة جداً 🔥
     let cols, slotW, slotH, iconSize, fontTitle, fontText, gapX, gapY;
 
     if (animals.length === 1) {
-        cols = 1; slotW = 900; slotH = 450; iconSize = 280; fontTitle = 45; fontText = 30; gapX = 0; gapY = 0;
+        cols = 1; slotW = 900; slotH = 450; iconSize = 250; fontTitle = 50; fontText = 36; gapX = 0; gapY = 0;
     } else if (animals.length === 2) {
-        cols = 2; slotW = 580; slotH = 400; iconSize = 200; fontTitle = 35; fontText = 26; gapX = 40; gapY = 0;
+        cols = 2; slotW = 580; slotH = 400; iconSize = 190; fontTitle = 38; fontText = 28; gapX = 40; gapY = 0;
     } else if (animals.length <= 4) {
-        cols = 2; slotW = 550; slotH = 280; iconSize = 150; fontTitle = 28; fontText = 20; gapX = 50; gapY = 40;
+        cols = 2; slotW = 540; slotH = 290; iconSize = 140; fontTitle = 30; fontText = 23; gapX = 50; gapY = 40;
     } else {
-        cols = 3; slotW = 400; slotH = 230; iconSize = 110; fontTitle = 22; fontText = 16; gapX = 30; gapY = 30;
+        cols = 3; slotW = 410; slotH = 240; iconSize = 110; fontTitle = 24; fontText = 19; gapX = 30; gapY = 30;
     }
     
     const actualCols = Math.min(animals.length, cols);
@@ -244,66 +245,74 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
 
         drawOrnateFrame(ctx, x, y, slotW, slotH, color);
 
-        const aura = ctx.createRadialGradient(x + slotW - iconSize/2 - 30, y + iconSize/2 + 30, 10, x + slotW - iconSize/2 - 30, y + iconSize/2 + 30, iconSize);
-        aura.addColorStop(0, `${color}33`);
-        aura.addColorStop(1, 'transparent');
+        const aura = ctx.createRadialGradient(x + slotW/2, y + slotH/2, 10, x + slotW/2, y + slotH/2, Math.max(slotW, slotH));
+        aura.addColorStop(0, `${color}25`); 
+        aura.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = aura;
         ctx.fillRect(x, y, slotW, slotH);
         
-        const iconX = x + slotW - iconSize - 30;
-        const iconY = y + (slotH - iconSize) / 2 - 20;
-
-        const img = preloadedImages[i];
-        if (img) {
-            ctx.save();
-            ctx.shadowColor = color; ctx.shadowBlur = 20;
-            ctx.drawImage(img, iconX, iconY, iconSize, iconSize);
-            ctx.restore();
-        } else {
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = `${iconSize * 0.7}px ${FONT_EMOJI}`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(animal.emoji || '📦', iconX + iconSize / 2, iconY + iconSize / 2);
-        }
-
         const ribbonH = fontTitle + 20;
-        const ribbonY = y + slotH - ribbonH - 25;
-        drawRibbon(ctx, x + 25, ribbonY, slotW - 50, ribbonH, color);
+        const ribbonY = y + slotH - ribbonH - 20;
+        drawRibbon(ctx, x + 20, ribbonY, slotW - 40, ribbonH, color);
         
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#FFFFFF';
-        drawAutoScaledText(ctx, cleanEmojis(animal.name), x + slotW / 2, ribbonY + ribbonH / 2, slotW - 80, fontTitle, 14);
+        drawAutoScaledText(ctx, cleanEmojis(animal.name), x + slotW / 2, ribbonY + ribbonH / 2, slotW - 60, fontTitle, 12);
+
+        const topAreaH = slotH - ribbonH - 20; 
+        
+        const iconX = x + slotW - iconSize - 20;
+        const iconY = y + 10 + (topAreaH - iconSize) / 2;
+
+        const img = preloadedImages[i];
+        if (img) {
+            ctx.save();
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 30;
+            ctx.drawImage(img, iconX, iconY, iconSize, iconSize);
+            ctx.restore();
+        } else {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = `${iconSize * 0.6}px ${FONT_EMOJI}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 30;
+            ctx.fillText(animal.emoji || '📦', iconX + iconSize / 2, iconY + iconSize / 2);
+            ctx.shadowBlur = 0;
+        }
+
+        // 🔥 ترتيب وتوسيط النصوص عشان تكون كبيرة جداً ومرتبة 🔥
+        const lineGap = fontText + 12;
+        const totalTextH = (5 * fontText) + (4 * 12); 
+        const textStartX = iconX - 15;
+        let textStartY = y + 10 + (topAreaH - totalTextH) / 2;
 
         ctx.textAlign = 'right';
         ctx.textBaseline = 'top';
-        const textX = iconX - 30;
-        let textY = y + 40;
-        const spacing = fontText + 12; // تعديل المسافات لتتناسب مع الأسطر الإضافية
 
         ctx.fillStyle = '#00FF88';
-        ctx.font = `bold ${fontText + 4}px ${FONT_MAIN}`;
-        ctx.fillText(`العدد: ${animal.quantity.toLocaleString()}`, textX, textY);
+        ctx.font = `bold ${fontText + 2}px ${FONT_MAIN}`;
+        ctx.fillText(`العدد: ${animal.quantity.toLocaleString()}`, textStartX, textStartY);
 
-        textY += spacing;
+        textStartY += lineGap;
         ctx.fillStyle = '#A8B8D0';
         ctx.font = `${fontText}px ${FONT_MAIN}`;
-        ctx.fillText(`العائد: +${animal.income} مورا`, textX, textY);
+        ctx.fillText(`العائد: +${animal.income} مورا`, textStartX, textStartY);
         
-        // 🔥 التصحيح هنا: استخدام lifespan_days اللي موجودة في الجيسون بدال القديمة
-        textY += spacing;
+        textStartY += lineGap;
         const lifespan = animal.lifespan_days || animal.lifespan || 30; 
         const currentAge = animal.age || 0;
         const remainingDays = Math.max(0, lifespan - currentAge);
         ctx.fillStyle = '#FFD700';
-        ctx.fillText(`العمر: ${currentAge} / ${lifespan} أيام`, textX, textY);
+        ctx.fillText(`العمر: ${currentAge} / ${lifespan} أيام`, textStartX, textStartY);
 
-        textY += spacing;
+        textStartY += lineGap;
         ctx.fillStyle = remainingDays <= 3 ? '#FF4444' : '#00FF88';
-        ctx.fillText(`متبقي للعمر: ${remainingDays} أيام`, textX, textY);
+        ctx.fillText(`متبقي للعمر: ${remainingDays} أيام`, textStartX, textStartY);
 
-        textY += spacing;
+        textStartY += lineGap;
         const hungerMs = animal.hungerTimestamp || 0;
         const now = Date.now();
         let hungerStatus = '';
@@ -314,7 +323,6 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
             const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
             const minutesLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
             
-            // 🔥 إضافة الدقائق ليكون الشبع دقيق 100%
             if (hoursLeft > 0) {
                 hungerStatus = `شبعان (${hoursLeft}س و ${minutesLeft}د)`;
             } else {
@@ -327,7 +335,7 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
 
         ctx.fillStyle = hungerColor;
         ctx.font = `bold ${fontText - 2}px ${FONT_MAIN}`;
-        ctx.fillText(`الحالة: ${hungerStatus}`, textX, textY);
+        ctx.fillText(`الحالة: ${hungerStatus}`, textStartX, textStartY);
     }
 
     ctx.textAlign = 'center';
