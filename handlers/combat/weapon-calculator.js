@@ -1,4 +1,4 @@
-const { cleanDisplayName } = require('../dungeon/utils'); // تأكدت من المسار عشان ما يصير كراش
+const { cleanDisplayName } = require('../dungeon/utils');
 
 function getName(entity) {
     if (entity.isMonster) return entity.name;
@@ -6,30 +6,9 @@ function getName(entity) {
     return entity.name || "Unknown";
 }
 
-// 🔥 دالة التوحيد الإجباري (الصحوة من لفل 16) المتطابقة مع الحدادة والـ PvP 🔥
 function getWeaponRawDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
-    
-    const base = weaponConfig.base_damage;
-    const inc = weaponConfig.damage_increment;
-
-    if (level <= 15) {
-        // من مستوى 1 إلى 15: قوة متباينة تعتمد على قوة العرق الأساسية
-        return Math.floor(base + (inc * (level - 1)));
-    } else {
-        // من مستوى 16 إلى 30: توحيد إجباري للجميع! (كل الأعراق تتساوى هنا)
-        const damageAt15 = base + (inc * 14); // نحسب ضرر السلاح عند لفل 15 كبداية
-        const targetDamageAt30 = 800; // في لفل 30 الجميع 800
-        const levelsRemaining = 15; 
-        const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining; // زيادة متدرجة وذكية
-        
-        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
-        
-        // كاب أقصى للضمان ألا يتجاوز 800 في حال وصل لفل 30
-        if (level >= 30) return targetDamageAt30;
-        
-        return Math.floor(finalDamage);
-    }
+    return weaponConfig.base_damage + (weaponConfig.damage_increment * (level - 1));
 }
 
 function executeWeaponAttack(attacker, defender, isOwner = false) {
@@ -114,7 +93,7 @@ function executeWeaponAttack(attacker, defender, isOwner = false) {
 
     if (isOwner) rawDmg *= 5;
 
-    const variance = (Math.random() * 0.2) + 0.9; // تباين بين 90% و 110%
+    const variance = (Math.random() * 0.2) + 0.9;
     rawDmg = Math.floor(rawDmg * variance);
 
     let damageReduction = 0;
@@ -132,7 +111,7 @@ function executeWeaponAttack(attacker, defender, isOwner = false) {
         }
     }
     
-    if (damageReduction > 0.9) damageReduction = 0.9; // أقصى حد للدفاع 90%
+    if (damageReduction > 0.9) damageReduction = 0.9;
     rawDmg = Math.floor(rawDmg * (1 - damageReduction));
 
     if (rawDmg < 1) rawDmg = 1;
