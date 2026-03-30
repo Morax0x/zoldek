@@ -45,6 +45,14 @@ const RACE_TRANSLATIONS = new Map([
     ['Spirit', 'روح'], ['Dwarf', 'قزم'], ['Ghoul', 'غول'], ['Hybrid', 'نصف وحش']
 ]);
 
+const RARITY_ORDER = {
+    'Legendary': 5,
+    'Epic': 4,
+    'Rare': 3,
+    'Uncommon': 2,
+    'Common': 1
+};
+
 let resolveItemInfoLocal;
 try {
     const invGen = require('../generators/inventory-generator.js');
@@ -55,13 +63,11 @@ try {
     };
 }
 
-// 🔥 دالة لتسريع قواعد البيانات 🔥
 const safeQuery = async (db, qPg, qLite, params) => {
     try { return await db.query(qPg, params); } 
     catch(e) { return await db.query(qLite, params).catch(()=>({rows:[]})); }
 };
 
-// 🔥 فحص ذكي لمعرفة إذا العنصر قابل للصهر والدمج 🔥
 const upgradeMats = require('../json/upgrade-materials.json');
 function isSmeltable(itemId) {
     if (!itemId) return false;
@@ -213,7 +219,16 @@ module.exports = {
                             if (cBoat) tempItems.unshift({ id: 'current_boat', name: `قارب ${cBoat}`, emoji: '🚤', category: 'صيد', rarity: 'Epic', quantity: 1, imgPath: `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/${cBoat.toLowerCase()}.png` });
                         }
                     }
+                    
                     fetchedItems = tempItems.filter(it => it.category === cat);
+                    
+                    // 🔥 ترتيب العناصر من الأندر إلى الأقل ندرة 🔥
+                    fetchedItems.sort((a, b) => {
+                        const rankA = RARITY_ORDER[a.rarity] || 0;
+                        const rankB = RARITY_ORDER[b.rarity] || 0;
+                        return rankB - rankA;
+                    });
+
                 } catch(e) { console.error(e); }
                 return fetchedItems;
             };
@@ -335,7 +350,6 @@ module.exports = {
                         if (targetUser.id === authorUser.id && !['current_rod', 'current_boat'].includes(activeItemDetails.id)) {
                             btnRow.addComponents(new ButtonBuilder().setCustomId(`trade_init_${authorUser.id}`).setLabel('إعـطـاء').setStyle(ButtonStyle.Primary).setEmoji('🎁'));
                             
-                            // 🔥 الأزرار الذكية للصهر والدمج 🔥
                             if (isSmeltable(activeItemDetails.id)) {
                                 btnRow.addComponents(new ButtonBuilder().setCustomId(`route_smelt_${activeItemDetails.id}`).setLabel('صـهـر').setStyle(ButtonStyle.Danger).setEmoji('🌋'));
                                 
@@ -474,7 +488,6 @@ module.exports = {
             collector.on('collect', async (i) => {
                 const id = i.customId;
 
-                // 🔥 النقل السلس والمضمون للحدادة 🔥
                 if (id.startsWith('route_smelt_') || id.startsWith('route_synth_')) {
                     if (i.user.id !== authorUser.id) return i.reply({ content: '❌ هذا ليس بروفايلك!', flags: [MessageFlags.Ephemeral] });
                     
@@ -491,8 +504,8 @@ module.exports = {
                             isChatInputCommand: false,
                             content: `-${isSmelt ? 'صهر' : 'دمج'}`, 
                             commandName: isSmelt ? 'صهر' : 'دمج',
-                            author: authorUser,  // 🔥 تم إصلاح المتغير المفقود هنا
-                            user: authorUser,    // 🔥 تم إصلاح المتغير المفقود هنا
+                            author: authorUser, 
+                            user: authorUser,  
                             member: interactionOrMessage.member || guild?.members.cache.get(authorUser.id),
                             channel: i.channel,
                             guild: guild,
@@ -545,11 +558,14 @@ module.exports = {
 
                     try {
                         const modalSubmit = await i.awaitModalSubmit({ filter: m => m.user.id === authorUser.id && m.customId === `trade_modal_${targetID}`, time: 60000 });
-                        const qty = parseInt(modalSubmit.fields.getTextInputValue('trade_qty'));
-                        const price = parseInt(modalSubmit.fields.getTextInputValue('trade_price'));
+                        const qtyText = modalSubmit.fields.getTextInputValue('trade_qty').trim();
+                        const priceText = modalSubmit.fields.getTextInputValue('trade_price').trim();
+                        
+                        const qty = parseInt(qtyText);
+                        const price = parseInt(priceText);
 
-                        if (isNaN(qty) || qty <= 0) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
-                        if (isNaN(price) || price < 0) return modalSubmit.reply({ content: '❌ سعر غير صالح.', flags: [MessageFlags.Ephemeral] });
+                        if (isNaN(qty) || qty <= 0) return modalSubmit.reply({ content: '❌ كمية غير صالحة. (يجب أن تكون 1 أو أكثر)', flags: [MessageFlags.Ephemeral] });
+                        if (isNaN(price) || price < 0) return modalSubmit.reply({ content: '❌ سعر غير صالح. (يجب أن يكون 0 أو أكثر)', flags: [MessageFlags.Ephemeral] });
 
                         let checkTargetInvRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [targetID, guildId, activeItemDetails.id]);
                         const targetCurrentQty = checkTargetInvRes.rows[0] ? Number(checkTargetInvRes.rows[0].quantity) : 0;
@@ -623,8 +639,17 @@ module.exports = {
                                     }
                                     
                                     await db.query(`INSERT INTO user_inventory ("userID", "guildID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "itemID") DO UPDATE SET "quantity" = LEAST(user_inventory."quantity" + $4, 999)`, [targetID, guildId, activeItemDetails.id, qty]);
-                                    await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [price, targetID, guildId]);
-                                    await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [price, authorUser.id, guildId]);
+                                    await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [price, targetID, guildId]).catch(()=> db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [price, targetID, guildId]));
+                                    await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [price, authorUser.id, guildId]).catch(()=> db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [price, authorUser.id, guildId]));
+                                    
+                                    // مسح الكاش من البوت لو موجود
+                                    if (client.getLevel) {
+                                        let bUser = await client.getLevel(targetID, guildId);
+                                        if (bUser) { bUser.mora -= price; await client.setLevel(bUser); }
+                                        let sUser = await client.getLevel(authorUser.id, guildId);
+                                        if (sUser) { sUser.mora += price; await client.setLevel(sUser); }
+                                    }
+                                    
                                     await db.query('COMMIT').catch(()=>{});
 
                                     tradeCollector.stop('accepted');
@@ -729,7 +754,6 @@ module.exports = {
                 await msg.edit(await renderView());
             });
 
-            // 🔥 منع تفريغ الأزرار لو كان السبب هو الذهاب للحدادة لضمان استمرار الواجهة 🔥
             collector.on('end', (collected, reason) => {
                 if (reason === 'routed_to_forge') return; 
                 if(msg && msg.editable) {
