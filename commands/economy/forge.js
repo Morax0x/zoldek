@@ -35,7 +35,7 @@ const ID_TO_IMAGE = {
     'book_race_1': 'race_book_stone.png', 'book_race_2': 'race_book_ancestor.png', 'book_race_3': 'race_book_secrets.png', 'book_race_4': 'race_book_covenant.png', 'book_race_5': 'race_book_pact.png'
 };
 
-const RARITY_ARABIC = { 'Common': 'شائع', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
+const RARITY_ARABIC = { 'Common': 'شائع', 'Uncommon': 'غير شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
 
 const RACE_MAPPING = [
     { keys: ['dragon', 'تنين', 'تنانين', 'دراجون', 'دراغون'], race: 'Dragon' },
@@ -672,52 +672,6 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     }, [btnRow], []);
 }
 
-async function handleSkillLearn(i, user, guildId, db, skillId) {
-    const hasDeducted = await deductMora(db, user.id, guildId, LEARN_FEE);
-    if (!hasDeducted) {
-        return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لتعلم المهارة!` }, [getReturnRow()]);
-    }
-
-    await safeQuery(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]);
-    await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
-    
-    await buildSkillUpgradeUI(i, user, guildId, db, skillId);
-}
-
-async function handleSkillUpgrade(i, user, guildId, db, skillId) {
-    const [skillRes, lvlRes, wRes] = await Promise.all([
-        safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]),
-        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
-    ]);
-
-    const currentLevel = Number(skillRes.rows[0].skillLevel || skillRes.rows[0].skilllevel);
-    const playerServerLevel = Number(lvlRes?.rows?.[0]?.level || lvlRes?.rows?.[0]?.Level || 1);
-    if (currentLevel >= 15 && playerServerLevel < 30) return; 
-
-    const reqs = getUpgradeRequirements(currentLevel, true);
-    const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
-    const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
-    const bookCat = upgradeMats.skill_books.find(c => c.category === categoryName) || upgradeMats.skill_books[0];
-    const userRace = getStandardRaceName(wRes?.rows?.[0]?.raceName || wRes?.rows?.[0]?.racename);
-    const raceMats = upgradeMats.weapon_materials.find(m => m.race === userRace) || upgradeMats.weapon_materials[0];
-
-    let detailedReqs = reqs.materials.map(r => {
-        return { id: r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id, count: r.count };
-    });
-
-    const hasDeductedMora = await deductMora(db, user.id, guildId, reqs.moraCost);
-    if (!hasDeductedMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
-    
-    const hasDeductedItems = await deductItems(db, user.id, guildId, detailedReqs);
-    if (!hasDeductedItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
-
-    await safeQuery(db, `UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]);
-    
-    const statSymbol = configSkill.stat_type === '%' ? '%' : '';
-    await replyWithCanvas(i, user, 'success_skill', { title: `صقل ${resolveText(configSkill.name)}`, currentLevel: currentLevel, nextLevel: currentLevel + 1, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}` }, [getReturnRow()], []);
-}
-
 async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) {
     const [moraRes, invRes, wRes] = await Promise.all([
         safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
@@ -733,7 +687,8 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
         if (row.quantity < 4) return false;
         const info = getItemInfo(row.itemID);
         if (!info) return false;
-        if (info.type === 'material' && info.race !== userRace) return false;
+        // شلنا شرط العرق من هنا بناءً على طلبك
+        // if (info.type === 'material' && info.race !== userRace) return false; 
         return true;
     });
 
@@ -745,7 +700,7 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
     if (!state.sacrificeItem) {
         const sacrificeOptions = availableSacrifices.map(row => {
             const info = getItemInfo(row.itemID);
-            return { label: info.name.substring(0, 100), value: info.id.substring(0, 100), description: `الكمية: ${row.quantity}`.substring(0, 100) };
+            return { label: info.name.substring(0, 100), value: info.id.substring(0, 100), description: `الكمية: ${row.quantity} | الندرة: ${translateRarity(info.rarity)}`.substring(0, 100) };
         }).slice(0, 25);
         components.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('forge_synth_sacrifice').setPlaceholder('1. اختر العنصر الذي ستضحي به').addOptions(sacrificeOptions)));
     } else {
@@ -757,6 +712,7 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
         let targetOptions = [];
         const rMats = upgradeMats.weapon_materials.find(m => m.race === userRace);
         if (rMats) {
+            // يعطيه مواد من عرقه هو، بنفس ندرة المادة المضحى بها
             const matMatch = rMats.materials.find(m => m.rarity === sacInfo.rarity);
             if (matMatch && matMatch.id !== sacInfo.id) targetOptions.push({ label: resolveText(matMatch.name).substring(0, 100), value: matMatch.id.substring(0, 100) });
         }
@@ -876,3 +832,195 @@ async function handleSmelting(i, user, guildId, db, state, client, qtyToSmelt = 
     if (isModal) { await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_smelting', successData, [getReturnRow()]); state.item = null; } 
     else { await replyWithCanvas(i, user, 'success_smelting', successData, [getReturnRow()]); }
 }
+
+module.exports = {
+    data: new SlashCommandBuilder().setName('حدادة').setDescription('الدخول إلى المجمع الإمبراطوري لتطوير الأسلحة وصقل المهارات'),
+    name: 'حدادة',
+    aliases: ['forge', 'تطوير', 'صقل', 'دمج', 'صهر', 'حداده', 'أكاديمية', 'اكاديمية'],
+    category: 'Economy',
+    
+    async execute(interactionOrMessage) {
+        const isSlash = !!interactionOrMessage.isChatInputCommand;
+        const client = interactionOrMessage.client;
+        const db = client.sql;
+        
+        let user = null;
+        if (isSlash) user = interactionOrMessage.user;
+        else if (interactionOrMessage.author) user = interactionOrMessage.author;
+        else if (interactionOrMessage.user) user = interactionOrMessage.user;
+        
+        const guildId = interactionOrMessage.guild?.id || interactionOrMessage.guildId;
+        const guild = interactionOrMessage.guild; 
+
+        let sentMsg = null;
+        if (isSlash && !interactionOrMessage.preselectedItem) {
+            await interactionOrMessage.deferReply().catch(()=>{});
+        } else if (!isSlash && !interactionOrMessage.preselectedItem && interactionOrMessage.channel) {
+            interactionOrMessage.channel.sendTyping().catch(()=>{});
+        }
+
+        const fakeInteraction = isSlash ? interactionOrMessage : {
+            guild: guild,
+            client: client,
+            replied: interactionOrMessage.preselectedItem ? true : false, 
+            deferred: interactionOrMessage.preselectedItem ? true : false,
+            reply: async (p) => { 
+                if (interactionOrMessage.reply && typeof interactionOrMessage.reply === 'function') {
+                    return await interactionOrMessage.reply(p).catch(()=>{});
+                } else {
+                    p.fetchReply = true; 
+                    sentMsg = await interactionOrMessage.channel?.send(p).catch(()=>{}); 
+                    return sentMsg; 
+                }
+            },
+            editReply: async (p) => { 
+                if (interactionOrMessage.editReply && typeof interactionOrMessage.editReply === 'function') {
+                    return await interactionOrMessage.editReply(p).catch(()=>{});
+                } else if (sentMsg) {
+                    return await sentMsg.edit(p).catch(()=>{}); 
+                } else {
+                    return await interactionOrMessage.channel?.send(p).catch(()=>{}); 
+                }
+            },
+            followUp: async (p) => interactionOrMessage.channel?.send(p).catch(()=>{})
+        };
+
+        let commandTrigger = "";
+        if (!isSlash && interactionOrMessage.content) {
+            commandTrigger = interactionOrMessage.content.trim().split(/ +/)[0].toLowerCase().replace(/^[^\w\s\u0600-\u06FF]/, ''); 
+        } else if (isSlash) {
+            commandTrigger = interactionOrMessage.commandName;
+        }
+
+        let synthesisState = { sacrificeItem: null, targetItem: null };
+        let smeltState = { item: null };
+
+        if (interactionOrMessage.preselectedItem) {
+            if (interactionOrMessage.preselectedAction === 'smelt') {
+                smeltState.item = interactionOrMessage.preselectedItem;
+                commandTrigger = 'صهر';
+            } else if (interactionOrMessage.preselectedAction === 'synth') {
+                synthesisState.sacrificeItem = interactionOrMessage.preselectedItem;
+                commandTrigger = 'دمج';
+            }
+        }
+
+        let userDataRes = await safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]);
+        if (!userDataRes?.rows?.[0]) return fakeInteraction.editReply({ content: "❌ لم يتم العثور على بياناتك في البنك." }).catch(()=>{});
+
+        const currentRace = await getUserRaceName(user, guild, db);
+        let replyObj;
+
+        if (!currentRace) {
+            let allRaces = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guildId]);
+            if (!allRaces || allRaces.rows.length === 0) {
+                return fakeInteraction.editReply({ content: "❌ الإدارة لم تقم بإعداد رتب الأعراق في هذا السيرفر بعد. (يرجى إبلاغ الإدارة لاستخدام أمر الإعداد)" }).catch(()=>{});
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle("✨ اختيار المصير")
+                .setDescription("اختر العِرق الذي يُجسّد جوهرك وهويتك ، فكل اختيار يرسم مصيرك القادم\n\n⚠️ **عند تحديد عِرقك، لا يمكنك تغييره لاحقًا — فاختَر بحكمة.**")
+                .setColor(Colors.DarkPurple);
+
+            const options = allRaces.rows.slice(0, 25).map(r => ({
+                label: r.raceName || r.racename,
+                value: r.roleID || r.roleid,
+                description: `الانضمام إلى عرق ${r.raceName || r.racename}`,
+                emoji: '🎭'
+            }));
+
+            const row = new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('forge_starter_race')
+                    .setPlaceholder('اضغط هنا لاختيار عرقك...')
+                    .addOptions(options)
+            );
+
+            replyObj = await fakeInteraction.editReply({ content: null, embeds: [embed], components: [row] });
+        } else {
+            if (commandTrigger.includes('صقل') || commandTrigger.includes('اكاديمية') || commandTrigger === 'ms') {
+                replyObj = await buildAcademyMenuUI(fakeInteraction, user, guildId, db, !isSlash && !interactionOrMessage.preselectedItem);
+            } else if (commandTrigger.includes('دمج')) {
+                replyObj = await buildSynthesisUI(fakeInteraction, user, guildId, db, synthesisState, !isSlash && !interactionOrMessage.preselectedItem);
+            } else if (commandTrigger.includes('صهر')) {
+                replyObj = await buildSmeltingUI(fakeInteraction, user, guildId, db, smeltState, !isSlash && !interactionOrMessage.preselectedItem);
+            } else {
+                replyObj = await buildMainUI(fakeInteraction, user, guildId, db, !isSlash && !interactionOrMessage.preselectedItem);
+            }
+        }
+
+        if (isSlash && !replyObj?.createMessageComponentCollector) {
+            replyObj = await interactionOrMessage.fetchReply().catch(()=>{});
+        }
+        
+        if (!replyObj || !replyObj.createMessageComponentCollector) return;
+
+        const filter = i => i.user.id === user.id && i.customId.startsWith('forge_');
+        const collector = replyObj.createMessageComponentCollector({ filter, time: 300000 });
+
+        collector.on('collect', async (i) => {
+            try { if (!i.customId.startsWith('forge_smelt_multi_') && !i.deferred && !i.replied) await i.deferUpdate(); } catch(e) {}
+
+            try {
+                if (i.isStringSelectMenu() && i.customId === 'forge_starter_race') {
+                    const roleId = i.values[0];
+                    let raceRolesRes = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guildId]);
+                    const matched = raceRolesRes.rows.find(r => (r.roleID || r.roleid) === roleId);
+                    if(!matched) return i.followUp({ content: "❌ خطأ في العثور على العرق المختار.", flags: [MessageFlags.Ephemeral] });
+
+                    const selectedRaceName = getStandardRaceName(matched.raceName || matched.racename);
+                    const targetRole = i.guild.roles.cache.get(roleId);
+                    
+                    const memberObj = i.guild.members.cache.get(user.id) || await i.guild.members.fetch(user.id).catch(()=>null);
+                    if (memberObj && targetRole) await memberObj.roles.add(targetRole).catch(()=>{});
+
+                    await i.followUp({ content: `🎉 **مرحباً بك في عالمنا!**\nأنت الآن تنتمي رسمياً إلى عرق **(${selectedRaceName})**.\nافتح الحدادة الآن واصنع سلاحك أو تعلم مهاراتك الأولى مقابل ${LEARN_FEE} مورا!`, flags: [MessageFlags.Ephemeral] });
+                    synthesisState = { sacrificeItem: null, targetItem: null }; smeltState = { item: null };
+                    await buildMainUI(i, user, guildId, db, false);
+                }
+                else if (i.customId === 'forge_return_main') {
+                    synthesisState = { sacrificeItem: null, targetItem: null }; smeltState = { item: null };
+                    await buildMainUI(i, user, guildId, db, false);
+                }
+                else if (i.isStringSelectMenu()) {
+                    if (i.customId === 'forge_skill_select') {
+                        await buildSkillUpgradeUI(i, user, guildId, db, i.values[0]);
+                    }
+                    else if (i.customId === 'forge_synth_sacrifice') {
+                        synthesisState.sacrificeItem = i.values[0]; synthesisState.targetItem = null; 
+                        await buildSynthesisUI(i, user, guildId, db, synthesisState);
+                    }
+                    else if (i.customId === 'forge_synth_target') {
+                        synthesisState.targetItem = i.values[0];
+                        await buildSynthesisUI(i, user, guildId, db, synthesisState);
+                    }
+                    else if (i.customId === 'forge_smelt_select') {
+                        smeltState.item = i.values[0];
+                        await buildSmeltingUI(i, user, guildId, db, smeltState);
+                    }
+                }
+                else if (i.isButton()) {
+                    if (i.customId === 'forge_weapon') await buildWeaponForgeUI(i, user, guildId, db);
+                    else if (i.customId === 'forge_buy_weapon') await handleWeaponBuy(i, user, guildId, db);
+                    else if (i.customId === 'forge_skill_menu') await buildAcademyMenuUI(i, user, guildId, db);
+                    else if (i.customId.startsWith('forge_learn_skill_')) await handleSkillLearn(i, user, guildId, db, i.customId.replace('forge_learn_skill_', ''));
+                    else if (i.customId === 'forge_synthesis') { synthesisState = { sacrificeItem: null, targetItem: null }; await buildSynthesisUI(i, user, guildId, db, synthesisState); }
+                    else if (i.customId === 'forge_smelting') { smeltState = { item: null }; await buildSmeltingUI(i, user, guildId, db, smeltState); }
+                    else if (i.customId === 'forge_upgrade_weapon') await handleWeaponUpgrade(i, user, guildId, db);
+                    else if (i.customId.startsWith('forge_upgrade_skill_')) await handleSkillUpgrade(i, user, guildId, db, i.customId.replace('forge_upgrade_skill_', ''));
+                    else if (i.customId === 'forge_execute_synth') { await handleSynthesis(i, user, guildId, db, synthesisState); synthesisState = { sacrificeItem: null, targetItem: null }; }
+                    else if (i.customId === 'forge_execute_smelt_1') { await handleSmelting(i, user, guildId, db, smeltState, client, 1); smeltState = { item: null }; }
+                    else if (i.customId.startsWith('forge_smelt_multi_')) await handleSmeltingMultiModal(i, user, guildId, db, smeltState, client);
+                }
+            } catch (innerError) {}
+        });
+
+        collector.on('end', () => {
+            try { 
+                const disabledRows = getMainMenuRows();
+                disabledRows.forEach(row => row.components.forEach(c => c.setDisabled(true))); 
+                replyObj.edit({ components: disabledRows }).catch(()=>{}); 
+            } catch(e) {}
+        });
+    }
+};
