@@ -1,5 +1,5 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ChannelType, ComponentType, MessageFlags, Colors } = require('discord.js');
-const { runDungeon } = require('./dungeon-handler.js'); // تصحيح الاستدعاء الأساسي!
+const { runDungeon } = require('./dungeon-battle.js');
 const { dungeonConfig, EMOJI_MORA, OWNER_ID } = require('./dungeon/constants.js');
 const { manageTickets } = require('./dungeon/utils.js');
 
