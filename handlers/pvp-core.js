@@ -49,52 +49,13 @@ function cleanDisplayName(name) {
     return clean.trim();
 }
 
-// 🔥 قاموس محسّن وشامل للبحث عن أسماء الرتب 🔥
-const validRacesMap = [
-    ['dragon', 'Dragon'], ['تنين', 'Dragon'], ['دراغون', 'Dragon'],
-    ['human', 'Human'], ['بشري', 'Human'], ['انسان', 'Human'], ['إنسان', 'Human'],
-    ['dark elf', 'Dark Elf'], ['ظلام', 'Dark Elf'], ['دارك', 'Dark Elf'],
-    ['elf', 'Elf'], ['الف', 'Elf'], ['آلف', 'Elf'], ['ايلف', 'Elf'],
-    ['seraphim', 'Seraphim'], ['سيرافيم', 'Seraphim'], ['سماوي', 'Seraphim'],
-    ['demon', 'Demon'], ['شيطان', 'Demon'], ['ديمون', 'Demon'],
-    ['vampire', 'Vampire'], ['مصاص', 'Vampire'], ['فامباير', 'Vampire'],
-    ['spirit', 'Spirit'], ['روح', 'Spirit'], ['سبيريت', 'Spirit'],
-    ['dwarf', 'Dwarf'], ['قزم', 'Dwarf'], ['دوارف', 'Dwarf'],
-    ['ghoul', 'Ghoul'], ['غول', 'Ghoul'],
-    ['hybrid', 'Hybrid'], ['نصف وحش', 'Hybrid'], ['هجين', 'Hybrid'], ['هايبرد', 'Hybrid']
-];
-
 async function getUserRace(member, db) {
     if (!member || !member.guild) return null;
-    let allRaceRoles = [];
-    try {
-        const res = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [member.guild.id]);
-        allRaceRoles = res.rows;
-    } catch (e) {
-        const res = await db.query(`SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [member.guild.id]).catch(()=>({rows:[]}));
-        allRaceRoles = res.rows;
-    }
-    
+    const res = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [member.guild.id]);
+    const allRaceRoles = res.rows;
     if (!member.roles || !member.roles.cache) return null;
     const userRoleIDs = member.roles.cache.map(r => r.id);
-    const matched = allRaceRoles.find(r => userRoleIDs.includes(r.roleID));
-    if (matched) return matched;
-
-    // 🔥 الشفاء الذاتي: فحص الرتب يدوياً إذا لم تكن مسجلة في قاعدة البيانات 🔥
-    for (const role of member.roles.cache.values()) {
-        const roleName = role.name.toLowerCase();
-        for (const [key, exactRace] of validRacesMap) {
-            if (roleName.includes(key)) {
-                try {
-                    await db.query(`INSERT INTO race_roles ("guildID", "roleID", "raceName") VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [member.guild.id, role.id, exactRace]);
-                } catch(e) {
-                    await db.query(`INSERT INTO race_roles (guildid, roleid, racename) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [member.guild.id, role.id, exactRace]).catch(()=>{});
-                }
-                return { roleID: role.id, raceName: exactRace };
-            }
-        }
-    }
-    return null;
+    return allRaceRoles.find(r => userRoleIDs.includes(r.roleID || r.roleid)) || null;
 }
 
 async function getWeaponData(db, member) {
@@ -104,20 +65,11 @@ async function getWeaponData(db, member) {
     const weaponConfig = weaponsConfig.find(w => w.race === raceName);
     if (!weaponConfig) return null;
     
-    let res;
-    try { res = await db.query(`SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [member.id, member.guild.id, raceName]); }
-    catch(e) { res = await db.query(`SELECT * FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [member.id, member.guild.id, raceName]).catch(()=>({rows:[]})); }
-    
+    const res = await db.query(`SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [member.id, member.guild.id, raceName]);
     let userWeapon = res.rows[0];
+    if (!userWeapon || Number(userWeapon.weaponLevel || userWeapon.weaponlevel) <= 0) return null;
     
-    // 🔥 الشفاء الذاتي: منح السلاح بلفل 1 إذا كان يملك العرق ولكنه مفقود في الداتا بيز 🔥
-    if (!userWeapon || Number(userWeapon.weaponLevel || userWeapon.weaponlevel) <= 0) {
-        try { await db.query(`INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1) ON CONFLICT ("userID", "guildID", "raceName") DO UPDATE SET "weaponLevel" = 1`, [member.id, member.guild.id, raceName]); }
-        catch(e) { await db.query(`INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1) ON CONFLICT (userid, guildid, racename) DO UPDATE SET weaponlevel = 1`, [member.id, member.guild.id, raceName]).catch(()=>{}); }
-        userWeapon = { weaponLevel: 1 };
-    }
-
-    const level = Number(userWeapon.weaponLevel || userWeapon.weaponlevel || 1);
+    const level = Number(userWeapon.weaponLevel || userWeapon.weaponlevel);
     const base = weaponConfig.base_damage;
     const inc = weaponConfig.damage_increment;
     let damage = 15;
@@ -139,14 +91,10 @@ async function getWeaponData(db, member) {
 async function getAllSkillData(db, member) {
     const userRace = await getUserRace(member, db);
     const skillsOutput = {};
-    
-    let res;
-    try { res = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [member.id, member.guild.id]); }
-    catch(e) { res = await db.query(`SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2`, [member.id, member.guild.id]).catch(()=>({rows:[]})); }
-    
-    const userSkillsData = res.rows || [];
+    const res = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [member.id, member.guild.id]);
+    const userSkillsData = res.rows;
       
-    if (userSkillsData.length > 0) {
+    if (userSkillsData) {
         userSkillsData.forEach(userSkill => {
             const skillConfig = skillsConfig.find(s => s.id === (userSkill.skillID || userSkill.skillid));
             const skillLvl = Number(userSkill.skillLevel || userSkill.skilllevel);
@@ -161,12 +109,7 @@ async function getAllSkillData(db, member) {
         const raceName = userRace.raceName || userRace.racename;
         const raceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
         const raceSkillConfig = skillsConfig.find(s => s.id === raceSkillId);
-        
-        // 🔥 الشفاء الذاتي: حقن المهارة العرقية بلفل 1 إذا كانت مفقودة 🔥
         if (raceSkillConfig && !skillsOutput[raceSkillId]) {
-            try { await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1) ON CONFLICT ("userID", "guildID", "skillID") DO UPDATE SET "skillLevel" = 1`, [member.id, member.guild.id, raceSkillId]); }
-            catch(e) { await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1) ON CONFLICT (userid, guildid, skillid) DO UPDATE SET skilllevel = 1`, [member.id, member.guild.id, raceSkillId]).catch(()=>{}); }
-            
             skillsOutput[raceSkillId] = { ...raceSkillConfig, currentLevel: 1, effectValue: raceSkillConfig.base_value };
         }
     }
@@ -280,17 +223,17 @@ function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0
 }
 
 function getBalancedPvPMultiplier(baseMultiplier, currentLevel) {
-    if (currentLevel <= 15) return baseMultiplier;
-    
-    const targetMultiplierAt30 = 1.5; 
-    const levelsRemaining = 15;
-    const diff = targetMultiplierAt30 - baseMultiplier;
-    const incrementPerLevel = diff / levelsRemaining;
-    
-    const finalMulti = baseMultiplier + (incrementPerLevel * (currentLevel - 15));
-    
-    if (currentLevel >= 30) return targetMultiplierAt30;
-    return finalMulti;
+    if (currentLevel <= 15) {
+        return baseMultiplier;
+    } else {
+        const unifiedBase16 = 1.3;
+        const targetMultiplier30 = 1.5;
+        const inc = (targetMultiplier30 - unifiedBase16) / 14;
+        
+        let finalMulti = unifiedBase16 + (inc * (currentLevel - 16));
+        if (currentLevel >= 30) return targetMultiplier30;
+        return finalMulti;
+    }
 }
 
 function applySkillEffect(battleState, attackerId, skill) {
