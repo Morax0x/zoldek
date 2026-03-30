@@ -43,7 +43,6 @@ const loadJsonSafe = (fileName) => {
     return [];
 };
 
-// تحميل مسبق للصور في الرام (للسرعة القصوى)
 setTimeout(async () => {
     const allItems = [
         ...loadJsonSafe('farm-animals.json'),
@@ -207,17 +206,16 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
     ctx.fillStyle = '#FFD700';
     ctx.fillText(`دخل الحظيرة اليومي: ${totalIncome.toLocaleString()} مورا`, avatarX + avatarSize + 30, 95);
 
-    // 🔥 النظام الذكي الحقيقي: جميع المقاسات تتغير هنا وتتطبق تحت بالملي 🔥
     let cols, slotW, slotH, iconSize, fontTitle, fontText, gapX, gapY;
 
     if (animals.length === 1) {
-        cols = 1; slotW = 800; slotH = 400; iconSize = 240; fontTitle = 45; fontText = 32; gapX = 0; gapY = 0;
+        cols = 1; slotW = 800; slotH = 400; iconSize = 240; fontTitle = 45; fontText = 24; gapX = 0; gapY = 0;
     } else if (animals.length === 2) {
-        cols = 2; slotW = 580; slotH = 360; iconSize = 180; fontTitle = 35; fontText = 26; gapX = 50; gapY = 0;
+        cols = 2; slotW = 580; slotH = 360; iconSize = 180; fontTitle = 35; fontText = 20; gapX = 50; gapY = 0;
     } else if (animals.length <= 4) {
-        cols = 2; slotW = 540; slotH = 280; iconSize = 140; fontTitle = 28; fontText = 22; gapX = 50; gapY = 40;
+        cols = 2; slotW = 540; slotH = 280; iconSize = 140; fontTitle = 28; fontText = 16; gapX = 50; gapY = 40;
     } else {
-        cols = 3; slotW = 380; slotH = 220; iconSize = 100; fontTitle = 22; fontText = 18; gapX = 50; gapY = 25;
+        cols = 3; slotW = 380; slotH = 220; iconSize = 100; fontTitle = 22; fontText = 14; gapX = 50; gapY = 25;
     }
     
     const actualCols = Math.min(animals.length, cols);
@@ -252,7 +250,6 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
         ctx.fillStyle = aura;
         ctx.fillRect(x, y, slotW, slotH);
         
-        // شريط العنوان الديناميكي
         const ribbonH = fontTitle + 20;
         const ribbonY = y + slotH - ribbonH - 20;
         drawRibbon(ctx, x + 20, ribbonY, slotW - 40, ribbonH, color);
@@ -262,10 +259,8 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
         ctx.fillStyle = '#FFFFFF';
         drawAutoScaledText(ctx, cleanEmojis(animal.name), x + slotW / 2, ribbonY + ribbonH / 2, slotW - 60, fontTitle, 12);
 
-        // مساحة العمل المتوفرة فوق الشريط السفلي
         const topAreaH = slotH - ribbonH - 30; 
         
-        // الأيقونة الديناميكية المتوسطة (Vertical Centering)
         const iconX = x + slotW - iconSize - 25;
         const iconY = y + 15 + (topAreaH - iconSize) / 2;
 
@@ -287,9 +282,8 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
             ctx.shadowBlur = 0;
         }
 
-        // النصوص تتجاوب وتتوسط (Vertical Centering) مقابل الصورة
-        const lineGap = fontText + 15;
-        const totalTextH = (3 * fontText) + (2 * 15); // 3 أسطر
+        const lineGap = fontText + 12;
+        const totalTextH = (5 * fontText) + (4 * 12); 
         const textStartX = iconX - 25;
         let textStartY = y + 15 + (topAreaH - totalTextH) / 2;
 
@@ -297,7 +291,7 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
         ctx.textBaseline = 'top';
 
         ctx.fillStyle = '#00FF88';
-        ctx.font = `bold ${fontText + 4}px ${FONT_MAIN}`;
+        ctx.font = `bold ${fontText + 2}px ${FONT_MAIN}`;
         ctx.fillText(`العدد: ${animal.quantity.toLocaleString()}`, textStartX, textStartY);
 
         textStartY += lineGap;
@@ -306,8 +300,32 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
         ctx.fillText(`الدخل: +${animal.income} مورا`, textStartX, textStartY);
         
         textStartY += lineGap;
-        ctx.fillStyle = animal.isHungry ? '#FF4444' : '#00FF88';
-        ctx.fillText(`الحالة: ${cleanEmojis(animal.hungerText)}`, textStartX, textStartY);
+        const lifespan = animal.lifespan || 30; 
+        const currentAge = animal.age || 0;
+        const remainingDays = Math.max(0, lifespan - currentAge);
+        ctx.fillStyle = '#FFD700';
+        ctx.fillText(`العمر: ${currentAge} / ${lifespan} أيام`, textStartX, textStartY);
+
+        textStartY += lineGap;
+        ctx.fillStyle = remainingDays <= 3 ? '#FF4444' : '#00FF88';
+        ctx.fillText(`متبقي للعمر: ${remainingDays} أيام`, textStartX, textStartY);
+
+        textStartY += lineGap;
+        const hungerMs = animal.hungerTimestamp || 0;
+        const now = Date.now();
+        let hungerStatus = '';
+        let hungerColor = '#00FF88';
+
+        if (hungerMs > now) {
+            const hoursLeft = Math.floor((hungerMs - now) / (1000 * 60 * 60));
+            hungerStatus = `شبعان (${hoursLeft} س)`;
+        } else {
+            hungerStatus = cleanEmojis(animal.hungerText) || 'جائع';
+            hungerColor = '#FF4444';
+        }
+
+        ctx.fillStyle = hungerColor;
+        ctx.fillText(`الحالة: ${hungerStatus}`, textStartX, textStartY);
     }
 
     ctx.textAlign = 'center';
