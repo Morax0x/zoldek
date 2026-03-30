@@ -122,7 +122,7 @@ async function setupDatabase(clientOrSql) {
             await db.query(query);
         }
 
-        // 🔥 تحديث العواميد المفقودة يدوياً (لضمان عمل الملوك الجدد) 🔥
+        // 🔥 تحديث العواميد المفقودة يدوياً (لضمان عمل الملوك والحدادة) 🔥
         await ensureColumn(db, 'settings', 'roleVoice', 'TEXT');
         await ensureColumn(db, 'settings', 'roleThief', 'TEXT');
         
@@ -134,6 +134,12 @@ async function setupDatabase(clientOrSql) {
         await ensureColumn(db, 'kings_board_tracker', 'dungeon_floor', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'vc_minutes', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'mora_stolen', 'BIGINT DEFAULT 0');
+
+        // 🔥 عواميد الأمان لجدول الأسلحة والمهارات (تأمين إضافي للحدادة) 🔥
+        await ensureColumn(db, 'user_weapons', 'weaponLevel', 'BIGINT DEFAULT 1');
+        await ensureColumn(db, 'user_weapons', 'raceName', 'TEXT');
+        await ensureColumn(db, 'user_skills', 'skillLevel', 'BIGINT DEFAULT 1');
+        await ensureColumn(db, 'user_skills', 'skillID', 'TEXT');
         
         const insertItem = `INSERT INTO market_items ("id", "name", "description", "currentPrice") VALUES ($1, $2, $3, $4) ON CONFLICT ("id") DO NOTHING`;
         for (const item of defaultMarketItems) {
