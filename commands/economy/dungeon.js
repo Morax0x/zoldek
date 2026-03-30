@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags } = require("discord.js");
-const { startDungeon } = require("../../handlers/dungeon-handler.js");
+const { startDungeon } = require("../../handlers/dungeon-battle.js"); // ← تصحيح المسار إلى dungeon-battle.js !!
 const { manageTickets } = require("../../handlers/dungeon/utils.js");
 
 const OWNER_ID = "1145327691772481577";
@@ -69,13 +69,7 @@ module.exports = {
             return isSlash ? interaction.reply(errPayload) : interaction.reply(errPayload).then(m => setTimeout(()=>m.delete().catch(()=>null), 5000));
         }
 
-        try {
-            await db.query(`ALTER TABLE levels ADD COLUMN IF NOT EXISTS "last_dungeon" BIGINT DEFAULT 0`);
-            await db.query(`ALTER TABLE levels ADD COLUMN IF NOT EXISTS "dungeon_tickets" INTEGER DEFAULT 0`);
-            await db.query(`ALTER TABLE levels ADD COLUMN IF NOT EXISTS "last_ticket_reset" TEXT DEFAULT ''`);
-            await db.query(`CREATE TABLE IF NOT EXISTS dungeon_saves ("hostID" TEXT PRIMARY KEY, "guildID" TEXT, "floor" INTEGER, "timestamp" BIGINT)`);
-        } catch (ignored) {}
-
+        // إزالة الجزء الخاص بالـ ALTER TABLE من هنا لتخفيف الضغط لأنه يُدار من ملف Database Manager
         let isAbyssKing = false;
         try {
             const settingsRes = await db.query(`SELECT "roleAbyss" FROM settings WHERE "guild" = $1`, [guild.id]);
@@ -87,14 +81,17 @@ module.exports = {
 
         // التحقق من مهلة الدانجون (Cooldown)
         if (user.id !== OWNER_ID && !isAbyssKing) { 
-            let userData = await client.getLevel(user.id, guild.id);
+            let userDataRes;
+            try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guild.id]); }
+            catch(e) { userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]).catch(()=>({rows:[]})); }
+
+            let userData = userDataRes.rows[0];
             
             if (!userData) {
-                userData = { user: user.id, guild: guild.id, xp: 0, level: 1, mora: 0 };
-                await db.query(`INSERT INTO levels ("user", "guild", "xp", "level", "mora") VALUES ($1, $2, 0, 1, 0)`, [user.id, guild.id]);
+                userData = { user: user.id, guild: guild.id, xp: 0, level: 1, mora: 0, last_dungeon: 0 };
             }
 
-            const lastRun = Number(userData.last_dungeon) || 0;
+            const lastRun = Number(userData.last_dungeon || userData.last_Dungeon || 0);
             const now = Date.now();
             const diff = now - lastRun;
 
@@ -121,18 +118,8 @@ module.exports = {
             }
         }
 
-        // إذا كان المالك أو سيد الهاوية، نرسل الرسالة دون أن نعطل الرد الرئيسي لـ startDungeon
-        if (isAbyssKing && user.id !== OWNER_ID) {
-            const kingPayload = { content: "👑 **ملك الهاوية! أبواب الدانجون تفتح لك بلا قيود أو انتظار.**" };
-            if (isSlash) {
-                await interaction.reply({ ...kingPayload, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-            } else {
-                interaction.channel.send(kingPayload).then(m => setTimeout(()=>m.delete().catch(()=>null), 5000));
-            }
-        }
-
         try {
-            // تنفيذ كود الدانجون الخارجي (الذي سيقوم بالرد وتعديل الرسالة)
+            // توجيه الدالة الصحيحة من dungeon-battle.js
             await startDungeon(interaction, db);
         } catch (err) {
             console.error("[Dungeon Command Error]", err);
@@ -141,7 +128,7 @@ module.exports = {
             try {
                 if (interaction.replied || interaction.deferred) await interaction.followUp(errMsg);
                 else await interaction.reply(errMsg);
-            } catch (e) {} // تجاهل الأخطاء إذا كانت الرسالة ممسوحة أصلاً
+            } catch (e) {} 
         }
     }
 };
