@@ -191,31 +191,31 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
     ctx.font = `bold 40px ${FONT_MAIN}`;
     ctx.shadowColor = '#FFD700';
     ctx.shadowBlur = 15;
-    ctx.fillText(`الحظيرة`, width - 40, 50);
+    ctx.fillText(`الحظيرة الملكية`, width - 40, 50);
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = '#FFFFFF';
     ctx.font = `28px ${FONT_MAIN}`;
-    ctx.fillText(`العضو: ${cleanEmojis(targetUser.username)}`, width - 40, 95);
+    ctx.fillText(`المالك: ${cleanEmojis(targetUser.username)}`, width - 40, 95);
 
     ctx.textAlign = 'left';
     ctx.font = `24px ${FONT_MAIN}`;
     ctx.fillStyle = currCap >= maxCap ? '#FF4444' : '#00FF88';
-    ctx.fillText(`سعة الحظيرة: [ ${currCap} / ${maxCap} ]`, avatarX + avatarSize + 30, 55);
+    ctx.fillText(`السعة: [ ${currCap} / ${maxCap} ]`, avatarX + avatarSize + 30, 55);
     
     ctx.fillStyle = '#FFD700';
-    ctx.fillText(`دخل الحظيرة اليومي: ${totalIncome.toLocaleString()} مورا`, avatarX + avatarSize + 30, 95);
+    ctx.fillText(`الدخل اليومي: ${totalIncome.toLocaleString()} مورا`, avatarX + avatarSize + 30, 95);
 
     let cols, slotW, slotH, iconSize, fontTitle, fontText, gapX, gapY;
 
     if (animals.length === 1) {
-        cols = 1; slotW = 800; slotH = 400; iconSize = 240; fontTitle = 45; fontText = 24; gapX = 0; gapY = 0;
+        cols = 1; slotW = 900; slotH = 450; iconSize = 280; fontTitle = 45; fontText = 30; gapX = 0; gapY = 0;
     } else if (animals.length === 2) {
-        cols = 2; slotW = 580; slotH = 360; iconSize = 180; fontTitle = 35; fontText = 20; gapX = 50; gapY = 0;
+        cols = 2; slotW = 580; slotH = 400; iconSize = 200; fontTitle = 35; fontText = 26; gapX = 40; gapY = 0;
     } else if (animals.length <= 4) {
-        cols = 2; slotW = 540; slotH = 280; iconSize = 140; fontTitle = 28; fontText = 16; gapX = 50; gapY = 40;
+        cols = 2; slotW = 550; slotH = 280; iconSize = 150; fontTitle = 28; fontText = 20; gapX = 50; gapY = 40;
     } else {
-        cols = 3; slotW = 380; slotH = 220; iconSize = 100; fontTitle = 22; fontText = 14; gapX = 50; gapY = 25;
+        cols = 3; slotW = 400; slotH = 230; iconSize = 110; fontTitle = 22; fontText = 16; gapX = 30; gapY = 30;
     }
     
     const actualCols = Math.min(animals.length, cols);
@@ -224,7 +224,7 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
     const startX = (width - ((actualCols * slotW) + ((actualCols - 1) * gapX))) / 2;
     const gridTotalHeight = (actualRows * slotH) + ((actualRows - 1) * gapY);
     const availableHeight = height - headerH - 50; 
-    const startY = headerH + ((availableHeight - gridTotalHeight) / 2);
+    const startY = headerH + 30 + ((availableHeight - 60 - gridTotalHeight) / 2);
 
     const preloadedImages = await Promise.all(animals.map(async animal => {
         const itemDict = resolveItemInfoLocal(animal.id);
@@ -244,95 +244,97 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
 
         drawOrnateFrame(ctx, x, y, slotW, slotH, color);
 
-        const aura = ctx.createRadialGradient(x + slotW/2, y + slotH/2, 10, x + slotW/2, y + slotH/2, Math.max(slotW, slotH));
-        aura.addColorStop(0, `${color}25`); 
-        aura.addColorStop(1, 'rgba(0,0,0,0)');
+        const aura = ctx.createRadialGradient(x + slotW - iconSize/2 - 30, y + iconSize/2 + 30, 10, x + slotW - iconSize/2 - 30, y + iconSize/2 + 30, iconSize);
+        aura.addColorStop(0, `${color}33`);
+        aura.addColorStop(1, 'transparent');
         ctx.fillStyle = aura;
         ctx.fillRect(x, y, slotW, slotH);
         
-        const ribbonH = fontTitle + 20;
-        const ribbonY = y + slotH - ribbonH - 20;
-        drawRibbon(ctx, x + 20, ribbonY, slotW - 40, ribbonH, color);
-        
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#FFFFFF';
-        drawAutoScaledText(ctx, cleanEmojis(animal.name), x + slotW / 2, ribbonY + ribbonH / 2, slotW - 60, fontTitle, 12);
-
-        const topAreaH = slotH - ribbonH - 30; 
-        
-        const iconX = x + slotW - iconSize - 25;
-        const iconY = y + 15 + (topAreaH - iconSize) / 2;
+        const iconX = x + slotW - iconSize - 30;
+        const iconY = y + (slotH - iconSize) / 2 - 20;
 
         const img = preloadedImages[i];
         if (img) {
             ctx.save();
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 30;
+            ctx.shadowColor = color; ctx.shadowBlur = 20;
             ctx.drawImage(img, iconX, iconY, iconSize, iconSize);
             ctx.restore();
         } else {
             ctx.fillStyle = '#FFFFFF';
-            ctx.font = `${iconSize * 0.6}px ${FONT_EMOJI}`;
+            ctx.font = `${iconSize * 0.7}px ${FONT_EMOJI}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 30;
             ctx.fillText(animal.emoji || '📦', iconX + iconSize / 2, iconY + iconSize / 2);
-            ctx.shadowBlur = 0;
         }
 
-        const lineGap = fontText + 12;
-        const totalTextH = (5 * fontText) + (4 * 12); 
-        const textStartX = iconX - 25;
-        let textStartY = y + 15 + (topAreaH - totalTextH) / 2;
+        const ribbonH = fontTitle + 20;
+        const ribbonY = y + slotH - ribbonH - 25;
+        drawRibbon(ctx, x + 25, ribbonY, slotW - 50, ribbonH, color);
+        
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#FFFFFF';
+        drawAutoScaledText(ctx, cleanEmojis(animal.name), x + slotW / 2, ribbonY + ribbonH / 2, slotW - 80, fontTitle, 14);
 
         ctx.textAlign = 'right';
         ctx.textBaseline = 'top';
+        const textX = iconX - 30;
+        let textY = y + 40;
+        const spacing = fontText + 12; // تعديل المسافات لتتناسب مع الأسطر الإضافية
 
         ctx.fillStyle = '#00FF88';
-        ctx.font = `bold ${fontText + 2}px ${FONT_MAIN}`;
-        ctx.fillText(`العدد: ${animal.quantity.toLocaleString()}`, textStartX, textStartY);
+        ctx.font = `bold ${fontText + 4}px ${FONT_MAIN}`;
+        ctx.fillText(`العدد: ${animal.quantity.toLocaleString()}`, textX, textY);
 
-        textStartY += lineGap;
+        textY += spacing;
         ctx.fillStyle = '#A8B8D0';
         ctx.font = `${fontText}px ${FONT_MAIN}`;
-        ctx.fillText(`الدخل: +${animal.income} مورا`, textStartX, textStartY);
+        ctx.fillText(`العائد: +${animal.income} مورا`, textX, textY);
         
-        textStartY += lineGap;
-        const lifespan = animal.lifespan || 30; 
+        // 🔥 التصحيح هنا: استخدام lifespan_days اللي موجودة في الجيسون بدال القديمة
+        textY += spacing;
+        const lifespan = animal.lifespan_days || animal.lifespan || 30; 
         const currentAge = animal.age || 0;
         const remainingDays = Math.max(0, lifespan - currentAge);
         ctx.fillStyle = '#FFD700';
-        ctx.fillText(`العمر: ${currentAge} / ${lifespan} أيام`, textStartX, textStartY);
+        ctx.fillText(`العمر: ${currentAge} / ${lifespan} أيام`, textX, textY);
 
-        textStartY += lineGap;
+        textY += spacing;
         ctx.fillStyle = remainingDays <= 3 ? '#FF4444' : '#00FF88';
-        ctx.fillText(`متبقي للعمر: ${remainingDays} أيام`, textStartX, textStartY);
+        ctx.fillText(`متبقي للعمر: ${remainingDays} أيام`, textX, textY);
 
-        textStartY += lineGap;
+        textY += spacing;
         const hungerMs = animal.hungerTimestamp || 0;
         const now = Date.now();
         let hungerStatus = '';
         let hungerColor = '#00FF88';
 
         if (hungerMs > now) {
-            const hoursLeft = Math.floor((hungerMs - now) / (1000 * 60 * 60));
-            hungerStatus = `شبعان (${hoursLeft} س)`;
+            const diffMs = hungerMs - now;
+            const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
+            const minutesLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+            
+            // 🔥 إضافة الدقائق ليكون الشبع دقيق 100%
+            if (hoursLeft > 0) {
+                hungerStatus = `شبعان (${hoursLeft}س و ${minutesLeft}د)`;
+            } else {
+                hungerStatus = `شبعان (${minutesLeft} دقيقة)`;
+            }
         } else {
             hungerStatus = cleanEmojis(animal.hungerText) || 'جائع';
             hungerColor = '#FF4444';
         }
 
         ctx.fillStyle = hungerColor;
-        ctx.fillText(`الحالة: ${hungerStatus}`, textStartX, textStartY);
+        ctx.font = `bold ${fontText - 2}px ${FONT_MAIN}`;
+        ctx.fillText(`الحالة: ${hungerStatus}`, textX, textY);
     }
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#E0E0E0';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.font = `20px ${FONT_MAIN}`;
-    ctx.fillText(`صفحة ${page + 1} من ${totalPages}`, width / 2, height - 30);
+    ctx.fillText(`صفحة [ ${page + 1} / ${totalPages} ]`, width / 2, height - 35);
 
     return canvas.toBuffer('image/png');
 };
