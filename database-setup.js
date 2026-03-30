@@ -7,8 +7,11 @@ async function setupDatabase(clientOrSql) {
     console.log("[Database] Starting Cloud Integrity & Schema Check...");
 
     const tables = [
-        // جدول الليفل والاقتصـاد
+        // جدول الليفل والاقتصاد
         `CREATE TABLE IF NOT EXISTS levels ("user" TEXT NOT NULL, "guild" TEXT NOT NULL, "xp" BIGINT DEFAULT 0, "level" BIGINT DEFAULT 1, "totalXP" BIGINT DEFAULT 0, "mora" BIGINT DEFAULT 0, "lastWork" BIGINT DEFAULT 0, "lastDaily" BIGINT DEFAULT 0, "dailyStreak" BIGINT DEFAULT 0, "bank" BIGINT DEFAULT 0, "lastInterest" BIGINT DEFAULT 0, "totalInterestEarned" BIGINT DEFAULT 0, "hasGuard" BIGINT DEFAULT 0, "guardExpires" BIGINT DEFAULT 0, "totalVCTime" BIGINT DEFAULT 0, "lastCollected" BIGINT DEFAULT 0, "lastRob" BIGINT DEFAULT 0, "lastGuess" BIGINT DEFAULT 0, "lastRPS" BIGINT DEFAULT 0, "lastRoulette" BIGINT DEFAULT 0, "lastTransfer" BIGINT DEFAULT 0, "lastDeposit" BIGINT DEFAULT 0, "shop_purchases" BIGINT DEFAULT 0, "total_meow_count" BIGINT DEFAULT 0, "boost_count" BIGINT DEFAULT 0, "lastPVP" BIGINT DEFAULT 0, "lastFarmYield" BIGINT DEFAULT 0, "lastFish" BIGINT DEFAULT 0, "rodLevel" BIGINT DEFAULT 0, "boatLevel" BIGINT DEFAULT 0, "currentLocation" TEXT DEFAULT 'beach', "lastMemory" BIGINT DEFAULT 0, "lastArrange" BIGINT DEFAULT 0, "dungeon_gate_level" BIGINT DEFAULT 1, "max_dungeon_floor" BIGINT DEFAULT 0, "dungeon_wins" BIGINT DEFAULT 0, "lastDungeon" BIGINT DEFAULT 0, "last_dungeon" BIGINT DEFAULT 0, "dungeon_join_count" BIGINT DEFAULT 0, "last_join_reset" BIGINT DEFAULT 0, "lastRace" BIGINT DEFAULT 0, "dungeon_tickets" BIGINT DEFAULT 0, "last_ticket_reset" TEXT DEFAULT '', "last_rob_pardon" TEXT DEFAULT '', "lastTransferDate" TEXT DEFAULT '', "dailyTransferCount" BIGINT DEFAULT 0, PRIMARY KEY ("user", "guild"))`,
+
+        // 🔥 جدول الصيد الجديد 🔥
+        `CREATE TABLE IF NOT EXISTS user_fishing ("userID" TEXT NOT NULL, "guildID" TEXT NOT NULL, "rodLevel" BIGINT DEFAULT 1, "currentRod" TEXT DEFAULT 'سنارة خشبية', "boatLevel" BIGINT DEFAULT 1, "currentBoat" TEXT DEFAULT 'قارب خشب', PRIMARY KEY ("userID", "guildID"))`,
 
         // 🔥 تحديث جدول settings ليشمل ملوك الصوت واللصوص فعلياً 🔥
         `CREATE TABLE IF NOT EXISTS settings ("guild" TEXT PRIMARY KEY, "voiceXP" BIGINT DEFAULT 0, "voiceCooldown" BIGINT DEFAULT 60000, "customXP" BIGINT DEFAULT 25, "customCooldown" BIGINT DEFAULT 60000, "levelUpMessage" TEXT, "lvlUpTitle" TEXT, "lvlUpDesc" TEXT, "lvlUpImage" TEXT, "lvlUpColor" TEXT, "lvlUpMention" BIGINT DEFAULT 1, "streakEmoji" TEXT DEFAULT '🔥', "questChannelID" TEXT, "treeBotID" TEXT, "treeChannelID" TEXT, "treeMessageID" TEXT, "countingChannelID" TEXT, "vipRoleID" TEXT, "casinoChannelID" TEXT, "dropGiveawayChannelID" TEXT, "dropTitle" TEXT, "dropDescription" TEXT, "dropColor" TEXT, "dropFooter" TEXT, "dropButtonLabel" TEXT, "dropButtonEmoji" TEXT, "dropMessageContent" TEXT, "lastMediaUpdateSent" TEXT, "lastMediaUpdateMessageID" TEXT, "lastMediaUpdateChannelID" TEXT, "shopChannelID" TEXT, "bumpChannelID" TEXT, "customRoleAnchorID" TEXT, "customRolePanelTitle" TEXT, "customRolePanelDescription" TEXT, "customRolePanelImage" TEXT, "customRolePanelColor" TEXT, "chatChannelID" TEXT, "lastQuestPanelChannelID" TEXT, "streakTimerChannelID" TEXT, "dailyTimerChannelID" TEXT, "weeklyTimerChannelID" TEXT, "img_level" TEXT, "img_mora" TEXT, "img_streak" TEXT, "img_media_streak" TEXT, "img_strongest" TEXT, "img_weekly_xp" TEXT, "img_daily_xp" TEXT, "img_achievements" TEXT, "shopLogChannelID" TEXT, "marketStatus" TEXT DEFAULT 'normal', "boostChannelID" TEXT, "voiceChannelID" TEXT, "savedStatusType" TEXT, "savedStatusText" TEXT, "prefix" TEXT DEFAULT '-', "casinoChannelID2" TEXT, "serverTag" TEXT, "bumpNotifyRoleID" TEXT, "nextBumpTime" BIGINT DEFAULT 0, "lastBumperID" TEXT, "levelChannel" TEXT, "modLogChannelID" TEXT, "transactionLogChannelID" TEXT, "guildBoardChannelID" TEXT, "guildBoardMessageID" TEXT, "kingsBoardMessageID" TEXT, "guildAnnounceChannelID" TEXT, "roleCasinoKing" TEXT, "roleMerchant" TEXT, "rolePhilanthropist" TEXT, "roleVoice" TEXT, "roleAbyss" TEXT, "roleChatter" TEXT, "roleKnightSlayer" TEXT, "roleFisherKing" TEXT, "rolePvPKing" TEXT, "roleThief" TEXT, "roleDailyQuester" TEXT, "roleWeeklyQuester" TEXT, "roleRankSS" TEXT, "roleRankS" TEXT, "roleRankA" TEXT, "roleRankB" TEXT, "roleRankC" TEXT, "roleRankD" TEXT, "chatterChannelID" TEXT, "roleChatterBadge" TEXT, "roleDailyBadge" TEXT, "roleWeeklyBadge" TEXT)`,
@@ -74,16 +77,7 @@ async function setupDatabase(clientOrSql) {
         `CREATE TABLE IF NOT EXISTS role_coupons_config ("guildID" TEXT, "roleID" TEXT, "discountPercent" BIGINT, PRIMARY KEY ("guildID", "roleID"))`,
         `CREATE TABLE IF NOT EXISTS user_role_coupon_usage ("guildID" TEXT, "userID" TEXT, "lastUsedTimestamp" BIGINT, PRIMARY KEY ("guildID", "userID"))`,
         `CREATE TABLE IF NOT EXISTS farm_last_payout ("id" TEXT PRIMARY KEY, "lastPayoutDate" BIGINT)`,
-        
-        // 🔥 مخزن المستخدم (هنا بنضيف الصناديق) 🔥
         `CREATE TABLE IF NOT EXISTS user_inventory ("id" BIGSERIAL PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "itemID" TEXT, "quantity" BIGINT DEFAULT 0, UNIQUE("guildID", "userID", "itemID"))`,
-        
-        // 🎁 جدول جديد لإحصائيات القاتشا والصناديق 🎁
-        `CREATE TABLE IF NOT EXISTS user_gacha_stats ("userID" TEXT, "guildID" TEXT, "totalOpened" BIGINT DEFAULT 0, "lastOpenedDate" BIGINT DEFAULT 0, PRIMARY KEY ("userID", "guildID"))`,
-
-        // 🎁 جدول نظام الشفقة (Pity) للقاتشا 🎁
-        `CREATE TABLE IF NOT EXISTS user_gacha_pity ("userID" TEXT, "guildID" TEXT, "epic_pity" BIGINT DEFAULT 0, "legendary_pity" BIGINT DEFAULT 0, "last_free_claim" TEXT DEFAULT '', PRIMARY KEY ("userID", "guildID"))`,
-
         `CREATE TABLE IF NOT EXISTS mod_cases ("id" TEXT PRIMARY KEY, "guildID" TEXT, "caseID" BIGINT, "type" TEXT, "targetID" TEXT, "moderatorID" TEXT, "reason" TEXT, "timestamp" BIGINT)`,
         `CREATE TABLE IF NOT EXISTS xp_ignore ("guildID" TEXT, "id" TEXT, "type" TEXT, PRIMARY KEY ("guildID", "id"))`,
         `CREATE TABLE IF NOT EXISTS active_dungeons ("channelID" TEXT PRIMARY KEY, "guildID" TEXT, "hostID" TEXT, "data" TEXT)`,
@@ -116,7 +110,7 @@ async function setupDatabase(clientOrSql) {
         `CREATE TABLE IF NOT EXISTS role_campfire_limits ("guildID" TEXT, "roleID" TEXT, "limitCount" BIGINT, PRIMARY KEY ("guildID", "roleID"))`,
         `CREATE TABLE IF NOT EXISTS user_reputation ("userID" TEXT, "guildID" TEXT, "rep_points" BIGINT DEFAULT 0, "last_rep_given" TEXT DEFAULT '0', "weekly_reps_given" BIGINT DEFAULT 0, "daily_reps_given" BIGINT DEFAULT 0, PRIMARY KEY ("userID", "guildID"))`,
         
-        `CREATE TABLE IF NOT EXISTS kings_board_tracker ("id" TEXT PRIMARY KEY, "userID" TEXT, "guildID" TEXT, "date" TEXT, "casino_profit" BIGINT DEFAULT 0, "mora_earned" BIGINT DEFAULT 0, "messages" BIGINT DEFAULT 0, "mora_donated" BIGINT DEFAULT 0, "vc_minutes" BIGINT DEFAULT 0, "voice_time" BIGINT DEFAULT 0, "fish_caught" BIGINT DEFAULT 0, "pvp_wins" BIGINT DEFAULT 0, "mora_stolen" BIGINT DEFAULT 0, "dungeon_floor" BIGINT DEFAULT 0)`,
+        `CREATE TABLE IF NOT EXISTS kings_board_tracker ("id" TEXT PRIMARY KEY, "userID" TEXT, "guildID" TEXT, "date" TEXT, "casino_profit" BIGINT DEFAULT 0, "mora_earned" BIGINT DEFAULT 0, "messages" BIGINT DEFAULT 0, "mora_donated" BIGINT DEFAULT 0, "vc_minutes" BIGINT DEFAULT 0, "fish_caught" BIGINT DEFAULT 0, "pvp_wins" BIGINT DEFAULT 0, "mora_stolen" BIGINT DEFAULT 0, "dungeon_floor" BIGINT DEFAULT 0)`,
         
         `CREATE TABLE IF NOT EXISTS kings_daily_payout ("dateStr" TEXT PRIMARY KEY)`,
 
@@ -137,16 +131,9 @@ async function setupDatabase(clientOrSql) {
         await ensureColumn(db, 'user_reputation', 'daily_reps_given', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'user_reputation', 'weekly_reps_given', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'levels', 'last_dungeon', 'BIGINT DEFAULT 0');
-        
         await ensureColumn(db, 'kings_board_tracker', 'dungeon_floor', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'vc_minutes', 'BIGINT DEFAULT 0');
-        // 🔥 إضافة عمود voice_time لدعم التحديثات الجديدة 🔥
-        await ensureColumn(db, 'kings_board_tracker', 'voice_time', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'mora_stolen', 'BIGINT DEFAULT 0');
-
-        // 🔥 تحديث عواميد البفات المفقودة في الجداول القديمة لتجنب أخطاء المتجر 🔥
-        await ensureColumn(db, 'user_buffs', 'multiplier', 'REAL DEFAULT 0.0');
-        await ensureColumn(db, 'user_buffs', 'buffPercent', 'BIGINT DEFAULT 0');
         
         const insertItem = `INSERT INTO market_items ("id", "name", "description", "currentPrice") VALUES ($1, $2, $3, $4) ON CONFLICT ("id") DO NOTHING`;
         for (const item of defaultMarketItems) {
