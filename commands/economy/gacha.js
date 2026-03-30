@@ -352,7 +352,6 @@ module.exports = {
                 const row = new ActionRowBuilder();
                 if (totalChests >= 1) row.addComponents(new ButtonBuilder().setCustomId('open_chest_1').setLabel('فتح 1').setEmoji('🎁').setStyle(ButtonStyle.Primary));
                 if (totalChests >= 10) row.addComponents(new ButtonBuilder().setCustomId('open_chest_10').setLabel('فتح 10').setEmoji('🌟').setStyle(ButtonStyle.Success));
-                if (totalChests > 1) row.addComponents(new ButtonBuilder().setCustomId('open_chest_all').setLabel('فتح الكل').setEmoji('🔥').setStyle(ButtonStyle.Danger));
                 
                 row.addComponents(new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('رجوع').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
                 
@@ -416,7 +415,6 @@ module.exports = {
                         results.push({ item, rarity });
                     }
 
-                    // المعالجة السريعة (Concurrent execution) لتحديثات قاعدة البيانات
                     const updatePromises = [];
 
                     for (const skillId of skillsToAdd) {
@@ -455,7 +453,7 @@ module.exports = {
             let isProcessing = false;
 
             const channelCollector = (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).createMessageComponentCollector({
-                filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10', 'open_chest_all'].includes(i.customId),
+                filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10'].includes(i.customId),
                 time: 300000 
             });
 
@@ -500,7 +498,6 @@ module.exports = {
                         }
                     } else {
                         if (i.customId === 'open_chest_10') pullCount = 10;
-                        else if (i.customId === 'open_chest_all') pullCount = Math.min(totalChests, 50); 
                         if (totalChests < pullCount) {
                             await i.followUp({ content: "❌ لا تملك صناديق كافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                             return;
