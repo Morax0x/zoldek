@@ -13,7 +13,7 @@ const upgradeMats = require('../../json/upgrade-materials.json');
 const PULL_PRICE = 1000;
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
-// 🔥 نظام القفل المؤقت 🔥
+// 🔥 نظام القفل الشامل لمنع السبام والتعليق 🔥
 const activeGachaUsers = new Set();
 
 const FLAVOR_TEXTS = [
@@ -94,24 +94,53 @@ async function execSafe(db, qPg, qLite, params = []) {
     }
 }
 
-// 🔥 دالة الخصم الصارمة تقضي على ثغرة الذاكرة نهائياً 🔥
+// 🔥 دالة الخصم الذكية: تخصم من الكاش، وإذا ما كفى تكمل الخصم من البنك 🔥
 async function deductMora(client, db, userId, guildId, amount) {
     try {
+        let rCheck = await execSafe(db, 
+            `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, 
+            `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, 
+            [userId, guildId]
+        );
+        
+        if (rCheck.error || rCheck.rows.length === 0) return false;
+        
+        let m = Number(rCheck.rows[0].mora || rCheck.rows[0].Mora || 0);
+        let b = Number(rCheck.rows[0].bank || rCheck.rows[0].Bank || 0);
+
+        if ((m + b) < amount) return false; // إذا المجموع ما يكفي، ارفض العملية
+
+        let newMora = m;
+        let newBank = b;
+
+        if (m >= amount) {
+            newMora = m - amount; // إذا الكاش يكفي، اخصم منه وخلاص
+        } else {
+            let remainder = amount - m; // إذا الكاش ما يكفي، صفّر الكاش واخصم الباقي من البنك
+            newMora = 0;
+            newBank = b - remainder;
+        }
+
+        // 1. تحديث الذاكرة المؤقتة (Cache)
         if (client && typeof client.getLevel === 'function') {
             let u = await client.getLevel(userId, guildId);
             if (u) {
-                u.mora = Number(u.mora || u.Mora || 0) - amount;
+                u.mora = newMora;
+                u.bank = newBank;
                 if (typeof client.setLevel === 'function') await client.setLevel(u);
             }
         }
-    } catch(e) {}
 
-    let r1 = await execSafe(db, 
-        `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, 
-        `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, 
-        [amount, userId, guildId]
-    );
-    return !r1.error;
+        // 2. تحديث قاعدة البيانات
+        let rUpdate = await execSafe(db,
+            `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`,
+            `UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`,
+            [newMora, newBank, userId, guildId]
+        );
+        return !rUpdate.error;
+    } catch(e) {
+        return false;
+    }
 }
 
 async function ensurePityTable(db) {
@@ -173,6 +202,7 @@ module.exports = {
 
         const reply = async (payload) => isSlash ? interactionOrMessage.editReply(payload).catch(()=>{}) : interactionOrMessage.reply(payload).catch(()=>{});
 
+        // نظام القفل
         if (activeGachaUsers.has(user.id)) {
             const msgPayload = { content: '⏳ **الرجاء إنهاء الصناديق الحالية أو انتظار فك القفل (ثواني معدودة)...**', flags: [MessageFlags.Ephemeral] };
             if (isSlash) {
@@ -194,6 +224,7 @@ module.exports = {
             await ensurePityTable(db);
 
             let userMora = 0;
+            let userBank = 0;
             let freeChests = 0;
             let paidChests = 0;
             let totalChests = 0;
@@ -204,21 +235,26 @@ module.exports = {
 
             const fetchUserData = async () => {
                 let cacheMora = null;
+                let cacheBank = null;
                 try {
                     if (client.getLevel) {
                         let u = await client.getLevel(user.id, guildId);
-                        if (u) cacheMora = Number(u.mora || u.Mora || 0);
+                        if (u) {
+                            cacheMora = Number(u.mora || u.Mora || 0);
+                            cacheBank = Number(u.bank || u.Bank || 0);
+                        }
                     }
                 } catch(e) {}
 
                 const [lvlRes, invRes, skillRes, wepRes] = await Promise.all([
-                    execSafe(db, `SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
+                    execSafe(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
                     execSafe(db, `SELECT "itemID", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" IN ('gacha_chest', 'free_gacha_chest')`, `SELECT itemid, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid IN ('gacha_chest', 'free_gacha_chest')`, [user.id, guildId]),
                     execSafe(db, `SELECT "skillID" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, `SELECT skillid FROM user_skills WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
                     execSafe(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT racename FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
                 ]);
 
                 userMora = cacheMora !== null ? cacheMora : (lvlRes.rows[0] ? Number(lvlRes.rows[0].mora || lvlRes.rows[0].Mora || 0) : 0);
+                userBank = cacheBank !== null ? cacheBank : (lvlRes.rows[0] ? Number(lvlRes.rows[0].bank || lvlRes.rows[0].Bank || 0) : 0);
                 
                 freeChests = 0;
                 paidChests = 0;
@@ -270,10 +306,10 @@ module.exports = {
                 }
             }
 
-            const getPullButtons = (moraBalance) => {
+            const getPullButtons = (totalBalance) => {
                 return new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('gacha_1').setLabel('سحب x1').setEmoji('🎁').setStyle(ButtonStyle.Primary).setDisabled(moraBalance < PULL_PRICE),
-                    new ButtonBuilder().setCustomId('gacha_10').setLabel('سحب x10').setEmoji('🌟').setStyle(ButtonStyle.Success).setDisabled(moraBalance < PULL_PRICE * 10),
+                    new ButtonBuilder().setCustomId('gacha_1').setLabel('سحب x1').setEmoji('🎁').setStyle(ButtonStyle.Primary).setDisabled(totalBalance < PULL_PRICE),
+                    new ButtonBuilder().setCustomId('gacha_10').setLabel('سحب x10').setEmoji('🌟').setStyle(ButtonStyle.Success).setDisabled(totalBalance < PULL_PRICE * 10),
                     new ButtonBuilder().setCustomId('gacha_inventory').setLabel('صناديقي').setEmoji('🎒').setStyle(ButtonStyle.Secondary)
                 );
             };
@@ -288,16 +324,18 @@ module.exports = {
                 await fetchUserData(); 
                 const summaryRandomText = FLAVOR_TEXTS[Math.floor(Math.random() * FLAVOR_TEXTS.length)];
                 let files = [];
+                let totalBal = userMora + userBank; // حساب الرصيد الشامل
+                
                 if (generateGachaHub) {
                     try {
-                        const hubBuffer = await generateGachaHub(user, userMora, summaryRandomText, totalChests);
+                        const hubBuffer = await generateGachaHub(user, totalBal, summaryRandomText, totalChests);
                         if (hubBuffer) files.push(new AttachmentBuilder(hubBuffer, { name: 'gacha_hub.png' }));
                     } catch(e){}
                 }
                 if (targetMsg) {
-                    await targetMsg.edit({ components: [getPullButtons(userMora)], files, embeds: [] }).catch(()=>{});
+                    await targetMsg.edit({ components: [getPullButtons(totalBal)], files, embeds: [] }).catch(()=>{});
                 } else {
-                    return { components: [getPullButtons(userMora)], files };
+                    return { components: [getPullButtons(totalBal)], files };
                 }
             };
 
@@ -325,13 +363,20 @@ module.exports = {
                 await targetMsg.edit({ embeds: [], components: [row], files }).catch(()=>{});
             };
 
-            // 🔥 تم إزالة أوامر BEGIN / COMMIT لمنع جلطات الداتابيز تماماً 🔥
             const executePulls = async (pullCount, isBuying, cost) => {
                 try {
                     if (isBuying) {
+                        // استخدام نظام الخصم الجديد الموحد (كاش + بنك)
                         let deducted = await deductMora(client, db, user.id, guildId, cost);
                         if (!deducted) return null;
-                        userMora -= cost; 
+                        
+                        if (userMora >= cost) {
+                            userMora -= cost;
+                        } else {
+                            let remainder = cost - userMora;
+                            userMora = 0;
+                            userBank -= remainder;
+                        }
                     } else {
                         let remaining = pullCount;
                         let consumeFree = Math.min(freeChests, remaining);
@@ -357,6 +402,8 @@ module.exports = {
 
                     const itemsToAdd = {};
                     const skillsToAdd = [];
+
+                    await db.query('BEGIN').catch(()=>{});
                     
                     for (let k = 0; k < pullCount; k++) {
                         const { item, rarity } = performPull(pityData, userRace, ownedSkills);
@@ -390,6 +437,7 @@ module.exports = {
                     }
 
                     await execSafe(db, `UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, `UPDATE user_gacha_pity SET epic_pity = $1, legendary_pity = $2 WHERE userid = $3 AND guildid = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]);
+                    await db.query('COMMIT').catch(()=>{});
 
                     return { bestResult, results };
                 } catch (e) {
@@ -442,12 +490,13 @@ module.exports = {
                     let isBuying = i.customId.startsWith('gacha_');
                     let pullCount = 1;
                     let cost = 0;
+                    let totalBal = userMora + userBank; // تحديث إجمالي الرصيد وقت الشراء
 
                     if (isBuying) {
                         pullCount = i.customId === 'gacha_10' ? 10 : 1;
                         cost = pullCount * PULL_PRICE;
-                        if (userMora < cost) {
-                            await i.followUp({ content: "❌ لا تملك المورا الكافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                        if (totalBal < cost) {
+                            await i.followUp({ content: "❌ لا تملك المورا الكافية (الرصيد + البنك)!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                             return;
                         }
                     } else {
