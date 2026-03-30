@@ -94,23 +94,6 @@ async function execSafe(db, qPg, qLite, params = []) {
     }
 }
 
-// 🔥 دالة الخصم المضمونة للصندوق لتفادي الأخطاء الصامتة 🔥
-async function deductMoraGacha(db, userId, guildId, amount) {
-    console.log(`[GACHA_DEDUCT] Attempting to deduct ${amount} from ${userId}`);
-    try {
-        let r1 = await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [amount, userId, guildId]);
-        if (r1.rowCount > 0) return true;
-    } catch(e1) {
-        try {
-            let r2 = await db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [amount, userId, guildId]);
-            if (r2.rowCount > 0) return true;
-        } catch(e2) {
-            console.error(`[GACHA_DEDUCT_ERR] E1: ${e1.message} | E2: ${e2.message}`);
-        }
-    }
-    return false;
-}
-
 async function ensurePityTable(db) {
     await execSafe(db, 
         `CREATE TABLE IF NOT EXISTS user_gacha_pity ("userID" TEXT, "guildID" TEXT, "epic_pity" INTEGER DEFAULT 0, "legendary_pity" INTEGER DEFAULT 0, "last_free_claim" TEXT DEFAULT '', PRIMARY KEY ("userID", "guildID"))`,
@@ -170,8 +153,9 @@ module.exports = {
 
         const reply = async (payload) => isSlash ? interactionOrMessage.editReply(payload).catch(()=>{}) : interactionOrMessage.reply(payload).catch(()=>{});
 
+        // 🔥 نظام القفل للـ Spam: فحص إذا المستخدم عنده عملية غاتشا شغالة 🔥
         if (activeGachaUsers.has(user.id)) {
-            const msgPayload = { content: '⏳ **الرجاء الانتظار حتى تنتهي من استدعاء الصناديق الحالي!**', flags: [MessageFlags.Ephemeral] };
+            const msgPayload = { content: '⏳ **الرجاء إنهاء استدعاء الصناديق الحالي أولاً قبل فتح جديد!**', flags: [MessageFlags.Ephemeral] };
             if (isSlash) {
                 if(!interactionOrMessage.deferred && !interactionOrMessage.replied) await interactionOrMessage.reply(msgPayload).catch(()=>{});
                 else await interactionOrMessage.followUp(msgPayload).catch(()=>{});
@@ -186,6 +170,7 @@ module.exports = {
         if (!db) return reply({ content: "خطأ في قاعدة البيانات" });
         await ensurePityTable(db);
 
+        // وضع المستخدم في قائمة القفل
         activeGachaUsers.add(user.id);
 
         let userMora = 0;
@@ -304,9 +289,16 @@ module.exports = {
             }
 
             const row = new ActionRowBuilder();
-            if (totalChests >= 1) row.addComponents(new ButtonBuilder().setCustomId('open_chest_1').setLabel('فتح 1').setEmoji('🎁').setStyle(ButtonStyle.Primary));
-            if (totalChests >= 10) row.addComponents(new ButtonBuilder().setCustomId('open_chest_10').setLabel('فتح 10').setEmoji('🌟').setStyle(ButtonStyle.Success));
-            if (totalChests > 1) row.addComponents(new ButtonBuilder().setCustomId('open_chest_all').setLabel('فتح الكل').setEmoji('🔥').setStyle(ButtonStyle.Danger));
+            
+            if (totalChests >= 1) {
+                row.addComponents(new ButtonBuilder().setCustomId('open_chest_1').setLabel('فتح 1').setEmoji('🎁').setStyle(ButtonStyle.Primary));
+            }
+            if (totalChests >= 10) {
+                row.addComponents(new ButtonBuilder().setCustomId('open_chest_10').setLabel('فتح 10').setEmoji('🌟').setStyle(ButtonStyle.Success));
+            }
+            if (totalChests > 1) {
+                row.addComponents(new ButtonBuilder().setCustomId('open_chest_all').setLabel('فتح الكل').setEmoji('🔥').setStyle(ButtonStyle.Danger));
+            }
             
             row.addComponents(new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('رجوع').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
             
@@ -314,10 +306,10 @@ module.exports = {
         };
 
         const executePulls = async (pullCount, isBuying, cost) => {
+            // 🔥 الخصم الآمن قبل تنفيذ السحب لمنع السبام الفعلي 🔥
             if (isBuying) {
-                let deducted = await deductMoraGacha(db, user.id, guildId, cost);
-                if (!deducted) return null; // في حال فشل الخصم
                 userMora -= cost;
+                await execSafe(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [cost, user.id, guildId]);
             } else {
                 let remaining = pullCount;
                 let consumeFree = Math.min(freeChests, remaining);
@@ -391,12 +383,14 @@ module.exports = {
         }
         
         const channelCollector = (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).createMessageComponentCollector({
-            filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10', 'open_chest_all'].includes(i.customId),
+            filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10', 'open_chest_all', 'gacha_next', 'gacha_skip'].includes(i.customId),
             time: 300000 
         });
 
         channelCollector.on('collect', async (i) => {
-            try { await i.deferUpdate(); } catch (err) { return; }
+            try { 
+                await i.deferUpdate().catch(()=>{}); 
+            } catch (err) { return; }
 
             if (i.customId === 'gacha_inventory') {
                 await showInventoryMenu(initialMsg);
@@ -411,6 +405,9 @@ module.exports = {
                 await generateAndSendHub(initialMsg);
                 return;
             }
+
+            // إذا كان الزر "تخطي" أو "التالي" لا نستدعي كود الشراء
+            if (['gacha_next', 'gacha_skip'].includes(i.customId)) return;
 
             await fetchUserData();
             
@@ -430,13 +427,7 @@ module.exports = {
 
             await initialMsg.edit({ components: [], embeds: [] }).catch(()=>{});
 
-            const pullsData = await executePulls(pullCount, isBuying, cost);
-            if (!pullsData) {
-                await initialMsg.edit({ content: "❌ فشل خصم المورا! يرجى المحاولة مرة أخرى لاحقاً.", components: [getReturnButton()] }).catch(()=>{});
-                return;
-            }
-
-            const { bestResult, results } = pullsData;
+            const { bestResult, results } = await executePulls(pullCount, isBuying, cost);
 
             const prefix = pullCount > 1 ? 'ten_' : 'single_';
             const meteorFileName = `${prefix}${bestResult.rarity}.png`;
@@ -465,14 +456,12 @@ module.exports = {
 
             } else if (pullCount > 1) {
                 let currentIndex = 0;
-                
                 const getPagePayload = async (idx) => {
-                    // 🔥 حماية من الخطأ القاتل TypeError (Bounds Check) 🔥
+                    // 🔥 حماية Bounds Check قوية 🔥
                     if (idx >= results.length) idx = results.length - 1;
+                    if (idx < 0) idx = 0;
+
                     const res = results[idx];
-                    
-                    if (!res || !res.item) return { content: '❌ حدث خطأ في استخراج العنصر.' };
-                    
                     let files = [];
                     if (generateGachaCard && res.item.imgPath) {
                         try {
@@ -504,13 +493,12 @@ module.exports = {
                 });
 
                 activePageCollector.on('collect', async btn => {
-                    try { await btn.deferUpdate(); } catch(e) { return; }
+                    try { await btn.deferUpdate().catch(()=>{}); } catch(e) { return; }
                     
                     if (btn.customId === 'gacha_skip') {
                         currentIndex = pullCount - 1; 
                         await initialMsg.edit(await getPagePayload(currentIndex)).catch(()=>{});
                     } else if (btn.customId === 'gacha_next') {
-                        // 🔥 حماية تمنع زر التالي من رفع الرقم أكثر من المسموح (Bounds Check) 🔥
                         if (currentIndex < pullCount - 1) {
                             currentIndex++;
                             await initialMsg.edit(await getPagePayload(currentIndex)).catch(()=>{});
@@ -520,7 +508,7 @@ module.exports = {
 
             } else {
                 let files = [];
-                if (generateGachaCard && bestResult && bestResult.item && bestResult.item.imgPath) {
+                if (generateGachaCard && bestResult && bestResult.item.imgPath) {
                     try {
                         const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
                         if (buffer) files.push(new AttachmentBuilder(buffer, { name: 'gacha_best.png' }));
