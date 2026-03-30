@@ -3,7 +3,7 @@ const { startDungeon } = require("../../handlers/dungeon-handler.js");
 const { manageTickets } = require("../../handlers/dungeon/utils.js");
 
 const OWNER_ID = "1145327691772481577";
-const COOLDOWN_MS = 3 * 60 * 60 * 1000;
+const COOLDOWN_MS = 3 * 60 * 60 * 1000; 
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -17,12 +17,18 @@ module.exports = {
     description: "نظام الدانجون المتقدم (PvE)",
 
     async execute(context, args) {
-        const isSlash = typeof context.isChatInputCommand === 'function' && context.isChatInputCommand();
+        // 🔥 فحص قوي وذكي لمعرفة نوع الأمر (سلاش أو رسالة عادية)
+        const isSlash = context.isChatInputCommand && typeof context.isChatInputCommand === 'function' && context.isChatInputCommand();
         let interaction;
 
         if (isSlash) {
             interaction = context;
-            await interaction.deferReply().catch(()=>{}); 
+            try {
+                // حماية من تعليق السلاش 
+                if (!interaction.deferred && !interaction.replied) {
+                    await interaction.deferReply().catch(()=>{}); 
+                }
+            } catch(e) {}
         } else {
             interaction = {
                 user: context.author,
@@ -38,21 +44,27 @@ module.exports = {
                 reply: async (payload) => {
                     const safePayload = { ...payload };
                     delete safePayload.flags; 
-                    const msg = await context.reply(safePayload);
-                    interaction.replied = true;
-                    interaction.lastBotReply = msg;
-                    return msg;
+                    try {
+                        const msg = await context.reply(safePayload);
+                        interaction.replied = true;
+                        interaction.lastBotReply = msg;
+                        return msg;
+                    } catch(e) {
+                        return context.channel.send(safePayload).catch(()=>{});
+                    }
                 },
                 editReply: async (payload) => {
                     const safePayload = { ...payload };
                     delete safePayload.flags;
-                    if (interaction.lastBotReply) return interaction.lastBotReply.edit(safePayload);
-                    return context.channel.send(safePayload);
+                    if (interaction.lastBotReply && interaction.lastBotReply.editable) {
+                        return interaction.lastBotReply.edit(safePayload).catch(()=>{});
+                    }
+                    return context.channel.send(safePayload).catch(()=>{});
                 },
                 followUp: async (payload) => {
                     const safePayload = { ...payload };
                     delete safePayload.flags;
-                    return context.channel.send(safePayload);
+                    return context.channel.send(safePayload).catch(()=>{});
                 },
                 deferReply: async () => { interaction.deferred = true; },
                 deferUpdate: async () => {},
@@ -63,9 +75,26 @@ module.exports = {
         const { client, user, guild } = interaction;
         const db = client.sql;
 
+        // دالة رد للطوارئ تضمن وصول الرد بأي طريقة
+        const safeReply = async (payload) => {
+            try {
+                if (isSlash) {
+                    if (interaction.deferred || interaction.replied) return await interaction.editReply(payload);
+                    return await interaction.reply(payload);
+                } else {
+                    return await interaction.reply(payload);
+                }
+            } catch (e) {
+                // إذا فشل كل شيء، ارسل رسالة في الشات كحل أخير
+                try {
+                    delete payload.flags;
+                    await interaction.channel.send({ content: `<@${user.id}>`, ...payload });
+                } catch (err) {}
+            }
+        };
+
         if (!guild) {
-            const errPayload = { content: "🚫 **عذراً، هذا الأمر يعمل فقط داخل السيرفرات!**", flags: [MessageFlags.Ephemeral] };
-            return isSlash ? interaction.editReply(errPayload) : interaction.reply(errPayload);
+            return await safeReply({ content: "🚫 **عذراً، هذا الأمر يعمل فقط داخل السيرفرات!**", flags: [MessageFlags.Ephemeral] });
         }
 
         let isAbyssKing = false;
@@ -82,7 +111,7 @@ module.exports = {
             try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guild.id]); }
             catch(e) { userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]).catch(()=>({rows:[]})); }
 
-            let userData = userDataRes?.rows?.[0];
+            let userData = userDataRes.rows[0];
             
             if (!userData) {
                 userData = { user: user.id, guild: guild.id, xp: 0, level: 1, mora: 0, last_dungeon: 0 };
@@ -106,23 +135,16 @@ module.exports = {
                     .setThumbnail('https://i.postimg.cc/4xMWNV22/doun.png')
                     .setColor(Math.floor(Math.random() * 0xFFFFFF));
 
-                const payload = { 
-                    embeds: [cooldownEmbed], 
-                    flags: [MessageFlags.Ephemeral] 
-                };
-
-                return isSlash ? await interaction.editReply(payload) : await interaction.reply(payload);
+                return await safeReply({ embeds: [cooldownEmbed], flags: [MessageFlags.Ephemeral] });
             }
         }
 
         try {
+            // توجيه الدالة الصحيحة من dungeon-handler.js
             await startDungeon(interaction, db);
         } catch (err) {
-            const errMsg = { content: "❌ حدث خطأ تقني أثناء بدء الدانجون.", flags: [MessageFlags.Ephemeral] };
-            try {
-                if (interaction.replied || interaction.deferred) await interaction.editReply(errMsg);
-                else await interaction.reply(errMsg);
-            } catch (e) {} 
+            console.error("[Dungeon Command Error]", err);
+            await safeReply({ content: "❌ حدث خطأ تقني أثناء بدء الدانجون.", flags: [MessageFlags.Ephemeral] });
         }
     }
 };
