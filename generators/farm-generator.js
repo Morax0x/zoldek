@@ -43,6 +43,7 @@ const loadJsonSafe = (fileName) => {
     return [];
 };
 
+// تحميل مسبق للصور في الرام (للسرعة القصوى)
 setTimeout(async () => {
     const allItems = [
         ...loadJsonSafe('farm-animals.json'),
@@ -206,13 +207,26 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
     ctx.fillStyle = '#FFD700';
     ctx.fillText(`دخل الحظيرة اليومي: ${totalIncome.toLocaleString()} مورا`, avatarX + avatarSize + 30, 95);
 
-    const cols = 3;
-    const slotW = 380;
-    const slotH = 220;
-    const gapX = 50;
-    const gapY = 25;
-    const startX = (width - ((cols * slotW) + ((cols - 1) * gapX))) / 2;
-    const startY = 170;
+    // 🔥 النظام الذكي الحقيقي: جميع المقاسات تتغير هنا وتتطبق تحت بالملي 🔥
+    let cols, slotW, slotH, iconSize, fontTitle, fontText, gapX, gapY;
+
+    if (animals.length === 1) {
+        cols = 1; slotW = 800; slotH = 400; iconSize = 240; fontTitle = 45; fontText = 32; gapX = 0; gapY = 0;
+    } else if (animals.length === 2) {
+        cols = 2; slotW = 580; slotH = 360; iconSize = 180; fontTitle = 35; fontText = 26; gapX = 50; gapY = 0;
+    } else if (animals.length <= 4) {
+        cols = 2; slotW = 540; slotH = 280; iconSize = 140; fontTitle = 28; fontText = 22; gapX = 50; gapY = 40;
+    } else {
+        cols = 3; slotW = 380; slotH = 220; iconSize = 100; fontTitle = 22; fontText = 18; gapX = 50; gapY = 25;
+    }
+    
+    const actualCols = Math.min(animals.length, cols);
+    const actualRows = Math.ceil(animals.length / cols);
+    
+    const startX = (width - ((actualCols * slotW) + ((actualCols - 1) * gapX))) / 2;
+    const gridTotalHeight = (actualRows * slotH) + ((actualRows - 1) * gapY);
+    const availableHeight = height - headerH - 50; 
+    const startY = headerH + ((availableHeight - gridTotalHeight) / 2);
 
     const preloadedImages = await Promise.all(animals.map(async animal => {
         const itemDict = resolveItemInfoLocal(animal.id);
@@ -232,61 +246,72 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
 
         drawOrnateFrame(ctx, x, y, slotW, slotH, color);
 
-        const aura = ctx.createRadialGradient(x + slotW/2, y + slotH/2, 10, x + slotW/2, y + slotH/2, slotW/1.2);
+        const aura = ctx.createRadialGradient(x + slotW/2, y + slotH/2, 10, x + slotW/2, y + slotH/2, Math.max(slotW, slotH));
         aura.addColorStop(0, `${color}25`); 
         aura.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = aura;
         ctx.fillRect(x, y, slotW, slotH);
         
-        const iconContainerSize = 100;
-        const iconContainerX = x + slotW - iconContainerSize - 15;
-        const iconContainerY = y + 20;
+        // شريط العنوان الديناميكي
+        const ribbonH = fontTitle + 20;
+        const ribbonY = y + slotH - ribbonH - 20;
+        drawRibbon(ctx, x + 20, ribbonY, slotW - 40, ribbonH, color);
+        
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#FFFFFF';
+        drawAutoScaledText(ctx, cleanEmojis(animal.name), x + slotW / 2, ribbonY + ribbonH / 2, slotW - 60, fontTitle, 12);
+
+        // مساحة العمل المتوفرة فوق الشريط السفلي
+        const topAreaH = slotH - ribbonH - 30; 
+        
+        // الأيقونة الديناميكية المتوسطة (Vertical Centering)
+        const iconX = x + slotW - iconSize - 25;
+        const iconY = y + 15 + (topAreaH - iconSize) / 2;
 
         const img = preloadedImages[i];
-        let imgDrawn = false;
-        
         if (img) {
             ctx.save();
             ctx.shadowColor = color;
             ctx.shadowBlur = 30;
-            ctx.drawImage(img, iconContainerX, iconContainerY, iconContainerSize, iconContainerSize);
+            ctx.drawImage(img, iconX, iconY, iconSize, iconSize);
             ctx.restore();
-            imgDrawn = true;
-        }
-        
-        if (!imgDrawn) {
+        } else {
             ctx.fillStyle = '#FFFFFF';
-            ctx.font = `65px ${FONT_EMOJI}`;
+            ctx.font = `${iconSize * 0.6}px ${FONT_EMOJI}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.shadowColor = color;
             ctx.shadowBlur = 30;
-            ctx.fillText(animal.emoji || '📦', iconContainerX + iconContainerSize / 2, iconContainerY + iconContainerSize / 2);
+            ctx.fillText(animal.emoji || '📦', iconX + iconSize / 2, iconY + iconSize / 2);
             ctx.shadowBlur = 0;
         }
 
-        const ribbonH = 35;
-        const ribbonY = iconContainerY + iconContainerSize + 15;
-        drawRibbon(ctx, x + 15, ribbonY, slotW - 30, ribbonH, color);
-        
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#FFFFFF';
-        drawAutoScaledText(ctx, cleanEmojis(animal.name), x + slotW / 2, ribbonY + ribbonH / 2, slotW - 40, 18, 10);
+        // النصوص تتجاوب وتتوسط (Vertical Centering) مقابل الصورة
+        const lineGap = fontText + 15;
+        const totalTextH = (3 * fontText) + (2 * 15); // 3 أسطر
+        const textStartX = iconX - 25;
+        let textStartY = y + 15 + (topAreaH - totalTextH) / 2;
 
         ctx.textAlign = 'right';
-        ctx.fillStyle = '#00FF88';
-        ctx.font = `bold 24px ${FONT_MAIN}`;
-        ctx.fillText(`العدد: ${animal.quantity.toLocaleString()}`, iconContainerX - 15, y + 50);
+        ctx.textBaseline = 'top';
 
+        ctx.fillStyle = '#00FF88';
+        ctx.font = `bold ${fontText + 4}px ${FONT_MAIN}`;
+        ctx.fillText(`العدد: ${animal.quantity.toLocaleString()}`, textStartX, textStartY);
+
+        textStartY += lineGap;
         ctx.fillStyle = '#A8B8D0';
-        ctx.font = `18px ${FONT_MAIN}`;
-        ctx.fillText(`الدخل: +${animal.income} مورا`, iconContainerX - 15, y + 80);
+        ctx.font = `${fontText}px ${FONT_MAIN}`;
+        ctx.fillText(`الدخل: +${animal.income} مورا`, textStartX, textStartY);
         
+        textStartY += lineGap;
         ctx.fillStyle = animal.isHungry ? '#FF4444' : '#00FF88';
-        ctx.fillText(`الحالة: ${cleanEmojis(animal.hungerText)}`, iconContainerX - 15, y + 105);
+        ctx.fillText(`الحالة: ${cleanEmojis(animal.hungerText)}`, textStartX, textStartY);
     }
 
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.fillStyle = '#E0E0E0';
     ctx.font = `20px ${FONT_MAIN}`;
     ctx.fillText(`صفحة ${page + 1} من ${totalPages}`, width / 2, height - 30);
