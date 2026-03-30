@@ -79,9 +79,39 @@ function drawOrnateFrame(ctx, x, y, w, h, color) {
     ctx.stroke(); ctx.shadowBlur = 0;
 }
 
+// 🔥 دالة رسم البطاقة الفردية (عشان نستخدمها في كل مكان بدون تكرار) 🔥
+function drawSingleCard(ctx, item, x, y, img, cardW, cardH) {
+    const color = RARITY_COLORS[item.rarity] || '#FFFFFF';
+
+    drawOrnateFrame(ctx, x, y, cardW, cardH, color);
+
+    const aura = ctx.createRadialGradient(x + cardW/2, y + 130, 10, x + cardW/2, y + 130, 140);
+    aura.addColorStop(0, `${color}40`); aura.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = aura; ctx.fillRect(x, y, cardW, cardH);
+
+    const imgSize = 140; 
+    if (img) {
+        ctx.shadowColor = color; ctx.shadowBlur = 30;
+        ctx.drawImage(img, x + (cardW - imgSize)/2, y + 30, imgSize, imgSize);
+        ctx.shadowBlur = 0;
+    } else {
+        ctx.fillStyle = '#FFF'; ctx.font = `80px ${FONT_EMOJI}`;
+        ctx.fillText(item.emoji || '📦', x + cardW/2, y + 105);
+    }
+
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(x + 10, y + 210, cardW - 20, 50); 
+    ctx.fillStyle = '#FFFFFF'; 
+    const cleanName = item.name.replace(/[\u{1F600}-\u{1F6FF}]/gu, '').trim();
+    drawAutoScaledText(ctx, cleanName, x + cardW/2, y + 235, cardW - 30, 24, 14);
+
+    ctx.fillStyle = color; ctx.font = `bold 22px ${FONT_MAIN}`;
+    ctx.fillText(`الندرة: ${RARITY_ARABIC[item.rarity]}`, x + cardW/2, y + 295);
+}
+
 // 🎨 رسم شاشة الترحيب (الموسوعة الرئيسية)
 async function generateHubCanvas() {
-    const width = 1200, height = 800; // 🔥 زدت الطول عشان تاخذ راحتها تماماً
+    const width = 1200, height = 800; 
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
@@ -97,15 +127,15 @@ async function generateHubCanvas() {
     ctx.globalAlpha = 1.0;
 
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#B968FF'; ctx.font = `bold 65px ${FONT_MAIN}`; // الخط أكبر
+    ctx.fillStyle = '#B968FF'; ctx.font = `bold 65px ${FONT_MAIN}`; 
     ctx.shadowColor = '#B968FF'; ctx.shadowBlur = 20;
     ctx.fillText('🔮 موسوعة الارتيفاكت والموارد', width / 2, 120);
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = '#FFFFFF'; ctx.font = `32px ${FONT_MAIN}`;
-    ctx.fillText('مرحباً بك في مكتبة الإمبراطورية. اختر قسماً من الأسفل للاستكشاف.', width / 2, 210);
+    ctx.fillText('مرحباً بك في مكتبة الإمبراطورية. استخدم الأزرار بالأسفل للتنقل.', width / 2, 210);
 
-    const boxW = 500, boxH = 380, gap = 80; // 🔥 كبرت الصناديق والمسافات بينهم
+    const boxW = 500, boxH = 380, gap = 80; 
     const startX = (width - (boxW * 2 + gap)) / 2;
 
     const box1Center = startX + boxW / 2;
@@ -133,13 +163,12 @@ async function generateHubCanvas() {
     return canvas.toBuffer('image/png');
 }
 
-// 🎨 رسم بطاقة الموارد (5 عناصر)
+// 🎨 رسم بطاقة الموارد للأسلحة (5 عناصر)
 async function generateItemsCanvas(title, items, isBook = false, bookCat = 'general', raceName = '') {
-    const width = 1200, height = 1000; // 🔥 زدت الطول لـ 1000 عشان المربعين اللي تحت ما تنقص أبداً
+    const width = 1200, height = 1000; 
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // الخلفية
     const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 1000);
     bgGrad.addColorStop(0, '#101520'); bgGrad.addColorStop(1, '#05050a');
     ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, width, height);
@@ -150,68 +179,120 @@ async function generateItemsCanvas(title, items, isBook = false, bookCat = 'gene
     ctx.fillText(title, width / 2, 90);
     ctx.shadowBlur = 0;
 
-    // تحميل الصور
     const images = await Promise.all(items.map(async item => {
         const url = getMaterialImageUrl(item.id, raceName, isBook, bookCat);
         return await getCachedImage(url);
     }));
 
-    // 🔥 المقاسات الجديدة المريحة جداً للعين 🔥
-    const cardW = 340; 
-    const cardH = 360; 
-    const gapX = 50;   
-    const gapY = 70;   
+    const cardW = 320; 
+    const cardH = 340;
+    const gapX = 60;   
+    const gapY = 60;   
 
-    // الصف الأول (3 كروت)
     const row1StartX = (width - (cardW * 3 + gapX * 2)) / 2;
     const row1Y = 190;
 
-    // الصف الثاني (كرتين)
     const row2StartX = (width - (cardW * 2 + gapX)) / 2;
     const row2Y = row1Y + cardH + gapY;
 
     for (let i = 0; i < 5; i++) {
         const item = items[i];
         if (!item) continue;
-
         const x = i < 3 ? row1StartX + i * (cardW + gapX) : row2StartX + (i - 3) * (cardW + gapX);
         const y = i < 3 ? row1Y : row2Y;
-
-        const color = RARITY_COLORS[item.rarity] || '#FFFFFF';
-
-        // رسم الإطار
-        drawOrnateFrame(ctx, x, y, cardW, cardH, color);
-
-        // وهج خلفي للصورة
-        const aura = ctx.createRadialGradient(x + cardW/2, y + 140, 10, x + cardW/2, y + 140, 150);
-        aura.addColorStop(0, `${color}40`); aura.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = aura; ctx.fillRect(x, y, cardW, cardH);
-
-        // الصورة
-        const imgSize = 160; 
-        const img = images[i];
-        if (img) {
-            ctx.shadowColor = color; ctx.shadowBlur = 30;
-            ctx.drawImage(img, x + (cardW - imgSize)/2, y + 30, imgSize, imgSize);
-            ctx.shadowBlur = 0;
-        } else {
-            ctx.fillStyle = '#FFF'; ctx.font = `80px ${FONT_EMOJI}`;
-            ctx.fillText(item.emoji || '📦', x + cardW/2, y + 110);
-        }
-
-        // شريط الاسم
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(x + 10, y + 215, cardW - 20, 55); 
-        ctx.fillStyle = '#FFFFFF'; 
-        const cleanName = item.name.replace(/[\u{1F600}-\u{1F6FF}]/gu, '').trim();
-        drawAutoScaledText(ctx, cleanName, x + cardW/2, y + 242, cardW - 30, 26, 14);
-
-        // الندرة
-        ctx.fillStyle = color; ctx.font = `bold 24px ${FONT_MAIN}`;
-        ctx.fillText(`الندرة: ${RARITY_ARABIC[item.rarity]}`, x + cardW/2, y + 315);
+        drawSingleCard(ctx, item, x, y, images[i], cardW, cardH);
     }
 
     return canvas.toBuffer('image/png');
+}
+
+// 🎨 رسم شاشة الكتب المدمجة (عامة + أعراق) الطويلة والفخمة
+async function generateCombinedBooksCanvas(generalBooks, raceBooks) {
+    const width = 1200, height = 1850; // لوحة طويلة جداً لتستوعب 10 كروت براحة
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 1800);
+    bgGrad.addColorStop(0, '#101520'); bgGrad.addColorStop(1, '#05050a');
+    ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, width, height);
+
+    const cardW = 320; 
+    const cardH = 340;
+    const gapX = 60;   
+    const gapY = 60;   
+    const row1StartX = (width - (cardW * 3 + gapX * 2)) / 2;
+    const row2StartX = (width - (cardW * 2 + gapX)) / 2;
+
+    // --- القسم الأول: الكتب العامة ---
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#00C3FF'; ctx.font = `bold 60px ${FONT_MAIN}`;
+    ctx.shadowColor = '#00C3FF'; ctx.shadowBlur = 20;
+    ctx.fillText('📘 كتب المهارات العامة', width / 2, 90);
+    ctx.shadowBlur = 0;
+
+    const genImages = await Promise.all(generalBooks.map(async item => await getCachedImage(getMaterialImageUrl(item.id, '', true, 'general'))));
+    const genRow1Y = 190;
+    const genRow2Y = genRow1Y + cardH + gapY;
+
+    for (let i = 0; i < 5; i++) {
+        if (!generalBooks[i]) continue;
+        const x = i < 3 ? row1StartX + i * (cardW + gapX) : row2StartX + (i - 3) * (cardW + gapX);
+        const y = i < 3 ? genRow1Y : genRow2Y;
+        drawSingleCard(ctx, generalBooks[i], x, y, genImages[i], cardW, cardH);
+    }
+
+    // --- فاصل فخم بين القسمين ---
+    const lineY = genRow2Y + cardH + 70;
+    const lineGrad = ctx.createLinearGradient(100, lineY, 1100, lineY);
+    lineGrad.addColorStop(0, 'rgba(255,255,255,0)'); lineGrad.addColorStop(0.5, 'rgba(255,255,255,0.4)'); lineGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.strokeStyle = lineGrad; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(100, lineY); ctx.lineTo(1100, lineY); ctx.stroke();
+
+    // --- القسم الثاني: كتب الأعراق ---
+    ctx.fillStyle = '#FF5555'; ctx.font = `bold 60px ${FONT_MAIN}`;
+    ctx.shadowColor = '#FF5555'; ctx.shadowBlur = 20;
+    ctx.fillText('📕 كتب مهارات الأعراق', width / 2, lineY + 90);
+    ctx.shadowBlur = 0;
+
+    const raceImages = await Promise.all(raceBooks.map(async item => await getCachedImage(getMaterialImageUrl(item.id, '', true, 'race'))));
+    const raceRow1Y = lineY + 190;
+    const raceRow2Y = raceRow1Y + cardH + gapY;
+
+    for (let i = 0; i < 5; i++) {
+        if (!raceBooks[i]) continue;
+        const x = i < 3 ? row1StartX + i * (cardW + gapX) : row2StartX + (i - 3) * (cardW + gapX);
+        const y = i < 3 ? raceRow1Y : raceRow2Y;
+        drawSingleCard(ctx, raceBooks[i], x, y, raceImages[i], cardW, cardH);
+    }
+
+    return canvas.toBuffer('image/png');
+}
+
+// 🔥 دالة مساعدة لجلب عرق اللاعب 🔥
+async function getUserRace(db, user, guild) {
+    try {
+        let res = await db.query(`SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guild.id]);
+        if (res && res.rows && res.rows.length > 0) return res.rows[0].raceName;
+        
+        let res2 = await db.query(`SELECT racename FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]);
+        if (res2 && res2.rows && res2.rows.length > 0) return res2.rows[0].racename;
+    } catch(e) {}
+    
+    try {
+        const member = guild.members.cache.get(user.id) || await guild.members.fetch(user.id).catch(()=>null);
+        if (member) {
+            let raceRolesRes = await db.query(`SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guild.id]);
+            if (!raceRolesRes || !raceRolesRes.rows || !raceRolesRes.rows.length) {
+                raceRolesRes = await db.query(`SELECT roleid, racename FROM race_roles WHERE guildid = $1`, [guild.id]);
+            }
+            if (raceRolesRes && raceRolesRes.rows) {
+                const userRoleIDs = member.roles.cache.map(r => String(r.id));
+                const matched = raceRolesRes.rows.find(r => userRoleIDs.includes(String(r.roleID || r.roleid)));
+                if (matched) return matched.raceName || matched.racename;
+            }
+        }
+    } catch (e) {}
+    return null;
 }
 
 module.exports = {
@@ -225,6 +306,7 @@ module.exports = {
     async execute(interactionOrMessage) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let user = isSlash ? interactionOrMessage.user : interactionOrMessage.author;
+        let guild = isSlash ? interactionOrMessage.guild : interactionOrMessage.guild;
 
         const reply = async (payload) => {
             if (isSlash) {
@@ -235,7 +317,8 @@ module.exports = {
             }
         };
 
-        // تجهيز الخيارات والأزرار
+        const db = interactionOrMessage.client.sql;
+
         const raceOptions = upgradeMats.weapon_materials.map(r => ({
             label: `موارد عرق ${RACE_TRANSLATIONS[r.race] || r.race}`,
             value: `race_${r.race}`,
@@ -245,17 +328,16 @@ module.exports = {
         const selectRow = new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
                 .setCustomId('arti_select_race')
-                .setPlaceholder('اختر عرقاً لعرض موارده...')
+                .setPlaceholder('🔻 اختر عرقاً لاستعراض موارده...')
                 .addOptions(raceOptions.slice(0, 25))
         );
 
+        // 🔥 الأزرار الجديدة (ارتيفاكتي + الكتب المدمجة) 🔥
         const btnRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('arti_books_general').setLabel('الكتب العامة').setStyle(ButtonStyle.Primary).setEmoji('📘'),
-            new ButtonBuilder().setCustomId('arti_books_race').setLabel('كتب الأعراق').setStyle(ButtonStyle.Success).setEmoji('📕'),
-            new ButtonBuilder().setCustomId('arti_hub').setLabel('الرئيسية').setStyle(ButtonStyle.Secondary).setEmoji('🏠')
+            new ButtonBuilder().setCustomId('arti_my_race').setLabel('ارتيفاكتي').setStyle(ButtonStyle.Primary).setEmoji('✨'),
+            new ButtonBuilder().setCustomId('arti_books_all').setLabel('كتب المهارات').setStyle(ButtonStyle.Success).setEmoji('📚')
         );
 
-        // إرسال الشاشة الرئيسية
         const hubBuffer = await generateHubCanvas();
         const msg = await reply({ 
             content: '', 
@@ -275,16 +357,21 @@ module.exports = {
 
             let newBuffer = null;
 
-            if (i.customId === 'arti_hub') {
-                newBuffer = await generateHubCanvas();
+            if (i.customId === 'arti_my_race') {
+                const raceName = await getUserRace(db, user, guild);
+                if (!raceName) {
+                    return i.followUp({ content: '❌ يجب عليك اختيار عرق أولاً من الأكاديمية أو الحدادة.', flags: [MessageFlags.Ephemeral] });
+                }
+                const raceData = upgradeMats.weapon_materials.find(r => r.race.toLowerCase() === raceName.toLowerCase());
+                if (raceData) {
+                    const arabicRace = RACE_TRANSLATIONS[raceData.race] || raceData.race;
+                    newBuffer = await generateItemsCanvas(`⚔️ ارتيفاكت عرق ${arabicRace}`, raceData.materials, false, '', raceData.race);
+                }
             } 
-            else if (i.customId === 'arti_books_general') {
-                const bookData = upgradeMats.skill_books.find(c => c.category === 'General_Skills');
-                newBuffer = await generateItemsCanvas('📘 كتب المهارات العامة', bookData.books, true, 'general', '');
-            } 
-            else if (i.customId === 'arti_books_race') {
-                const bookData = upgradeMats.skill_books.find(c => c.category === 'Race_Skills');
-                newBuffer = await generateItemsCanvas('📕 كتب مهارات الأعراق', bookData.books, true, 'race', '');
+            else if (i.customId === 'arti_books_all') {
+                const generalBooks = upgradeMats.skill_books.find(c => c.category === 'General_Skills').books;
+                const raceBooks = upgradeMats.skill_books.find(c => c.category === 'Race_Skills').books;
+                newBuffer = await generateCombinedBooksCanvas(generalBooks, raceBooks);
             } 
             else if (i.isStringSelectMenu() && i.customId === 'arti_select_race') {
                 const raceName = i.values[0].replace('race_', '');
