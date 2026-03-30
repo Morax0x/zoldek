@@ -24,21 +24,10 @@ async function startDungeon(interaction, db) {
     const user = interaction.user;
     const isButtonInteraction = interaction.isButton && typeof interaction.isButton === 'function' && interaction.isButton();
 
-    // 🔥 دالة ذكية للرد بشكل صحيح لكي لا يتعطل الأمر 🔥
-    const replySafe = async (payload) => {
-        try {
-            if (interaction.deferred || interaction.replied) return await interaction.editReply(payload);
-            if (interaction.reply && typeof interaction.reply === 'function') return await interaction.reply(payload);
-            return await interaction.channel.send(payload);
-        } catch(e) {
-            return await interaction.channel.send(payload).catch(()=>{});
-        }
-    };
-
     if (isButtonInteraction && interaction.customId === 'dungeon_campfire') return; 
 
     if (activeDungeonRequests.has(user.id)) {
-        return await replySafe({ content: "🚫 لديك طلب دانجون نشط بالفعل!", flags: [MessageFlags.Ephemeral] });
+        return interaction.editReply({ content: "🚫 لديك طلب دانجون نشط بالفعل!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
     }
 
     const leaderDataRes = await execSafe(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, interaction.guild.id]);
@@ -51,13 +40,13 @@ async function startDungeon(interaction, db) {
             .setColor('#FF0000')
             .setThumbnail('https://i.postimg.cc/hPxYnBZ7/adaft-ʿnwan.png');
 
-        return await replySafe({ content: '', embeds: [denyEmbed], flags: [MessageFlags.Ephemeral] });
+        return interaction.editReply({ content: '', embeds: [denyEmbed], flags: [MessageFlags.Ephemeral] }).catch(()=>{});
     }
 
     let abyssKing = false;
     const settingsRes = await execSafe(db, `SELECT "roleAbyss" FROM settings WHERE "guild" = $1`, `SELECT roleabyss FROM settings WHERE guildid = $1`, [interaction.guild.id]);
     const settings = settingsRes.rows[0];
-    if (settings && (settings.roleAbyss || settings.roleabyss) && interaction.member && interaction.member.roles && interaction.member.roles.cache.has(settings.roleAbyss || settings.roleabyss)) {
+    if (settings && (settings.roleAbyss || settings.roleabyss) && interaction.member?.roles?.cache?.has(settings.roleAbyss || settings.roleabyss)) {
         abyssKing = true;
     }
 
@@ -68,13 +57,13 @@ async function startDungeon(interaction, db) {
         const now = Date.now();
         if (now - lastDungeon < COOLDOWN_TIME) {
              const remaining = lastDungeon + COOLDOWN_TIME;
-             return await replySafe({ content: `⏳ **استرح قليلاً!** الكولداون ينتهي <t:${Math.floor(remaining/1000)}:R>.`, flags: [MessageFlags.Ephemeral] });
+             return interaction.editReply({ content: `⏳ **استرح قليلاً!** الكولداون ينتهي <t:${Math.floor(remaining/1000)}:R>.`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
         }
     }
 
     const themeKeys = Object.keys(dungeonConfig.themes || {});
     if (themeKeys.length === 0) {
-        return await replySafe({ content: "❌ لا توجد بيانات للدانجون حالياً.", flags: [MessageFlags.Ephemeral] });
+        return interaction.editReply({ content: "❌ لا توجد بيانات للدانجون حالياً.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
     }
 
     const randomKey = themeKeys[Math.floor(Math.random() * themeKeys.length)];
@@ -88,7 +77,7 @@ async function startDungeon(interaction, db) {
         let expiryTime = 24 * 60 * 60 * 1000;
         const member = interaction.member || (interaction.guild ? interaction.guild.members.cache.get(user.id) : null);
         
-        if (member && member.roles) {
+        if (member?.roles) {
             if (member.roles.cache.has('1422160802416164885')) expiryTime = 72 * 60 * 60 * 1000;
             else if (member.roles.cache.has('1395674235002945636')) expiryTime = 35 * 60 * 60 * 1000;
         }
@@ -108,7 +97,7 @@ async function startDungeon(interaction, db) {
         await lobbyPhase(interaction, null, selectedTheme, db, startFloor);
     } catch (err) {
         activeDungeonRequests.delete(user.id);
-        await replySafe({ content: "❌ حدث خطأ أثناء بدء اللوبي.", flags: [MessageFlags.Ephemeral] });
+        interaction.editReply({ content: `❌ حدث خطأ أثناء بدء اللوبي: ${err.message}`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
     }
 }
 
@@ -126,7 +115,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
             const settings = settingsRes.rows[0];
             if (!settings || (!settings.roleAbyss && !settings.roleabyss)) return false;
             const member = await interaction.guild.members.fetch(userId).catch(() => null);
-            if (member && member.roles.cache.has(settings.roleAbyss || settings.roleabyss)) return true;
+            if (member?.roles?.cache?.has(settings.roleAbyss || settings.roleabyss)) return true;
         } catch (e) {}
         return false;
     };
@@ -144,21 +133,11 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
         }).join('\n');
 
         const imageUrl = theme.image || 'https://i.postimg.cc/NMkWVyLV/line.png';
-
         let desc = `**القائد:** <@${host.id}>\n**الشروط:** لفل 5+ و 100 ${EMOJI_MORA}\n\n🔮 **تم فتح البوابة إلى ${theme.name}!**`;
-        
-        if (startFloor > 1) {
-            desc += `\n🏕️ **(سيتم استكمال الرحلة من الطابق ${startFloor})**`;
-        }
-
+        if (startFloor > 1) desc += `\n🏕️ **(سيتم استكمال الرحلة من الطابق ${startFloor})**`;
         desc += `\nاختر تخصصك واستعد للمعركة.\n\n👥 **الفريق:**\n${memberList}`;
 
-        return new EmbedBuilder()
-            .setTitle(`دانجون: ${theme.name}`) 
-            .setColor(theme.color || '#2F3136') 
-            .setDescription(desc)
-            .setImage(imageUrl) 
-            .setThumbnail(host.displayAvatarURL());
+        return new EmbedBuilder().setTitle(`دانجون: ${theme.name}`).setColor(theme.color || '#2F3136').setDescription(desc).setImage(imageUrl).setThumbnail(host.displayAvatarURL());
     };
 
     const row = new ActionRowBuilder().addComponents(
@@ -167,17 +146,18 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
         new ButtonBuilder().setCustomId('cancel').setLabel('إلغاء').setStyle(ButtonStyle.Danger).setEmoji('✖️') 
     );
 
+    // 🔥 تأمين إرسال رسالة اللوبي بشكل لا يقبل الفشل 🔥
     let msg;
-    if (interaction.reply && typeof interaction.reply === 'function') {
-        if (interaction.replied || interaction.deferred) {
-            msg = await interaction.editReply({ content: '', embeds: [updateEmbed()], components: [row], fetchReply: true });
-        } else {
-            msg = await interaction.reply({ embeds: [updateEmbed()], components: [row], fetchReply: true });
+    try {
+        msg = await interaction.editReply({ content: '', embeds: [updateEmbed()], components: [row] });
+        if (!msg || !msg.createMessageComponentCollector) {
+            if (interaction.fetchReply) msg = await interaction.fetchReply();
         }
-    } else {
+    } catch(err) {
         msg = await interaction.channel.send({ embeds: [updateEmbed()], components: [row] });
     }
       
+    if (!msg || !msg.createMessageComponentCollector) return;
     const collector = msg.createMessageComponentCollector({ time: 60000 });
 
     collector.on('collect', async i => {
@@ -205,10 +185,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                         if (now > nextReset) nextReset.setDate(nextReset.getDate() + 1);
                         const timestamp = Math.floor(nextReset.getTime() / 1000);
 
-                        return i.reply({ 
-                            content: `✶ **نفـذت تذاكـرك!** انتظر إلى أن تصرف نقابة المغامرين تذاكرك الجديدة.\n- **وقت تجديد التذاكر:** <t:${timestamp}:R>`, 
-                            flags: [MessageFlags.Ephemeral] 
-                        });
+                        return i.reply({ content: `✶ **نفـذت تذاكـرك!** انتظر إلى أن تصرف نقابة المغامرين تذاكرك الجديدة.\n- **وقت تجديد التذاكر:** <t:${timestamp}:R>`, flags: [MessageFlags.Ephemeral] });
                     }
                 }
 
@@ -236,12 +213,9 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                 if (sel) {
                     const chosen = sel.values[0];
                     const dCheck = Array.from(partyClasses.entries()).filter(x => x[0] !== i.user.id).map(x => x[1]);
-                    
                     if (sel.replied || sel.deferred) return; 
 
-                    if (dCheck.includes(chosen)) {
-                        return sel.update({ content: "🚫 سبقك بها غيرك.", components: [] }).catch(()=>{});
-                    }
+                    if (dCheck.includes(chosen)) return sel.update({ content: "🚫 سبقك بها غيرك.", components: [] }).catch(()=>{});
 
                     await sel.deferUpdate().catch(()=>{});
                     
@@ -256,13 +230,10 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
 
             } else if (i.customId === 'start') {
                 if (i.user.id !== host.id) return i.reply({ content: "⛔ القائد فقط.", flags: [MessageFlags.Ephemeral] });
-                
                 if (!i.replied && !i.deferred) await i.deferUpdate();
                 collector.stop('start');
-
             } else if (i.customId === 'cancel') {
                 if (i.user.id !== host.id) return i.reply({ content: "⛔ القائد فقط.", flags: [MessageFlags.Ephemeral] });
-                
                 if (!i.replied && !i.deferred) await i.deferUpdate();
                 collector.stop('user_cancel');
             }
@@ -272,7 +243,6 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
     collector.on('end', async (c, reason) => {
         if (reason === 'start') {
             const now = Date.now();
-            
             if (startFloor > 1) {
                 await execSafe(db, `DELETE FROM dungeon_saves WHERE "hostID" = $1 AND "guildID" = $2`, `DELETE FROM dungeon_saves WHERE hostid = $1 AND guildid = $2`, [host.id, guildId]);
             }
@@ -282,14 +252,11 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
 
             for (const id of party) {
                 const targetIsKing = await isUserAbyssKing(id);
-
                 if (id === host.id || id === OWNER_ID || targetIsKing) {
                     validParty.push(id);
-                    
                     if (id !== OWNER_ID && !targetIsKing) {
                         await execSafe(db, `UPDATE levels SET "mora" = "mora" - 100 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET mora = mora - 100 WHERE userid = $1 AND guildid = $2`, [id, guildId]);
                     }
-                    
                     if (id === host.id && id !== OWNER_ID && !targetIsKing) {
                         await execSafe(db, `UPDATE levels SET "last_dungeon" = $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET last_dungeon = $1 WHERE userid = $2 AND guildid = $3`, [now, id, guildId]);
                     }
@@ -316,10 +283,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
             }
 
             for (const kickedId of kickedMembers) { partyClasses.delete(kickedId); }
-
-            if (kickedMembers.length > 0) {
-                msg.channel.send(`⚠️ **تنبيه:** تم استبعاد ${kickedMembers.map(id => `<@${id}>`).join(', ')} لانتهاء محاولاتهم اليومية!`).catch(()=>{});
-            }
+            if (kickedMembers.length > 0) msg.channel.send(`⚠️ **تنبيه:** تم استبعاد ${kickedMembers.map(id => `<@${id}>`).join(', ')} لانتهاء محاولاتهم اليومية!`).catch(()=>{});
 
             try {
                 const thread = await msg.channel.threads.create({
@@ -329,8 +293,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                     reason: 'Start Dungeon Battle'
                 });
 
-                if (msg.editable) await msg.edit({ content: `✅ **بوابة الـدانـجون فُتحت!** <#${thread.id}>`, components: [] });
-
+                if (msg.editable) await msg.edit({ content: `✅ **بوابة الـدانـجون فُتحت!** <#${thread.id}>`, components: [] }).catch(()=>{});
                 await new Promise(r => setTimeout(r, 1500));
 
                 for (const uid of validParty) { 
@@ -359,9 +322,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                     const fetchedMsg = await msg.fetch().catch(() => null);
                     if (fetchedMsg && fetchedMsg.embeds.length > 0) {
                         const oldEmbed = fetchedMsg.embeds[0];
-                        const cancelledEmbed = EmbedBuilder.from(oldEmbed)
-                            .setTitle(`🚫 تم إلغاء الغارة: ${theme.name}`)
-                            .setColor(Colors.Red);
+                        const cancelledEmbed = EmbedBuilder.from(oldEmbed).setTitle(`🚫 تم إلغاء الغارة: ${theme.name}`).setColor(Colors.Red);
                         
                         if (reason === 'user_cancel') {
                              const hostIsKing = await isUserAbyssKing(host.id);
@@ -381,9 +342,9 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                              cancelledEmbed.setFooter({ text: "انتهى وقت الانتظار" });
                         }
                         
-                        await msg.edit({ content: '', embeds: [cancelledEmbed], components: [] });
+                        await msg.edit({ content: '', embeds: [cancelledEmbed], components: [] }).catch(()=>{});
                     } else {
-                        await msg.edit({ content: "❌ تم الإلغاء.", components: [] });
+                        await msg.edit({ content: "❌ تم الإلغاء.", components: [] }).catch(()=>{});
                     }
                 } catch (err) {}
             }
@@ -437,7 +398,7 @@ async function resumeActiveDungeons(client, db) {
             activeDungeonRequests.set(hostID, { status: 'battle', startFloor: resumeData.floor });
 
             runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostID, partyClasses, activeDungeonRequests, resumeData.floor, resumeData)
-            .catch(e => console.error(e));
+            .catch(e => {});
         }
     } catch (e) {}
 }
