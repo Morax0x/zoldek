@@ -44,26 +44,12 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
     let resumedMonsterData = null;
 
     if (resumeData) {
-        // 🔥 نظام التعقيم: إصلاح أي دانجون زومبي قديم وإكمال بياناته الناقصة لمنع الانهيار 🔥
-        players = (resumeData.players || []).map(p => {
-            p.effects = p.effects || [];
-            p.skillCooldowns = p.skillCooldowns || {};
-            p.loot = p.loot || { mora: 0, xp: 0 };
-            return p;
-        });
-
+        players = resumeData.players;
         merchantState = resumeData.merchantState || merchantState;
         retreatState = resumeData.retreatState || retreatState; 
-        
-        if (resumeData.loot) {
-            totalAccumulatedCoins = Number(resumeData.loot.coins) || 0;
-            totalAccumulatedXP = Number(resumeData.loot.xp) || 0;
-        } else {
-            totalAccumulatedCoins = 0;
-            totalAccumulatedXP = 0;
-        }
-
-        startFloor = resumeData.floor || 1; 
+        totalAccumulatedCoins = resumeData.loot.coins;
+        totalAccumulatedXP = resumeData.loot.xp;
+        startFloor = resumeData.floor; 
         retreatedPlayers = resumeData.retreatedPlayers || [];
         isTrapActive = resumeData.isTrapActive || false;
         resumedMonsterData = resumeData.monsterData || null;
@@ -92,7 +78,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         if (players.length === 0 || players.every(p => p.isDead)) {
             await deleteDungeonState(db, threadChannel.id); 
             statusCollector.stop(); 
-            await handleTeamWipe(players, floor, db, guild.id, client);
+            await handleTeamWipe(players, floor, db, guild.id);
             await sendEndMessage(mainChannel, threadChannel, players, retreatedPlayers, floor, "lose", db, guild.id, hostId, activeDungeonRequests, client);
             return; 
         }
@@ -155,8 +141,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
                 
                 p.startingShield = 0; 
                 
-                // 🔥 حماية إضافية للفلترة لكي لا تنهار أبداً 🔥
-                p.effects = (p.effects || []).filter(e => 
+                p.effects = p.effects.filter(e => 
                     ['poison', 'atk_buff', 'def_buff', 'weakness', 'titan', 'burn', 'stun', 'rebound_active', 'rebound', 'confusion'].includes(e.type)
                 );
                 
@@ -300,14 +285,10 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
                     
                     if (result && !result.ongoing) {
                         ongoing = false;
-                        collector.stop('battle_won'); 
                     }
                 });
                 
-                collector.on('end', () => { 
-                    clearTimeout(turnTimeout); 
-                    resolve(); 
-                });
+                collector.on('end', () => { clearTimeout(turnTimeout); resolve(); });
             });
 
             if (monster.hp <= 0) { 
@@ -326,11 +307,10 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             }
 
             players.forEach(p => { 
-                for (const sid in (p.skillCooldowns || {})) if (p.skillCooldowns[sid] > 0) p.skillCooldowns[sid]--; 
+                for (const sid in p.skillCooldowns) if (p.skillCooldowns[sid] > 0) p.skillCooldowns[sid]--; 
                 if (p.special_cooldown > 0) p.special_cooldown--; 
                 
-                // 🔥 حماية إضافية ثانية 🔥
-                p.effects = (p.effects || []).filter(e => { 
+                p.effects = p.effects.filter(e => { 
                     if (e.floors) return true; 
                     if (e.turns !== undefined) e.turns--; 
                     if (e.turns <= 0) return false; 
@@ -366,7 +346,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             const finalFloor = isTrapActive ? trapStartFloor : floor;
             await deleteDungeonState(db, threadChannel.id); 
             statusCollector.stop(); 
-            await handleTeamWipe(players, floor, db, guild.id, client);
+            await handleTeamWipe(players, floor, db, guild.id);
             await sendEndMessage(mainChannel, threadChannel, players, retreatedPlayers, finalFloor, "lose", db, guild.id, hostId, activeDungeonRequests, client);
             return; 
         }
@@ -409,7 +389,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             players.forEach(p => { p.isDead = true; p.hp = 0; p.deathFloor = floor; });
             await threadChannel.send(`💀 **انتهى الوقت!** ابتلع ظلام الدانجون الفريق بأكمله...`).catch(()=>{});
             statusCollector.stop(); 
-            await handleTeamWipe(players, floor, db, guild.id, client);
+            await handleTeamWipe(players, floor, db, guild.id);
             await sendEndMessage(mainChannel, threadChannel, players, retreatedPlayers, floor, "lose", db, guild.id, hostId, activeDungeonRequests, client);
             return; 
         } 
@@ -419,14 +399,14 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             
             await threadChannel.send(`⛺ **تم نصب الخيام بنجاح!**\nتم حفظ تقدمكم عند الطابق **${floor + 1}**. سيتم الآن توزيع الغنائم وإغلاق البوابة.`).catch(()=>{});
 
-            await handleLeaderRetreat(players, db, guild.id, client);
+            await handleLeaderRetreat(players, db, guild.id);
             await sendEndMessage(mainChannel, threadChannel, players, retreatedPlayers, floor, "camp", db, guild.id, hostId, activeDungeonRequests, client);
             return; 
         }
         else if (decision === 'retreat') {
             await deleteDungeonState(db, threadChannel.id); 
             statusCollector.stop(); 
-            await handleLeaderRetreat(players, db, guild.id, client);
+            await handleLeaderRetreat(players, db, guild.id);
             await sendEndMessage(mainChannel, threadChannel, players, retreatedPlayers, floor, "retreat", db, guild.id, hostId, activeDungeonRequests, client);
             return; 
         } 
@@ -453,6 +433,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         await deleteDungeonState(db, threadChannel.id);
         statusCollector.stop(); 
 
+        // 🔥 تم حماية الصورة هنا! 
         const bossImage = (dungeonConfig.final_boss && dungeonConfig.final_boss.image) 
             ? dungeonConfig.final_boss.image 
             : 'https://i.postimg.cc/WzRGhgJ9/mwraks.png';
@@ -472,7 +453,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             console.log("⚠️ تعذر إرسال رسالة الفوز (الثريد محذوف).");
         }
 
-        await handleLeaderRetreat(alivePlayers, db, guild.id, client);
+        await handleLeaderRetreat(alivePlayers, db, guild.id);
         await sendEndMessage(mainChannel, threadChannel, players, retreatedPlayers, 100, "win", db, guild.id, hostId, activeDungeonRequests, client);
     }
 } 
