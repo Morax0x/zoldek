@@ -2,7 +2,7 @@ const { cleanDisplayName } = require('../dungeon/utils');
 
 const GLOBAL_SKILL_MULTIPLIER = 5.0;
 
-// 🔥 دالة الصحوة المتأخرة لمهارات الدانجون 🔥
+// 🔥 دالة التوحيد الإجباري (الصحوة من لفل 16) لمهارات الدانجون 🔥
 function calculateSkillRawValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -12,27 +12,28 @@ function calculateSkillRawValue(skillConfig, currentLevel) {
     const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
 
     if (level <= 15) {
-        // الحساب الطبيعي للفل 1 إلى 15
+        // من 1 إلى 15: قوة العرق الطبيعية والتفاوت
         return base + (inc * (level - 1));
     } else {
-        // الحساب الموازن (Endgame Convergence) من 16 إلى 30
-        const valueAt15 = base + (inc * 14);
-        
-        // الهدف النهائي الموحد عند لفل 30 
-        // إذا كانت مهارة نسبة مئوية (زي الهيل والدرع) الهدف يكون 50%
-        // وإذا كانت ضرر (رقم ثابت) الهدف يكون 200 (لأنه بينضرب بـ 5.0 تحت فيصير 1000)
-        const targetValueAt30 = isPercentage ? 50 : 200; 
-        
-        const levelsRemaining = 15; // المسافة بين 15 و 30
-        
-        const valueNeeded = targetValueAt30 - valueAt15;
-        const dynamicIncrement = valueNeeded / levelsRemaining;
-        
-        let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
-        
-        if (level >= 30) return targetValueAt30;
-        
-        return Math.floor(finalValue);
+        // من 16 إلى 30: توحيد إجباري للمهارات لجميع اللاعبين!
+        if (isPercentage) {
+            // توحيد مهارات العلاج والدروع (%)
+            const unifiedBase16 = 40; // في لفل 16 الجميع يعالج 40%
+            const target30 = 60; // في لفل 30 الجميع يعالج 60%
+            const unifiedInc = (target30 - unifiedBase16) / 14;
+            
+            if (level >= 30) return target30;
+            return Math.floor(unifiedBase16 + (unifiedInc * (level - 16)));
+        } else {
+            // توحيد مهارات الهجوم (الرقم هنا ينضرب بـ 5.0 لاحقاً ليصبح 1000)
+            const unifiedBase16 = 140; // يعني 700 ضرر صافي ضد الوحش
+            const target30 = 200; // يعني 1000 ضرر صافي
+            const unifiedInc = (target30 - unifiedBase16) / 14;
+            
+            let finalValue = unifiedBase16 + (unifiedInc * (level - 16));
+            if (level >= 30) return target30;
+            return Math.floor(finalValue);
+        }
     }
 }
 
