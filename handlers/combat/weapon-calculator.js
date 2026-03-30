@@ -6,7 +6,7 @@ function getName(entity) {
     return entity.name || "Unknown";
 }
 
-// 🔥 دالة الصحوة المتأخرة (توازن نهاية اللعبة) 🔥
+// 🔥 دالة التوحيد الإجباري (الصحوة من لفل 16) 🔥
 function getWeaponRawDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     
@@ -17,15 +17,12 @@ function getWeaponRawDamage(weaponConfig, level) {
         // من مستوى 1 إلى 15: قوة متباينة تعتمد على قوة العرق الأساسية
         return Math.floor(base + (inc * (level - 1)));
     } else {
-        // من مستوى 16 إلى 30: تقارب نحو 800 لجميع الأعراق
-        const damageAt15 = base + (inc * 14);
-        const targetDamageAt30 = 800;
-        const levelsRemaining = 15; // المسافة بين 15 و 30
+        // من مستوى 16 إلى 30: توحيد إجباري للجميع! (كل الأعراق تتساوى هنا)
+        const unifiedBase16 = 590; // في لفل 16 الجميع يصبح ضرره 590
+        const targetDamage30 = 800; // في لفل 30 الجميع 800
+        const unifiedInc = (targetDamage30 - unifiedBase16) / 14; // الزيادة الموحدة 15 نقطة لكل لفل
         
-        const damageNeeded = targetDamageAt30 - damageAt15;
-        const dynamicIncrement = damageNeeded / levelsRemaining;
-        
-        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
+        let finalDamage = unifiedBase16 + (unifiedInc * (level - 16));
         
         // كاب أقصى للضمان ألا يتجاوز 800 في حال وصل لفل 30
         if (level >= 30) return targetDamageAt30;
