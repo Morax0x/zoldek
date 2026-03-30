@@ -6,76 +6,79 @@ const { manageTickets } = require('./dungeon/utils.js');
 const activeDungeonRequests = new Map();
 const COOLDOWN_TIME = 1 * 60 * 60 * 1000; 
 
+async function execSafe(db, qPg, qLite, params = []) {
+    try {
+        let res = await db.query(qPg, params);
+        return res || { rows: [] };
+    } catch(e) {
+        try {
+            let res2 = await db.query(qLite, params);
+            return res2 || { rows: [] };
+        } catch(e2) {
+            return { rows: [], error: true };
+        }
+    }
+}
+
 async function startDungeon(interaction, db) {
-    console.log(`[Dungeon Debug] ${interaction.user.username} initiated startDungeon.`);
     const user = interaction.user;
 
     const isButtonInteraction = interaction.isButton && typeof interaction.isButton === 'function' && interaction.isButton();
 
+    const replySafe = async (payload) => {
+        if (interaction.deferred || interaction.replied) return await interaction.editReply(payload).catch(()=>{});
+        return await interaction.reply(payload).catch(()=>{});
+    };
+
     if (isButtonInteraction && interaction.customId === 'dungeon_campfire') {
-        console.log(`[Dungeon Debug] Interaction was dungeon_campfire button. Ignored.`);
         return; 
     }
 
     if (activeDungeonRequests.has(user.id)) {
-        console.log(`[Dungeon Debug] Denied: ${user.username} already has an active request.`);
-        return interaction.reply({ content: "🚫 لديك طلب دانجون نشط بالفعل!", flags: [MessageFlags.Ephemeral] });
+        return replySafe({ content: "🚫 لديك طلب دانجون نشط بالفعل!", flags: [MessageFlags.Ephemeral] });
     }
 
-    console.log(`[Dungeon Debug] Checking level requirements for ${user.username}...`);
-    const leaderDataRes = await db.query(`SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, interaction.guild.id]);
+    const leaderDataRes = await execSafe(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, interaction.guild.id]);
     const leaderData = leaderDataRes.rows[0];
     
     if (!leaderData || Number(leaderData.level) < 10) {
-        console.log(`[Dungeon Debug] Denied: ${user.username} is below level 10.`);
         const denyEmbed = new EmbedBuilder()
             .setTitle("✶ لا تستوفي الشروط")
             .setDescription("- الـدانجـون محفوف بالمخـاطر، ارفع مستواك إلى **10** لتتمكن من قيادة غارة الدانجون.")
             .setColor('#FF0000')
             .setThumbnail('https://i.postimg.cc/hPxYnBZ7/adaft-ʿnwan.png');
 
-        return interaction.reply({ embeds: [denyEmbed], flags: [MessageFlags.Ephemeral] });
+        return replySafe({ content: '', embeds: [denyEmbed], flags: [MessageFlags.Ephemeral] });
     }
 
     let abyssKing = false;
-    try {
-        console.log(`[Dungeon Debug] Checking Abyss King status for ${user.username}...`);
-        const settingsRes = await db.query(`SELECT "roleAbyss" FROM settings WHERE "guild" = $1`, [interaction.guild.id]);
-        const settings = settingsRes.rows[0];
-        if (settings && (settings.roleAbyss || settings.roleabyss) && interaction.member.roles.cache.has(settings.roleAbyss || settings.roleabyss)) {
-            abyssKing = true;
-            console.log(`[Dungeon Debug] ${user.username} is recognized as Abyss King!`);
-        }
-    } catch (e) {
-        console.error(`[Dungeon Error] Error checking Abyss King:`, e);
+    const settingsRes = await execSafe(db, `SELECT "roleAbyss" FROM settings WHERE "guild" = $1`, `SELECT roleabyss FROM settings WHERE guildid = $1`, [interaction.guild.id]);
+    const settings = settingsRes.rows[0];
+    if (settings && (settings.roleAbyss || settings.roleabyss) && interaction.member.roles.cache.has(settings.roleAbyss || settings.roleabyss)) {
+        abyssKing = true;
     }
 
     if (user.id !== OWNER_ID && !abyssKing) { 
-        console.log(`[Dungeon Debug] Checking cooldowns for ${user.username}...`);
-        const lastRunRes = await db.query(`SELECT "last_dungeon" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, interaction.guild.id]);
+        const lastRunRes = await execSafe(db, `SELECT "last_dungeon" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT last_dungeon FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, interaction.guild.id]);
         const lastRun = lastRunRes.rows[0];
         const lastDungeon = lastRun ? (Number(lastRun.last_dungeon) || 0) : 0;
         const now = Date.now();
         if (now - lastDungeon < COOLDOWN_TIME) {
              const remaining = lastDungeon + COOLDOWN_TIME;
-             console.log(`[Dungeon Debug] Denied: ${user.username} is on cooldown.`);
-             return interaction.reply({ content: `⏳ **استرح قليلاً!** الكولداون ينتهي <t:${Math.floor(remaining/1000)}:R>.`, flags: [MessageFlags.Ephemeral] });
+             return replySafe({ content: `⏳ **استرح قليلاً!** الكولداون ينتهي <t:${Math.floor(remaining/1000)}:R>.`, flags: [MessageFlags.Ephemeral] });
         }
     }
 
     const themeKeys = Object.keys(dungeonConfig.themes || {});
     if (themeKeys.length === 0) {
-        console.log(`[Dungeon Debug] Denied: No themes available in config.`);
-        return interaction.reply({ content: "❌ لا توجد بيانات للدانجون حالياً.", flags: [MessageFlags.Ephemeral] });
+        return replySafe({ content: "❌ لا توجد بيانات للدانجون حالياً.", flags: [MessageFlags.Ephemeral] });
     }
 
     const randomKey = themeKeys[Math.floor(Math.random() * themeKeys.length)];
     const selectedTheme = { ...dungeonConfig.themes[randomKey], key: randomKey };
-    console.log(`[Dungeon Debug] Theme selected: ${selectedTheme.name}.`);
       
     let startFloor = 1;
-    console.log(`[Dungeon Debug] Checking for saved dungeon states for ${user.username}...`);
-    const saveRes = await db.query(`SELECT * FROM dungeon_saves WHERE "hostID" = $1`, [user.id]);
+    const saveRes = await execSafe(db, `SELECT * FROM dungeon_saves WHERE "hostID" = $1`, `SELECT * FROM dungeon_saves WHERE hostid = $1`, [user.id]);
     const save = saveRes.rows[0];
 
     if (save) {
@@ -91,23 +94,18 @@ async function startDungeon(interaction, db) {
 
         if (timeLeft > 0) {
             startFloor = Number(save.floor); 
-            console.log(`[Dungeon Debug] Save found! Starting from floor ${startFloor}.`);
         } else {
-            console.log(`[Dungeon Debug] Save expired. Deleting save...`);
-            await db.query(`DELETE FROM dungeon_saves WHERE "hostID" = $1`, [user.id]);
+            await execSafe(db, `DELETE FROM dungeon_saves WHERE "hostID" = $1`, `DELETE FROM dungeon_saves WHERE hostid = $1`, [user.id]);
         }
     }
 
     activeDungeonRequests.set(user.id, { status: 'lobby', startFloor: startFloor });
-    console.log(`[Dungeon Debug] Set active request for ${user.username}. Proceeding to lobbyPhase.`);
 
     try {
         await lobbyPhase(interaction, null, selectedTheme, db, startFloor);
     } catch (err) {
-        console.error(`[Dungeon Fatal Error] Exception in lobbyPhase setup:`, err);
         activeDungeonRequests.delete(user.id);
-        const replyFunc = interaction.reply ? interaction.reply.bind(interaction) : interaction.channel.send.bind(interaction.channel);
-        replyFunc({ content: "❌ حدث خطأ أثناء بدء اللوبي.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+        replySafe({ content: "❌ حدث خطأ أثناء بدء اللوبي.", flags: [MessageFlags.Ephemeral] });
     }
 }
 
@@ -119,11 +117,9 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
     partyClasses.set(host.id, 'Leader');
     let party = [host.id];
 
-    console.log(`[Dungeon Lobby] Lobby started by ${host.username}.`);
-
     const isUserAbyssKing = async (userId) => {
         try {
-            const settingsRes = await db.query(`SELECT "roleAbyss" FROM settings WHERE "guild" = $1`, [guildId]);
+            const settingsRes = await execSafe(db, `SELECT "roleAbyss" FROM settings WHERE "guild" = $1`, `SELECT roleabyss FROM settings WHERE guildid = $1`, [guildId]);
             const settings = settingsRes.rows[0];
             if (!settings || (!settings.roleAbyss && !settings.roleabyss)) return false;
             const member = await interaction.guild.members.fetch(userId).catch(() => null);
@@ -146,7 +142,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
 
         const imageUrl = theme.image || 'https://i.postimg.cc/NMkWVyLV/line.png';
 
-        let desc = `**القائد:** ${host}\n**الشروط:** لفل 5+ و 100 ${EMOJI_MORA}\n\n🔮 **تم فتح البوابة إلى ${theme.name}!**`;
+        let desc = `**القائد:** <@${host.id}>\n**الشروط:** لفل 5+ و 100 ${EMOJI_MORA}\n\n🔮 **تم فتح البوابة إلى ${theme.name}!**`;
         
         if (startFloor > 1) {
             desc += `\n🏕️ **(سيتم استكمال الرحلة من الطابق ${startFloor})**`;
@@ -171,7 +167,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
     let msg;
     if (interaction.reply && typeof interaction.reply === 'function') {
         if (interaction.replied || interaction.deferred) {
-            msg = await interaction.followUp({ embeds: [updateEmbed()], components: [row], fetchReply: true });
+            msg = await interaction.editReply({ content: '', embeds: [updateEmbed()], components: [row], fetchReply: true });
         } else {
             msg = await interaction.reply({ embeds: [updateEmbed()], components: [row], fetchReply: true });
         }
@@ -183,7 +179,6 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
 
     collector.on('collect', async i => {
         if (i.replied || i.deferred) return;
-        console.log(`[Dungeon Lobby] Button ${i.customId} clicked by ${i.user.username}`);
 
         try {
             if (i.customId === 'join') {
@@ -193,7 +188,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                 const targetIsKing = await isUserAbyssKing(i.user.id);
 
                 if (!party.includes(i.user.id) && i.user.id !== OWNER_ID && !targetIsKing) {
-                    const jDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, guildId]);
+                    const jDataRes = await execSafe(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, guildId]);
                     const jData = jDataRes.rows[0];
                     
                     if (!jData || Number(jData.level) < 5 || Number(jData.mora) < 100) return i.reply({ content: "🚫 لا تستوفي الشروط (لفل 5+ ومورا 100).", flags: [MessageFlags.Ephemeral] });
@@ -252,7 +247,6 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                         
                     await sel.editReply({ content: `✅ تم: **${chosen}**`, components: [] }).catch(()=>{});
                     await msg.edit({ embeds: [updateEmbed()] }).catch(()=>{});
-                    console.log(`[Dungeon Lobby] ${i.user.username} joined as ${chosen}.`);
                 } else {
                     await i.editReply({ content: "⏰ انتهى الوقت.", components: [] }).catch(()=>{});
                 }
@@ -261,27 +255,23 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                 if (i.user.id !== host.id) return i.reply({ content: "⛔ القائد فقط.", flags: [MessageFlags.Ephemeral] });
                 
                 if (!i.replied && !i.deferred) await i.deferUpdate();
-                console.log(`[Dungeon Lobby] Host ${host.username} started the dungeon.`);
                 collector.stop('start');
 
             } else if (i.customId === 'cancel') {
                 if (i.user.id !== host.id) return i.reply({ content: "⛔ القائد فقط.", flags: [MessageFlags.Ephemeral] });
                 
                 if (!i.replied && !i.deferred) await i.deferUpdate();
-                console.log(`[Dungeon Lobby] Host ${host.username} cancelled the dungeon.`);
                 collector.stop('user_cancel');
             }
-        } catch (e) { console.error(`[Dungeon Interaction Error]:`, e); }
+        } catch (e) { }
     });
 
     collector.on('end', async (c, reason) => {
-        console.log(`[Dungeon Lobby] Collector ended. Reason: ${reason}`);
-
         if (reason === 'start') {
             const now = Date.now();
             
             if (startFloor > 1) {
-                await db.query(`DELETE FROM dungeon_saves WHERE "hostID" = $1 AND "guildID" = $2`, [host.id, guildId]);
+                await execSafe(db, `DELETE FROM dungeon_saves WHERE "hostID" = $1 AND "guildID" = $2`, `DELETE FROM dungeon_saves WHERE hostid = $1 AND guildid = $2`, [host.id, guildId]);
             }
 
             let validParty = [];
@@ -294,11 +284,11 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                     validParty.push(id);
                     
                     if (id !== OWNER_ID && !targetIsKing) {
-                        await db.query(`UPDATE levels SET "mora" = "mora" - 100 WHERE "user" = $1 AND "guild" = $2`, [id, guildId]);
+                        await execSafe(db, `UPDATE levels SET "mora" = "mora" - 100 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET mora = mora - 100 WHERE userid = $1 AND guildid = $2`, [id, guildId]);
                     }
                     
                     if (id === host.id && id !== OWNER_ID && !targetIsKing) {
-                        await db.query(`UPDATE levels SET "last_dungeon" = $1 WHERE "user" = $2 AND "guild" = $3`, [now, id, guildId]);
+                        await execSafe(db, `UPDATE levels SET "last_dungeon" = $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET last_dungeon = $1 WHERE userid = $2 AND guildid = $3`, [now, id, guildId]);
                     }
                 } else {
                     const memberObj = await msg.guild.members.fetch(id).catch(() => null);
@@ -306,15 +296,15 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                     
                     if (consumeResult.success) {
                         validParty.push(id);
-                        await db.query(`UPDATE levels SET "mora" = "mora" - 100 WHERE "user" = $1 AND "guild" = $2`, [id, guildId]);
+                        await execSafe(db, `UPDATE levels SET "mora" = "mora" - 100 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET mora = mora - 100 WHERE userid = $1 AND guildid = $2`, [id, guildId]);
                         
-                        const dRes = await db.query(`SELECT "last_join_reset" FROM levels WHERE "user" = $1 AND "guild" = $2`, [id, guildId]);
+                        const dRes = await execSafe(db, `SELECT "last_join_reset" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT last_join_reset FROM levels WHERE userid = $1 AND guildid = $2`, [id, guildId]);
                         const d = dRes.rows[0];
                         const lastJoin = d ? (Number(d.last_join_reset) || 0) : 0;
                         if (now - lastJoin > COOLDOWN_TIME) {
-                            await db.query(`UPDATE levels SET "last_join_reset" = $1, "dungeon_join_count" = 1 WHERE "user" = $2 AND "guild" = $3`, [now, id, guildId]);
+                            await execSafe(db, `UPDATE levels SET "last_join_reset" = $1, "dungeon_join_count" = 1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET last_join_reset = $1, dungeon_join_count = 1 WHERE userid = $2 AND guildid = $3`, [now, id, guildId]);
                         } else {
-                            await db.query(`UPDATE levels SET "dungeon_join_count" = "dungeon_join_count" + 1 WHERE "user" = $1 AND "guild" = $2`, [id, guildId]);
+                            await execSafe(db, `UPDATE levels SET "dungeon_join_count" = "dungeon_join_count" + 1 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET dungeon_join_count = dungeon_join_count + 1 WHERE userid = $1 AND guildid = $2`, [id, guildId]);
                         }
                     } else {
                         kickedMembers.push(id);
@@ -329,15 +319,12 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
             }
 
             try {
-                console.log(`[Dungeon Thread] Creating public thread for dungeon...`);
-                // 🔥 إنشاء الثريد بأمان تام
                 const thread = await msg.channel.threads.create({
                     name: `🏰-دانجون-${theme.name.replace(/ /g, '-')}`,
                     autoArchiveDuration: 60,
                     type: ChannelType.PublicThread,
                     reason: 'Start Dungeon Battle'
                 });
-                console.log(`[Dungeon Thread] Created successfully with ID: ${thread.id}`);
 
                 if (msg.editable) await msg.edit({ content: `✅ **بوابة الـدانـجون فُتحت!** <#${thread.id}>`, components: [] });
 
@@ -347,29 +334,22 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                     try { await thread.members.add(uid); } catch(e){} 
                 }
 
-                const startMsg = await thread.send(`🔔 **يتم الآن استدعاء وحوش ${theme.name}.. استعدوا!**`);
+                await thread.send(`🔔 **يتم الآن استدعاء وحوش ${theme.name}.. استعدوا!**`);
 
                 if (typeof runDungeon === 'function') {
                     try {
-                        console.log(`[Dungeon Run] Executing runDungeon for thread ${thread.id}`);
                         await runDungeon(thread, msg.channel, validParty, theme, db, host.id, partyClasses, activeDungeonRequests, startFloor);
                     } catch (battleError) {
-                        console.error("[Dungeon Fatal Error] Exception in runDungeon:", battleError);
                         activeDungeonRequests.delete(host.id);
                         thread.send("❌ **فشل في استدعاء الوحوش. الرجاء إعادة المحاولة!**").catch(()=>{});
                     }
-                } else {
-                    console.error("[Dungeon Fatal Error] runDungeon function is NOT found or imported correctly!");
-                    throw new Error("Dungeon battle logic (runDungeon) is not loaded correctly.");
-                }
+                } 
 
             } catch (e) {
-                console.error("[Dungeon Start Fatal Error]:", e);
                 activeDungeonRequests.delete(host.id);
                 msg.channel.send(`❌ **فشل في استكمال طقوس الدانجون:** ${e.message}`).catch(()=>{});
             }
         } else {
-            console.log(`[Dungeon End] Lobby cancelled or timed out. Reason: ${reason}`);
             activeDungeonRequests.delete(host.id);
             if (msg.editable) {
                 try {
@@ -387,7 +367,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                              if (!hostIsKing) {
                                  const fullCooldown = 1 * 60 * 60 * 1000; 
                                  const newLastDungeon = Date.now() - (fullCooldown - penaltyMs);
-                                 await db.query(`UPDATE levels SET "last_dungeon" = $1 WHERE "user" = $2 AND "guild" = $3`, [newLastDungeon, host.id, guildId]);
+                                 await execSafe(db, `UPDATE levels SET "last_dungeon" = $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET last_dungeon = $1 WHERE userid = $2 AND guildid = $3`, [newLastDungeon, host.id, guildId]);
                                  const readyTimestamp = Math.floor((Date.now() + penaltyMs) / 1000);
                                  cancelledEmbed.setDescription(`**قمـت بـ الغـاء الغـارة الاخيـرة .. انتـظر <t:${readyTimestamp}:R> لتفتح غـارة جديدة**`);
                              } else {
@@ -402,24 +382,17 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                     } else {
                         await msg.edit({ content: "❌ تم الإلغاء.", components: [] });
                     }
-                } catch (err) {
-                    console.log("Error updating cancelled embed:", err);
-                }
+                } catch (err) {}
             }
         }
     });
 }
 
-// 🔥🔥 دالة استعادة الدانجون بعد الريستارت 🔥🔥
 async function resumeActiveDungeons(client, db) {
     try {
-        let res;
-        try { res = await db.query(`SELECT * FROM active_dungeons`); }
-        catch (e) { res = { rows: [] }; }
+        let res = await execSafe(db, `SELECT * FROM active_dungeons`, `SELECT * FROM active_dungeons`);
         
         if (res.rows.length === 0) return;
-
-        console.log(`[Dungeon Resume] Found ${res.rows.length} active dungeons to resume...`);
 
         for (const row of res.rows) {
             const channelID = row.channelID || row.channelid;
@@ -431,8 +404,7 @@ async function resumeActiveDungeons(client, db) {
             try {
                 resumeData = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
             } catch (e) {
-                console.error(`[Dungeon Resume Error] Failed to parse resumeData for channel ${channelID}`);
-                await db.query(`DELETE FROM active_dungeons WHERE "channelID" = $1`, [channelID]).catch(()=>{});
+                await execSafe(db, `DELETE FROM active_dungeons WHERE "channelID" = $1`, `DELETE FROM active_dungeons WHERE channelid = $1`, [channelID]);
                 continue;
             }
 
@@ -444,8 +416,7 @@ async function resumeActiveDungeons(client, db) {
                 try {
                     threadChannel = await guild.channels.fetch(channelID);
                 } catch (e) {
-                    console.log(`[Dungeon Resume Info] Thread not found, deleting active dungeon state for ${channelID}`);
-                    await db.query(`DELETE FROM active_dungeons WHERE "channelID" = $1`, [channelID]).catch(()=>{});
+                    await execSafe(db, `DELETE FROM active_dungeons WHERE "channelID" = $1`, `DELETE FROM active_dungeons WHERE channelid = $1`, [channelID]);
                     continue;
                 }
             }
@@ -465,11 +436,9 @@ async function resumeActiveDungeons(client, db) {
             activeDungeonRequests.set(hostID, { status: 'battle', startFloor: resumeData.floor });
 
             runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostID, partyClasses, activeDungeonRequests, resumeData.floor, resumeData)
-            .catch(e => console.error(`[Dungeon Resume Fatal Error] Error resuming dungeon for ${hostID}:`, e));
+            .catch(e => console.error(e));
         }
-    } catch (e) {
-        console.error("[Dungeon Resume Master Error]:", e);
-    }
+    } catch (e) {}
 }
 
 module.exports = { startDungeon, resumeActiveDungeons };
