@@ -91,6 +91,45 @@ function getRepRankInfo(points) {
     return { name: '🪵 رتبة F', color: '#654321' }; 
 }
 
+// 🔥 دوال الحسبة الجديدة (Hard Sync) للبروفايل 🔥
+function getWeaponDisplayDamage(weaponConfig, level) {
+    if (!weaponConfig || level < 1) return 15;
+    const base = weaponConfig.base_damage;
+    const inc = weaponConfig.damage_increment;
+
+    if (level <= 15) {
+        return Math.floor(base + (inc * (level - 1)));
+    } else {
+        const damageAt15 = base + (inc * 14);
+        const targetDamageAt30 = 800;
+        const levelsRemaining = 15; 
+        const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
+        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
+        if (level >= 30) return targetDamageAt30;
+        return Math.floor(finalDamage);
+    }
+}
+
+function getSkillDisplayValue(skillConfig, currentLevel) {
+    if (!skillConfig) return 0;
+    const level = Math.max(1, currentLevel || 1);
+    const base = skillConfig.base_value;
+    const inc = skillConfig.value_increment;
+    const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
+
+    if (level <= 15) {
+        return Math.floor(base + (inc * (level - 1)));
+    } else {
+        const valueAt15 = base + (inc * 14);
+        const targetValueAt30 = isPercentage ? 50 : 200; 
+        const levelsRemaining = 15;
+        const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
+        let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
+        if (level >= 30) return targetValueAt30;
+        return Math.floor(finalValue);
+    }
+}
+
 async function calculateStrongestRank(db, guildID, targetUserID) {
     try {
         if (targetUserID === TARGET_OWNER_ID) return 0;
@@ -108,7 +147,7 @@ async function calculateStrongestRank(db, guildID, targetUserID) {
             const conf = weaponsConfig.find(c => c.race === (w.raceName || w.racename));
             if(!conf) continue;
             const wLvl = w.weaponLevel || w.weaponlevel || 1;
-            const dmg = conf.base_damage + (conf.damage_increment * (wLvl - 1));
+            const dmg = getWeaponDisplayDamage(conf, wLvl); // استخدام الحسبة الجديدة هنا
             const playerLevel = levelsMap.get(w.userID) || 1;
             const hp = PROFILE_BASE_HP + (playerLevel * PROFILE_HP_PER_LEVEL);
             const skillLevelsTotal = skillsMap.get(w.userID) || 0;
@@ -251,6 +290,9 @@ module.exports = {
                 const arabicRaceName = RACE_TRANSLATIONS.get(raceNameRaw) || raceNameRaw || "بشري";
                 const weaponName = wpnRes ? wpnRes.name : "بدون سلاح";
                 const streakData = streakRes?.rows?.[0] || {};
+                
+                // استخدام الحسبة الجديدة للضرر المحدث (لصورة البروفايل الرئيسية)
+                const weaponDmg = wpnRes ? getWeaponDisplayDamage(wpnRes, wpnRes.currentLevel) : 0;
 
                 if (currentView === 'profile') {
                     let xpBuff = 1, moraBuff = 1;
@@ -276,7 +318,7 @@ module.exports = {
                         user: targetUser, displayName: cleanName, rankInfo, repPoints,
                         level: levelData.level, currentXP: Number(levelData.xp), requiredXP: calculateRequiredXP(levelData.level),
                         mora: (targetUser.id === TARGET_OWNER_ID && authorUser.id !== TARGET_OWNER_ID) ? "???" : totalMora.toLocaleString(),
-                        raceName: arabicRaceName, weaponName, weaponDmg: wpnRes?.currentDamage || 0,
+                        raceName: arabicRaceName, weaponName, weaponDmg: weaponDmg, // استخدام الضرر المحدث هنا
                         maxHp: PROFILE_BASE_HP + (levelData.level * PROFILE_HP_PER_LEVEL), streakCount: streakData.streakCount || streakData.streakcount || 0,
                         xpBuff: Math.floor((xpBuff - 1) * 100), moraBuff: Math.floor((moraBuff - 1) * 100),
                         shields: Number(streakData.hasItemShield || 0) + (streakData.hasGracePeriod === 1 ? 1 : 0), ranks
@@ -296,13 +338,26 @@ module.exports = {
                         const skillRes = await safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillLevel" > 0`, `SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2 AND skilllevel > 0`, [targetUser.id, guildId]);
                         allSkills = (skillRes?.rows || []).map(s => {
                             const conf = skillsConfig.find(sc => sc.id === (s.skillID || s.skillid));
-                            return conf ? { id: conf.id, name: conf.name, level: s.skillLevel, description: conf.description } : null;
+                            // تحديث قوة المهارة لتتوافق مع نظام الـ Hard Sync الجديد
+                            if (conf) {
+                                const realValue = getSkillDisplayValue(conf, s.skillLevel || s.skilllevel);
+                                const isPercent = conf.stat_type === '%' ? '%' : '';
+                                const updatedDescription = conf.description.replace(/[0-9]+%?/, `${realValue}${isPercent}`); // محاولة تعديل الوصف بذكاء لعرض الرقم الصحيح
+                                
+                                return { id: conf.id, name: conf.name, level: s.skillLevel || s.skilllevel, description: updatedDescription };
+                            }
+                            return null;
                         }).filter(s => s !== null);
                         allSkills.sort((a,b) => b.level - a.level);
                     } catch(e) {}
 
                     const totalSkillPages = Math.max(1, Math.ceil(allSkills.length / SKILLS_PER_PAGE));
                     const slice = allSkills.slice(skillPage * SKILLS_PER_PAGE, (skillPage + 1) * SKILLS_PER_PAGE);
+                    
+                    // تمرير بيانات السلاح المحدثة لملف generateSkillsCard
+                    if (wpnRes) {
+                        wpnRes.currentDamage = weaponDmg;
+                    }
 
                     const cardData = {
                         user: targetUser, avatarUrl: targetUser.displayAvatarURL({ extension: 'png', size: 256 }),
