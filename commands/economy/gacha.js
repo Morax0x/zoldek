@@ -13,6 +13,7 @@ const upgradeMats = require('../../json/upgrade-materials.json');
 const PULL_PRICE = 1000;
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
+// 🔥 نظام القفل لمنع السبام وتسابق البيانات 🔥
 const activeGachaUsers = new Set();
 
 const FLAVOR_TEXTS = [
@@ -91,6 +92,28 @@ async function execSafe(db, qPg, qLite, params = []) {
             return { rows: [], error: true };
         }
     }
+}
+
+// 🔥 دالة الخصم القاضية (تخصم من الذاكرة ومن قاعدة البيانات عشان مستحيل يرجع الرصيد) 🔥
+async function deductMora(client, db, userId, guildId, amount) {
+    try {
+        // 1. تحديث الذاكرة المؤقتة (Cache) حق البوت
+        if (client && typeof client.getLevel === 'function') {
+            let u = await client.getLevel(userId, guildId);
+            if (u) {
+                u.mora = Number(u.mora || u.Mora || 0) - amount;
+                if (typeof client.setLevel === 'function') await client.setLevel(u);
+            }
+        }
+    } catch(e) {}
+
+    // 2. تحديث قاعدة البيانات
+    let r1 = await execSafe(db, 
+        `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, 
+        `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, 
+        [amount, userId, guildId]
+    );
+    return !r1.error;
 }
 
 async function ensurePityTable(db) {
@@ -180,6 +203,15 @@ module.exports = {
         let activePageCollector = null;
 
         const fetchUserData = async () => {
+            // 🔥 نسحب من الذاكرة المؤقتة أولاً لضمان أحدث رصيد للمورا 🔥
+            let cacheMora = null;
+            try {
+                if (client.getLevel) {
+                    let u = await client.getLevel(user.id, guildId);
+                    if (u) cacheMora = Number(u.mora || u.Mora || 0);
+                }
+            } catch(e) {}
+
             const [lvlRes, invRes, skillRes, wepRes] = await Promise.all([
                 execSafe(db, `SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
                 execSafe(db, `SELECT "itemID", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" IN ('gacha_chest', 'free_gacha_chest')`, `SELECT itemid, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid IN ('gacha_chest', 'free_gacha_chest')`, [user.id, guildId]),
@@ -187,7 +219,8 @@ module.exports = {
                 execSafe(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT racename FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
             ]);
 
-            userMora = lvlRes.rows[0] ? Number(lvlRes.rows[0].mora || lvlRes.rows[0].Mora || 0) : 0;
+            userMora = cacheMora !== null ? cacheMora : (lvlRes.rows[0] ? Number(lvlRes.rows[0].mora || lvlRes.rows[0].Mora || 0) : 0);
+            
             freeChests = 0;
             paidChests = 0;
             if (!invRes.error && invRes.rows) {
@@ -255,7 +288,7 @@ module.exports = {
         };
 
         const generateAndSendHub = async (targetMsg) => {
-            await fetchUserData();
+            await fetchUserData(); // رح يقرأ من الداتابيز + الذاكرة المحدثة عشان الرصيد ما يكون قديم
             const summaryRandomText = FLAVOR_TEXTS[Math.floor(Math.random() * FLAVOR_TEXTS.length)];
             let files = [];
             if (generateGachaHub) {
@@ -304,8 +337,10 @@ module.exports = {
 
         const executePulls = async (pullCount, isBuying, cost) => {
             if (isBuying) {
-                userMora -= cost;
-                await execSafe(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [cost, user.id, guildId]);
+                // الخصم الفعلي من الذاكرة والـ DB
+                let deducted = await deductMora(client, db, user.id, guildId, cost);
+                if (!deducted) return null;
+                userMora -= cost; 
             } else {
                 let remaining = pullCount;
                 let consumeFree = Math.min(freeChests, remaining);
@@ -387,7 +422,7 @@ module.exports = {
 
         channelCollector.on('collect', async (i) => {
             if (isProcessing) {
-                return i.reply({ content: '⏳ يرجى الانتظار، جاري معالجة طلبك السابق...', flags: MessageFlags.Ephemeral }).catch(()=>{});
+                return i.reply({ content: '⏳ يرجى الانتظار، جاري معالجة طلبك السابق...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             }
             isProcessing = true;
 
@@ -435,7 +470,13 @@ module.exports = {
 
             await initialMsg.edit({ components: [], embeds: [] }).catch(()=>{});
 
-            const { bestResult, results } = await executePulls(pullCount, isBuying, cost);
+            const pullsData = await executePulls(pullCount, isBuying, cost);
+            if (!pullsData) {
+                await i.followUp({ content: "❌ فشل خصم المورا! تأكد من رصيدك.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                isProcessing = false;
+                return;
+            }
+            const { bestResult, results } = pullsData;
 
             const prefix = pullCount > 1 ? 'ten_' : 'single_';
             const meteorFileName = `${prefix}${bestResult.rarity}.png`;
@@ -502,7 +543,7 @@ module.exports = {
                 let isPaging = false;
                 activePageCollector.on('collect', async btn => {
                     if (isPaging) {
-                        return btn.reply({ content: '⏳ يرجى الانتظار، جاري تحميل الصورة...', flags: MessageFlags.Ephemeral }).catch(()=>{});
+                        return btn.reply({ content: '⏳ يرجى الانتظار، جاري تحميل الصورة...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                     }
                     isPaging = true;
                     try { await btn.deferUpdate().catch(()=>{}); } catch(e) { isPaging = false; return; }
