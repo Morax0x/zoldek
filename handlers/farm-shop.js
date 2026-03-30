@@ -39,6 +39,67 @@ async function executeDB(db, query, params = []) {
     catch (e) { throw e; }
 }
 
+async function execSafe(db, qPg, qLite, params = []) {
+    try {
+        let res = await db.query(qPg, params);
+        return res || { rows: [] };
+    } catch(e1) {
+        try {
+            let res2 = await db.query(qLite, params);
+            return res2 || { rows: [] };
+        } catch(e2) {
+            return { rows: [], error: true };
+        }
+    }
+}
+
+// 🔥 دالة الخصم الذكية والنهائية تقضي على ثغرة الذاكرة 🔥
+async function deductMora(client, db, userId, guildId, amount) {
+    try {
+        let rCheck = await execSafe(db, 
+            `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, 
+            `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, 
+            [userId, guildId]
+        );
+        
+        if (rCheck.error || rCheck.rows.length === 0) return false;
+        
+        let m = Number(rCheck.rows[0].mora || rCheck.rows[0].Mora || 0);
+        let b = Number(rCheck.rows[0].bank || rCheck.rows[0].Bank || 0);
+
+        if ((m + b) < amount) return false;
+
+        let newMora = m;
+        let newBank = b;
+
+        if (m >= amount) {
+            newMora = m - amount; 
+        } else {
+            let remainder = amount - m; 
+            newMora = 0;
+            newBank = b - remainder;
+        }
+
+        if (client && typeof client.getLevel === 'function') {
+            let u = await client.getLevel(userId, guildId);
+            if (u) {
+                u.mora = newMora;
+                u.bank = newBank;
+                if (typeof client.setLevel === 'function') await client.setLevel(u);
+            }
+        }
+
+        let rUpdate = await execSafe(db,
+            `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`,
+            `UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`,
+            [newMora, newBank, userId, guildId]
+        );
+        return !rUpdate.error;
+    } catch(e) {
+        return false;
+    }
+}
+
 async function buildShopGrid(user, client, db, category) {
     let itemsList = [];
     if (category === 'animals') itemsList = farmAnimals;
@@ -229,7 +290,7 @@ async function handleFarmShopModal(i, client, db) {
         const qtyStr = i.fields.getTextInputValue('quantity_input').trim();
         const quantity = parseInt(qtyStr);
 
-        if (isNaN(quantity) || quantity <= 0) return await i.editReply('❌ يرجى إدخال كمية صحيحة.');
+        if (isNaN(quantity) || quantity <= 0) return await i.editReply('❌ يرجى إدخال كمية صحيحة أكبر من صفر.');
 
         let itemData = null;
         if (category === 'animals') itemData = farmAnimals.find(a => String(a.id) === String(itemId));
@@ -241,14 +302,10 @@ async function handleFarmShopModal(i, client, db) {
         if (action === 'buy') {
             const totalPrice = itemData.price * quantity;
 
-            let moraRes;
-            try { moraRes = await executeDB(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]); }
-            catch(e) { moraRes = await executeDB(db, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})); }
-
-            let currentMora = Number(moraRes?.rows?.[0]?.mora || moraRes?.rows?.[0]?.Mora || 0);
-            let currentBank = Number(moraRes?.rows?.[0]?.bank || moraRes?.rows?.[0]?.Bank || 0);
-
-            if ((currentMora + currentBank) < totalPrice) {
+            // 🔥 استخدام نظام الخصم الذكي لحماية الذاكرة المؤقتة والداتابيز 🔥
+            let deducted = await deductMora(client, db, i.user.id, i.guild.id, totalPrice);
+            
+            if (!deducted) {
                 return await i.editReply(`❌ رصيدك (الكاش + البنك) غير كافي! تحتاج إجمالي **${totalPrice.toLocaleString()}** مورا.`);
             }
 
@@ -266,6 +323,12 @@ async function handleFarmShopModal(i, client, db) {
                 const spaceNeeded = quantity * (itemData.size || 1);
 
                 if (currentCap + spaceNeeded > cap) {
+                    // إرجاع الفلوس لو المساحة ما تكفي
+                    await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]));
+                    if (client && typeof client.getLevel === 'function') {
+                        let u = await client.getLevel(i.user.id, i.guild.id);
+                        if (u) { u.mora += totalPrice; await client.setLevel(u); }
+                    }
                     return await i.editReply(`🚫 **مساحة الحظيرة لا تكفي!**\nتحتاج \`${spaceNeeded}\` مساحة، والمتاح لديك \`${cap - currentCap}\` فقط.`);
                 }
             } else {
@@ -276,23 +339,14 @@ async function handleFarmShopModal(i, client, db) {
                 let currQty = invCheckRes?.rows?.[0] ? Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity || 0) : 0;
 
                 if (currQty + quantity > MAX_FARM_LIMIT) {
+                    // إرجاع الفلوس للمستخدم
+                    await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]));
+                    if (client && typeof client.getLevel === 'function') {
+                        let u = await client.getLevel(i.user.id, i.guild.id);
+                        if (u) { u.mora += totalPrice; await client.setLevel(u); }
+                    }
                     return await i.editReply(`🚫 **مخزنك ممتلئ!** الحد الأقصى هو **${MAX_FARM_LIMIT}**.`);
                 }
-            }
-
-            if (currentMora >= totalPrice) {
-                currentMora -= totalPrice;
-            } else {
-                let remainder = totalPrice - currentMora;
-                currentMora = 0;
-                currentBank -= remainder;
-            }
-
-            try {
-                await executeDB(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [currentMora, currentBank, i.user.id, i.guild.id]);
-            } catch(e) {
-                try { await executeDB(db, `UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [currentMora, currentBank, i.user.id, i.guild.id]); }
-                catch(e2) { return await i.editReply('❌ حدث خطأ داخلي أثناء تحديث الرصيد.'); }
             }
 
             try {
@@ -322,8 +376,12 @@ async function handleFarmShopModal(i, client, db) {
                     }
                 }
             } catch (insertError) {
-                try { await executeDB(db, `UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]); }
-                catch(e) { await executeDB(db, `UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]); }
+                // إرجاع الفلوس في حال فشل إعطاء العنصر
+                await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]));
+                if (client && typeof client.getLevel === 'function') {
+                    let u = await client.getLevel(i.user.id, i.guild.id);
+                    if (u) { u.mora += totalPrice; await client.setLevel(u); }
+                }
                 return await i.editReply('❌ حدث خطأ داخلي أثناء تسليم العنصر، تم إرجاع أموالك.');
             }
 
@@ -381,9 +439,13 @@ async function handleFarmShopModal(i, client, db) {
                     }
                 }
 
+                // إضافة الفلوس للذاكرة والداتابيز معاً
                 try {
-                    try { await executeDB(db, `UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [totalGain, i.user.id, i.guild.id]); }
-                    catch(e) { await executeDB(db, `UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [totalGain, i.user.id, i.guild.id]); }
+                    await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalGain, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalGain, i.user.id, i.guild.id]));
+                    if (client && typeof client.getLevel === 'function') {
+                        let u = await client.getLevel(i.user.id, i.guild.id);
+                        if (u) { u.mora += totalGain; await client.setLevel(u); }
+                    }
                 } catch (moneyError) {
                     return await i.editReply('❌ حدث خطأ داخلي أثناء إضافة الأموال.');
                 }
