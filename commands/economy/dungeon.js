@@ -23,6 +23,7 @@ module.exports = {
         // 🛡️ توحيد بيئة العمل لكي تتعامل دالة startDungeon براحة سواء كان سلاش أو بريفكس
         if (isSlash) {
             interaction = context;
+            await interaction.deferReply().catch(()=>{}); // 🔥 تأخير الرد عشان ما يعلق الديسكورد
         } else {
             interaction = {
                 user: context.author,
@@ -66,7 +67,7 @@ module.exports = {
 
         if (!guild) {
             const errPayload = { content: "🚫 **عذراً، هذا الأمر يعمل فقط داخل السيرفرات!**", flags: [MessageFlags.Ephemeral] };
-            return isSlash ? interaction.reply(errPayload) : interaction.reply(errPayload).then(m => setTimeout(()=>m.delete().catch(()=>null), 5000));
+            return isSlash ? interaction.editReply(errPayload) : interaction.reply(errPayload);
         }
 
         // إزالة الجزء الخاص بالـ ALTER TABLE من هنا لتخفيف الضغط لأنه يُدار من ملف Database Manager
@@ -114,19 +115,19 @@ module.exports = {
                     flags: [MessageFlags.Ephemeral] 
                 };
 
-                return await interaction.reply(payload);
+                return isSlash ? await interaction.editReply(payload) : await interaction.reply(payload);
             }
         }
 
         try {
-            // توجيه الدالة الصحيحة من dungeon-battle.js
+            // توجيه الدالة الصحيحة من dungeon-handler.js
             await startDungeon(interaction, db);
         } catch (err) {
             console.error("[Dungeon Command Error]", err);
             const errMsg = { content: "❌ حدث خطأ تقني أثناء بدء الدانجون.", flags: [MessageFlags.Ephemeral] };
             
             try {
-                if (interaction.replied || interaction.deferred) await interaction.followUp(errMsg);
+                if (interaction.replied || interaction.deferred) await interaction.editReply(errMsg);
                 else await interaction.reply(errMsg);
             } catch (e) {} 
         }
