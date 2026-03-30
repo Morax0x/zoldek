@@ -31,24 +31,24 @@
     { "id": "fish_golden_whale", "name": "حوت ذهبي", "price": 1000, "rarity": 6, "emoji": "🌕" }
   ],
   "rods": [
-    { "id": "rod_1", "level": 1, "name": "سنارة خشبية", "price": 0, "cooldown": 3600000, "luck_bonus": 0, "max_fish": 1, "max_rarity": 2, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_1.png" },
-    { "id": "rod_2", "level": 2, "name": "سنارة البرونز", "price": 2000, "cooldown": 3300000, "luck_bonus": 5, "max_fish": 1, "max_rarity": 2, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_2.png" },
-    { "id": "rod_3", "level": 3, "name": "سنارة الحديد", "price": 5000, "cooldown": 3000000, "luck_bonus": 10, "max_fish": 2, "max_rarity": 3, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_3.png" },
-    { "id": "rod_4", "level": 4, "name": "سنارة الفولاذ", "price": 10000, "cooldown": 2700000, "luck_bonus": 15, "max_fish": 2, "max_rarity": 3, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_4.png" },
-    { "id": "rod_5", "level": 5, "name": "سنارة التيتانيوم", "price": 25000, "cooldown": 2400000, "luck_bonus": 20, "max_fish": 2, "max_rarity": 4, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_5.png" },
-    { "id": "rod_6", "level": 6, "name": "سنارة الذهب", "price": 50000, "cooldown": 2100000, "luck_bonus": 25, "max_fish": 3, "max_rarity": 4, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_6.png" },
-    { "id": "rod_7", "level": 7, "name": "سنارة الماس", "price": 120000, "cooldown": 1800000, "luck_bonus": 35, "max_fish": 3, "max_rarity": 5, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_7.png" },
-    { "id": "rod_8", "level": 8, "name": "سنارة الملوك", "price": 200000, "cooldown": 1500000, "luck_bonus": 50, "max_fish": 3, "max_rarity": 5, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_8.png" },
-    { "id": "rod_9", "level": 9, "name": "سنارة التنانين", "price": 350000, "cooldown": 1200000, "luck_bonus": 70, "max_fish": 4, "max_rarity": 6, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_9.png" },
-    { "id": "rod_10", "level": 10, "name": "سنارة الأساطير", "price": 500000, "cooldown": 900000, "luck_bonus": 90, "max_fish": 4, "max_rarity": 6, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_10.png" }
+    { "id": "rod_1", "level": 1, "name": "سنارة خشبية", "price": 0, "luck_bonus": 0, "max_fish": 1, "max_rarity": 2, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_1.png" },
+    { "id": "rod_2", "level": 2, "name": "سنارة البرونز", "price": 2000, "luck_bonus": 5, "max_fish": 1, "max_rarity": 2, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_2.png" },
+    { "id": "rod_3", "level": 3, "name": "سنارة الحديد", "price": 5000, "luck_bonus": 10, "max_fish": 2, "max_rarity": 3, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_3.png" },
+    { "id": "rod_4", "level": 4, "name": "سنارة الفولاذ", "price": 10000, "luck_bonus": 15, "max_fish": 2, "max_rarity": 3, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_4.png" },
+    { "id": "rod_5", "level": 5, "name": "سنارة التيتانيوم", "price": 25000, "luck_bonus": 20, "max_fish": 2, "max_rarity": 4, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_5.png" },
+    { "id": "rod_6", "level": 6, "name": "سنارة الذهب", "price": 50000, "luck_bonus": 25, "max_fish": 3, "max_rarity": 4, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_6.png" },
+    { "id": "rod_7", "level": 7, "name": "سنارة الماس", "price": 120000, "luck_bonus": 35, "max_fish": 3, "max_rarity": 5, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_7.png" },
+    { "id": "rod_8", "level": 8, "name": "سنارة الملوك", "price": 200000, "luck_bonus": 50, "max_fish": 3, "max_rarity": 5, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_8.png" },
+    { "id": "rod_9", "level": 9, "name": "سنارة التنانين", "price": 350000, "luck_bonus": 70, "max_fish": 4, "max_rarity": 6, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_9.png" },
+    { "id": "rod_10", "level": 10, "name": "سنارة الأساطير", "price": 500000, "luck_bonus": 90, "max_fish": 4, "max_rarity": 6, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_10.png" }
   ],
   "boats": [
     { "id": "boat_1", "level": 1, "name": "قـارب خـشيـبـي", "price": 0, "location_id": "beach", "speed_bonus": 0, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_1.png" },
-    { "id": "boat_2", "level": 2, "name": "قـارب بـمحـرك", "price": 50000, "location_id": "shallow", "speed_bonus": 60000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_2.png" },
-    { "id": "boat_3", "level": 3, "name": "يـخـت الصيـد", "price": 100000, "location_id": "deep", "speed_bonus": 120000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_3.png" },
-    { "id": "boat_4", "level": 4, "name": "سفيـنة", "price": 500000, "location_id": "bermuda", "speed_bonus": 180000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_4.png" },
-    { "id": "boat_5", "level": 5, "name": "غـواصــة", "price": 150000, "location_id": "trench", "speed_bonus": 240000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_5.png" },
-    { "id": "boat_6", "level": 6, "name": "غـواصــة أطلانتس", "price": 200000, "location_id": "atlantis", "speed_bonus": 300000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_6.png" },
+    { "id": "boat_2", "level": 2, "name": "قـارب بـمحـرك", "price": 5000, "location_id": "shallow", "speed_bonus": 60000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_2.png" },
+    { "id": "boat_3", "level": 3, "name": "يـخـت الصيـد", "price": 10000, "location_id": "deep", "speed_bonus": 120000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_3.png" },
+    { "id": "boat_4", "level": 4, "name": "سفيـنة", "price": 50000, "location_id": "bermuda", "speed_bonus": 180000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_4.png" },
+    { "id": "boat_5", "level": 5, "name": "غـواصــة", "price": 100000, "location_id": "trench", "speed_bonus": 240000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_5.png" },
+    { "id": "boat_6", "level": 6, "name": "غـواصــة أطلانتس", "price": 150000, "location_id": "atlantis", "speed_bonus": 300000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_6.png" },
     { "id": "boat_7", "level": 7, "name": "سفـينـة الاشبـاح", "price": 300000, "location_id": "dark_sea", "speed_bonus": 600000, "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_7.png" }
   ],
   "baits": [
