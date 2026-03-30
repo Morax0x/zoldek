@@ -1,4 +1,4 @@
-const { cleanDisplayName } = require('../utils');
+const { cleanDisplayName } = require('../dungeon/utils'); // تأكدت من المسار عشان ما يصير كراش
 
 function getName(entity) {
     if (entity.isMonster) return entity.name;
@@ -99,7 +99,7 @@ function executeWeaponAttack(attacker, defender, isOwner = false) {
 
     if (attacker.effects && Array.isArray(attacker.effects)) {
         if (attacker.effects.some(e => e.type === 'crit_buff')) {
-            critBonus += 10.0; // 10.0 يعني 1000%، عدلها لو كنت تقصد 0.10
+            critBonus += 10.0; 
         }
         if (attacker.effects.some(e => e.type === 'luck_buff')) {
             critBonus += 0.20;
