@@ -13,7 +13,6 @@ const upgradeMats = require('../../json/upgrade-materials.json');
 const PULL_PRICE = 1000;
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
-// 🔥 نظام القفل لمنع السبام وتسابق البيانات 🔥
 const activeGachaUsers = new Set();
 
 const FLAVOR_TEXTS = [
@@ -153,7 +152,6 @@ module.exports = {
 
         const reply = async (payload) => isSlash ? interactionOrMessage.editReply(payload).catch(()=>{}) : interactionOrMessage.reply(payload).catch(()=>{});
 
-        // 🔥 نظام القفل للـ Spam: فحص إذا المستخدم عنده عملية غاتشا شغالة 🔥
         if (activeGachaUsers.has(user.id)) {
             const msgPayload = { content: '⏳ **الرجاء إنهاء استدعاء الصناديق الحالي أولاً قبل فتح جديد!**', flags: [MessageFlags.Ephemeral] };
             if (isSlash) {
@@ -170,7 +168,6 @@ module.exports = {
         if (!db) return reply({ content: "خطأ في قاعدة البيانات" });
         await ensurePityTable(db);
 
-        // وضع المستخدم في قائمة القفل
         activeGachaUsers.add(user.id);
 
         let userMora = 0;
@@ -306,7 +303,6 @@ module.exports = {
         };
 
         const executePulls = async (pullCount, isBuying, cost) => {
-            // 🔥 الخصم الآمن قبل تنفيذ السحب لمنع السبام الفعلي 🔥
             if (isBuying) {
                 userMora -= cost;
                 await execSafe(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [cost, user.id, guildId]);
@@ -382,18 +378,24 @@ module.exports = {
             return;
         }
         
+        let isProcessing = false;
+
         const channelCollector = (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).createMessageComponentCollector({
-            filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10', 'open_chest_all', 'gacha_next', 'gacha_skip'].includes(i.customId),
+            filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10', 'open_chest_all'].includes(i.customId),
             time: 300000 
         });
 
         channelCollector.on('collect', async (i) => {
-            try { 
-                await i.deferUpdate().catch(()=>{}); 
-            } catch (err) { return; }
+            if (isProcessing) {
+                return i.reply({ content: '⏳ يرجى الانتظار، جاري معالجة طلبك السابق...', flags: MessageFlags.Ephemeral }).catch(()=>{});
+            }
+            isProcessing = true;
+
+            try { await i.deferUpdate().catch(()=>{}); } catch (err) { isProcessing = false; return; }
 
             if (i.customId === 'gacha_inventory') {
                 await showInventoryMenu(initialMsg);
+                isProcessing = false;
                 return;
             }
 
@@ -403,11 +405,9 @@ module.exports = {
                     activePageCollector = null;
                 }
                 await generateAndSendHub(initialMsg);
+                isProcessing = false;
                 return;
             }
-
-            // إذا كان الزر "تخطي" أو "التالي" لا نستدعي كود الشراء
-            if (['gacha_next', 'gacha_skip'].includes(i.customId)) return;
 
             await fetchUserData();
             
@@ -418,11 +418,19 @@ module.exports = {
             if (isBuying) {
                 pullCount = i.customId === 'gacha_10' ? 10 : 1;
                 cost = pullCount * PULL_PRICE;
-                if (userMora < cost) return i.followUp({ content: "❌ لا تملك المورا الكافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                if (userMora < cost) {
+                    await i.followUp({ content: "❌ لا تملك المورا الكافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                    isProcessing = false;
+                    return;
+                }
             } else {
                 if (i.customId === 'open_chest_10') pullCount = 10;
                 else if (i.customId === 'open_chest_all') pullCount = Math.min(totalChests, 50); 
-                if (totalChests < pullCount) return i.followUp({ content: "❌ لا تملك صناديق كافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                if (totalChests < pullCount) {
+                    await i.followUp({ content: "❌ لا تملك صناديق كافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                    isProcessing = false;
+                    return;
+                }
             }
 
             await initialMsg.edit({ components: [], embeds: [] }).catch(()=>{});
@@ -457,7 +465,6 @@ module.exports = {
             } else if (pullCount > 1) {
                 let currentIndex = 0;
                 const getPagePayload = async (idx) => {
-                    // 🔥 حماية Bounds Check قوية 🔥
                     if (idx >= results.length) idx = results.length - 1;
                     if (idx < 0) idx = 0;
 
@@ -492,8 +499,13 @@ module.exports = {
                     time: 120000 
                 });
 
+                let isPaging = false;
                 activePageCollector.on('collect', async btn => {
-                    try { await btn.deferUpdate().catch(()=>{}); } catch(e) { return; }
+                    if (isPaging) {
+                        return btn.reply({ content: '⏳ يرجى الانتظار، جاري تحميل الصورة...', flags: MessageFlags.Ephemeral }).catch(()=>{});
+                    }
+                    isPaging = true;
+                    try { await btn.deferUpdate().catch(()=>{}); } catch(e) { isPaging = false; return; }
                     
                     if (btn.customId === 'gacha_skip') {
                         currentIndex = pullCount - 1; 
@@ -504,6 +516,7 @@ module.exports = {
                             await initialMsg.edit(await getPagePayload(currentIndex)).catch(()=>{});
                         }
                     }
+                    isPaging = false;
                 });
 
             } else {
@@ -516,6 +529,7 @@ module.exports = {
                 }
                 await initialMsg.edit({ components: [getReturnButton()], files, content: '' }).catch(()=>{});
             }
+            isProcessing = false;
         });
 
         channelCollector.on('end', () => { 
