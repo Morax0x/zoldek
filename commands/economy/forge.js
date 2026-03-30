@@ -71,11 +71,29 @@ function resolveText(val) {
     return String(val);
 }
 
-// تم توحيد الاستعلامات عشان ما يصير فيه أي خطأ في الأعمدة بسبب حالة الأحرف (Case Sensitivity)
+// 🔥 نظام المعالجة الذاتية لقاعدة البيانات (Self-Healing DB System) 🔥
 const safeQuery = async (db, qPg, params) => {
     try { 
         return await db.query(qPg, params); 
     } catch(e) { 
+        // إذا كان الخطأ بسبب العداد المخبط (Sequence Sync Issue)
+        if (e.message && e.message.includes('violates unique constraint') && e.message.includes('_pkey')) {
+            try {
+                // نستخرج اسم الجدول اللي فيه المشكلة من رسالة الخطأ
+                const match = e.message.match(/"([a-zA-Z0-9_]+)_pkey"/);
+                if (match && match[1]) {
+                    const tableName = match[1];
+                    console.log(`[Auto-Fix] Repairing broken sequence for table: ${tableName}...`);
+                    // أمر إصلاح العداد إجبارياً
+                    await db.query(`SELECT setval('${tableName}_id_seq', COALESCE((SELECT MAX(id) FROM ${tableName}), 0) + 1, false)`);
+                    console.log(`[Auto-Fix] ✅ Sequence fixed! Retrying query...`);
+                    // إعادة تنفيذ الطلب بعد الإصلاح
+                    return await db.query(qPg, params); 
+                }
+            } catch(fixErr) {
+                console.error("❌ Failed to auto-fix sequence:", fixErr.message);
+            }
+        }
         console.error("\n❌ [DB ERROR]:", e.message);
         return {rows:[]};
     }
@@ -308,7 +326,7 @@ module.exports = {
         else if (interactionOrMessage.user) user = interactionOrMessage.user;
         
         const guildId = interactionOrMessage.guild?.id || interactionOrMessage.guildId;
-        const guild = interactionOrMessage.guild; // تعريف ثابت للسيرفر لتفادي مشكلة الكراش
+        const guild = interactionOrMessage.guild; 
 
         let sentMsg = null;
         if (isSlash && !interactionOrMessage.preselectedItem) {
@@ -470,7 +488,7 @@ module.exports = {
                     else if (i.customId === 'forge_execute_smelt_1') { await handleSmelting(i, user, guildId, db, smeltState, client, 1); smeltState = { item: null }; }
                     else if (i.customId.startsWith('forge_smelt_multi_')) await handleSmeltingMultiModal(i, user, guildId, db, smeltState, client);
                 }
-            } catch (innerError) { }
+            } catch (innerError) {}
         });
 
         collector.on('end', () => {
@@ -629,7 +647,7 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
         return await replyWithCanvas(i, user, 'skill', {
             mora: userMora, title: `تعلم ${resolveText(configSkill.name)}`,
             currentLevel: 0, nextLevel: 1, currentStat: `0${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, 1)}${statSymbol}`, reqMora: LEARN_FEE, 
-            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم التعلم (مورا)', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
+            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم التعلم', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
         }, [btnRow], false);
     }
 
