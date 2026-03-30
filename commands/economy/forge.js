@@ -71,24 +71,19 @@ function resolveText(val) {
     return String(val);
 }
 
-// 🔥 نظام التتبع الجديد لتسجيل الأخطاء 🔥
-const safeQuery = async (db, qPg, qLite, params) => {
+// تم توحيد الاستعلامات عشان ما يصير فيه أي خطأ في الأعمدة بسبب حالة الأحرف (Case Sensitivity)
+const safeQuery = async (db, qPg, params) => {
     try { 
         return await db.query(qPg, params); 
-    } 
-    catch(e) { 
-        return await db.query(qLite, params).catch((err)=>{
-            console.error("\n❌ [DB ERROR]:", err.message);
-            console.error("❌ [QUERY]:", qLite);
-            console.error("❌ [PARAMS]:", params, "\n");
-            return {rows:[]};
-        }); 
+    } catch(e) { 
+        console.error("\n❌ [DB ERROR]:", e.message);
+        return {rows:[]};
     }
 };
 
 async function deductMora(db, userId, guildId, amount) {
     if (amount <= 0) return true;
-    let res = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+    let res = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
     if (!res || !res.rows || res.rows.length === 0) return false;
 
     let mora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
@@ -104,40 +99,39 @@ async function deductMora(db, userId, guildId, amount) {
         bank -= diff;
     }
 
-    await safeQuery(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, `UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [mora, bank, userId, guildId]);
+    await safeQuery(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [mora, bank, userId, guildId]);
     return true;
 }
 
 async function deductItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
 
-    // الفحص
     for (let item of itemsArray) {
-        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, item.id]);
+        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, item.id]);
         if(!res || !res.rows || res.rows.length === 0) return false;
         let currentQty = 0;
         res.rows.forEach(r => currentQty += Number(r.quantity || r.Quantity || 0));
         if(currentQty < item.count) return false;
     }
 
-    // الخصم
     for (let item of itemsArray) {
-        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, item.id]);
+        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, item.id]);
         let remainingToDeduct = item.count;
         for (let r of res.rows) {
             if (remainingToDeduct <= 0) break;
             const q = Number(r.quantity || r.Quantity);
             const deduct = Math.min(q, remainingToDeduct);
-            await safeQuery(db, `UPDATE user_inventory SET "quantity" = CAST("quantity" AS INTEGER) - $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = CAST(quantity AS INTEGER) - $1 WHERE id = $2`, [deduct, r.id || r.ID]);
+            await safeQuery(db, `UPDATE user_inventory SET "quantity" = CAST("quantity" AS INTEGER) - $1 WHERE "id" = $2`, [deduct, r.id || r.ID]);
             remainingToDeduct -= deduct;
         }
     }
     
-    await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [userId]);
+    await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, [userId]);
     return true;
 }
 
 async function getUserRaceName(user, guild, db) {
+    if (!guild) return null;
     const member = guild.members.cache.get(user.id) || await guild.members.fetch({ user: user.id, force: true }).catch(() => null);
     if (!member) return null;
 
@@ -146,7 +140,7 @@ async function getUserRaceName(user, guild, db) {
         if (foundRace) return foundRace;
     }
 
-    let raceRolesRes = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [guild.id]);
+    let raceRolesRes = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guild.id]);
     if (raceRolesRes && raceRolesRes.rows.length > 0) {
         const userRoleIDs = member.roles.cache.map(r => String(r.id).trim());
         const matched = raceRolesRes.rows.find(r => userRoleIDs.includes(String(r.roleID || r.roleid).trim()));
@@ -285,12 +279,14 @@ async function replyWithCanvas(i, user, view, data, components, isInitial = fals
                 return returnMessage || i; 
             }
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error("Canvas Error in Forge:", e);
+    }
     return i;
 }
 
 async function buildMainUI(i, user, guildId, db, isInitial = false) {
-    let userDataRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
+    let userDataRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]);
     const userMora = Number(userDataRes?.rows?.[0]?.mora || userDataRes?.rows?.[0]?.Mora || 0) + Number(userDataRes?.rows?.[0]?.bank || userDataRes?.rows?.[0]?.Bank || 0);
     return await replyWithCanvas(i, user, 'main', { mora: userMora, title: 'المجمع الإمبراطوري للتطوير' }, getMainMenuRows(), isInitial);
 }
@@ -312,6 +308,7 @@ module.exports = {
         else if (interactionOrMessage.user) user = interactionOrMessage.user;
         
         const guildId = interactionOrMessage.guild?.id || interactionOrMessage.guildId;
+        const guild = interactionOrMessage.guild; // تعريف ثابت للسيرفر لتفادي مشكلة الكراش
 
         let sentMsg = null;
         if (isSlash && !interactionOrMessage.preselectedItem) {
@@ -321,6 +318,8 @@ module.exports = {
         }
 
         const fakeInteraction = isSlash ? interactionOrMessage : {
+            guild: guild,
+            client: client,
             replied: interactionOrMessage.preselectedItem ? true : false, 
             deferred: interactionOrMessage.preselectedItem ? true : false,
             reply: async (p) => { 
@@ -364,14 +363,14 @@ module.exports = {
             }
         }
 
-        let userDataRes = await safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
+        let userDataRes = await safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]);
         if (!userDataRes?.rows?.[0]) return fakeInteraction.editReply({ content: "❌ لم يتم العثور على بياناتك في البنك." }).catch(()=>{});
 
-        const currentRace = await getUserRaceName(user, interactionOrMessage.guild, db);
+        const currentRace = await getUserRaceName(user, guild, db);
         let replyObj;
 
         if (!currentRace) {
-            let allRaces = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [guildId]);
+            let allRaces = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guildId]);
             if (!allRaces || allRaces.rows.length === 0) {
                 return fakeInteraction.editReply({ content: "❌ الإدارة لم تقم بإعداد رتب الأعراق في هذا السيرفر بعد. (يرجى إبلاغ الإدارة لاستخدام أمر الإعداد)" }).catch(()=>{});
             }
@@ -423,7 +422,7 @@ module.exports = {
             try {
                 if (i.isStringSelectMenu() && i.customId === 'forge_starter_race') {
                     const roleId = i.values[0];
-                    let raceRolesRes = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [guildId]);
+                    let raceRolesRes = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guildId]);
                     const matched = raceRolesRes.rows.find(r => (r.roleID || r.roleid) === roleId);
                     if(!matched) return i.followUp({ content: "❌ خطأ في العثور على العرق المختار.", flags: [MessageFlags.Ephemeral] });
 
@@ -434,14 +433,11 @@ module.exports = {
                     if (memberObj && targetRole) await memberObj.roles.add(targetRole).catch(()=>{});
 
                     await i.followUp({ content: `🎉 **مرحباً بك في عالمنا!**\nأنت الآن تنتمي رسمياً إلى عرق **(${selectedRaceName})**.\nافتح الحدادة الآن واصنع سلاحك أو تعلم مهاراتك الأولى مقابل ${LEARN_FEE} مورا!`, flags: [MessageFlags.Ephemeral] });
-
-                    synthesisState = { sacrificeItem: null, targetItem: null };
-                    smeltState = { item: null };
+                    synthesisState = { sacrificeItem: null, targetItem: null }; smeltState = { item: null };
                     await buildMainUI(i, user, guildId, db, false);
                 }
                 else if (i.customId === 'forge_return_main') {
-                    synthesisState = { sacrificeItem: null, targetItem: null };
-                    smeltState = { item: null };
+                    synthesisState = { sacrificeItem: null, targetItem: null }; smeltState = { item: null };
                     await buildMainUI(i, user, guildId, db, false);
                 }
                 else if (i.isStringSelectMenu()) {
@@ -449,8 +445,7 @@ module.exports = {
                         await buildSkillUpgradeUI(i, user, guildId, db, i.values[0]);
                     }
                     else if (i.customId === 'forge_synth_sacrifice') {
-                        synthesisState.sacrificeItem = i.values[0];
-                        synthesisState.targetItem = null; 
+                        synthesisState.sacrificeItem = i.values[0]; synthesisState.targetItem = null; 
                         await buildSynthesisUI(i, user, guildId, db, synthesisState);
                     }
                     else if (i.customId === 'forge_synth_target') {
@@ -475,7 +470,7 @@ module.exports = {
                     else if (i.customId === 'forge_execute_smelt_1') { await handleSmelting(i, user, guildId, db, smeltState, client, 1); smeltState = { item: null }; }
                     else if (i.customId.startsWith('forge_smelt_multi_')) await handleSmeltingMultiModal(i, user, guildId, db, smeltState, client);
                 }
-            } catch (innerError) {}
+            } catch (innerError) { }
         });
 
         collector.on('end', () => {
@@ -493,9 +488,9 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     if (!raceName) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
 
     const [userMoraRes, weaponRes, lvlRes] = await Promise.all([
-        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT "weaponLevel" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, `SELECT weaponlevel as "weaponLevel" FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [user.id, guildId, raceName]),
-        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
+        safeQuery(db, `SELECT "weaponLevel" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, raceName]),
+        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId])
     ]);
 
     const userMora = Number(userMoraRes?.rows?.[0]?.mora || userMoraRes?.rows?.[0]?.Mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || userMoraRes?.rows?.[0]?.Bank || 0);
@@ -524,7 +519,7 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     
     const matPromises = reqs.materials.map(async (r) => {
         let matId = raceMats.materials[r.tier].id;
-        let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, matId]);
+        let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guildId, matId]);
         const userMatCount = invRes?.rows?.[0] ? Number(invRes.rows[0].quantity || invRes.rows[0].Quantity) : 0;
         let matInfo = getItemInfo(matId);
         return { id: matId, count: r.count, userCount: userMatCount, name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl };
@@ -548,27 +543,18 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
 async function handleWeaponBuy(i, user, guildId, db) {
     const raceName = await getUserRaceName(user, i.guild, db);
     const hasDeducted = await deductMora(db, user.id, guildId, LEARN_FEE);
-    if (!hasDeducted) {
-        return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لصناعة السلاح!` }, [getReturnRow()]);
-    }
+    if (!hasDeducted) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لصناعة السلاح!` }, [getReturnRow()]);
 
-    await db.query('BEGIN').catch(()=>{}); 
-    try {
-        await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, `DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [user.id, guildId, raceName]);
-        await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, raceName]);
-        await db.query('COMMIT').catch(()=>{}); 
-        
-        await buildWeaponForgeUI(i, user, guildId, db); 
-    } catch(e) {
-        await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'حدث خطأ أثناء الشراء!' }, [getReturnRow()]);
-    }
+    await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, raceName]);
+    await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, raceName]);
+    
+    await buildWeaponForgeUI(i, user, guildId, db); 
 }
 
 async function handleWeaponUpgrade(i, user, guildId, db) {
     const [weaponRes, lvlRes] = await Promise.all([
-        safeQuery(db, `SELECT "raceName", "weaponLevel" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT racename, weaponlevel FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+        safeQuery(db, `SELECT "raceName", "weaponLevel" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]),
+        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId])
     ]);
 
     const wData = weaponRes?.rows?.[0];
@@ -589,17 +575,10 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
     const hasDeductedItems = await deductItems(db, user.id, guildId, detailedReqs);
     if (!hasDeductedItems) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك الموارد الكافية!' }, [getReturnRow()]);
 
-    await db.query('BEGIN').catch(()=>{}); 
-    try {
-        await safeQuery(db, `UPDATE user_weapons SET "weaponLevel" = "weaponLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, `UPDATE user_weapons SET weaponlevel = weaponlevel + 1 WHERE userid = $1 AND guildid = $2 AND racename = $3`, [user.id, guildId, wData.raceName || wData.racename]);
-        await db.query('COMMIT').catch(()=>{}); 
-        
-        const nextLevel = currentLevel + 1;
-        await replyWithCanvas(i, user, 'success_weapon', { title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel: currentLevel, nextLevel: nextLevel, nextStat: `${getWeaponDisplayDamage(weaponConfig, nextLevel)} DMG` }, [getReturnRow()], []);
-    } catch (err) {
-        await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'حدث خطأ أثناء التطوير!' }, [getReturnRow()]);
-    }
+    await safeQuery(db, `UPDATE user_weapons SET "weaponLevel" = "weaponLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, wData.raceName || wData.racename]);
+    
+    const nextLevel = currentLevel + 1;
+    await replyWithCanvas(i, user, 'success_weapon', { title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel: currentLevel, nextLevel: nextLevel, nextStat: `${getWeaponDisplayDamage(weaponConfig, nextLevel)} DMG` }, [getReturnRow()], []);
 }
 
 async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
@@ -609,8 +588,8 @@ async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
     const raceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
 
     const [userMoraRes, skillsRes] = await Promise.all([
-        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
+        safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
     ]);
 
     const userMora = Number(userMoraRes?.rows?.[0]?.mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || 0);
@@ -632,9 +611,9 @@ async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
 async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     const raceName = await getUserRaceName(user, i.guild, db);
     const [userMoraRes, skillRes, lvlRes] = await Promise.all([
-        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT "skillLevel" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `SELECT skilllevel as "skillLevel" FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]),
-        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
+        safeQuery(db, `SELECT "skillLevel" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]),
+        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId])
     ]);
 
     const userMora = Number(userMoraRes?.rows?.[0]?.mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || 0);
@@ -650,7 +629,7 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
         return await replyWithCanvas(i, user, 'skill', {
             mora: userMora, title: `تعلم ${resolveText(configSkill.name)}`,
             currentLevel: 0, nextLevel: 1, currentStat: `0${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, 1)}${statSymbol}`, reqMora: LEARN_FEE, 
-            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم التعلم', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
+            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم التعلم (مورا)', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
         }, [btnRow], false);
     }
 
@@ -666,7 +645,7 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
 
     const matPromises = reqs.materials.map(async (r) => {
         let itemId = r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id;
-        let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemId]);
+        let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guildId, itemId]);
         const userMatCount = invRes?.rows?.[0] ? Number(invRes.rows[0].quantity || invRes.rows[0].Quantity) : 0;
         let matInfo = getItemInfo(itemId);
         return { id: itemId, count: r.count, userCount: userMatCount, name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl };
@@ -692,24 +671,17 @@ async function handleSkillLearn(i, user, guildId, db, skillId) {
         return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لتعلم المهارة!` }, [getReturnRow()]);
     }
 
-    await db.query('BEGIN').catch(()=>{}); 
-    try {
-        await safeQuery(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]);
-        await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
-        await db.query('COMMIT').catch(()=>{}); 
-        
-        await buildSkillUpgradeUI(i, user, guildId, db, skillId);
-    } catch(e) {
-        await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'حدث خطأ أثناء الشراء!' }, [getReturnRow()]);
-    }
+    await safeQuery(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]);
+    await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
+    
+    await buildSkillUpgradeUI(i, user, guildId, db, skillId);
 }
 
 async function handleSkillUpgrade(i, user, guildId, db, skillId) {
     const [skillRes, lvlRes, wRes] = await Promise.all([
-        safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]),
-        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT racename FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+        safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]),
+        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
+        safeQuery(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
     ]);
 
     const currentLevel = Number(skillRes.rows[0].skillLevel || skillRes.rows[0].skilllevel);
@@ -733,24 +705,17 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
     const hasDeductedItems = await deductItems(db, user.id, guildId, detailedReqs);
     if (!hasDeductedItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
 
-    await db.query('BEGIN').catch(()=>{}); 
-    try {
-        await safeQuery(db, `UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `UPDATE user_skills SET skilllevel = skilllevel + 1 WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]);
-        
-        await db.query('COMMIT').catch(()=>{}); 
-        const statSymbol = configSkill.stat_type === '%' ? '%' : '';
-        await replyWithCanvas(i, user, 'success_skill', { title: `صقل ${resolveText(configSkill.name)}`, currentLevel: currentLevel, nextLevel: currentLevel + 1, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}` }, [getReturnRow()], []);
-    } catch (err) {
-        await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'حدث خطأ أثناء الترقية!' }, [getReturnRow()]);
-    }
+    await safeQuery(db, `UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]);
+    
+    const statSymbol = configSkill.stat_type === '%' ? '%' : '';
+    await replyWithCanvas(i, user, 'success_skill', { title: `صقل ${resolveText(configSkill.name)}`, currentLevel: currentLevel, nextLevel: currentLevel + 1, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}` }, [getReturnRow()], []);
 }
 
 async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) {
     const [moraRes, invRes, wRes] = await Promise.all([
-        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT "itemID", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT itemid, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT racename FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
+        safeQuery(db, `SELECT "itemID", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]),
+        safeQuery(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
     ]);
 
     const userMora = Number(moraRes?.rows?.[0]?.mora || 0) + Number(moraRes?.rows?.[0]?.bank || 0);
@@ -821,25 +786,18 @@ async function handleSynthesis(i, user, guildId, db, state) {
     const hasDeductedItems = await deductItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: 4 }]);
     if (!hasDeductedItems) return await replyWithCanvas(i, user, 'synthesis_error', { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: 'لا تملك 4 عناصر متشابهة!' }, [getReturnRow()]);
 
-    await db.query('BEGIN').catch(()=>{}); 
-    try {
-        let targetCheck = await safeQuery(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, state.targetItem]);
-        if (targetCheck?.rows?.[0]) await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, `UPDATE user_inventory SET quantity = quantity + 1 WHERE id = $1`, [targetCheck.rows[0].id || targetCheck.rows[0].ID]);
-        else await safeQuery(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]);
-        
-        await db.query('COMMIT').catch(()=>{}); 
-        const targetInfo = getItemInfo(state.targetItem);
-        await replyWithCanvas(i, user, 'success_synthesis', { title: 'فرن الدمج السحري', targetMatName: targetInfo.name, targetMatIcon: targetInfo.iconUrl, targetMatRarity: targetInfo.rarity }, [getReturnRow()]);
-    } catch (err) {
-        await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'synthesis_error', { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: 'تأكد من موراك والعناصر!' }, [getReturnRow()]);
-    }
+    let targetCheck = await safeQuery(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guildId, state.targetItem]);
+    if (targetCheck?.rows?.[0]) await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, [targetCheck.rows[0].id || targetCheck.rows[0].ID]);
+    else await safeQuery(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]);
+    
+    const targetInfo = getItemInfo(state.targetItem);
+    await replyWithCanvas(i, user, 'success_synthesis', { title: 'فرن الدمج السحري', targetMatName: targetInfo.name, targetMatIcon: targetInfo.iconUrl, targetMatRarity: targetInfo.rarity }, [getReturnRow()]);
 }
 
 async function buildSmeltingUI(i, user, guildId, db, state, isInitial = false) {
     const [moraRes, invRes] = await Promise.all([
-        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT "itemID", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT itemid, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+        safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
+        safeQuery(db, `SELECT "itemID", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
     ]);
     const userMora = Number(moraRes?.rows?.[0]?.mora || 0) + Number(moraRes?.rows?.[0]?.bank || 0);
     const inventory = aggregateInventory(invRes?.rows || []);
@@ -905,7 +863,7 @@ async function handleSmelting(i, user, guildId, db, state, client, qtyToSmelt = 
 
     const memberObj = await i.guild?.members?.fetch(user.id).catch(()=>{});
     if (addXPAndCheckLevel && memberObj) await addXPAndCheckLevel(client, memberObj, db, xpReward, 0, false).catch(()=>{});
-    else await safeQuery(db, `UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [xpReward, user.id, guildId]);
+    else await safeQuery(db, `UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, [xpReward, user.id, guildId]);
         
     const successData = { title: 'محرقة التفكيك', xpGain: xpReward };
     if (isModal) { await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_smelting', successData, [getReturnRow()]); state.item = null; } 
