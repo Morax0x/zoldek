@@ -1,4 +1,4 @@
-const { cleanDisplayName } = require('../dungeon/utils');
+const { cleanDisplayName } = require('../utils');
 
 function getName(entity) {
     if (entity.isMonster) return entity.name;
@@ -6,7 +6,7 @@ function getName(entity) {
     return entity.name || "Unknown";
 }
 
-// 🔥 دالة التوحيد الإجباري (الصحوة من لفل 16) 🔥
+// 🔥 دالة التوحيد الإجباري (الصحوة من لفل 16) المتطابقة مع الحدادة والـ PvP 🔥
 function getWeaponRawDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     
@@ -18,11 +18,12 @@ function getWeaponRawDamage(weaponConfig, level) {
         return Math.floor(base + (inc * (level - 1)));
     } else {
         // من مستوى 16 إلى 30: توحيد إجباري للجميع! (كل الأعراق تتساوى هنا)
-        const unifiedBase16 = 590; // في لفل 16 الجميع يصبح ضرره 590
-        const targetDamage30 = 800; // في لفل 30 الجميع 800
-        const unifiedInc = (targetDamage30 - unifiedBase16) / 14; // الزيادة الموحدة 15 نقطة لكل لفل
+        const damageAt15 = base + (inc * 14); // نحسب ضرر السلاح عند لفل 15 كبداية
+        const targetDamageAt30 = 800; // في لفل 30 الجميع 800
+        const levelsRemaining = 15; 
+        const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining; // زيادة متدرجة وذكية
         
-        let finalDamage = unifiedBase16 + (unifiedInc * (level - 16));
+        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
         
         // كاب أقصى للضمان ألا يتجاوز 800 في حال وصل لفل 30
         if (level >= 30) return targetDamageAt30;
@@ -98,7 +99,7 @@ function executeWeaponAttack(attacker, defender, isOwner = false) {
 
     if (attacker.effects && Array.isArray(attacker.effects)) {
         if (attacker.effects.some(e => e.type === 'crit_buff')) {
-            critBonus += 10.0; 
+            critBonus += 10.0; // 10.0 يعني 1000%، عدلها لو كنت تقصد 0.10
         }
         if (attacker.effects.some(e => e.type === 'luck_buff')) {
             critBonus += 0.20;
@@ -113,7 +114,7 @@ function executeWeaponAttack(attacker, defender, isOwner = false) {
 
     if (isOwner) rawDmg *= 5;
 
-    const variance = (Math.random() * 0.2) + 0.9;
+    const variance = (Math.random() * 0.2) + 0.9; // تباين بين 90% و 110%
     rawDmg = Math.floor(rawDmg * variance);
 
     let damageReduction = 0;
@@ -131,7 +132,7 @@ function executeWeaponAttack(attacker, defender, isOwner = false) {
         }
     }
     
-    if (damageReduction > 0.9) damageReduction = 0.9;
+    if (damageReduction > 0.9) damageReduction = 0.9; // أقصى حد للدفاع 90%
     rawDmg = Math.floor(rawDmg * (1 - damageReduction));
 
     if (rawDmg < 1) rawDmg = 1;
