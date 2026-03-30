@@ -1,7 +1,9 @@
 const { EmbedBuilder, Colors, SlashCommandBuilder } = require("discord.js");
 const skillsConfig = require('../../json/skills-config.json');
+const upgradeMats = require('../../json/upgrade-materials.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
+const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
 const SKILL_TIPS = new Map([
     ['skill_healing', 'استخدمها عندما تكون صحتك منخفضة، فهي تستعيد نسبة من طاقتك الكاملة.'],
@@ -25,6 +27,48 @@ const SKILL_TIPS = new Map([
     ['race_dwarf_skill', 'يمنحك درعاً قوياً جداً يقلل الضرر بنسبة كبيرة، لكنه يستهلك دورك (لا يمكنك الهجوم).'],
     ['race_ghoul_skill', 'هجوم متوسط يلحق ضرراً بالخصم ويقوم بإضعافه في نفس الوقت.']
 ]);
+
+const ID_TO_IMAGE = {
+    'book_general_1': 'gen_book_tactic.png', 'book_general_2': 'gen_book_combat.png', 'book_general_3': 'gen_book_arts.png', 'book_general_4': 'gen_book_war.png', 'book_general_5': 'gen_book_wisdom.png',
+    'book_race_1': 'race_book_stone.png', 'book_race_2': 'race_book_ancestor.png', 'book_race_3': 'race_book_secrets.png', 'book_race_4': 'race_book_covenant.png', 'book_race_5': 'race_book_pact.png'
+};
+
+// 🔥 دالة سحب صورة كتاب المهارة من R2 🔥
+function getSkillImageURL(skillId) {
+    if (!skillId) return null;
+    const isRaceSkill = skillId.startsWith('race_');
+    const categoryName = isRaceSkill ? 'Race_Skills' : 'General_Skills';
+    const typeFolder = isRaceSkill ? 'race' : 'general';
+
+    const bookCat = upgradeMats.skill_books.find(c => c.category === categoryName);
+    if (bookCat && bookCat.books.length > 0) {
+        const firstBookId = bookCat.books[0].id;
+        const imgName = ID_TO_IMAGE[firstBookId] || `${firstBookId}.png`;
+        return `${R2_URL}/images/materials/${typeFolder}/${imgName}`;
+    }
+    return null;
+}
+
+// 🔥 دالة الحسبة الموحدة للمهارات (Hard Sync) 🔥
+function getSkillDisplayValue(skillConfig, currentLevel) {
+    if (!skillConfig) return 0;
+    const level = Math.max(1, currentLevel || 1);
+    const base = skillConfig.base_value;
+    const inc = skillConfig.value_increment;
+    const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
+
+    if (level <= 15) {
+        return Math.floor(base + (inc * (level - 1)));
+    } else {
+        const valueAt15 = base + (inc * 14);
+        const targetValueAt30 = isPercentage ? 50 : 200; 
+        const levelsRemaining = 15;
+        const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
+        let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
+        if (level >= 30) return targetValueAt30;
+        return Math.floor(finalValue);
+    }
+}
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -102,13 +146,34 @@ module.exports = {
         const tip = SKILL_TIPS.get(skill.id) || "لا توجد نصيحة خاصة لهذه المهارة.";
         const isRaceSkill = skill.id.startsWith('race_');
 
+        // حساب القيم الجديدة الموحدة (1, 15, 30)
+        const statSymbol = skill.stat_type === '%' ? '%' : '';
+        const valAt1 = getSkillDisplayValue(skill, 1);
+        const valAt15 = getSkillDisplayValue(skill, 15);
+        const valAt30 = getSkillDisplayValue(skill, 30);
+        
+        const skillImage = getSkillImageURL(skill.id);
+
+        const description = [
+            `✶ **القوة الأساسية (Lv.1):** \`${valAt1}${statSymbol}\``,
+            `✶ **القوة في (Lv.15):** \`${valAt15}${statSymbol}\``,
+            `✶ **القوة عند الصحوة (Lv.30):** \`${valAt30}${statSymbol}\``,
+            `✶ **نوع المهارة:** \`${isRaceSkill ? 'عرقية (حصرية)' : 'عامة (متاحة للكل)'}\``,
+            `✶ **أقصى مستوى:** \`Lv. ${skill.max_level || 30}\``
+        ].join('\n');
+
         const embed = new EmbedBuilder()
-            .setTitle(`${skill.emoji} ${skill.name} ${isRaceSkill ? '(خاص بالعرق)' : ''}`)
+            .setTitle(`${skill.emoji || '✨'} ${skill.name} ${isRaceSkill ? '(خاص بالعرق)' : ''}`)
             .setColor(isRaceSkill ? Colors.Blue : Colors.Gold)
             .addFields(
-                { name: "✶ الـوصـف", value: skill.description || "لا يوجد وصف." },
+                { name: "✶ الـوصـف والـقـدرات", value: skill.description || "لا يوجد وصف." },
+                { name: "📊 إحصائيات المهارة والمستويات", value: description },
                 { name: "✥ نصيحة للاستعمال", value: tip }
             );
+
+        if (skillImage) {
+            embed.setThumbnail(skillImage);
+        }
 
         await reply({ embeds: [embed] });
     }
