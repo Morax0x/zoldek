@@ -1,629 +1,468 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, MessageFlags, AttachmentBuilder, EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, PermissionsBitField, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType, Colors, SlashCommandBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
-let generateGachaCard, generateGachaHub;
-try {
-    ({ generateGachaCard, generateGachaHub } = require('../../generators/gacha-generator.js'));
-} catch (e) {
-    generateGachaCard = null; generateGachaHub = null;
+const HELP_IMAGE = 'https://i.postimg.cc/h4Hb5VX6/help.png';
+const CASINO_IMAGE = 'https://i.postimg.cc/mkCr3Xwr/download-(1).jpg'; // الصورة الصغيرة الجديدة
+
+// (مترجم الأوصاف الإدارية والأوامر الجديدة)
+const DESCRIPTION_TRANSLATIONS = new Map([
+    ['mora-admin', 'تعديل رصيد المورا لعضو (إضافة/إزالة)'],
+    ['xp', 'التحكم بنقاط الخبرة (إضافة/إزالة)'],
+    ['add-level', 'إضافة مستويات لعضو معين'],
+    ['remove-level', 'إزالة مستويات من عضو معين'],
+    ['set-level', 'تحديد مستوى لعضو معين'],
+    ['set-streak', 'تعديل ستريك عضو معين'],
+    ['give-shield', 'إعطاء درع ستريك لعضو'],
+    ['give-buff', 'إعطاء معزز خبرة/مورا لعضو'],
+    ['prefix', 'تغيير بريفكس البوت'],
+    ['blacklist', 'حظر عضو أو رتبة من استخدام البوت'],
+    ['xpsettings', 'التحكم بإعدادات نقاط الخبرة النصية'],
+    ['vxpsettings', 'التحكم بإعدادات نقاط الخبرة الصوتية'],
+    ['set-vip-role', 'تحديد رتبة الـ VIP الخاصة بالمتجر'],
+    ['set-casino-room', 'تحديد قناة الكازينو (لأوامر المقامرة)'],
+    ['setquestchannel', 'تحديد قناة إشعارات المهمات والإنجازات'],
+    ['setup-quest-panel', 'نشر لوحة المهمات التفاعلية'],
+    ['setlevelchannel', 'تحديد قناة إشعارات اللفل أب'],
+    ['custom-rank', 'تخصيص بطاقة الرانك (VIP)'],
+    ['set-role-buff', 'تحديد معزز خبرة لرتبة معينة'],
+    ['setlevelmessage', 'تخصيص رسالة اللفل أب'],
+    ['post-achievements-msg', 'نشر رسالة لوحة الإنجازات'],
+    ['set-achievement-channel', 'تحديد قناة الإنجازات'],
+    ['set-quest-configs', 'تعديل إعدادات المهمات (للمطور)'],
+    ['set-race-role', 'تحديد رتب العرق للـ PvP'],
+    ['set-streak-emoji', 'تغيير إيموجي الستريك'],
+    ['setup-streak-panel', 'نشر لوحة الستريك التفاعلية'],
+    ['checkdb', 'فحص قاعدة البيانات (للمطور)'],
+    ['reroll', 'إعادة سحب فائز في قيف اواي'],
+    ['set-shop-log', 'تحديد قناة سجلات المتجر'],
+    ['boss', 'التحكم في وحش العالم (للمالك)'],
+    ['dungeon', 'دخول الدانجون (PvE) لمحاربة الوحوش'],
+    ['arrange', 'لعبة ترتيب الأرقام (سرعة وذاكرة)'],
+    ['race', 'سباق الخيول (فردي وجماعي)'],
+    ['colors', 'يظهر لوحة الالوان لتغيير لون اسمك بالسيرفر'], 
+    ['top', 'عرض قائمة المتصدرين (مورا/لفل/ستريك)'],
+    ['afk', 'تفعيل وضع الغياب المؤقت (AFK) وترك رسالة']
+]);
+
+// خريطة للأسماء العربية اليدوية
+const MANUAL_ARABIC_NAMES = new Map([
+    ['level', 'مستوى'],
+    ['top', 'توب'],
+    ['profile', 'بروفايل'],
+    ['balance', 'رصيد'],
+    ['bank', 'بنك'],
+    ['deposit', 'ايداع'],
+    ['withdraw', 'سحب'],
+    ['daily', 'راتب'],
+    ['loan', 'قرض'],
+    ['payloan', 'سداد'],
+    ['market', 'سوق'],
+    ['portfolio', 'ممتلكات'],
+    ['transfer', 'تحويل'],
+    ['farm', 'مزرعة'],
+    ['work', 'عمل'],
+    ['rps', 'حجرة'],
+    ['roulette', 'روليت'],
+    ['rob', 'سرقة'],
+    ['guess', 'خمن'],
+    ['gametime', 'وقت'],
+    ['pvp', 'تحدي'],
+    ['my-skills', 'عتاد'],
+    ['weapon-info', 'سلاح'],
+    ['shop', 'متجر'],
+    ['fish', 'صيد'],
+    ['emoji', 'ايموجي'],
+    ['boss', 'وحش'],
+    ['dungeon', 'دانجون'],
+    ['arrange', 'ترتيب'],
+    ['race', 'سباق'],
+    ['colors', 'الوان'],
+    ['afk', 'غياب'],
+    ['gacha', 'صندوق'],
+    ['forge', 'حدادة']
+]);
+
+function getArabicDescription(cmd) {
+    if (!cmd) return 'لا يوجد وصف';
+    const translated = DESCRIPTION_TRANSLATIONS.get(cmd.name);
+    if (translated) return translated;
+    const hasArabic = /[\u0600-\u06FF]/.test(cmd.description);
+    if (cmd.description && hasArabic) return cmd.description;
+    return cmd.description || 'لا يوجد وصف';
 }
 
-const skillsConfig = require('../../json/skills-config.json');
-const upgradeMats = require('../../json/upgrade-materials.json');
-
-const PULL_PRICE = 1000;
-const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
-
-// 🔥 نظام القفل الشامل لمنع السبام والتعليق 🔥
-const activeGachaUsers = new Set();
-
-const FLAVOR_TEXTS = [
-    "قدم المورا ودع النجوم ترسم لك مسارا جديدا",
-    "بين يديك مفتاح الابعاد اكسر الختم لترى اي اسطورة ستستجيب",
-    "النجوم تنتظر من يوقظها ادفع المورا وابدا طقوس الاستدعاء",
-    "مقابل المورا قد تبتسم لك الاقدار او تدير لك ظهرها جرب حظك",
-    "اكسر قيود الزمن واستحضر القوة المنسية الى قبضتك",
-    "خلف هذا الختم ترقد كنوز الامبراطورية افتحه واصنع مجدك",
-    "ايقظ التحف النادرة من سباتها الابدي المورا هي الثمن",
-    "طريق العظمة محفوف بالمخاطر والمكافات اكشف غنيمتك",
-    "همسات الاقدار تناديك استخدم المورا لفك طلاسم الصندوق",
-    "تذكرة عبورك لعالم الاسرار اكشف ما يختبئ في الظلام",
-    "بوابات الحظ لا تفتح للجبناء الق المورا وانتظر المعجزة",
-    "قرابين المورا هي مفتاحك للاسطورة",
-    "اكسر الختم واقطف نجمتك الساطعة",
-    "ضح بالمورا وعانق المجهول",
-    "حظوظك مكتوبة بين النجوم افتح الصندوق لتقراها"
-];
-
-const ID_TO_IMAGE = {
-    'mat_dragon_1': 'dragon_ash.png', 'mat_dragon_2': 'dragon_scale.png', 'mat_dragon_3': 'dragon_claw.png', 'mat_dragon_4': 'dragon_heart.png', 'mat_dragon_5': 'dragon_core.png',
-    'mat_human_1': 'human_iron.png', 'mat_human_2': 'human_steel.png', 'mat_human_3': 'human_meteor.png', 'mat_human_4': 'human_seal.png', 'mat_human_5': 'human_crown.png',
-    'mat_elf_1': 'elf_branch.png', 'mat_elf_2': 'elf_bark.png', 'mat_elf_3': 'elf_flower.png', 'mat_elf_4': 'elf_crystal.png', 'mat_elf_5': 'elf_tear.png',
-    'mat_darkelf_1': 'darkelf_obsidian.png', 'mat_darkelf_2': 'darkelf_glass.png', 'mat_darkelf_3': 'darkelf_crystal.png', 'mat_darkelf_4': 'darkelf_void.png', 'mat_darkelf_5': 'darkelf_ash.png',
-    'mat_seraphim_1': 'seraphim_feathe.png', 'mat_seraphim_2': 'seraphim_halo.png', 'mat_seraphim_3': 'seraphim_crystal.png', 'mat_seraphim_4': 'seraphim_core.png', 'mat_seraphim_5': 'seraphim_chalice.png',
-    'mat_demon_1': 'demon_ember.png', 'mat_demon_2': 'demon_horn.png', 'mat_demon_3': 'demon_crystal.png', 'mat_demon_4': 'demon_flame.png', 'mat_demon_5': 'demon_crown.png',
-    'mat_vampire_1': 'vampire_blood.png', 'mat_vampire_2': 'vampire_vial.png', 'mat_vampire_3': 'vampire_fang.png', 'mat_vampire_4': 'vampire_moon.png', 'mat_vampire_5': 'vampire_chalice.png',
-    'mat_spirit_1': 'spirit_dust.png', 'mat_spirit_2': 'spirit_remnant.png', 'mat_spirit_3': 'spirit_crystal.png', 'mat_spirit_4': 'spirit_core.png', 'mat_spirit_5': 'spirit_pulse.png',
-    'mat_hybrid_1': 'hybrid_claw.png', 'mat_hybrid_2': 'hybrid_fur.png', 'mat_hybrid_3': 'hybrid_bone.png', 'mat_hybrid_4': 'hybrid_crystal.png', 'mat_hybrid_5': 'hybrid_soul.png',
-    'mat_dwarf_1': 'dwarf_copper.png', 'mat_dwarf_2': 'dwarf_bronze.png', 'mat_dwarf_3': 'dwarf_mithril.png', 'mat_dwarf_4': 'dwarf_heart.png', 'mat_dwarf_5': 'dwarf_hammer.png',
-    'mat_ghoul_1': 'ghoul_bone.png', 'mat_ghoul_2': 'ghoul_remains.png', 'mat_ghoul_3': 'ghoul_skull.png', 'mat_ghoul_4': 'ghoul_crystal.png', 'mat_ghoul_5': 'ghoul_core.png',
-    'book_general_1': 'gen_book_tactic.png', 'book_general_2': 'gen_book_combat.png', 'book_general_3': 'gen_book_arts.png', 'book_general_4': 'gen_book_war.png', 'book_general_5': 'gen_book_wisdom.png',
-    'book_race_1': 'race_book_stone.png', 'book_race_2': 'race_book_ancestor.png', 'book_race_3': 'race_book_secrets.png', 'book_race_4': 'race_book_covenant.png', 'book_race_5': 'race_book_pact.png'
-};
-
-const LOOT_POOL = { Common: [], Uncommon: [], Rare: [], Epic: [], Legendary: [] };
-
-if (upgradeMats.weapon_materials) {
-    upgradeMats.weapon_materials.forEach(race => {
-        race.materials.forEach(m => {
-            const raceFolder = race.race.toLowerCase().replace(' ', '_');
-            const imgName = ID_TO_IMAGE[m.id] || `${m.id}.png`;
-            LOOT_POOL[m.rarity].push({ ...m, type: 'material', race: race.race, imgPath: `${R2_URL}/images/materials/${raceFolder}/${imgName}` });
-        });
-    });
-}
-
-if (upgradeMats.skill_books) {
-    upgradeMats.skill_books.forEach(cat => {
-        cat.books.forEach(b => {
-            const typeFolder = cat.category === 'General_Skills' ? 'general' : 'race';
-            const imgName = ID_TO_IMAGE[b.id] || `${b.id}.png`;
-            LOOT_POOL[b.rarity].push({ ...b, type: 'book', category: cat.category, imgPath: `${R2_URL}/images/materials/${typeFolder}/${imgName}` });
-        });
-    });
-}
-
-if (skillsConfig) {
-    skillsConfig.forEach(s => {
-        const isLegendary = s.id.startsWith('race_') || s.id === 'skill_gamble' || s.id === 'skill_dispel';
-        const rarity = isLegendary ? 'Legendary' : 'Epic';
-        LOOT_POOL[rarity].push({ ...s, type: 'skill', rarity: rarity, imgPath: null });
-    });
-}
-
-async function execSafe(db, qPg, qLite, params = []) {
-    try {
-        let res = await db.query(qPg, params);
-        return res || { rows: [] };
-    } catch(e1) {
-        try {
-            let res2 = await db.query(qLite, params);
-            return res2 || { rows: [] };
-        } catch(e2) {
-            return { rows: [], error: true };
-        }
+function getCmdName(commands, name) {
+    if (MANUAL_ARABIC_NAMES.has(name)) {
+        return MANUAL_ARABIC_NAMES.get(name);
     }
+    const cmd = commands.get(name);
+    if (!cmd) return name; 
+
+    let arabicAlias = null;
+    if (cmd.aliases && Array.isArray(cmd.aliases)) {
+        arabicAlias = cmd.aliases.find(a => /[\u0600-\u06FF]/.test(a));
+    }
+    return arabicAlias || cmd.name;
 }
 
-// 🔥 دالة الخصم الذكية: تخصم من الكاش، وإذا ما كفى تكمل الخصم من البنك 🔥
-async function deductMora(client, db, userId, guildId, amount) {
-    try {
-        let rCheck = await execSafe(db, 
-            `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, 
-            `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, 
-            [userId, guildId]
-        );
-        
-        if (rCheck.error || rCheck.rows.length === 0) return false;
-        
-        let m = Number(rCheck.rows[0].mora || rCheck.rows[0].Mora || 0);
-        let b = Number(rCheck.rows[0].bank || rCheck.rows[0].Bank || 0);
+function buildMainMenuEmbed(client) {
+    const commands = client.commands;
+    const desc = `
+**❖ الـقـائمـة الرئـيسـيـة**
 
-        if ((m + b) < amount) return false; // إذا المجموع ما يكفي، ارفض العملية
+✶** ${getCmdName(commands, 'level')}: ** \`يعرض مستواك في السيرفر\`
+✶** ${getCmdName(commands, 'top')}: ** \`لوحـة الصدار لـ اعلى لمصنفين في السيرفر\`
+✶** ${getCmdName(commands, 'profile')}: ** \`اظهار البروفايل الشخصي وأهم معلوماتك\`
+✶** ${getCmdName(commands, 'colors')}: ** \`يظهر لوحة الالوان لتغيير لون اسمك بالسيرفر\`
+✶** ${getCmdName(commands, 'afk')}: ** \`تفعيل وضع الغياب وترك رسالة لمن يذكرك\`
+    `;
 
-        let newMora = m;
-        let newBank = b;
-
-        if (m >= amount) {
-            newMora = m - amount; // إذا الكاش يكفي، اخصم منه وخلاص
-        } else {
-            let remainder = amount - m; // إذا الكاش ما يكفي، صفّر الكاش واخصم الباقي من البنك
-            newMora = 0;
-            newBank = b - remainder;
-        }
-
-        // 1. تحديث الذاكرة المؤقتة (Cache)
-        if (client && typeof client.getLevel === 'function') {
-            let u = await client.getLevel(userId, guildId);
-            if (u) {
-                u.mora = newMora;
-                u.bank = newBank;
-                if (typeof client.setLevel === 'function') await client.setLevel(u);
-            }
-        }
-
-        // 2. تحديث قاعدة البيانات
-        let rUpdate = await execSafe(db,
-            `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`,
-            `UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`,
-            [newMora, newBank, userId, guildId]
-        );
-        return !rUpdate.error;
-    } catch(e) {
-        return false;
-    }
+    return new EmbedBuilder()
+        .setColor("Red")
+        .setImage(HELP_IMAGE)
+        .setDescription(desc);
 }
 
-async function ensurePityTable(db) {
-    await execSafe(db, 
-        `CREATE TABLE IF NOT EXISTS user_gacha_pity ("userID" TEXT, "guildID" TEXT, "epic_pity" INTEGER DEFAULT 0, "legendary_pity" INTEGER DEFAULT 0, "last_free_claim" TEXT DEFAULT '', PRIMARY KEY ("userID", "guildID"))`,
-        `CREATE TABLE IF NOT EXISTS user_gacha_pity (userid TEXT, guildid TEXT, epic_pity INTEGER DEFAULT 0, legendary_pity INTEGER DEFAULT 0, last_free_claim TEXT DEFAULT '', PRIMARY KEY (userid, guildid))`
-    );
+function buildCasinoEmbed(client) {
+    const commands = client.commands;
+    const desc = `
+**❖ اوامـر الكـازينـو**
+
+✶** ${getCmdName(commands, 'balance')}: ** \`يعرض رصيدك الكاش ورصيد البنك\`
+✶** ${getCmdName(commands, 'bank')}: ** \`تقريرك الائتماني والفوائد اليومية\`
+✶** ${getCmdName(commands, 'deposit')}: ** \`لـ ايداع رصيدك في البنك\`
+✶** ${getCmdName(commands, 'withdraw')}: ** \`لسحب رصيدك من البنك\`
+✶** ${getCmdName(commands, 'daily')}: ** \`لـ استلام راتبك اليومي\`
+✶** ${getCmdName(commands, 'loan')}: ** \`للحصول على قرض من البنك\`
+✶** ${getCmdName(commands, 'payloan')}: ** \`لدفع قسط من قرضك\`
+✶** ${getCmdName(commands, 'market')}: ** \`عرض سوق الاسهم والاستثمارات\`
+✶** ${getCmdName(commands, 'portfolio')}: ** \`استعراض استثماراتك و اصولك\`
+✶** ${getCmdName(commands, 'transfer')}: ** \`لتحويل رصيد المورا لمستخدم آخر\`
+✶** ${getCmdName(commands, 'farm')}: ** \`عرض مزرعتك الخاصة والسوق الزراعي\`
+✶** ${getCmdName(commands, 'work')}: ** \`للعمل وكسب المورا مرة كل ساعة\`
+✶** ${getCmdName(commands, 'rps')}: ** \`لعب حجرة ورقة مقص\`
+✶** ${getCmdName(commands, 'roulette')}: ** \`للعب الروليت الروسية ومضاعفة رهانك\`
+✶** ${getCmdName(commands, 'emoji')}: ** \`لعبة تحدي الذاكرة (إيموجي)\`
+✶** ${getCmdName(commands, 'rob')}: ** \`لسرقة ونهب رصيد مستخدم آخر\`
+✶** ${getCmdName(commands, 'guess')}: ** \`لعبة تخمين الرقم فردي او جماعي\`
+✶** ${getCmdName(commands, 'race')}: ** \`لعبة سباق الخيول فردي او جماعي\`
+✶** ${getCmdName(commands, 'arrange')}: ** \`لعبة ترتيب الأرقام (سرعة)\`
+✶** ${getCmdName(commands, 'gametime')}: ** \`لاظهار فترة التهدئة لأوامر الكازينو\`
+✶** ${getCmdName(commands, 'fish')}: ** \`صيد السمك وكسب المورا\`
+
+**❖ اوامـر الـقـتـال والـمـغـامـرة**
+✶** ${getCmdName(commands, 'dungeon')}: ** \`دخول الدانجون ومحاربة الوحوش (PvE)\`
+✶** ${getCmdName(commands, 'pvp')}: ** \`قتال وتحدي شخص آخر والمراهنة\`
+✶** ${getCmdName(commands, 'my-skills')}: ** \`لعرض عتادك القتالي ومهاراتك\`
+✶** ${getCmdName(commands, 'weapon-info')}: ** \`لعرض تفاصيل سلاح العرق الخاص بك\`
+✶** ${getCmdName(commands, 'shop')}: ** \`يوجهك لمتجر السيرفر لاستبدال المورا بالعناصر\`
+✶** ${getCmdName(commands, 'gacha')}: ** \`صناديق سحرية تستدعي الارتيفاكت لتطوير عتادك\`
+✶** ${getCmdName(commands, 'forge')}: ** \`ورشة الحدادة والصقل لصقل مهاراتك واسلحتك\`
+    `;
+
+    return new EmbedBuilder()
+        .setColor("Red")
+        .setImage(HELP_IMAGE)
+        .setDescription(desc);
 }
 
-function performPull(pityData, userRace, ownedSkills) {
-    pityData.epic_pity++;
-    pityData.legendary_pity++;
+function buildAdminSettingsEmbed(client) {
+    const settingsList = client.commands.filter(cmd => 
+        (cmd.category === 'Leveling' && (
+            cmd.name.startsWith('set-') || 
+            cmd.name.startsWith('setup-') || 
+            cmd.name.startsWith('allow-') || 
+            cmd.name.startsWith('deny-') || 
+            cmd.name.startsWith('list-') || 
+            cmd.name === 'prefix' || 
+            cmd.name === 'blacklist' || 
+            cmd.name === 'xpsettings' || 
+            cmd.name === 'vxpsettings' ||
+            cmd.name === 'setlevelmessage' ||
+            cmd.name === 'setlevelrole' || 
+            cmd.name === 'set-role-buff' ||
+            cmd.name === 'set-streak-emoji' ||
+            cmd.name === 'setup-streak-panel' ||
+            cmd.name === 'custom-rank'
+        )) ||
+        (cmd.category === 'Admin') || 
+        cmd.name === 'setquestchannel' ||
+        cmd.name === 'setup-quest-panel' ||
+        cmd.name === 'post-achievements-msg' ||
+        cmd.name === 'set-achievement-channel' ||
+        cmd.name === 'set-quest-configs' ||
+        cmd.name === 'set-race-role' ||
+        cmd.name === 'set-vip-role' || 
+        cmd.name === 'set-casino-room' ||
+        cmd.name === 'set-shop-log' || 
+        cmd.name === 'boss'
+    ).map(cmd => `✶ **${getCmdName(client.commands, cmd.name)}**\n✬ ${getArabicDescription(cmd)}`).join('\n\n'); 
 
-    let rarity = 'Common';
-    const rand = Math.random();
+    return new EmbedBuilder()
+        .setColor("Red")
+        .setImage(HELP_IMAGE)
+        .setTitle('⚙️ إعدادات السيرفر (للإدارة)')
+        .setDescription(settingsList || 'لا توجد أوامر إعدادات.');
+}
 
-    if (pityData.legendary_pity >= 90) rarity = 'Legendary';
-    else if (pityData.epic_pity >= 10) rarity = 'Epic';
-    else {
-        if (rand <= 0.006) rarity = 'Legendary';
-        else if (rand <= 0.051) rarity = 'Epic';
-        else if (rand <= 0.18) rarity = 'Rare';
-        else if (rand <= 0.48) rarity = 'Uncommon';
-        else rarity = 'Common';
-    }
+function buildAdminManagementEmbed(client) {
+    const managementList = client.commands.filter(cmd => 
+        (cmd.category === 'Economy' && cmd.name.endsWith('-admin')) ||
+        cmd.name === 'xp' || 
+        cmd.name === 'add-level' || 
+        cmd.name === 'remove-level' || 
+        cmd.name === 'set-level' ||
+        cmd.name === 'set-streak' || 
+        cmd.name === 'give-shield' || 
+        cmd.name === 'give-buff' ||
+        cmd.name === 'reroll' ||
+        cmd.name === 'checkdb'
+    ).map(cmd => `✶ **${getCmdName(client.commands, cmd.name)}**\n✬ ${getArabicDescription(cmd)}`).join('\n\n'); 
 
-    if (rarity === 'Legendary') { pityData.legendary_pity = 0; pityData.epic_pity = 0; }
-    else if (rarity === 'Epic') pityData.epic_pity = 0;
-
-    let pool = LOOT_POOL[rarity] ? [...LOOT_POOL[rarity]] : [...LOOT_POOL['Common']];
-
-    pool = pool.filter(item => !(item.type === 'skill' && ownedSkills.includes(item.id)));
-    if (pool.length === 0) pool = [...LOOT_POOL['Common']]; 
-
-    if (userRace && (rarity === 'Epic' || rarity === 'Legendary')) {
-        if (Math.random() < 0.75) {
-            const racePool = pool.filter(item => item.race === userRace || (item.type === 'book' && item.category === 'race'));
-            if (racePool.length > 0) pool = racePool;
-        }
-    }
-
-    const item = pool[Math.floor(Math.random() * pool.length)];
-    return { item, rarity };
+    return new EmbedBuilder()
+        .setColor("Red")
+        .setImage(HELP_IMAGE)
+        .setTitle('👑 إدارة الأعضاء (للإدارة)')
+        .setDescription(managementList || 'لا توجد أوامر إدارة.');
 }
 
 module.exports = {
-    data: new SlashCommandBuilder().setName('صندوق').setDescription('صناديق سحرية تستدعي الارتيفاكت لتطوير عتادك'),
-    name: 'صندوق',
-    aliases: ['gacha', 'صناديق', 'صندوق', 'غاتشا', 'قاتشا', 'pull'],
-    category: 'RPG',
+    data: new SlashCommandBuilder()
+        .setName('مساعدة')
+        .setDescription('عرض قائمة المساعدة.')
+        .addStringOption(option =>
+            option.setName('اسم-الامر')
+            .setDescription('عرض تفاصيل أمر معين')
+            .setRequired(false)
+            .setAutocomplete(true)), 
 
-    async execute(interactionOrMessage) {
+    name: "help",
+    aliases: ["h", "مساعدة", "help","اوامر",],
+    category: "Utility",
+    cooldown : 5,
+    description: "Display Help Commands",
+
+    async autocomplete(interaction) {
+        try {
+            const focusedValue = interaction.options.getFocused().toLowerCase();
+            const commands = interaction.client.commands;
+            const filtered = commands.filter(cmd => 
+                cmd.name.toLowerCase().includes(focusedValue)
+            ).map(cmd => ({
+                name: cmd.name,
+                value: cmd.name
+            }));
+            await interaction.respond(filtered.slice(0, 25));
+        } catch (e) {}
+    },
+
+    async execute(interactionOrMessage, args) {
+
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        const client = interactionOrMessage.client;
-        const db = client.sql;
-        const user = isSlash ? interactionOrMessage.user : interactionOrMessage.author;
-        const guildId = interactionOrMessage.guild.id;
-        const member = isSlash ? interactionOrMessage.member : interactionOrMessage.member;
+        let interaction, message, guild, client, user;
 
-        const reply = async (payload) => isSlash ? interactionOrMessage.editReply(payload).catch(()=>{}) : interactionOrMessage.reply(payload).catch(()=>{});
-
-        // نظام القفل
-        if (activeGachaUsers.has(user.id)) {
-            const msgPayload = { content: '⏳ **الرجاء إنهاء الصناديق الحالية أو انتظار فك القفل (ثواني معدودة)...**', flags: [MessageFlags.Ephemeral] };
-            if (isSlash) {
-                if(!interactionOrMessage.deferred && !interactionOrMessage.replied) await interactionOrMessage.reply(msgPayload).catch(()=>{});
-                else await interactionOrMessage.followUp(msgPayload).catch(()=>{});
-            } else {
-                await interactionOrMessage.reply(msgPayload).catch(()=>{});
-            }
-            return;
+        if (isSlash) {
+            interaction = interactionOrMessage;
+            guild = interaction.guild;
+            client = interaction.client;
+            user = interaction.user;
+            await interaction.deferReply();
+        } else {
+            message = interactionOrMessage;
+            guild = message.guild;
+            client = message.client;
+            user = message.author;
         }
 
-        if (isSlash) await interactionOrMessage.deferReply().catch(()=>{});
-        if (!db) return reply({ content: "خطأ في قاعدة البيانات" });
-        
-        activeGachaUsers.add(user.id);
+        const reply = async (payload) => {
+            if (isSlash) return interaction.editReply(payload);
+            return message.reply(payload); // استخدام reply بدلاً من send لضمان الرد المباشر
+        };
 
-        let initialMsg;
+        const replyError = async (content) => {
+            const payload = { content, ephemeral: true };
+            if (isSlash) return interaction.editReply(payload);
+            return message.reply(payload);
+        };
+
+        const db = client.sql; 
+        const { commands } = client;
+
+        // 🔥 تحديث استعلام البريفكس ليتوافق مع PostgreSQL
+        let prefix = "-"; 
         try {
-            await ensurePityTable(db);
+            const prefixRes = await db.query(`SELECT "serverprefix" FROM prefix WHERE "guild" = $1`, [guild.id]);
+            if (prefixRes.rows.length > 0 && prefixRes.rows[0].serverprefix) {
+                prefix = prefixRes.rows[0].serverprefix;
+            }
+        } catch (e) {
+            console.error("Prefix query error in help:", e);
+        }
 
-            let userMora = 0;
-            let userBank = 0;
-            let freeChests = 0;
-            let paidChests = 0;
-            let totalChests = 0;
-            let pityData = { epic_pity: 0, legendary_pity: 0, last_free_claim: '' };
-            let ownedSkills = [];
-            let userRace = null;
-            let activePageCollector = null;
+        if (!guild.members.me.permissions.has(PermissionsBitField.Flags.EmbedLinks)) {
+            return replyError(`Missing Permission: EMBED_LINKS`);
+        }
 
-            const fetchUserData = async () => {
-                let cacheMora = null;
-                let cacheBank = null;
-                try {
-                    if (client.getLevel) {
-                        let u = await client.getLevel(user.id, guildId);
-                        if (u) {
-                            cacheMora = Number(u.mora || u.Mora || 0);
-                            cacheBank = Number(u.bank || u.Bank || 0);
-                        }
-                    }
-                } catch(e) {}
+        let commandNameArg = null;
+        if (isSlash) {
+            commandNameArg = interaction.options.getString('اسم-الامر');
+        } else if (args && args.length > 0) {
+            commandNameArg = args[0].toLowerCase();
+        }
 
-                const [lvlRes, invRes, skillRes, wepRes] = await Promise.all([
-                    execSafe(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-                    execSafe(db, `SELECT "itemID", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" IN ('gacha_chest', 'free_gacha_chest')`, `SELECT itemid, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid IN ('gacha_chest', 'free_gacha_chest')`, [user.id, guildId]),
-                    execSafe(db, `SELECT "skillID" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, `SELECT skillid FROM user_skills WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-                    execSafe(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT racename FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
-                ]);
+        if (commandNameArg) {
+            const name = commandNameArg.toLowerCase();
+            const command = commands.get(name) || commands.find(c => c.aliases && c.aliases.includes(name));
 
-                userMora = cacheMora !== null ? cacheMora : (lvlRes.rows[0] ? Number(lvlRes.rows[0].mora || lvlRes.rows[0].Mora || 0) : 0);
-                userBank = cacheBank !== null ? cacheBank : (lvlRes.rows[0] ? Number(lvlRes.rows[0].bank || lvlRes.rows[0].Bank || 0) : 0);
-                
-                freeChests = 0;
-                paidChests = 0;
-                if (!invRes.error && invRes.rows) {
-                    invRes.rows.forEach(r => {
-                        const id = r.itemID || r.itemid;
-                        const qty = Number(r.quantity || r.Quantity);
-                        if (id === 'free_gacha_chest') freeChests = qty;
-                        if (id === 'gacha_chest') paidChests = qty;
-                    });
-                }
-                totalChests = freeChests + paidChests;
-                if (!skillRes.error && skillRes.rows) ownedSkills = skillRes.rows.map(r => r.skillID || r.skillid);
-                if (!wepRes.error && wepRes.rows[0]) userRace = wepRes.rows[0].raceName || wepRes.rows[0].racename;
-            };
-
-            await fetchUserData();
-            const pityRes = await execSafe(db, `SELECT * FROM user_gacha_pity WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_gacha_pity WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-            if (!pityRes.error && pityRes.rows[0]) {
-                pityData.epic_pity = pityRes.rows[0].epic_pity || 0;
-                pityData.legendary_pity = pityRes.rows[0].legendary_pity || 0;
-                pityData.last_free_claim = pityRes.rows[0].last_free_claim || '';
-            } else {
-                await execSafe(db, `INSERT INTO user_gacha_pity ("userID", "guildID", "last_free_claim") VALUES ($1, $2, '')`, `INSERT INTO user_gacha_pity (userid, guildid, last_free_claim) VALUES ($1, $2, '')`, [user.id, guildId]);
+            if (!command) {
+                return replyError('هذا الأمر غير موجود!');
             }
 
-            let dailyLimit = 0;
-            if (member.roles.cache.has('1422160802416164885')) dailyLimit = 20;
-            else if (member.roles.cache.has('1395674235002945636')) dailyLimit = 10;
+            const displayName = getCmdName(commands, command.name);
+            const aliases = command.aliases ? command.aliases.map(a => `\`${a}\``).join(", ") : "لا يوجد";
 
-            const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
-
-            if (dailyLimit > 0 && pityData.last_free_claim !== todaySaudi) {
-                if (freeChests === 0) {
-                    freeChests = dailyLimit;
-                    totalChests = freeChests + paidChests;
-                    
-                    let checkFreeRes = await execSafe(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = 'free_gacha_chest'`, `SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = 'free_gacha_chest'`, [user.id, guildId]);
-                    if (!checkFreeRes.error && checkFreeRes.rows[0]) {
-                        await execSafe(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [freeChests, checkFreeRes.rows[0].id || checkFreeRes.rows[0].ID]);
-                    } else {
-                        await execSafe(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, freeChests]);
-                    }
-                    
-                    await execSafe(db, `UPDATE user_gacha_pity SET "last_free_claim" = $1 WHERE "userID" = $2 AND "guildID" = $3`, `UPDATE user_gacha_pity SET last_free_claim = $1 WHERE userid = $2 AND guildid = $3`, [todaySaudi, user.id, guildId]);
-                    pityData.last_free_claim = todaySaudi;
-
-                    (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).send({ content: `🎁 <@${user.id}> **مكافأة يومية!** لقد استلمت **${dailyLimit}** صناديق مجانية.` }).catch(()=>{});
-                }
-            }
-
-            const getPullButtons = (totalBalance) => {
-                return new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('gacha_1').setLabel('سحب x1').setEmoji('🎁').setStyle(ButtonStyle.Primary).setDisabled(totalBalance < PULL_PRICE),
-                    new ButtonBuilder().setCustomId('gacha_10').setLabel('سحب x10').setEmoji('🌟').setStyle(ButtonStyle.Success).setDisabled(totalBalance < PULL_PRICE * 10),
-                    new ButtonBuilder().setCustomId('gacha_inventory').setLabel('صناديقي').setEmoji('🎒').setStyle(ButtonStyle.Secondary)
+            let embed = new EmbedBuilder()
+                .setTitle(displayName)
+                .setColor("Random")
+                .setFooter({ text: 'الأقواس <> تعني إجباري، [] تعني اختياري' })
+                .setDescription(
+                    `**اسم الأمر**: \`${prefix}${command.name}\`\n` + 
+                    `**الوصف**: ${getArabicDescription(command)}\n` + 
+                    `**الفئة**: \`${command.category ? command.category : "General"}\`\n` + 
+                    `**اختصارات**: ${aliases}\n` + 
+                    `**مدة الانتظار**: \`${command.cooldown ? command.cooldown + ' ثواني' : "لا يوجد"}\``
                 );
-            };
 
-            const getReturnButton = () => {
-                return new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('الرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
-                );
-            };
+            return reply({ embeds: [embed] });
+        }
 
-            const generateAndSendHub = async (targetMsg) => {
-                await fetchUserData(); 
-                const summaryRandomText = FLAVOR_TEXTS[Math.floor(Math.random() * FLAVOR_TEXTS.length)];
-                let files = [];
-                let totalBal = userMora + userBank; // حساب الرصيد الشامل
-                
-                if (generateGachaHub) {
-                    try {
-                        const hubBuffer = await generateGachaHub(user, totalBal, summaryRandomText, totalChests);
-                        if (hubBuffer) files.push(new AttachmentBuilder(hubBuffer, { name: 'gacha_hub.png' }));
-                    } catch(e){}
-                }
-                if (targetMsg) {
-                    await targetMsg.edit({ components: [getPullButtons(totalBal)], files, embeds: [] }).catch(()=>{});
-                } else {
-                    return { components: [getPullButtons(totalBal)], files };
-                }
-            };
+        const isAdmin = guild.members.cache.get(user.id).permissions.has(PermissionsBitField.Flags.ManageGuild);
+        
+        // 🔥 تحديث استعلام غرفة الكازينو ليتوافق مع PostgreSQL
+        let settings;
+        try {
+            const settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]);
+            settings = settingsRes.rows[0];
+        } catch (e) { 
+            settings = null; 
+        }
 
-            const showInventoryMenu = async (targetMsg) => {
-                await fetchUserData();
-                let files = [];
-                
-                if (global.generateGachaInventory || (typeof require !== 'undefined')) {
-                    try {
-                        const { generateGachaInventory } = require('../../generators/gacha-generator.js');
-                        if (generateGachaInventory) {
-                            const invBuffer = await generateGachaInventory(user, freeChests, paidChests);
-                            if (invBuffer) files.push(new AttachmentBuilder(invBuffer, { name: 'gacha_inventory.png' }));
-                        }
-                    } catch(e){}
-                }
+        // فحص هل القناة هي قناة الكازينو
+        const currentChannelId = isSlash ? interaction.channel.id : message.channel.id;
+        const isCasinoChannel = settings && (settings.casinoChannelID === currentChannelId || settings.casinochannelid === currentChannelId);
+        
+        let initialEmbed, row;
 
-                const row = new ActionRowBuilder();
-                if (totalChests >= 1) row.addComponents(new ButtonBuilder().setCustomId('open_chest_1').setLabel('فتح 1').setEmoji('🎁').setStyle(ButtonStyle.Primary));
-                if (totalChests >= 10) row.addComponents(new ButtonBuilder().setCustomId('open_chest_10').setLabel('فتح 10').setEmoji('🌟').setStyle(ButtonStyle.Success));
-                if (totalChests > 1) row.addComponents(new ButtonBuilder().setCustomId('open_chest_all').setLabel('فتح الكل').setEmoji('🔥').setStyle(ButtonStyle.Danger));
-                
-                row.addComponents(new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('رجوع').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
-                
-                await targetMsg.edit({ embeds: [], components: [row], files }).catch(()=>{});
-            };
+        if (isCasinoChannel) {
+            // 🔥 الشكل الجديد (للكازينو فقط)
+            initialEmbed = new EmbedBuilder()
+                .setTitle('✥ لـوحـة الاوامـر')
+                .setColor("Random")
+                .setThumbnail(CASINO_IMAGE)
+                .setDescription(`
+لأستعـراض اوامر الكازينـو اخـتر الـزر ادنـاه 
+                `);
 
-            const executePulls = async (pullCount, isBuying, cost) => {
-                try {
-                    if (isBuying) {
-                        // استخدام نظام الخصم الجديد الموحد (كاش + بنك)
-                        let deducted = await deductMora(client, db, user.id, guildId, cost);
-                        if (!deducted) return null;
-                        
-                        if (userMora >= cost) {
-                            userMora -= cost;
-                        } else {
-                            let remainder = cost - userMora;
-                            userMora = 0;
-                            userBank -= remainder;
-                        }
-                    } else {
-                        let remaining = pullCount;
-                        let consumeFree = Math.min(freeChests, remaining);
-                        remaining -= consumeFree;
-                        let consumePaid = Math.min(paidChests, remaining);
-                        
-                        if (consumeFree > 0) {
-                            await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'free_gacha_chest'`, [consumeFree, user.id, guildId]);
-                        }
-                        if (consumePaid > 0) {
-                            await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'gacha_chest'`, [consumePaid, user.id, guildId]);
-                        }
-                        
-                        freeChests -= consumeFree;
-                        paidChests -= consumePaid;
-                        totalChests = freeChests + paidChests;
-                    }
+            row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('show_casino_cmds')
+                    .setLabel('اوامـر الكـازينـو')
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('<:mora:1435647151349698621>')
+            );
 
-                    const results = [];
-                    let highestRarityVal = 0;
-                    const rarityOrder = { Common: 0, Uncommon: 1, Rare: 2, Epic: 3, Legendary: 4 };
-                    let bestResult = null;
-
-                    const itemsToAdd = {};
-                    const skillsToAdd = [];
-
-                    await db.query('BEGIN').catch(()=>{});
-                    
-                    for (let k = 0; k < pullCount; k++) {
-                        const { item, rarity } = performPull(pityData, userRace, ownedSkills);
-                        
-                        if (rarityOrder[rarity] > highestRarityVal) {
-                            highestRarityVal = rarityOrder[rarity];
-                            bestResult = { item, rarity };
-                        }
-
-                        if (item.type === 'skill') {
-                            ownedSkills.push(item.id);
-                            skillsToAdd.push(item.id);
-                        } else {
-                            if (!itemsToAdd[item.id]) itemsToAdd[item.id] = 0;
-                            itemsToAdd[item.id]++;
-                        }
-                        results.push({ item, rarity });
-                    }
-
-                    for (const skillId of skillsToAdd) {
-                        await execSafe(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
-                    }
-
-                    for (const [itemId, qty] of Object.entries(itemsToAdd)) {
-                        let existingItemRes = await execSafe(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemId]);
-                        if (!existingItemRes.error && existingItemRes.rows[0]) {
-                            await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qty, existingItemRes.rows[0].id || existingItemRes.rows[0].ID]);
-                        } else {
-                            await execSafe(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]);
-                        }
-                    }
-
-                    await execSafe(db, `UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, `UPDATE user_gacha_pity SET epic_pity = $1, legendary_pity = $2 WHERE userid = $3 AND guildid = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]);
-                    await db.query('COMMIT').catch(()=>{});
-
-                    return { bestResult, results };
-                } catch (e) {
-                    return null;
-                }
-            };
-
-            const initialPayload = await generateAndSendHub();
-            initialMsg = await reply(initialPayload).catch(()=>{});
+        } else {
+            // الشكل القديم (للمحادثات العامة)
+            initialEmbed = buildMainMenuEmbed(client);
             
-            if (!initialMsg) {
-                activeGachaUsers.delete(user.id);
+            const options = [
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('القائمة الرئيسية')
+                    .setDescription('عرض الأوامر الرئيسية والبروفايل')
+                    .setValue('main')
+                    .setEmoji('🏠'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('اوامر الكازينو')
+                    .setDescription('عرض جميع أوامر الاقتصاد والألعاب')
+                    .setValue('casino')
+                    .setEmoji('💰')
+            ];
+
+            if (isAdmin) {
+                options.push(
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel('إعدادات السيرفر (إدارة)')
+                        .setDescription('عرض أوامر الإعدادات والتحكم')
+                        .setValue('admin_settings')
+                        .setEmoji('⚙️'),
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel('إدارة الأعضاء (إدارة)')
+                        .setDescription('عرض أوامر تعديل بيانات الأعضاء')
+                        .setValue('admin_management')
+                        .setEmoji('👑')
+                );
+            }
+
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('help_menu')
+                .setPlaceholder('اختر قسماً لعرض الأوامر...')
+                .addOptions(options);
+
+            row = new ActionRowBuilder().addComponents(selectMenu);
+        }
+
+        // إرسال الرسالة
+        const helpMessage = await reply({ embeds: [initialEmbed], components: [row] });
+
+        // الفلتر والكوليكتور
+        const filter = (i) => i.user.id === user.id;
+        const collector = helpMessage.createMessageComponentCollector({ filter, time: 60000 });
+
+        collector.on('collect', async (i) => {
+            // معالجة زر الكازينو
+            if (i.customId === 'show_casino_cmds') {
+                await i.reply({ embeds: [buildCasinoEmbed(client)], ephemeral: true });
                 return;
             }
-            
-            let isProcessing = false;
 
-            const channelCollector = (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).createMessageComponentCollector({
-                filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10', 'open_chest_all'].includes(i.customId),
-                time: 300000 
-            });
+            // معالجة القائمة المنسدلة (للمحادثات العامة)
+            if (i.customId === 'help_menu') {
+                const category = i.values[0];
+                let newEmbed;
 
-            channelCollector.on('collect', async (i) => {
-                if (isProcessing) {
-                    return i.reply({ content: '⏳ يرجى الانتظار، جاري معالجة طلبك السابق...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                if (category === 'main') newEmbed = buildMainMenuEmbed(client);
+                else if (category === 'casino') newEmbed = buildCasinoEmbed(client);
+                else if (category === 'admin_settings') newEmbed = buildAdminSettingsEmbed(client);
+                else if (category === 'admin_management') newEmbed = buildAdminManagementEmbed(client);
+
+                await i.update({ embeds: [newEmbed] });
+            }
+        });
+
+        collector.on('end', () => {
+            // تعطيل المكونات بعد انتهاء الوقت
+            let disabledRow;
+            if (isCasinoChannel) {
+                disabledRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('show_casino_cmds')
+                        .setLabel('اوامـر الكـازينـو')
+                        .setStyle(ButtonStyle.Primary)
+                        .setEmoji('<:mora:1435647151349698621>')
+                        .setDisabled(true)
+                );
+            } else {
+                // إعادة بناء القائمة المنسدلة القديمة وتعطيلها
+                const oldSelect = row.components[0];
+                disabledRow = new ActionRowBuilder().addComponents(oldSelect.setDisabled(true));
+            }
+
+            try {
+                if (helpMessage && helpMessage.editable) {
+                    helpMessage.edit({ components: [disabledRow] }).catch(() => {});
+                } else if (isSlash && interaction) {
+                    interaction.editReply({ components: [disabledRow] }).catch(() => {});
                 }
-                isProcessing = true;
-
-                try {
-                    try { await i.deferUpdate().catch(()=>{}); } catch (err) { return; }
-
-                    if (i.customId === 'gacha_inventory') {
-                        await showInventoryMenu(initialMsg);
-                        return;
-                    }
-
-                    if (i.customId === 'gacha_return_hub') {
-                        if (activePageCollector) {
-                            activePageCollector.stop('return_hub');
-                            activePageCollector = null;
-                        }
-                        await generateAndSendHub(initialMsg);
-                        return;
-                    }
-
-                    if (['gacha_next', 'gacha_skip'].includes(i.customId)) return;
-
-                    await fetchUserData();
-                    
-                    let isBuying = i.customId.startsWith('gacha_');
-                    let pullCount = 1;
-                    let cost = 0;
-                    let totalBal = userMora + userBank; // تحديث إجمالي الرصيد وقت الشراء
-
-                    if (isBuying) {
-                        pullCount = i.customId === 'gacha_10' ? 10 : 1;
-                        cost = pullCount * PULL_PRICE;
-                        if (totalBal < cost) {
-                            await i.followUp({ content: "❌ لا تملك المورا الكافية (الرصيد + البنك)!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-                            return;
-                        }
-                    } else {
-                        if (i.customId === 'open_chest_10') pullCount = 10;
-                        else if (i.customId === 'open_chest_all') pullCount = Math.min(totalChests, 50); 
-                        if (totalChests < pullCount) {
-                            await i.followUp({ content: "❌ لا تملك صناديق كافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-                            return;
-                        }
-                    }
-
-                    await initialMsg.edit({ components: [], embeds: [] }).catch(()=>{});
-
-                    const pullsData = await executePulls(pullCount, isBuying, cost);
-                    if (!pullsData) {
-                        await i.followUp({ content: "❌ فشل خصم المورا! تأكد من رصيدك.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-                        return;
-                    }
-
-                    const { bestResult, results } = pullsData;
-
-                    const prefix = pullCount > 1 ? 'ten_' : 'single_';
-                    const meteorFileName = `${prefix}${bestResult.rarity}.png`;
-                    const meteorUrl = `${R2_URL}/images/gacha/${meteorFileName}`;
-                    let meteorFiles = [new AttachmentBuilder(meteorUrl, { name: meteorFileName })];
-                    
-                    await initialMsg.edit({ files: meteorFiles, components: [], embeds: [] }).catch(()=>{});
-                    
-                    await new Promise(r => setTimeout(r, 700));
-
-                    if (pullCount > 10) {
-                        let files = [];
-                        if (generateGachaCard && bestResult.item.imgPath) {
-                            try {
-                                const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
-                                if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_best.png` }));
-                            } catch(e){}
-                        }
-                        
-                        const summaryEmbed = new EmbedBuilder()
-                            .setTitle(`📦 تم فتح ${pullCount} صندوق`)
-                            .setColor(Colors.Green)
-                            .setDescription(`**أفضل عنصر حصلت عليه:**\n✨ ${bestResult.item.emoji} ${bestResult.item.name} (${bestResult.rarity})\n\n> تم إضافة جميع العناصر المتبقية إلى حقيبتك بنجاح.`);
-
-                        await initialMsg.edit({ embeds: [summaryEmbed], files, components: [getReturnButton()] }).catch(()=>{});
-
-                    } else if (pullCount > 1) {
-                        let currentIndex = 0;
-                        const getPagePayload = async (idx) => {
-                            if (idx >= results.length) idx = results.length - 1;
-                            if (idx < 0) idx = 0;
-
-                            const res = results[idx];
-                            let files = [];
-                            if (generateGachaCard && res.item.imgPath) {
-                                try {
-                                    const buffer = await generateGachaCard(res.item, res.rarity);
-                                    if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_${idx}.png` }));
-                                } catch(e){}
-                            }
-
-                            const row = new ActionRowBuilder();
-                            if (idx < pullCount - 1) {
-                                row.addComponents(
-                                    new ButtonBuilder().setCustomId('gacha_next').setLabel('التالي').setEmoji('➡️').setStyle(ButtonStyle.Primary),
-                                    new ButtonBuilder().setCustomId('gacha_skip').setLabel('تخطي').setEmoji('⏭️').setStyle(ButtonStyle.Secondary),
-                                    new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('الرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Danger)
-                                );
-                            } else {
-                                row.addComponents(
-                                    new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('الرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Success)
-                                );
-                            }
-                            return { components: [row], files };
-                        };
-
-                        await initialMsg.edit(await getPagePayload(0)).catch(()=>{});
-
-                        activePageCollector = initialMsg.createMessageComponentCollector({
-                            filter: btn => btn.user.id === user.id && ['gacha_next', 'gacha_skip'].includes(btn.customId),
-                            time: 120000 
-                        });
-
-                        let isPaging = false;
-                        activePageCollector.on('collect', async btn => {
-                            if (isPaging) {
-                                return btn.reply({ content: '⏳ يرجى الانتظار، جاري تحميل الصورة...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-                            }
-                            isPaging = true;
-                            try { await btn.deferUpdate().catch(()=>{}); } catch(e) { isPaging = false; return; }
-                            
-                            if (btn.customId === 'gacha_skip') {
-                                currentIndex = pullCount - 1; 
-                                await initialMsg.edit(await getPagePayload(currentIndex)).catch(()=>{});
-                            } else if (btn.customId === 'gacha_next') {
-                                if (currentIndex < pullCount - 1) {
-                                    currentIndex++;
-                                    await initialMsg.edit(await getPagePayload(currentIndex)).catch(()=>{});
-                                }
-                            }
-                            isPaging = false;
-                        });
-
-                    } else {
-                        let files = [];
-                        if (generateGachaCard && bestResult && bestResult.item.imgPath) {
-                            try {
-                                const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
-                                if (buffer) files.push(new AttachmentBuilder(buffer, { name: 'gacha_best.png' }));
-                            } catch(e){}
-                        }
-                        await initialMsg.edit({ components: [getReturnButton()], files, content: '' }).catch(()=>{});
-                    }
-                } catch (e) {
-                    // Ignore
-                } finally {
-                    isProcessing = false;
-                }
-            });
-
-            channelCollector.on('end', () => { 
-                activeGachaUsers.delete(user.id); 
-                if (initialMsg && initialMsg.editable) initialMsg.edit({ components: [] }).catch(() => {}); 
-            });
-
-        } catch (err) {
-            activeGachaUsers.delete(user.id);
-        }
+            } catch(e) {}
+        });
     }
 };
