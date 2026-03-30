@@ -3,7 +3,7 @@ const { startDungeon } = require("../../handlers/dungeon-handler.js");
 const { manageTickets } = require("../../handlers/dungeon/utils.js");
 
 const OWNER_ID = "1145327691772481577";
-const COOLDOWN_MS = 3 * 60 * 60 * 1000; // 🔥 تم زيادة وقت الانتظار إلى 3 ساعات
+const COOLDOWN_MS = 3 * 60 * 60 * 1000;
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -17,14 +17,12 @@ module.exports = {
     description: "نظام الدانجون المتقدم (PvE)",
 
     async execute(context, args) {
-        // 🔥 التصحيح الجذري للتعرف على أوامر السلاش 🔥
         const isSlash = typeof context.isChatInputCommand === 'function' && context.isChatInputCommand();
         let interaction;
 
-        // 🛡️ توحيد بيئة العمل لكي تتعامل دالة startDungeon براحة
         if (isSlash) {
             interaction = context;
-            await interaction.deferReply().catch(()=>{}); // تأخير الرد عشان ما يعلق الديسكورد
+            await interaction.deferReply().catch(()=>{}); 
         } else {
             interaction = {
                 user: context.author,
@@ -84,7 +82,7 @@ module.exports = {
             try { userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guild.id]); }
             catch(e) { userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]).catch(()=>({rows:[]})); }
 
-            let userData = userDataRes.rows[0];
+            let userData = userDataRes?.rows?.[0];
             
             if (!userData) {
                 userData = { user: user.id, guild: guild.id, xp: 0, level: 1, mora: 0, last_dungeon: 0 };
@@ -120,9 +118,7 @@ module.exports = {
         try {
             await startDungeon(interaction, db);
         } catch (err) {
-            console.error("[Dungeon Command Error]", err);
             const errMsg = { content: "❌ حدث خطأ تقني أثناء بدء الدانجون.", flags: [MessageFlags.Ephemeral] };
-            
             try {
                 if (interaction.replied || interaction.deferred) await interaction.editReply(errMsg);
                 else await interaction.reply(errMsg);
