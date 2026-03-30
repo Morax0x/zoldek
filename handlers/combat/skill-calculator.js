@@ -1,4 +1,4 @@
-const { cleanDisplayName } = require('../utils');
+const { cleanDisplayName } = require('../dungeon/utils');
 
 const GLOBAL_SKILL_MULTIPLIER = 5.0;
 
