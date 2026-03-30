@@ -76,7 +76,60 @@ const safeQuery = async (db, qPg, qLite, params) => {
     catch(e) { return await db.query(qLite, params).catch(()=>({rows:[]})); }
 };
 
+// 🔥 أنظمة السحب الذكية الجديدة (لمنع التعليق) 🔥
+async function deductMora(db, userId, guildId, amount) {
+    if (amount <= 0) return true;
+    let res = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+    if (!res || !res.rows || res.rows.length === 0) return false;
+
+    let mora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
+    let bank = Number(res.rows[0].bank || res.rows[0].Bank || 0);
+
+    if (mora + bank < amount) return false;
+
+    if (mora >= amount) {
+        mora -= amount;
+    } else {
+        let diff = amount - mora;
+        mora = 0;
+        bank -= diff;
+    }
+
+    await safeQuery(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, `UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [mora, bank, userId, guildId]);
+    return true;
+}
+
+async function deductItems(db, userId, guildId, itemsArray) {
+    if (!itemsArray || itemsArray.length === 0) return true;
+
+    // الفحص أولاً
+    for (let item of itemsArray) {
+        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, item.id]);
+        if(!res || !res.rows || res.rows.length === 0) return false;
+        let currentQty = 0;
+        res.rows.forEach(r => currentQty += Number(r.quantity || r.Quantity || 0));
+        if(currentQty < item.count) return false;
+    }
+
+    // الخصم
+    for (let item of itemsArray) {
+        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, item.id]);
+        let remainingToDeduct = item.count;
+        for (let r of res.rows) {
+            if (remainingToDeduct <= 0) break;
+            const q = Number(r.quantity || r.Quantity);
+            const deduct = Math.min(q, remainingToDeduct);
+            await safeQuery(db, `UPDATE user_inventory SET "quantity" = CAST("quantity" AS INTEGER) - $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = CAST(quantity AS INTEGER) - $1 WHERE id = $2`, [deduct, r.id || r.ID]);
+            remainingToDeduct -= deduct;
+        }
+    }
+    
+    await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [userId]);
+    return true;
+}
+
 async function getUserRaceName(user, guild, db) {
+    console.log(`[Forge Debug] getUserRaceName started for user: ${user.id}`);
     const member = guild.members.cache.get(user.id) || await guild.members.fetch({ user: user.id, force: true }).catch(() => null);
     if (!member) return null;
 
@@ -210,13 +263,14 @@ const getReturnRow = () => new ActionRowBuilder().addComponents(
 async function replyWithCanvas(i, user, view, data, components, isInitial = false) {
     let returnMessage = null;
     try {
+        console.log(`[Forge Debug] Generating Canvas for view: ${view}`);
         if (generateForgeUI) {
             const buffer = await generateForgeUI(user, view, data);
             if (buffer) {
                 const filename = `forge_${Date.now()}.png`; 
                 const attachment = new AttachmentBuilder(buffer, { name: filename });
                 
-                if (typeof i.editReply === 'function') {
+                if (i.deferred || i.replied) {
                     returnMessage = await i.editReply({ content: null, embeds: [], components, files: [attachment] }).catch(()=>{});
                 } else if (typeof i.reply === 'function') {
                     returnMessage = await i.reply({ content: null, embeds: [], components, files: [attachment], fetchReply: true }).catch(()=>{});
@@ -225,7 +279,7 @@ async function replyWithCanvas(i, user, view, data, components, isInitial = fals
             }
         }
     } catch (e) {
-        console.error("Canvas Error in Forge:", e);
+        console.error("[Forge Debug] Canvas Error:", e);
     }
     return i;
 }
@@ -253,6 +307,8 @@ module.exports = {
         else if (interactionOrMessage.user) user = interactionOrMessage.user;
         
         const guildId = interactionOrMessage.guild?.id || interactionOrMessage.guildId;
+
+        console.log(`\n[Forge Debug] === Forge Session Started for ${user.username} ===`);
 
         let sentMsg = null;
         if (isSlash && !interactionOrMessage.preselectedItem) {
@@ -311,7 +367,6 @@ module.exports = {
         const currentRace = await getUserRaceName(user, interactionOrMessage.guild, db);
         let replyObj;
 
-        // إذا ما عنده عرق إطلاقاً، تفتح قائمة اختيار المصير
         if (!currentRace) {
             let allRaces = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [guildId]);
             if (!allRaces || allRaces.rows.length === 0) {
@@ -339,7 +394,6 @@ module.exports = {
 
             replyObj = await fakeInteraction.editReply({ content: null, embeds: [embed], components: [row] });
         } else {
-            // إذا عنده عرق، يفتح الواجهة المناسبة
             if (commandTrigger.includes('صقل') || commandTrigger.includes('اكاديمية') || commandTrigger === 'ms') {
                 replyObj = await buildAcademyMenuUI(fakeInteraction, user, guildId, db, !isSlash && !interactionOrMessage.preselectedItem);
             } else if (commandTrigger.includes('دمج')) {
@@ -361,6 +415,7 @@ module.exports = {
         const collector = replyObj.createMessageComponentCollector({ filter, time: 300000 });
 
         collector.on('collect', async (i) => {
+            console.log(`[Forge Debug] Action: ${i.customId}`);
             try { if (!i.customId.startsWith('forge_smelt_multi_') && !i.deferred && !i.replied) await i.deferUpdate(); } catch(e) {}
 
             try {
@@ -372,19 +427,15 @@ module.exports = {
 
                     const selectedRaceName = getStandardRaceName(matched.raceName || matched.racename);
                     const targetRole = i.guild.roles.cache.get(roleId);
-                    
                     const memberObj = i.guild.members.cache.get(user.id) || await i.guild.members.fetch(user.id).catch(()=>null);
                     if (memberObj && targetRole) await memberObj.roles.add(targetRole).catch(()=>{});
 
-                    await i.followUp({ content: `🎉 **مرحباً بك في عالمنا!**\nأنت الآن تنتمي رسمياً إلى عرق **(${selectedRaceName})**.\nافتح الحدادة الآن واصنع سلاحك أو تعلم مهاراتك الأولى مقابل ${LEARN_FEE} مورا!`, flags: [MessageFlags.Ephemeral] });
-
-                    synthesisState = { sacrificeItem: null, targetItem: null };
-                    smeltState = { item: null };
+                    await i.followUp({ content: `🎉 **مرحباً بك في عالمنا!**\nأنت الآن تنتمي رسمياً إلى عرق **(${selectedRaceName})**.\nافتح الحدادة الآن واصنع سلاحك الأساسي!`, flags: [MessageFlags.Ephemeral] });
+                    synthesisState = { sacrificeItem: null, targetItem: null }; smeltState = { item: null };
                     await buildMainUI(i, user, guildId, db, false);
                 }
                 else if (i.customId === 'forge_return_main') {
-                    synthesisState = { sacrificeItem: null, targetItem: null };
-                    smeltState = { item: null };
+                    synthesisState = { sacrificeItem: null, targetItem: null }; smeltState = { item: null };
                     await buildMainUI(i, user, guildId, db, false);
                 }
                 else if (i.isStringSelectMenu()) {
@@ -392,8 +443,7 @@ module.exports = {
                         await buildSkillUpgradeUI(i, user, guildId, db, i.values[0]);
                     }
                     else if (i.customId === 'forge_synth_sacrifice') {
-                        synthesisState.sacrificeItem = i.values[0];
-                        synthesisState.targetItem = null; 
+                        synthesisState.sacrificeItem = i.values[0]; synthesisState.targetItem = null; 
                         await buildSynthesisUI(i, user, guildId, db, synthesisState);
                     }
                     else if (i.customId === 'forge_synth_target') {
@@ -406,43 +456,20 @@ module.exports = {
                     }
                 }
                 else if (i.isButton()) {
-                    if (i.customId === 'forge_weapon') {
-                        await buildWeaponForgeUI(i, user, guildId, db);
-                    }
-                    else if (i.customId === 'forge_buy_weapon') {
-                        await handleWeaponBuy(i, user, guildId, db);
-                    }
-                    else if (i.customId === 'forge_skill_menu') {
-                        await buildAcademyMenuUI(i, user, guildId, db);
-                    }
-                    else if (i.customId.startsWith('forge_learn_skill_')) {
-                        await handleSkillLearn(i, user, guildId, db, i.customId.replace('forge_learn_skill_', ''));
-                    }
-                    else if (i.customId === 'forge_synthesis') { 
-                        synthesisState = { sacrificeItem: null, targetItem: null }; 
-                        await buildSynthesisUI(i, user, guildId, db, synthesisState); 
-                    }
-                    else if (i.customId === 'forge_smelting') { 
-                        smeltState = { item: null }; 
-                        await buildSmeltingUI(i, user, guildId, db, smeltState); 
-                    }
+                    if (i.customId === 'forge_weapon') await buildWeaponForgeUI(i, user, guildId, db);
+                    else if (i.customId === 'forge_buy_weapon') await handleWeaponBuy(i, user, guildId, db);
+                    else if (i.customId === 'forge_skill_menu') await buildAcademyMenuUI(i, user, guildId, db);
+                    else if (i.customId.startsWith('forge_learn_skill_')) await handleSkillLearn(i, user, guildId, db, i.customId.replace('forge_learn_skill_', ''));
+                    else if (i.customId === 'forge_synthesis') { synthesisState = { sacrificeItem: null, targetItem: null }; await buildSynthesisUI(i, user, guildId, db, synthesisState); }
+                    else if (i.customId === 'forge_smelting') { smeltState = { item: null }; await buildSmeltingUI(i, user, guildId, db, smeltState); }
                     else if (i.customId === 'forge_upgrade_weapon') await handleWeaponUpgrade(i, user, guildId, db);
                     else if (i.customId.startsWith('forge_upgrade_skill_')) await handleSkillUpgrade(i, user, guildId, db, i.customId.replace('forge_upgrade_skill_', ''));
-                    else if (i.customId === 'forge_execute_synth') {
-                        await handleSynthesis(i, user, guildId, db, synthesisState);
-                        synthesisState = { sacrificeItem: null, targetItem: null };
-                    }
-                    else if (i.customId === 'forge_execute_smelt_1') {
-                        await handleSmelting(i, user, guildId, db, smeltState, client, 1);
-                        smeltState = { item: null };
-                    }
-                    else if (i.customId.startsWith('forge_smelt_multi_')) {
-                        await handleSmeltingMultiModal(i, user, guildId, db, smeltState, client);
-                    }
+                    else if (i.customId === 'forge_execute_synth') { await handleSynthesis(i, user, guildId, db, synthesisState); synthesisState = { sacrificeItem: null, targetItem: null }; }
+                    else if (i.customId === 'forge_execute_smelt_1') { await handleSmelting(i, user, guildId, db, smeltState, client, 1); smeltState = { item: null }; }
+                    else if (i.customId.startsWith('forge_smelt_multi_')) await handleSmeltingMultiModal(i, user, guildId, db, smeltState, client);
                 }
             } catch (innerError) {
-                console.error("Collector Action Error:", innerError);
-                await i.followUp({ content: "❌ عذراً، حدث خطأ أثناء المعالجة.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                console.error("[Forge Debug] Inner Action Error:", innerError);
             }
         });
 
@@ -458,9 +485,7 @@ module.exports = {
 
 async function buildWeaponForgeUI(i, user, guildId, db) {
     const raceName = await getUserRaceName(user, i.guild, db);
-    if (!raceName) {
-        return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
-    }
+    if (!raceName) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
 
     const [userMoraRes, weaponRes, lvlRes] = await Promise.all([
         safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
@@ -479,21 +504,15 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
         );
         return await replyWithCanvas(i, user, 'weapon', {
             mora: userMora, title: `صناعة ${resolveText(weaponConfig.name)}`,
-            currentLevel: 0, nextLevel: 1,
-            currentStat: `0 DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, 1)} DMG`,
-            reqMora: LEARN_FEE, 
-            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم الصناعة (مورا)', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }] 
+            currentLevel: 0, nextLevel: 1, currentStat: `0 DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, 1)} DMG`, reqMora: LEARN_FEE, 
+            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم الصناعة', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }] 
         }, [btnRow], false);
     }
     
-    if (currentLevel >= 30) {
-        return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: '✨ سلاحك وصل للحد الأقصى (Lv.30)!' }, [getReturnRow()]);
-    }
+    if (currentLevel >= 30) return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: '✨ سلاحك وصل للحد الأقصى (Lv.30)!' }, [getReturnRow()]);
 
     const playerServerLevel = Number(lvlRes?.rows?.[0]?.level || lvlRes?.rows?.[0]?.Level || 1);
-    if (currentLevel >= 15 && playerServerLevel < 30) {
-        return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: 'قفل المستوى: يجب أن تصل إلى المستوى 30 في السيرفر لتتمكن من تطوير عتادك فوق المستوى 15.' }, [getReturnRow()]);
-    }
+    if (currentLevel >= 15 && playerServerLevel < 30) return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: 'قفل المستوى: يجب أن تصل إلى المستوى 30 في السيرفر.' }, [getReturnRow()]);
 
     const reqs = getUpgradeRequirements(currentLevel, false);
     const raceMats = upgradeMats.weapon_materials.find(m => m.race === raceName) || upgradeMats.weapon_materials[0];
@@ -503,19 +522,12 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
         let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, matId]);
         const userMatCount = invRes?.rows?.[0] ? Number(invRes.rows[0].quantity || invRes.rows[0].Quantity) : 0;
         let matInfo = getItemInfo(matId);
-        
-        return { 
-            id: matId, count: r.count, userCount: userMatCount,
-            name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl
-        };
+        return { id: matId, count: r.count, userCount: userMatCount, name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl };
     });
 
     const detailedReqs = await Promise.all(matPromises);
     const hasAllMats = detailedReqs.every(r => r.userCount >= r.count);
     const canUpgrade = userMora >= reqs.moraCost && hasAllMats;
-
-    const currentDmg = getWeaponDisplayDamage(weaponConfig, currentLevel);
-    const nextDmg = getWeaponDisplayDamage(weaponConfig, currentLevel + 1);
 
     const btnRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`forge_upgrade_weapon`).setLabel('تـطـويـر السـلاح').setStyle(canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(!canUpgrade),
@@ -524,33 +536,21 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     
     return await replyWithCanvas(i, user, 'weapon', {
         mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`,
-        currentLevel, nextLevel: currentLevel + 1,
-        currentStat: `${currentDmg} DMG`, nextStat: `${nextDmg} DMG`,
-        reqMora: reqs.moraCost, detailedReqs: detailedReqs 
+        currentLevel, nextLevel: currentLevel + 1, currentStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel)} DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel + 1)} DMG`, reqMora: reqs.moraCost, detailedReqs: detailedReqs 
     }, [btnRow], []);
 }
 
 async function handleWeaponBuy(i, user, guildId, db) {
     const raceName = await getUserRaceName(user, i.guild, db);
-    
-    let moraRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-    const userMora = Number(moraRes?.rows?.[0]?.mora || 0) + Number(moraRes?.rows?.[0]?.bank || 0);
-
-    if (userMora < LEARN_FEE) {
-        return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: 'الحدادة', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لصناعة السلاح!` }, [getReturnRow()]);
-    }
-
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        await safeQuery(db, `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3`, [LEARN_FEE, user.id, guildId]);
-
+        if (!(await deductMora(db, user.id, guildId, LEARN_FEE))) throw new Error("Insufficient");
         await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, raceName]);
         await db.query('COMMIT').catch(()=>{}); 
-        
         await buildWeaponForgeUI(i, user, guildId, db); 
     } catch(e) {
         await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: 'الحدادة', hasError: true, errorMsg: 'حدث خطأ أثناء الشراء!' }, [getReturnRow()]);
+        await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: `حدث خطأ أو لا تملك ${LEARN_FEE} مورا!` }, [getReturnRow()]);
     }
 }
 
@@ -570,56 +570,28 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
     const standardizedRace = getStandardRaceName(wData.raceName || wData.racename);
     const weaponConfig = weaponsConfig.find(w => w.race === standardizedRace) || weaponsConfig[0];
     const raceMats = upgradeMats.weapon_materials.find(m => m.race === standardizedRace) || upgradeMats.weapon_materials[0];
-
     let detailedReqs = reqs.materials.map(r => ({ id: raceMats.materials[r.tier].id, count: r.count }));
-
-    let moraRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-    const userMora = Number(moraRes?.rows?.[0]?.mora || 0) + Number(moraRes?.rows?.[0]?.bank || 0);
-
-    if (userMora < reqs.moraCost) {
-        return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك المورا الكافية للتطوير!' }, [getReturnRow()]);
-    }
-
-    for (let r of detailedReqs) {
-        let invCheck = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, r.id]);
-        if (!invCheck.rows.length || Number(invCheck.rows[0].quantity || invCheck.rows[0].Quantity) < r.count) {
-            return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك الموارد الكافية للتطوير!' }, [getReturnRow()]);
-        }
-    }
 
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        await safeQuery(db, `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3`, [reqs.moraCost, user.id, guildId]);
-        
-        for (let r of detailedReqs) {
-            await safeQuery(db, `UPDATE user_inventory SET "quantity" = CAST("quantity" AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, `UPDATE user_inventory SET quantity = CAST(quantity AS INTEGER) - $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [r.count, user.id, guildId, r.id]);
-        }
-        
-        await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]);
+        if (!(await deductMora(db, user.id, guildId, reqs.moraCost))) throw new Error("Insufficient funds");
+        if (!(await deductItems(db, user.id, guildId, detailedReqs))) throw new Error("Insufficient items");
+
         await safeQuery(db, `UPDATE user_weapons SET "weaponLevel" = "weaponLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, `UPDATE user_weapons SET weaponlevel = weaponlevel + 1 WHERE userid = $1 AND guildid = $2 AND racename = $3`, [user.id, guildId, wData.raceName || wData.racename]);
         
         await db.query('COMMIT').catch(()=>{}); 
-        
         const nextLevel = currentLevel + 1;
-        const nextStat = `${getWeaponDisplayDamage(weaponConfig, nextLevel)} DMG`;
-
-        await replyWithCanvas(i, user, 'success_weapon', {
-            title: `تطوير ${resolveText(weaponConfig.name)}`,
-            currentLevel: currentLevel,
-            nextLevel: nextLevel,
-            nextStat: nextStat
-        }, [getReturnRow()], []);
+        await replyWithCanvas(i, user, 'success_weapon', { title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel: currentLevel, nextLevel: nextLevel, nextStat: `${getWeaponDisplayDamage(weaponConfig, nextLevel)} DMG` }, [getReturnRow()], []);
     } catch (err) {
         await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: 'الحدادة', hasError: true, errorMsg: 'حدث خطأ أثناء التطوير!' }, [getReturnRow()]);
+        await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك الموارد والمورا الكافية!' }, [getReturnRow()]);
     }
 }
 
 async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
     const raceName = await getUserRaceName(user, i.guild, db);
-    if (!raceName) {
-        return await replyWithCanvas(i, user, 'skill_home', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً لفتح الأكاديمية!' }, [getReturnRow()], [], isInitial);
-    }
+    if (!raceName) return await replyWithCanvas(i, user, 'skill_home', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً!' }, [getReturnRow()], [], isInitial);
+    
     const raceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
 
     const [userMoraRes, skillsRes] = await Promise.all([
@@ -634,7 +606,6 @@ async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
     userSkills.forEach(s => skillMap[s.skillID || s.skillid] = Number(s.skillLevel || s.skilllevel));
 
     const availableSkills = skillsConfig.filter(sc => sc.id.startsWith('skill_') || sc.id === raceSkillId);
-
     const skillOptions = availableSkills.map(sc => {
         const lvl = skillMap[sc.id] || 0;
         return { label: resolveText(sc.name).substring(0, 100), value: sc.id.substring(0, 100), description: `Lv.${lvl}`.substring(0, 100) };
@@ -646,11 +617,10 @@ async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
 
 async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     const raceName = await getUserRaceName(user, i.guild, db);
-    const [userMoraRes, skillRes, lvlRes, wRes] = await Promise.all([
+    const [userMoraRes, skillRes, lvlRes] = await Promise.all([
         safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
         safeQuery(db, `SELECT "skillLevel" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `SELECT skilllevel as "skillLevel" FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]),
-        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT racename FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+        safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
     ]);
 
     const userMora = Number(userMoraRes?.rows?.[0]?.mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || 0);
@@ -664,22 +634,15 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, user, 'skill', {
-            mora: userMora, title: `تعلم ${resolveText(configSkill.name)}`,
-            currentLevel: 0, nextLevel: 1,
-            currentStat: `0${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, 1)}${statSymbol}`,
-            reqMora: LEARN_FEE, 
-            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم التعلم (مورا)', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
+            mora: userMora, title: `تعلم ${resolveText(configSkill.name)}`, currentLevel: 0, nextLevel: 1, currentStat: `0${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, 1)}${statSymbol}`, reqMora: LEARN_FEE, 
+            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم التعلم', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
         }, [btnRow], false);
     }
 
-    if (currentLevel >= (configSkill.max_level || 30)) {
-        return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, hasError: true, errorMsg: '✨ المهارة وصلت للحد الأقصى!' }, [getReturnRow()]);
-    }
+    if (currentLevel >= (configSkill.max_level || 30)) return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, hasError: true, errorMsg: '✨ المهارة وصلت للحد الأقصى!' }, [getReturnRow()]);
 
     const playerServerLevel = Number(lvlRes?.rows?.[0]?.level || lvlRes?.rows?.[0]?.Level || 1);
-    if (currentLevel >= 15 && playerServerLevel < 30) {
-        return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, hasError: true, errorMsg: 'قفل المستوى: يجب أن تصل إلى المستوى 30 في السيرفر لتتمكن من صقل المهارات فوق المستوى 15.' }, [getReturnRow()]);
-    }
+    if (currentLevel >= 15 && playerServerLevel < 30) return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, hasError: true, errorMsg: 'قفل المستوى: يجب أن تصل لـ Lv 30 أولاً.' }, [getReturnRow()]);
 
     const reqs = getUpgradeRequirements(currentLevel, true);
     const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
@@ -691,52 +654,33 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
         let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemId]);
         const userMatCount = invRes?.rows?.[0] ? Number(invRes.rows[0].quantity || invRes.rows[0].Quantity) : 0;
         let matInfo = getItemInfo(itemId);
-        
-        return { 
-            id: itemId, count: r.count, userCount: userMatCount,
-            name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl
-        };
+        return { id: itemId, count: r.count, userCount: userMatCount, name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl };
     });
 
     const detailedReqs = await Promise.all(matPromises);
     const hasAllMats = detailedReqs.every(r => r.userCount >= r.count);
     const canUpgrade = userMora >= reqs.moraCost && hasAllMats;
 
-    const currentVal = getSkillDisplayValue(configSkill, currentLevel);
-    const nextVal = getSkillDisplayValue(configSkill, currentLevel + 1);
-
     const btnRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`forge_upgrade_skill_${skillId}`).setLabel('صقل المهارة 📜').setStyle(canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(!canUpgrade),
         getReturnRow().components[0]
     );
     
-    await replyWithCanvas(i, user, 'skill', {
-        mora: userMora, title: `صقل ${resolveText(configSkill.name)}`,
-        currentLevel, nextLevel: currentLevel + 1,
-        currentStat: `${currentVal}${statSymbol}`, nextStat: `${nextVal}${statSymbol}`,
-        reqMora: reqs.moraCost, detailedReqs: detailedReqs
+    return await replyWithCanvas(i, user, 'skill', {
+        mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getSkillDisplayValue(configSkill, currentLevel)}${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}`, reqMora: reqs.moraCost, detailedReqs: detailedReqs
     }, [btnRow], []);
 }
 
 async function handleSkillLearn(i, user, guildId, db, skillId) {
-    let moraRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-    const userMora = Number(moraRes?.rows?.[0]?.mora || 0) + Number(moraRes?.rows?.[0]?.bank || 0);
-
-    if (userMora < LEARN_FEE) {
-        return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'أكاديمية السحر', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لتعلم المهارة!` }, [getReturnRow()]);
-    }
-
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        await safeQuery(db, `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3`, [LEARN_FEE, user.id, guildId]);
-
+        if (!(await deductMora(db, user.id, guildId, LEARN_FEE))) throw new Error("Insufficient");
         await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
-        
         await db.query('COMMIT').catch(()=>{}); 
         await buildSkillUpgradeUI(i, user, guildId, db, skillId);
     } catch(e) {
         await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'أكاديمية السحر', hasError: true, errorMsg: 'حدث خطأ أثناء الشراء!' }, [getReturnRow()]);
+        await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا!` }, [getReturnRow()]);
     }
 }
 
@@ -755,56 +699,26 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
     const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
     const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
     const bookCat = upgradeMats.skill_books.find(c => c.category === categoryName) || upgradeMats.skill_books[0];
-    
     const userRace = getStandardRaceName(wRes?.rows?.[0]?.raceName || wRes?.rows?.[0]?.racename);
     const raceMats = upgradeMats.weapon_materials.find(m => m.race === userRace) || upgradeMats.weapon_materials[0];
 
-    let detailedReqs = [];
-    for (let r of reqs.materials) {
-        let itemId = r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id;
-        detailedReqs.push({ id: itemId, count: r.count });
-    }
-
-    let moraRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-    const userMora = Number(moraRes?.rows?.[0]?.mora || 0) + Number(moraRes?.rows?.[0]?.bank || 0);
-
-    if (userMora < reqs.moraCost) {
-        return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
-    }
-
-    for (let r of detailedReqs) {
-        let invCheck = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, r.id]);
-        if (!invCheck.rows.length || Number(invCheck.rows[0].quantity || invCheck.rows[0].Quantity) < r.count) {
-            return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
-        }
-    }
+    let detailedReqs = reqs.materials.map(r => {
+        return { id: r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id, count: r.count };
+    });
 
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        await safeQuery(db, `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3`, [reqs.moraCost, user.id, guildId]);
-        
-        for (let r of detailedReqs) {
-            await safeQuery(db, `UPDATE user_inventory SET "quantity" = CAST("quantity" AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, `UPDATE user_inventory SET quantity = CAST(quantity AS INTEGER) - $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [r.count, user.id, guildId, r.id]);
-        }
+        if (!(await deductMora(db, user.id, guildId, reqs.moraCost))) throw new Error("Insufficient funds");
+        if (!(await deductItems(db, user.id, guildId, detailedReqs))) throw new Error("Insufficient items");
 
-        await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]);
         await safeQuery(db, `UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `UPDATE user_skills SET skilllevel = skilllevel + 1 WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]);
         
         await db.query('COMMIT').catch(()=>{}); 
-        
-        const nextLevel = currentLevel + 1;
         const statSymbol = configSkill.stat_type === '%' ? '%' : '';
-        const nextStat = `${getSkillDisplayValue(configSkill, nextLevel)}${statSymbol}`;
-
-        await replyWithCanvas(i, user, 'success_skill', {
-            title: `صقل ${resolveText(configSkill.name)}`,
-            currentLevel: currentLevel,
-            nextLevel: nextLevel,
-            nextStat: nextStat
-        }, [getReturnRow()], []);
+        await replyWithCanvas(i, user, 'success_skill', { title: `صقل ${resolveText(configSkill.name)}`, currentLevel: currentLevel, nextLevel: currentLevel + 1, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}` }, [getReturnRow()], []);
     } catch (err) {
         await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'أكاديمية السحر', hasError: true, errorMsg: 'حدث خطأ أثناء الترقية!' }, [getReturnRow()]);
+        await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'حدث خطأ، تأكد من الموارد!' }, [getReturnRow()]);
     }
 }
 
@@ -827,44 +741,35 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
         return true;
     });
 
-    if (availableSacrifices.length === 0) {
-        return await replyWithCanvas(i, user, 'synthesis_home', { mora: userMora, title: 'فرن الدمج الكيميائي', hasError: true, errorMsg: 'لا تملك 4 عناصر متشابهة من مواد عرقك أو مخطوطات السحر لدمجها.' }, [getReturnRow()], [], isInitial);
-    }
+    if (availableSacrifices.length === 0) return await replyWithCanvas(i, user, 'synthesis_home', { mora: userMora, title: 'فرن الدمج', hasError: true, errorMsg: 'لا تملك 4 عناصر متشابهة.' }, [getReturnRow()], [], isInitial);
 
     let components = [];
-    let payloadData = { mora: userMora, title: 'فرن الدمج السحري', fee: SYNTHESIS_FEE };
+    let payloadData = { mora: userMora, title: 'فرن الدمج', fee: SYNTHESIS_FEE };
 
     if (!state.sacrificeItem) {
         const sacrificeOptions = availableSacrifices.map(row => {
             const info = getItemInfo(row.itemID);
-            return { label: info.name.substring(0, 100), value: info.id.substring(0, 100), description: `الكمية: ${row.quantity} | الندرة: ${translateRarity(info.rarity)}`.substring(0, 100) };
+            return { label: info.name.substring(0, 100), value: info.id.substring(0, 100), description: `الكمية: ${row.quantity}`.substring(0, 100) };
         }).slice(0, 25);
-        components.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('forge_synth_sacrifice').setPlaceholder('1. اختر العنصر الذي ستضحي به (سيخصم 4)').addOptions(sacrificeOptions)));
+        components.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('forge_synth_sacrifice').setPlaceholder('1. اختر العنصر الذي ستضحي به').addOptions(sacrificeOptions)));
     } else {
         const sacInfo = getItemInfo(state.sacrificeItem);
         if(!sacInfo) { state.sacrificeItem = null; return buildSynthesisUI(i, user, guildId, db, state, isInitial); }
 
-        payloadData.sacMatName = sacInfo.name;
-        payloadData.reqMatIcon = sacInfo.iconUrl;
+        payloadData.sacMatName = sacInfo.name; payloadData.reqMatIcon = sacInfo.iconUrl;
 
         let targetOptions = [];
         const rMats = upgradeMats.weapon_materials.find(m => m.race === userRace);
         if (rMats) {
             const matMatch = rMats.materials.find(m => m.rarity === sacInfo.rarity);
-            if (matMatch && matMatch.id !== sacInfo.id) {
-                targetOptions.push({ label: resolveText(matMatch.name).substring(0, 100), value: matMatch.id.substring(0, 100), description: 'مورد سلاح' });
-            }
+            if (matMatch && matMatch.id !== sacInfo.id) targetOptions.push({ label: resolveText(matMatch.name).substring(0, 100), value: matMatch.id.substring(0, 100) });
         }
-        
         upgradeMats.skill_books.forEach(cat => {
             const bookMatch = cat.books.find(b => b.rarity === sacInfo.rarity);
-            if (bookMatch && bookMatch.id !== sacInfo.id) {
-                targetOptions.push({ label: resolveText(bookMatch.name).substring(0, 100), value: bookMatch.id.substring(0, 100), description: 'مخطوطة سحر' });
-            }
+            if (bookMatch && bookMatch.id !== sacInfo.id) targetOptions.push({ label: resolveText(bookMatch.name).substring(0, 100), value: bookMatch.id.substring(0, 100) });
         });
 
-        const uniqueTargetsMap = new Map();
-        targetOptions.forEach(opt => uniqueTargetsMap.set(opt.value, opt));
+        const uniqueTargetsMap = new Map(); targetOptions.forEach(opt => uniqueTargetsMap.set(opt.value, opt));
         const uniqueTargets = Array.from(uniqueTargetsMap.values());
 
         if (!state.targetItem && uniqueTargets.length > 0) {
@@ -874,68 +779,32 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
         if (state.targetItem) {
             const targetInfo = getItemInfo(state.targetItem);
             if(targetInfo) {
-                payloadData.targetMatName = targetInfo.name;
-                payloadData.targetMatIcon = targetInfo.iconUrl;
-                
-                const btnStyle = userMora >= SYNTHESIS_FEE ? ButtonStyle.Success : ButtonStyle.Secondary;
-                components.push(new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('forge_execute_synth').setLabel(`دمــج`).setStyle(btnStyle).setEmoji('🔨').setDisabled(userMora < SYNTHESIS_FEE)
-                ));
+                payloadData.targetMatName = targetInfo.name; payloadData.targetMatIcon = targetInfo.iconUrl;
+                components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('forge_execute_synth').setLabel(`دمــج`).setStyle(userMora >= SYNTHESIS_FEE ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(userMora < SYNTHESIS_FEE)));
             }
         }
     }
-
     components.push(getReturnRow());
     return await replyWithCanvas(i, user, 'synthesis', payloadData, components, [], isInitial);
 }
 
 async function handleSynthesis(i, user, guildId, db, state) {
     if (!state.sacrificeItem || !state.targetItem) return;
-    
-    let moraRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-    const userMora = Number(moraRes?.rows?.[0]?.mora || 0) + Number(moraRes?.rows?.[0]?.bank || 0);
-    
-    if (userMora < SYNTHESIS_FEE) {
-        return await replyWithCanvas(i, user, 'synthesis_error', { mora: userMora, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك المورا الكافية للدمج (المطلوب: ${SYNTHESIS_FEE} 🪙).` }, [getReturnRow()]);
-    }
-
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        await safeQuery(db, `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - $1), "bank" = CASE WHEN CAST("mora" AS BIGINT) < $1 THEN CAST("bank" AS BIGINT) - ($1 - CAST("mora" AS BIGINT)) ELSE CAST("bank" AS BIGINT) END WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = MAX(0, CAST(mora AS BIGINT) - $1), bank = CASE WHEN CAST(mora AS BIGINT) < $1 THEN CAST(bank AS BIGINT) - ($1 - CAST(mora AS BIGINT)) ELSE CAST(bank AS BIGINT) END WHERE userid = $2 AND guildid = $3`, [SYNTHESIS_FEE, user.id, guildId]);
+        if (!(await deductMora(db, user.id, guildId, SYNTHESIS_FEE))) throw new Error("Insufficient funds");
+        if (!(await deductItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: 4 }]))) throw new Error("Insufficient items");
 
-        let remainingToDeduct = 4;
-        let updateRes = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, state.sacrificeItem]);
-        
-        let totalAvail = 0;
-        if (updateRes.rows) updateRes.rows.forEach(r => totalAvail += Number(r.quantity || r.Quantity));
-        if (totalAvail < 4) throw new Error("Insufficient items");
-
-        for (const r of updateRes.rows) {
-            if (remainingToDeduct <= 0) break;
-            const q = Number(r.quantity || r.Quantity);
-            const deduct = Math.min(q, remainingToDeduct);
-            await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [deduct, r.id || r.ID]);
-            remainingToDeduct -= deduct;
-        }
-
-        await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]);
-        
         let targetCheck = await safeQuery(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, state.targetItem]);
         if (targetCheck?.rows?.[0]) await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, `UPDATE user_inventory SET quantity = quantity + 1 WHERE id = $1`, [targetCheck.rows[0].id || targetCheck.rows[0].ID]);
         else await safeQuery(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]);
         
         await db.query('COMMIT').catch(()=>{}); 
-        
         const targetInfo = getItemInfo(state.targetItem);
-        await replyWithCanvas(i, user, 'success_synthesis', {
-            title: 'فرن الدمج السحري',
-            targetMatName: targetInfo.name,
-            targetMatIcon: targetInfo.iconUrl,
-            targetMatRarity: targetInfo.rarity
-        }, [getReturnRow()]);
+        await replyWithCanvas(i, user, 'success_synthesis', { title: 'فرن الدمج السحري', targetMatName: targetInfo.name, targetMatIcon: targetInfo.iconUrl, targetMatRarity: targetInfo.rarity }, [getReturnRow()]);
     } catch (err) {
         await db.query('ROLLBACK').catch(()=>{});
-        await replyWithCanvas(i, user, 'synthesis_error', { mora: userMora, title: 'فرن الدمج السحري', hasError: true, errorMsg: 'حدث خطأ أثناء الدمج! تأكد من امتلاكك للعناصر المطلوبة.' }, [getReturnRow()]);
+        await replyWithCanvas(i, user, 'synthesis_error', { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: 'تأكد من موراك والعناصر!' }, [getReturnRow()]);
     }
 }
 
@@ -944,15 +813,11 @@ async function buildSmeltingUI(i, user, guildId, db, state, isInitial = false) {
         safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
         safeQuery(db, `SELECT "itemID", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT itemid, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
     ]);
-
     const userMora = Number(moraRes?.rows?.[0]?.mora || 0) + Number(moraRes?.rows?.[0]?.bank || 0);
     const inventory = aggregateInventory(invRes?.rows || []);
-
     const smeltableItems = inventory.filter(row => getItemInfo(row.itemID) !== null);
 
-    if (smeltableItems.length === 0) {
-        return await replyWithCanvas(i, user, 'smelting_home', { mora: userMora, title: 'محرقة التفكيك', hasError: true, errorMsg: 'لا تملك عناصر قابلة للصهر.' }, [getReturnRow()], [], isInitial);
-    }
+    if (smeltableItems.length === 0) return await replyWithCanvas(i, user, 'smelting_home', { mora: userMora, title: 'محرقة التفكيك', hasError: true, errorMsg: 'لا تملك عناصر قابلة للصهر.' }, [getReturnRow()], [], isInitial);
 
     let payloadData = { mora: userMora, title: 'محرقة التفكيك' };
     let components = [];
@@ -961,31 +826,20 @@ async function buildSmeltingUI(i, user, guildId, db, state, isInitial = false) {
         const smeltOptions = smeltableItems.map(row => {
             const info = getItemInfo(row.itemID);
             const xpGain = SMELT_XP_RATES[info.rarity] || 0;
-            return { label: info.name.substring(0, 100), value: info.id.substring(0, 100), description: `المخزون: ${row.quantity} | يعطي: ${xpGain} XP | الندرة: ${translateRarity(info.rarity)}`.substring(0, 100) };
+            return { label: info.name.substring(0, 100), value: info.id.substring(0, 100), description: `المخزون: ${row.quantity} | يعطي: ${xpGain} XP` };
         }).slice(0, 25);
         components.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('forge_smelt_select').setPlaceholder('اختر العنصر الذي تريد صهره...').addOptions(smeltOptions)));
     } else {
         const itemInfo = getItemInfo(state.item);
         if(!itemInfo) { state.item = null; return buildSmeltingUI(i, user, guildId, db, state, isInitial); }
 
-        payloadData.sacMatName = itemInfo.name;
-        payloadData.reqMatIcon = itemInfo.iconUrl;
-        payloadData.xpGain = SMELT_XP_RATES[itemInfo.rarity] || 10;
-        
+        payloadData.sacMatName = itemInfo.name; payloadData.reqMatIcon = itemInfo.iconUrl; payloadData.xpGain = SMELT_XP_RATES[itemInfo.rarity] || 10;
         const rowData = smeltableItems.find(r => r.itemID === state.item);
         const itemQty = rowData ? rowData.quantity : 0;
-
-        const actionRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('forge_execute_smelt_1').setLabel(`صـهـر`).setStyle(ButtonStyle.Danger)
-        );
-
-        if (itemQty > 1) {
-            actionRow.addComponents(new ButtonBuilder().setCustomId(`forge_smelt_multi_${state.item}`).setLabel(`صـهـر متعـدد`).setStyle(ButtonStyle.Primary));
-        }
-
+        const actionRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('forge_execute_smelt_1').setLabel(`صـهـر`).setStyle(ButtonStyle.Danger));
+        if (itemQty > 1) actionRow.addComponents(new ButtonBuilder().setCustomId(`forge_smelt_multi_${state.item}`).setLabel(`صـهـر متعـدد`).setStyle(ButtonStyle.Primary));
         components.push(actionRow);
     }
-
     components.push(getReturnRow());
     return await replyWithCanvas(i, user, 'smelting', payloadData, components, [], isInitial);
 }
@@ -996,12 +850,10 @@ async function handleSmeltingMultiModal(i, user, guildId, db, state, client) {
     const input = new TextInputBuilder().setCustomId('smelt_qty').setLabel('كم حبة تبي تصهر؟').setStyle(TextInputStyle.Short).setRequired(true);
     modal.addComponents(new ActionRowBuilder().addComponents(input));
     await i.showModal(modal);
-    
     try {
         const submit = await i.awaitModalSubmit({ time: 60000, filter: s => s.user.id === user.id });
         const qtyToSmelt = parseInt(submit.fields.getTextInputValue('smelt_qty'));
         if (isNaN(qtyToSmelt) || qtyToSmelt <= 0) return submit.reply({ content: '❌ رقم غير صالح.', flags: MessageFlags.Ephemeral });
-
         await handleSmelting(submit, user, guildId, db, state, client, qtyToSmelt, true);
     } catch(e) {}
 }
@@ -1009,71 +861,25 @@ async function handleSmeltingMultiModal(i, user, guildId, db, state, client) {
 async function handleSmelting(i, user, guildId, db, state, client, qtyToSmelt = 1, isModal = false) {
     const itemIdToSmelt = state.item || (isModal ? i.customId.replace('modal_smelt_', '') : null);
     if (!itemIdToSmelt) return;
-
     if (isModal) await i.deferUpdate().catch(()=>{});
-
-    let moraRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-    const userMora = Number(moraRes?.rows?.[0]?.mora || 0) + Number(moraRes?.rows?.[0]?.bank || 0);
-
-    let invRes = await safeQuery(db, `SELECT "quantity", "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity, id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemIdToSmelt]);
-    
-    let totalQty = 0;
-    if (invRes?.rows) invRes.rows.forEach(r => totalQty += Number(r.quantity || r.Quantity));
-
-    if (totalQty < qtyToSmelt) {
-        if (isModal) {
-            await replyWithCanvas({
-                replied: false, deferred: false,
-                editReply: async (p) => i.editReply(p) 
-            }, user, 'smelting_error', { mora: userMora, title: 'محرقة التفكيك', hasError: true, errorMsg: `لا تملك ${qtyToSmelt} حبة من هذا العنصر لصهره.` }, [getReturnRow()]);
-            return;
-        } else {
-            return await replyWithCanvas(i, user, 'smelting_error', { mora: userMora, title: 'محرقة التفكيك', hasError: true, errorMsg: `لا تملك ${qtyToSmelt} حبة من هذا العنصر لصهره.` }, [getReturnRow()]);
-        }
-    }
-
-    const itemInfo = getItemInfo(itemIdToSmelt);
-    const xpReward = (SMELT_XP_RATES[itemInfo.rarity] || 10) * qtyToSmelt;
 
     await db.query('BEGIN').catch(()=>{}); 
     try {
-        let remainingToDeduct = qtyToSmelt;
-        for (const r of invRes.rows) {
-            if (remainingToDeduct <= 0) break;
-            const q = Number(r.quantity || r.Quantity);
-            const deduct = Math.min(q, remainingToDeduct);
-            await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [deduct, r.id || r.ID]);
-            remainingToDeduct -= deduct;
-        }
-
-        await safeQuery(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, `DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [user.id]);
+        if (!(await deductItems(db, user.id, guildId, [{ id: itemIdToSmelt, count: qtyToSmelt }]))) throw new Error("Insufficient items");
         await db.query('COMMIT').catch(()=>{}); 
 
+        const itemInfo = getItemInfo(itemIdToSmelt);
+        const xpReward = (SMELT_XP_RATES[itemInfo.rarity] || 10) * qtyToSmelt;
+
         const memberObj = await i.guild?.members?.fetch(user.id).catch(()=>{});
-        if (addXPAndCheckLevel && memberObj) {
-            await addXPAndCheckLevel(client, memberObj, db, xpReward, 0, false).catch(()=>{});
-        } else {
-            await safeQuery(db, `UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [xpReward, user.id, guildId]);
-            let cacheData = await client.getLevel(user.id, guildId);
-            if(cacheData) { cacheData.xp += xpReward; cacheData.totalXP += xpReward; await client.setLevel(cacheData); }
-        }
+        if (addXPAndCheckLevel && memberObj) await addXPAndCheckLevel(client, memberObj, db, xpReward, 0, false).catch(()=>{});
+        else await safeQuery(db, `UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [xpReward, user.id, guildId]);
         
-        const successData = {
-            title: 'محرقة التفكيك',
-            xpGain: xpReward
-        };
-        
-        if (isModal) {
-            await replyWithCanvas({
-                replied: false, deferred: false,
-                editReply: async (p) => i.editReply(p) 
-            }, user, 'success_smelting', successData, [getReturnRow()]);
-            state.item = null;
-        } else {
-            await replyWithCanvas(i, user, 'success_smelting', successData, [getReturnRow()]);
-        }
+        const successData = { title: 'محرقة التفكيك', xpGain: xpReward };
+        if (isModal) { await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_smelting', successData, [getReturnRow()]); state.item = null; } 
+        else { await replyWithCanvas(i, user, 'success_smelting', successData, [getReturnRow()]); }
     } catch (err) {
         await db.query('ROLLBACK').catch(()=>{});
-        isModal ? await i.followUp({ content: "❌ حدث خطأ أثناء الصهر!", flags: MessageFlags.Ephemeral }) : await replyWithCanvas(i, user, 'smelting_error', { mora: userMora, title: 'محرقة التفكيك', hasError: true, errorMsg: 'حدث خطأ أثناء الصهر!' }, [getReturnRow()]);
+        isModal ? await i.followUp({ content: "❌ لا تملك الكمية الكافية للصهر!", flags: MessageFlags.Ephemeral }) : await replyWithCanvas(i, user, 'smelting_error', { mora: 0, title: 'محرقة التفكيك', hasError: true, errorMsg: 'لا تملك الكمية الكافية!' }, [getReturnRow()]);
     }
 }
