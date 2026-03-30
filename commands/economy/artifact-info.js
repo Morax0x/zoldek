@@ -206,13 +206,14 @@ async function generateItemsCanvas(title, items, isBook = false, bookCat = 'gene
     return canvas.toBuffer('image/png');
 }
 
-// 🎨 رسم شاشة الكتب المدمجة (عامة + أعراق) الطويلة والفخمة
+// 🎨 رسم شاشة الكتب المدمجة (عامة + أعراق) - 🔥 تم تصحيح الطول 🔥
 async function generateCombinedBooksCanvas(generalBooks, raceBooks) {
-    const width = 1200, height = 1850; // لوحة طويلة جداً لتستوعب 10 كروت براحة
+    const width = 1200, height = 2050; // 🔥 تم زيادة الطول بشكل مريح جداً لتفادي القص
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 1800);
+    // تمديد الخلفية لتغطي الطول الجديد
+    const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 2000);
     bgGrad.addColorStop(0, '#101520'); bgGrad.addColorStop(1, '#05050a');
     ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, width, height);
 
