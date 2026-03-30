@@ -3,7 +3,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const fs = require('fs');
 
-// تسجيل الخطوط (نفس اللي نستخدمه دايم)
+// تسجيل الخطوط
 try {
     const fontsDir = path.join(process.cwd(), 'fonts');
     const beinPath = path.join(fontsDir, 'bein-ar-normal.ttf');
@@ -15,7 +15,7 @@ try {
 const FONT_MAIN = '"Bein", "Arial", sans-serif';
 const FONT_EMOJI = '"Emoji", "Arial", sans-serif';
 
-const upgradeMats = require('../../json/upgrade-materials.json'); // تأكد من مسار الجيسون
+const upgradeMats = require('../../json/upgrade-materials.json'); 
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
 const ID_TO_IMAGE = {
@@ -55,11 +55,14 @@ function getMaterialImageUrl(itemId, raceName, isBook = false, bookCat = 'genera
     return `${R2_URL}/images/materials/${raceFolder}/${imgName}`;
 }
 
-function roundRect(ctx, x, y, width, height, radius) {
-    ctx.beginPath(); ctx.moveTo(x + radius, y); ctx.lineTo(x + width - radius, y); ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius); ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height); ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius); ctx.quadraticCurveTo(x, y, x + radius, y); ctx.closePath();
+function drawAutoScaledText(ctx, text, x, y, maxWidth, maxFontSize, minFontSize = 10) {
+    let currentFontSize = maxFontSize;
+    ctx.font = `bold ${currentFontSize}px ${FONT_MAIN}`;
+    while (ctx.measureText(text).width > maxWidth && currentFontSize > minFontSize) {
+        currentFontSize--;
+        ctx.font = `bold ${currentFontSize}px ${FONT_MAIN}`;
+    }
+    ctx.fillText(text, x, y);
 }
 
 function drawOrnateFrame(ctx, x, y, w, h, color) {
@@ -126,12 +129,13 @@ async function generateHubCanvas() {
     return canvas.toBuffer('image/png');
 }
 
-// 🎨 رسم بطاقة الموارد (5 عناصر)
+// 🎨 رسم بطاقة الموارد المحدثة (5 عناصر بمسافات متناسقة)
 async function generateItemsCanvas(title, items, isBook = false, bookCat = 'general', raceName = '') {
     const width = 1200, height = 900;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
+    // الخلفية
     const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 900);
     bgGrad.addColorStop(0, '#101520'); bgGrad.addColorStop(1, '#05050a');
     ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, width, height);
@@ -148,13 +152,15 @@ async function generateItemsCanvas(title, items, isBook = false, bookCat = 'gene
         return await getCachedImage(url);
     }));
 
-    // حسبة الشبكة (3 فوق، 2 تحت)
-    const cardW = 320, cardH = 340;
-    const gapX = 40, gapY = 50;
+    // حسبة الشبكة وتوسعة الكروت
+    const cardW = 340; // زيادة عرض الكرت لمنع خروج النص
+    const cardH = 340;
+    const gapX = 50;   // ضبط المسافة الأفقية
+    const gapY = 60;   // زيادة المسافة العمودية لتفادي تداخل الكلمات
 
     // الصف الأول (3 كروت)
     const row1StartX = (width - (cardW * 3 + gapX * 2)) / 2;
-    const row1Y = 180;
+    const row1Y = 170;
 
     // الصف الثاني (كرتين)
     const row2StartX = (width - (cardW * 2 + gapX)) / 2;
@@ -173,31 +179,32 @@ async function generateItemsCanvas(title, items, isBook = false, bookCat = 'gene
         drawOrnateFrame(ctx, x, y, cardW, cardH, color);
 
         // وهج خلفي للصورة
-        const aura = ctx.createRadialGradient(x + cardW/2, y + 140, 10, x + cardW/2, y + 140, 150);
+        const aura = ctx.createRadialGradient(x + cardW/2, y + 130, 10, x + cardW/2, y + 130, 140);
         aura.addColorStop(0, `${color}40`); aura.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = aura; ctx.fillRect(x, y, cardW, cardH);
 
         // الصورة
-        const imgSize = 160;
+        const imgSize = 150;
         const img = images[i];
         if (img) {
             ctx.shadowColor = color; ctx.shadowBlur = 30;
-            ctx.drawImage(img, x + (cardW - imgSize)/2, y + 40, imgSize, imgSize);
+            ctx.drawImage(img, x + (cardW - imgSize)/2, y + 30, imgSize, imgSize);
             ctx.shadowBlur = 0;
         } else {
             ctx.fillStyle = '#FFF'; ctx.font = `80px ${FONT_EMOJI}`;
-            ctx.fillText(item.emoji || '📦', x + cardW/2, y + 120);
+            ctx.fillText(item.emoji || '📦', x + cardW/2, y + 105);
         }
 
-        // شريط الاسم
+        // شريط الاسم مع التصغير التلقائي (Auto-Scale)
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(x + 10, y + 220, cardW - 20, 50);
-        ctx.fillStyle = '#FFFFFF'; ctx.font = `bold 26px ${FONT_MAIN}`;
-        ctx.fillText(item.name.replace(/[\u{1F600}-\u{1F6FF}]/gu, '').trim(), x + cardW/2, y + 245);
+        ctx.fillRect(x + 10, y + 210, cardW - 20, 50);
+        ctx.fillStyle = '#FFFFFF'; 
+        const cleanName = item.name.replace(/[\u{1F600}-\u{1F6FF}]/gu, '').trim();
+        drawAutoScaledText(ctx, cleanName, x + cardW/2, y + 235, cardW - 30, 24, 14);
 
         // الندرة
-        ctx.fillStyle = color; ctx.font = `22px ${FONT_MAIN}`;
-        ctx.fillText(`الندرة: ${RARITY_ARABIC[item.rarity]}`, x + cardW/2, y + 300);
+        ctx.fillStyle = color; ctx.font = `bold 22px ${FONT_MAIN}`;
+        ctx.fillText(`الندرة: ${RARITY_ARABIC[item.rarity]}`, x + cardW/2, y + 295);
     }
 
     return canvas.toBuffer('image/png');
@@ -209,7 +216,7 @@ module.exports = {
         .setDescription('موسوعة تعرض تفاصيل الموارد والكتب الخاصة بالتطوير'),
     name: 'معلومات-الارتيفاكت',
     aliases: ['ارتيفاكت', 'موارد', 'artifacts'],
-    category: 'Economy', // 🔥 تم النقل للـ Economy
+    category: 'Economy', 
     
     async execute(interactionOrMessage) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
@@ -224,7 +231,6 @@ module.exports = {
             }
         };
 
-        // تجهيز الخيارات والأزرار
         const raceOptions = upgradeMats.weapon_materials.map(r => ({
             label: `موارد عرق ${RACE_TRANSLATIONS[r.race] || r.race}`,
             value: `race_${r.race}`,
@@ -244,7 +250,6 @@ module.exports = {
             new ButtonBuilder().setCustomId('arti_hub').setLabel('الرئيسية').setStyle(ButtonStyle.Secondary).setEmoji('🏠')
         );
 
-        // إرسال الشاشة الرئيسية
         const hubBuffer = await generateHubCanvas();
         const msg = await reply({ 
             content: '', 
