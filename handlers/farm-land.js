@@ -243,21 +243,19 @@ async function renderLand(interaction, client, db) {
         addButton(new ButtonBuilder().setCustomId(`land_clean_all_${userId}`).setLabel('تنظيـف').setStyle(ButtonStyle.Danger).setEmoji('🚿'));
     }
 
+    // 🔥 تعديل عرض الوقت ونسبة النمو لتظهر في زر واحد فقط وتكون مرتبطة ببعضها 🔥
     if (minRemainingTime !== Infinity) {
         const hours = Math.floor(minRemainingTime / (1000 * 60 * 60));
         const minutes = Math.floor((minRemainingTime % (1000 * 60 * 60)) / (1000 * 60));
         const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
         
-        let label = `⏳ النـمو: ${timeString}`;
+        let label = `⏳ ${timeString}`;
         if (growthMultiplier < 1.0) {
             const bonusPercent = Math.round((1.0 - growthMultiplier) * 100);
-            label += ` | ⚡ +${bonusPercent}% سرعة`;
+            label += ` | ⚡ +${bonusPercent}%`;
         }
 
         addButton(new ButtonBuilder().setCustomId('info_growth_time').setLabel(label).setStyle(ButtonStyle.Secondary).setDisabled(true));
-    } else if (growthMultiplier < 1.0) {
-        const bonusPercent = Math.round((1.0 - growthMultiplier) * 100);
-        addButton(new ButtonBuilder().setCustomId('info_growth_bonus').setLabel(`⚡ بركة النمو: +${bonusPercent}% سرعة`).setStyle(ButtonStyle.Secondary).setDisabled(true));
     }
 
     const workerBuff = workerBuffRes.rows[0];
