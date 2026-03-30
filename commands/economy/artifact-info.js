@@ -81,11 +81,11 @@ function drawOrnateFrame(ctx, x, y, w, h, color) {
 
 // 🎨 رسم شاشة الترحيب (الموسوعة الرئيسية)
 async function generateHubCanvas() {
-    const width = 1200, height = 700;
+    const width = 1200, height = 800; // 🔥 زدت الطول عشان تاخذ راحتها تماماً
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 800);
+    const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 900);
     bgGrad.addColorStop(0, '#1a1025'); bgGrad.addColorStop(1, '#050508');
     ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, width, height);
 
@@ -97,69 +97,74 @@ async function generateHubCanvas() {
     ctx.globalAlpha = 1.0;
 
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#B968FF'; ctx.font = `bold 60px ${FONT_MAIN}`;
+    ctx.fillStyle = '#B968FF'; ctx.font = `bold 65px ${FONT_MAIN}`; // الخط أكبر
     ctx.shadowColor = '#B968FF'; ctx.shadowBlur = 20;
-    ctx.fillText('🔮 موسوعة الارتيفاكت والموارد', width / 2, 100);
+    ctx.fillText('🔮 موسوعة الارتيفاكت والموارد', width / 2, 120);
     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = '#FFFFFF'; ctx.font = `30px ${FONT_MAIN}`;
-    ctx.fillText('مرحباً بك في مكتبة الإمبراطورية. اختر قسماً من الأسفل للاستكشاف.', width / 2, 180);
+    ctx.fillStyle = '#FFFFFF'; ctx.font = `32px ${FONT_MAIN}`;
+    ctx.fillText('مرحباً بك في مكتبة الإمبراطورية. اختر قسماً من الأسفل للاستكشاف.', width / 2, 210);
 
-    const boxW = 500, boxH = 300, gap = 60;
+    const boxW = 500, boxH = 380, gap = 80; // 🔥 كبرت الصناديق والمسافات بينهم
     const startX = (width - (boxW * 2 + gap)) / 2;
 
+    const box1Center = startX + boxW / 2;
+    const box2Center = startX + boxW + gap + boxW / 2;
+    const boxY = 300;
+
     // صندوق الأسلحة
-    drawOrnateFrame(ctx, startX, 280, boxW, boxH, '#FFD700');
-    ctx.fillStyle = '#FFD700'; ctx.font = `bold 40px ${FONT_MAIN}`;
-    ctx.fillText('⚔️ موارد الأسلحة', startX + boxW/2, 340);
-    ctx.fillStyle = '#E0E0E0'; ctx.font = `24px ${FONT_MAIN}`;
-    ctx.fillText('لكل عرق 5 موارد متدرجة الندرة', startX + boxW/2, 420);
-    ctx.fillText('تستخدم في ورشة الحدادة لتطوير', startX + boxW/2, 460);
-    ctx.fillText('سلاح العرق الخاص بك للحد الأقصى.', startX + boxW/2, 500);
+    drawOrnateFrame(ctx, startX, boxY, boxW, boxH, '#FFD700');
+    ctx.fillStyle = '#FFD700'; ctx.font = `bold 42px ${FONT_MAIN}`;
+    ctx.fillText('⚔️ موارد الأسلحة', box1Center, boxY + 80);
+    ctx.fillStyle = '#E0E0E0'; ctx.font = `26px ${FONT_MAIN}`;
+    ctx.fillText('لكل عرق 5 موارد متدرجة الندرة', box1Center, boxY + 170);
+    ctx.fillText('تستخدم في ورشة الحدادة لتطوير', box1Center, boxY + 230);
+    ctx.fillText('سلاح العرق الخاص بك للحد الأقصى.', box1Center, boxY + 290);
 
     // صندوق المهارات
-    drawOrnateFrame(ctx, startX + boxW + gap, 280, boxW, boxH, '#00C3FF');
-    ctx.fillStyle = '#00C3FF'; ctx.font = `bold 40px ${FONT_MAIN}`;
-    ctx.fillText('📚 كتب المهارات', startX + boxW + gap + boxW/2, 340);
-    ctx.fillStyle = '#E0E0E0'; ctx.font = `24px ${FONT_MAIN}`;
-    ctx.fillText('تنقسم إلى كتب عامة وكتب عرقية', startX + boxW + gap + boxW/2, 420);
-    ctx.fillText('تُستخدم في الأكاديمية السحرية', startX + boxW + gap + boxW/2, 460);
-    ctx.fillText('لصقل مهاراتك ورفع مستواها.', startX + boxW + gap + boxW/2, 500);
+    drawOrnateFrame(ctx, startX + boxW + gap, boxY, boxW, boxH, '#00C3FF');
+    ctx.fillStyle = '#00C3FF'; ctx.font = `bold 42px ${FONT_MAIN}`;
+    ctx.fillText('📚 كتب المهارات', box2Center, boxY + 80);
+    ctx.fillStyle = '#E0E0E0'; ctx.font = `26px ${FONT_MAIN}`;
+    ctx.fillText('تنقسم إلى كتب عامة وكتب عرقية', box2Center, boxY + 170);
+    ctx.fillText('تُستخدم في الأكاديمية السحرية', box2Center, boxY + 230);
+    ctx.fillText('لصقل مهاراتك ورفع مستواها.', box2Center, boxY + 290);
 
     return canvas.toBuffer('image/png');
 }
 
-// 🎨 رسم بطاقة الموارد المحدثة والمضبوطة (5 عناصر)
+// 🎨 رسم بطاقة الموارد (5 عناصر)
 async function generateItemsCanvas(title, items, isBook = false, bookCat = 'general', raceName = '') {
-    const width = 1200, height = 900;
+    const width = 1200, height = 1000; // 🔥 زدت الطول لـ 1000 عشان المربعين اللي تحت ما تنقص أبداً
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
     // الخلفية
-    const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 900);
+    const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 1000);
     bgGrad.addColorStop(0, '#101520'); bgGrad.addColorStop(1, '#05050a');
     ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, width, height);
 
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#FFD700'; ctx.font = `bold 60px ${FONT_MAIN}`;
     ctx.shadowColor = '#FFD700'; ctx.shadowBlur = 20;
-    ctx.fillText(title, width / 2, 80);
+    ctx.fillText(title, width / 2, 90);
     ctx.shadowBlur = 0;
 
+    // تحميل الصور
     const images = await Promise.all(items.map(async item => {
         const url = getMaterialImageUrl(item.id, raceName, isBook, bookCat);
         return await getCachedImage(url);
     }));
 
-    // 🔥 تعديل أبعاد البطاقة والمسافات هنا 🔥
-    const cardW = 320; // تم التصغير قليلاً لتتناسب 3 بطاقات براحة
-    const cardH = 340;
-    const gapX = 60;   // مسافة أفقية مريحة
-    const gapY = 60;   // مسافة عمودية جيدة
+    // 🔥 المقاسات الجديدة المريحة جداً للعين 🔥
+    const cardW = 340; 
+    const cardH = 360; 
+    const gapX = 50;   
+    const gapY = 70;   
 
     // الصف الأول (3 كروت)
     const row1StartX = (width - (cardW * 3 + gapX * 2)) / 2;
-    const row1Y = 170;
+    const row1Y = 190;
 
     // الصف الثاني (كرتين)
     const row2StartX = (width - (cardW * 2 + gapX)) / 2;
@@ -178,12 +183,12 @@ async function generateItemsCanvas(title, items, isBook = false, bookCat = 'gene
         drawOrnateFrame(ctx, x, y, cardW, cardH, color);
 
         // وهج خلفي للصورة
-        const aura = ctx.createRadialGradient(x + cardW/2, y + 130, 10, x + cardW/2, y + 130, 140);
+        const aura = ctx.createRadialGradient(x + cardW/2, y + 140, 10, x + cardW/2, y + 140, 150);
         aura.addColorStop(0, `${color}40`); aura.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = aura; ctx.fillRect(x, y, cardW, cardH);
 
         // الصورة
-        const imgSize = 140; // تصغير طفيف للصورة ليتناسب مع العرض الجديد
+        const imgSize = 160; 
         const img = images[i];
         if (img) {
             ctx.shadowColor = color; ctx.shadowBlur = 30;
@@ -191,19 +196,19 @@ async function generateItemsCanvas(title, items, isBook = false, bookCat = 'gene
             ctx.shadowBlur = 0;
         } else {
             ctx.fillStyle = '#FFF'; ctx.font = `80px ${FONT_EMOJI}`;
-            ctx.fillText(item.emoji || '📦', x + cardW/2, y + 105);
+            ctx.fillText(item.emoji || '📦', x + cardW/2, y + 110);
         }
 
-        // شريط الاسم مع التصغير التلقائي
+        // شريط الاسم
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(x + 10, y + 210, cardW - 20, 50);
+        ctx.fillRect(x + 10, y + 215, cardW - 20, 55); 
         ctx.fillStyle = '#FFFFFF'; 
         const cleanName = item.name.replace(/[\u{1F600}-\u{1F6FF}]/gu, '').trim();
-        drawAutoScaledText(ctx, cleanName, x + cardW/2, y + 235, cardW - 30, 24, 14);
+        drawAutoScaledText(ctx, cleanName, x + cardW/2, y + 242, cardW - 30, 26, 14);
 
         // الندرة
-        ctx.fillStyle = color; ctx.font = `bold 22px ${FONT_MAIN}`;
-        ctx.fillText(`الندرة: ${RARITY_ARABIC[item.rarity]}`, x + cardW/2, y + 295);
+        ctx.fillStyle = color; ctx.font = `bold 24px ${FONT_MAIN}`;
+        ctx.fillText(`الندرة: ${RARITY_ARABIC[item.rarity]}`, x + cardW/2, y + 315);
     }
 
     return canvas.toBuffer('image/png');
@@ -230,6 +235,7 @@ module.exports = {
             }
         };
 
+        // تجهيز الخيارات والأزرار
         const raceOptions = upgradeMats.weapon_materials.map(r => ({
             label: `موارد عرق ${RACE_TRANSLATIONS[r.race] || r.race}`,
             value: `race_${r.race}`,
@@ -249,6 +255,7 @@ module.exports = {
             new ButtonBuilder().setCustomId('arti_hub').setLabel('الرئيسية').setStyle(ButtonStyle.Secondary).setEmoji('🏠')
         );
 
+        // إرسال الشاشة الرئيسية
         const hubBuffer = await generateHubCanvas();
         const msg = await reply({ 
             content: '', 
