@@ -1,7 +1,7 @@
-const { OWNER_ID } = require('../constants');
-const { applyDamageToPlayer } = require('../utils'); 
-const { checkBossPhase } = require('../monsters');
-const skillCalculator = require('../../combat/skill-calculator'); // ← المسار هنا مهم جداً عشان يربط بالمحرك الصح!
+const { OWNER_ID } = require('./constants');
+const { applyDamageToPlayer, calculateThreat } = require('./utils'); 
+const { checkBossPhase } = require('./monsters');
+const skillCalculator = require('../combat/skill-calculator');
 
 function applyCap(value, cap) {
     if (cap !== Infinity && value > cap) return cap;
@@ -14,7 +14,6 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
     const isSealed = player.effects.some(e => e.type === 'seal' || e.type === 'weakness');
     const sealMultiplier = isSealed ? 0.2 : 1.0; 
 
-    // مهارات الأونر (Owner Skills)
     if (skill.id === 'skill_erasure') {
         monster.hp = 0;
         log.push(`💀 **${player.name}** أشار بيده.. ومُحي الوحش من الوجود تماماً!`);
@@ -66,7 +65,6 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
         return { success: true, name: "دستـور المـوت" };
     }
 
-    // مهارات الفئات (Classes Skills)
     let classType = null;
     if (skill.id === 'class_special_skill') {
         classType = player.class;
@@ -197,10 +195,7 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
          return { success: true, name: skillName };
     }
 
-    // هنا معالجة باقي المهارات (General Skills / Race Skills)
-    if (!skill.id.startsWith('skill_') && !skill.id.startsWith('race_')) {
-        // للضمان فقط، في حال وجود مهارة غريبة
-    } else {
+    if (!skill.id.startsWith('skill_') || (player.id !== OWNER_ID)) {
         if ((player.skillCooldowns[skill.id] || 0) > 0 && player.id !== OWNER_ID) {
             return { error: `⏳ المهارة "${skill.name}" في وقت انتظار (${player.skillCooldowns[skill.id]} جولات)!` };
         }
@@ -214,18 +209,17 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
     }
 
     const isOwner = player.id === OWNER_ID;
-    
-    // استدعاء المحرك الموحد!
     const result = skillCalculator.executeSkill(player, monster, skill, isOwner);
 
-    // تطبيق آثار السموم أو الاحتراق 
     if (result.effectsApplied && result.effectsApplied.length > 0) {
         const userSkillEntry = player.skills ? player.skills[skill.id] : null;
         const skillLevel = userSkillEntry ? userSkillEntry.currentLevel : 1;
 
         result.effectsApplied.forEach(eff => {
             if (eff.type === 'poison' || eff.type === 'burn' || eff.type === 'bleed') {
+                
                 let baseVal = 100 + (skillLevel * 50); 
+                
                 eff.val = applyCap(Math.floor(baseVal * sealMultiplier), damageCap);
             }
         });
