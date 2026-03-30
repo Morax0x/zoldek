@@ -71,53 +71,49 @@ function resolveText(val) {
     return String(val);
 }
 
-// 🔥 نظام المعالجة الذاتية لقاعدة البيانات المُحسّن 🔥
+// 🔥 نظام المعالجة الذاتية الهجومي 🔥
 const safeQuery = async (db, qPg, params) => {
+    let res;
     try { 
-        return await db.query(qPg, params); 
+        res = await db.query(qPg, params); 
     } catch(e) { 
-        if (e.message && e.message.includes('violates unique constraint') && e.message.includes('_pkey')) {
-            try {
-                const match = e.message.match(/"([a-zA-Z0-9_]+)_pkey"/);
-                if (match && match[1]) {
-                    const tableName = match[1];
-                    await db.query(`SELECT setval('${tableName}_id_seq', COALESCE((SELECT MAX(id) FROM ${tableName}), 0) + 1, false)`);
-                    return await db.query(qPg, params); 
-                }
-            } catch(fixErr) {}
-        }
-        
-        let fallbackQuery = qPg
-            .replace(/"userID"/gi, "userid")
-            .replace(/"guildID"/gi, "guildid")
-            .replace(/"itemID"/gi, "itemid")
-            .replace(/"skillID"/gi, "skillid")
-            .replace(/"skillLevel"/gi, "skilllevel")
-            .replace(/"raceName"/gi, "racename")
-            .replace(/"weaponLevel"/gi, "weaponlevel")
-            .replace(/"quantity"/gi, "quantity")
-            .replace(/"mora"/gi, "mora")
-            .replace(/"bank"/gi, "bank")
-            .replace(/"level"/gi, "level")
-            .replace(/"id"/gi, "id")
-            .replace(/"user"/gi, "userid")
-            .replace(/"guild"/gi, "guildid");
-        
-        if (fallbackQuery !== qPg) {
-            try { return await db.query(fallbackQuery, params); } catch(e2) { return {rows:[]}; }
-        }
-        
-        return {rows:[]};
+        res = { rows: [] }; 
     }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/g, "userid")
+        .replace(/"guildID"/g, "guildid")
+        .replace(/"itemID"/g, "itemid")
+        .replace(/"skillID"/g, "skillid")
+        .replace(/"skillLevel"/g, "skilllevel")
+        .replace(/"raceName"/g, "racename")
+        .replace(/"weaponLevel"/g, "weaponlevel")
+        .replace(/"quantity"/g, "quantity")
+        .replace(/"mora"/g, "mora")
+        .replace(/"bank"/g, "bank")
+        .replace(/"level"/g, "level")
+        .replace(/"id"/g, "id")
+        .replace(/"user"/g, "userid")
+        .replace(/"guild"/g, "guildid");
+    
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
 };
 
 async function deductMora(db, userId, guildId, amount) {
     if (amount <= 0) return true;
     let res = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
-    if (!res || !res.rows || res.rows.length === 0) {
-        res = await safeQuery(db, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
-        if (!res || !res.rows || res.rows.length === 0) return false;
-    }
+    if (!res || !res.rows || res.rows.length === 0) return false;
 
     let mora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
     let bank = Number(res.rows[0].bank || res.rows[0].Bank || 0);
