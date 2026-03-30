@@ -129,7 +129,7 @@ async function generateHubCanvas() {
     return canvas.toBuffer('image/png');
 }
 
-// 🎨 رسم بطاقة الموارد المحدثة (5 عناصر بمسافات متناسقة)
+// 🎨 رسم بطاقة الموارد المحدثة والمضبوطة (5 عناصر)
 async function generateItemsCanvas(title, items, isBook = false, bookCat = 'general', raceName = '') {
     const width = 1200, height = 900;
     const canvas = createCanvas(width, height);
@@ -146,17 +146,16 @@ async function generateItemsCanvas(title, items, isBook = false, bookCat = 'gene
     ctx.fillText(title, width / 2, 80);
     ctx.shadowBlur = 0;
 
-    // تحميل الصور
     const images = await Promise.all(items.map(async item => {
         const url = getMaterialImageUrl(item.id, raceName, isBook, bookCat);
         return await getCachedImage(url);
     }));
 
-    // حسبة الشبكة وتوسعة الكروت
-    const cardW = 340; // زيادة عرض الكرت لمنع خروج النص
+    // 🔥 تعديل أبعاد البطاقة والمسافات هنا 🔥
+    const cardW = 320; // تم التصغير قليلاً لتتناسب 3 بطاقات براحة
     const cardH = 340;
-    const gapX = 50;   // ضبط المسافة الأفقية
-    const gapY = 60;   // زيادة المسافة العمودية لتفادي تداخل الكلمات
+    const gapX = 60;   // مسافة أفقية مريحة
+    const gapY = 60;   // مسافة عمودية جيدة
 
     // الصف الأول (3 كروت)
     const row1StartX = (width - (cardW * 3 + gapX * 2)) / 2;
@@ -184,7 +183,7 @@ async function generateItemsCanvas(title, items, isBook = false, bookCat = 'gene
         ctx.fillStyle = aura; ctx.fillRect(x, y, cardW, cardH);
 
         // الصورة
-        const imgSize = 150;
+        const imgSize = 140; // تصغير طفيف للصورة ليتناسب مع العرض الجديد
         const img = images[i];
         if (img) {
             ctx.shadowColor = color; ctx.shadowBlur = 30;
@@ -195,7 +194,7 @@ async function generateItemsCanvas(title, items, isBook = false, bookCat = 'gene
             ctx.fillText(item.emoji || '📦', x + cardW/2, y + 105);
         }
 
-        // شريط الاسم مع التصغير التلقائي (Auto-Scale)
+        // شريط الاسم مع التصغير التلقائي
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(x + 10, y + 210, cardW - 20, 50);
         ctx.fillStyle = '#FFFFFF'; 
