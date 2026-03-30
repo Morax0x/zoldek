@@ -49,17 +49,39 @@ const safeQuery = async (db, qPg, qLite, params) => {
     catch(e) { return await db.query(qLite, params).catch(()=>({rows:[]})); }
 };
 
-// 🔥 التحقق من العرق بشكل شامل (يفحص الداتا بيز والديسكورد) 🔥
-async function checkUserRace(user, guildId, memberObj, db) {
-    let raceRolesRes = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [guildId]);
+// 🔥 نظام المزامنة الإجبارية السحري (يحل كل مشاكل التعليق) 🔥
+async function forceSyncUserGear(user, guild, db) {
+    const member = guild.members.cache.get(user.id) || await guild.members.fetch(user.id).catch(() => null);
+    if (!member) return { error: "no_member" };
+
+    let raceRolesRes = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [guild.id]);
     if (!raceRolesRes || raceRolesRes.rows.length === 0) return { error: "not_configured" };
-    if (!memberObj) return { error: "no_member" };
-    
-    const userRoleIDs = memberObj.roles.cache.map(r => r.id);
+
+    const userRoleIDs = member.roles.cache.map(r => r.id);
     const matched = raceRolesRes.rows.find(r => userRoleIDs.includes(r.roleID || r.roleid));
     
-    if (matched) return { race: matched };
-    return { error: "no_race", allRaces: raceRolesRes.rows };
+    if (!matched) return { error: "no_race", allRaces: raceRolesRes.rows };
+
+    const currentRace = matched.raceName || matched.racename;
+
+    // 1. مزامنة السلاح بالقوة
+    let wRes = await safeQuery(db, `SELECT "weaponLevel", "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT weaponlevel as "weaponLevel", racename as "raceName" FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]);
+    
+    if (wRes.rows.length === 0 || (wRes.rows[0].raceName !== currentRace && wRes.rows[0].racename !== currentRace)) {
+        await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]);
+        await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1)`, [user.id, guild.id, currentRace]);
+    }
+
+    // 2. مزامنة المهارة العرقية بالقوة
+    const raceSkillId = `race_${currentRace.toLowerCase().replace(/\s+/g, '_')}_skill`;
+    let sRes = await safeQuery(db, `SELECT "skillLevel" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, `SELECT skilllevel as "skillLevel" FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guild.id, raceSkillId]);
+    
+    if (sRes.rows.length === 0) {
+        await safeQuery(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" LIKE 'race_%'`, `DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid LIKE 'race_%'`, [user.id, guild.id]);
+        await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guild.id, raceSkillId]);
+    }
+
+    return { success: true, race: currentRace };
 }
 
 function getWeaponDisplayDamage(weaponConfig, level) {
@@ -273,26 +295,25 @@ module.exports = {
             }
         }
 
-        const memberObj = interactionOrMessage.guild?.members.cache.get(user.id) || await interactionOrMessage.guild?.members.fetch(user.id).catch(()=>null);
         let userDataRes = await safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT level FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-        if (!userDataRes?.rows?.[0]) return fakeInteraction.editReply({ content: "❌ لم يتم العثور على بياناتك في البنك." }).catch(()=>{});
+        if (!userDataRes?.rows?.[0]) return fakeInteraction.editReply({ content: "❌ لم يتم العثور على بياناتك." }).catch(()=>{});
 
-        // 🔥 فحص المصير وتحديد العرق إذا لم يكن لديه عرق 🔥
-        const raceCheck = await checkUserRace(user, guildId, memberObj, db);
+        // 🔥 فحص المزامنة والمصير بشكل فوري 🔥
+        const syncStatus = await forceSyncUserGear(user, interactionOrMessage.guild, db);
 
-        if (raceCheck.error === "not_configured") {
+        if (syncStatus.error === "not_configured") {
             return fakeInteraction.editReply({ content: "❌ الإدارة لم تقم بإعداد رتب الأعراق في هذا السيرفر بعد. (يرجى إبلاغ الإدارة لاستخدام أمر الإعداد)" }).catch(()=>{});
         }
 
         let replyObj;
 
-        if (raceCheck.error === "no_race") {
+        if (syncStatus.error === "no_race") {
             const embed = new EmbedBuilder()
                 .setTitle("✨ اختيار المصير")
-                .setDescription("اختر العِرق الذي يُجسّد جوهرك وهويتك ، فكل اختيار يرسم مصيرك القادم\n\n⚠️ **تنبيه:** عند تحديد عِرقك، لا يمكنك تغييره لاحقًا — فاختَر بحكمة.")
+                .setDescription("اختر العِرق الذي يُجسّد جوهرك وهويتك ، فكل اختيار يرسم مصيرك القادم\n\n⚠️ **عند تحديد عِرقك، لا يمكنك تغييره لاحقًا — فاختَر بحكمة.**")
                 .setColor(Colors.DarkPurple);
 
-            const options = raceCheck.allRaces.slice(0, 25).map(r => ({
+            const options = syncStatus.allRaces.slice(0, 25).map(r => ({
                 label: r.raceName || r.racename,
                 value: r.roleID || r.roleid,
                 description: `الانضمام إلى عرق ${r.raceName || r.racename}`,
@@ -308,15 +329,6 @@ module.exports = {
 
             replyObj = await fakeInteraction.editReply({ content: null, embeds: [embed], components: [row] });
         } else {
-            // 🔥 نظام الشفاء التلقائي: إذا كان لديه الرتبة لكن ليس لديه سلاح/مهارة في الداتا بيز 🔥
-            const raceName = raceCheck.race.raceName || raceCheck.race.racename;
-            let wRes = await safeQuery(db, `SELECT "weaponLevel" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT weaponlevel as "weaponLevel" FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-            if (!wRes || wRes.rows.length === 0) {
-                 await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1) ON CONFLICT DO NOTHING`, `INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1) ON CONFLICT DO NOTHING`, [user.id, guildId, raceName]);
-                 const raceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
-                 await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1) ON CONFLICT DO NOTHING`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1) ON CONFLICT DO NOTHING`, [user.id, guildId, raceSkillId]);
-            }
-
             if (commandTrigger.includes('صقل') || commandTrigger.includes('اكاديمية') || commandTrigger === 'ms') {
                 replyObj = await buildAcademyMenuUI(fakeInteraction, user, guildId, db, !isSlash && !interactionOrMessage.preselectedItem);
             } else if (commandTrigger.includes('دمج')) {
@@ -344,22 +356,27 @@ module.exports = {
                 // 🔥 معالجة اختيار العرق الأول مرة 🔥
                 if (i.isStringSelectMenu() && i.customId === 'forge_starter_race') {
                     const roleId = i.values[0];
+                    const targetRole = i.guild.roles.cache.get(roleId);
+                    
                     let raceRolesRes = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid as "roleID", racename as "raceName" FROM race_roles WHERE guildid = $1`, [guildId]);
                     const matched = raceRolesRes.rows.find(r => (r.roleID || r.roleid) === roleId);
                     if(!matched) return i.followUp({ content: "❌ خطأ في العثور على العرق المختار.", flags: [MessageFlags.Ephemeral] });
 
                     const selectedRaceName = matched.raceName || matched.racename;
-                    const targetRole = i.guild.roles.cache.get(roleId);
                     
-                    // إعطاء الرتبة للمستخدم
-                    if (targetRole) await memberObj.roles.add(targetRole).catch(()=>{});
+                    // إعطاء الرتبة للمستخدم بالديسكورد
+                    const memberObj = i.guild.members.cache.get(user.id) || await i.guild.members.fetch(user.id).catch(()=>null);
+                    if (memberObj && targetRole) await memberObj.roles.add(targetRole).catch(()=>{});
 
-                    // حفظ السلاح والمهارة بلفل 1 في قاعدة البيانات
-                    await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1) ON CONFLICT DO NOTHING`, `INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1) ON CONFLICT DO NOTHING`, [user.id, guildId, selectedRaceName]);
+                    // المسح والإدراج بالقوة الجبرية
+                    await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `DELETE FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
+                    await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_weapons (userid, guildid, racename, weaponlevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, selectedRaceName]);
+                    
+                    await safeQuery(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" LIKE 'race_%'`, `DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid LIKE 'race_%'`, [user.id, guildId]);
                     const raceSkillId = `race_${selectedRaceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
-                    await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1) ON CONFLICT DO NOTHING`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1) ON CONFLICT DO NOTHING`, [user.id, guildId, raceSkillId]);
+                    await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, raceSkillId]);
 
-                    await i.followUp({ content: `🎉 **مرحباً بك في عالمنا!**\nأنت الآن تنتمي رسمياً إلى عرق **(${selectedRaceName})** وتم تزويدك بسلاحك ومهارتك الأساسية.\nيمكنك الآن البدء في تطوير عتادك!`, flags: [MessageFlags.Ephemeral] });
+                    await i.followUp({ content: `🎉 **مرحباً بك في عالمنا!**\nأنت الآن تنتمي رسمياً إلى عرق **(${selectedRaceName})** وتم تزويدك بسلاحك ومهارتك الأساسية.\nيمكنك الآن البدء في تطوير عتادك بحرية!`, flags: [MessageFlags.Ephemeral] });
 
                     // إعادة تحميل واجهة الحدادة الرئيسية
                     synthesisState = { sacrificeItem: null, targetItem: null };
@@ -372,7 +389,10 @@ module.exports = {
                     await buildMainUI(i, user, guildId, db, false);
                 }
                 else if (i.isStringSelectMenu()) {
-                    if (i.customId === 'forge_skill_select') await buildSkillUpgradeUI(i, user, guildId, db, i.values[0]);
+                    if (i.customId === 'forge_skill_select') {
+                        await forceSyncUserGear(user, i.guild, db);
+                        await buildSkillUpgradeUI(i, user, guildId, db, i.values[0]);
+                    }
                     else if (i.customId === 'forge_synth_sacrifice') {
                         synthesisState.sacrificeItem = i.values[0];
                         synthesisState.targetItem = null; 
@@ -388,8 +408,14 @@ module.exports = {
                     }
                 }
                 else if (i.isButton()) {
-                    if (i.customId === 'forge_weapon') await buildWeaponForgeUI(i, user, guildId, db);
-                    else if (i.customId === 'forge_skill_menu') await buildAcademyMenuUI(i, user, guildId, db);
+                    if (i.customId === 'forge_weapon') {
+                        await forceSyncUserGear(user, i.guild, db);
+                        await buildWeaponForgeUI(i, user, guildId, db);
+                    }
+                    else if (i.customId === 'forge_skill_menu') {
+                        await forceSyncUserGear(user, i.guild, db);
+                        await buildAcademyMenuUI(i, user, guildId, db);
+                    }
                     else if (i.customId === 'forge_synthesis') { 
                         synthesisState = { sacrificeItem: null, targetItem: null }; 
                         await buildSynthesisUI(i, user, guildId, db, synthesisState); 
@@ -438,7 +464,7 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     const wData = weaponRes?.rows?.[0];
     
     if (!wData) {
-        return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: 'الحدادة', hasError: true, errorMsg: 'أنت لا تملك أي سلاح! احصل على رتبة عرق أولاً.' }, [getReturnRow()]);
+        return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: 'الحدادة', hasError: true, errorMsg: 'حدث خطأ تقني ولم أتمكن من إيجاد سلاحك.' }, [getReturnRow()]);
     }
 
     const currentLevel = Number(wData.weaponLevel || wData.weaponlevel);
