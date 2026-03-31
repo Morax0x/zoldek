@@ -1,6 +1,11 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, AttachmentBuilder } = require("discord.js");
 const path = require('path');
-const { generateFishingCard } = require('../../generators/fishing-card-generator.js');
+let generateFishingCard;
+try {
+    ({ generateFishingCard } = require('../../generators/fishing-card-generator.js'));
+} catch (e) {
+    ({ generateFishingCard } = require('../generators/fishing-card-generator.js'));
+}
 
 let updateGuildStat, addXPAndCheckLevel;
 try {
@@ -35,11 +40,23 @@ const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 const activeFishingSessions = new Set();
 
+async function execSafe(db, queryPg, queryLite, params = []) {
+    try {
+        let res = await db.query(queryPg, params);
+        return res || { rows: [] };
+    } catch (err1) {
+        try {
+            let res2 = await db.query(queryLite, params);
+            return res2 || { rows: [] };
+        } catch (err2) {
+            return { rows: [], error: true };
+        }
+    }
+}
+
 async function getCooldownReductionMs(db, userId, guildId) {
     try {
-        let repRes;
-        try { repRes = await db.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
-        catch(e) { repRes = await db.query(`SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
+        let repRes = await execSafe(db, `SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, `SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
         
         const points = repRes.rows[0]?.rep_points || 0;
         
@@ -86,16 +103,12 @@ module.exports = {
         activeFishingSessions.add(user.id);
 
         try {
-            let userDataRes;
-            try { userDataRes = await sql.query('SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2', [user.id, guild.id]); }
-            catch(e) { userDataRes = await sql.query('SELECT * FROM levels WHERE userid = $1 AND guildid = $2', [user.id, guild.id]).catch(()=>({rows:[]})); }
-            
+            let userDataRes = await execSafe(sql, 'SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2', 'SELECT * FROM levels WHERE userid = $1 AND guildid = $2', [user.id, guild.id]);
             let userData = userDataRes.rows[0];
 
             if (!userData) {
                 userData = { user: user.id, guild: guild.id, rodLevel: 1, boatLevel: 1, currentLocation: 'beach', lastFish: 0, xp: 0, mora: 0, totalXP: 0, level: 1 };
-                try { await sql.query('INSERT INTO levels ("user", "guild", "xp", "totalXP", "level", "mora", "rodLevel", "boatLevel", "currentLocation", "lastFish") VALUES ($1, $2, 0, 0, 1, 0, 1, 1, $3, $4)', [user.id, guild.id, 'beach', '0']); }
-                catch(e) { await sql.query('INSERT INTO levels (userid, guildid, xp, totalxp, level, mora, rodlevel, boatlevel, currentlocation, lastfish) VALUES ($1, $2, 0, 0, 1, 0, 1, 1, $3, $4)', [user.id, guild.id, 'beach', '0']).catch(()=>{}); }
+                await execSafe(sql, 'INSERT INTO levels ("user", "guild", "xp", "totalXP", "level", "mora", "rodLevel", "boatLevel", "currentLocation", "lastFish") VALUES ($1, $2, 0, 0, 1, 0, 1, 1, $3, $4)', 'INSERT INTO levels (userid, guildid, xp, totalxp, level, mora, rodlevel, boatlevel, currentlocation, lastfish) VALUES ($1, $2, 0, 0, 1, 0, 1, 1, $3, $4)', [user.id, guild.id, 'beach', '0']);
             }
 
             const now = Date.now();
@@ -113,55 +126,50 @@ module.exports = {
                 return reply({ content: `⏳ رميت السنارة مؤخراً! الأسماك حذرة الآن، انتظر **${minutes}:${seconds}** دقيقة لتعود للصيد.` });
             }
 
-            let woundedDebuffRes;
-            try { woundedDebuffRes = await sql.query(`SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded' AND "expiresAt" > $3`, [user.id, guild.id, now]); }
-            catch(e) { woundedDebuffRes = await sql.query(`SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'pvp_wounded' AND expiresat > $3`, [user.id, guild.id, now]).catch(()=>({rows:[]})); }
-            
+            let woundedDebuffRes = await execSafe(sql, `SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded' AND "expiresAt" > $3`, `SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'pvp_wounded' AND expiresat > $3`, [user.id, guild.id, now]);
             const woundedDebuff = woundedDebuffRes.rows[0];
             if (woundedDebuff) {
                 activeFishingSessions.delete(user.id);
                 const minutesLeft = Math.ceil((Number(woundedDebuff.expiresAt || woundedDebuff.expiresat) - now) / 60000);
-                return reply({ content: `🩹 | أنت **جريح** حالياً! عليك الراحة لمدة **${minutesLeft}** دقيقة.`, flags: [MessageFlags.Ephemeral] });
+                return reply({ content: `🩹 | أنت **جريح** حالياً! عليك الراحة لمدة **${minutesLeft}** دقيقة.`, ephemeral: true });
             }
 
             if (user.id !== OWNER_ID) {
-                try { await sql.query(`UPDATE levels SET "lastFish" = $1 WHERE "user" = $2 AND "guild" = $3`, [nowStr, user.id, guild.id]); } 
-                catch (err) { await sql.query(`UPDATE levels SET lastfish = $1 WHERE userid = $2 AND guildid = $3`, [nowStr, user.id, guild.id]).catch(()=>{}); }
+                await execSafe(sql, `UPDATE levels SET "lastFish" = $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET lastfish = $1 WHERE userid = $2 AND guildid = $3`, [nowStr, user.id, guild.id]);
                 if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
                     let cacheData = await client.getLevel(user.id, guild.id);
                     if (cacheData) { cacheData.lastFish = nowStr; await client.setLevel(cacheData); }
                 }
             }
 
-            const currentRod = rodsConfig.find(r => r.level === (Number(userData.rodLevel || userData.rodlevel) || 1)) || rodsConfig[0];
-            const currentBoat = boatsConfig.find(b => b.level === (Number(userData.boatLevel || userData.boatlevel) || 1)) || boatsConfig[0];
+            // 🔥 جلب بيانات الترقية من جدول user_fishing إذا كانت موجودة لتصحيح التخلف عن مستويات levels 🔥
+            let userFishingRes = await execSafe(sql, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]);
+            let fishingData = userFishingRes.rows[0];
+            
+            let activeRodLevel = fishingData ? Number(fishingData.rodLevel || fishingData.rodlevel || 1) : Number(userData.rodLevel || userData.rodlevel || 1);
+            let activeBoatLevel = fishingData ? Number(fishingData.boatLevel || fishingData.boatlevel || 1) : Number(userData.boatLevel || userData.boatlevel || 1);
+
+            const currentRod = rodsConfig.find(r => r.level === activeRodLevel) || rodsConfig[0];
+            const currentBoat = boatsConfig.find(b => b.level === activeBoatLevel) || boatsConfig[0];
             const locationId = userData.currentLocation || userData.currentlocation || 'beach';
             const currentLocation = locationsConfig.find(l => l.id === locationId) || locationsConfig[0];
 
             let repLuckBonus = 0;
             let repRankText = "";
-            try {
-                let repRes;
-                try { repRes = await sql.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guild.id]); }
-                catch(e) { repRes = await sql.query(`SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]).catch(()=>({rows:[]})); }
-                
-                const repPoints = repRes.rows[0]?.rep_points || 0;
-                
-                if (repPoints >= 1000) { repLuckBonus = 10; repRankText = "SS"; }
-                else if (repPoints >= 500) { repLuckBonus = 8; repRankText = "S"; }
-                else if (repPoints >= 250) { repLuckBonus = 6; repRankText = "A"; }
-                else if (repPoints >= 100) { repLuckBonus = 5; repRankText = "B"; }
-                else if (repPoints >= 50) { repLuckBonus = 4; repRankText = "C"; }
-                else if (repPoints >= 25) { repLuckBonus = 3; repRankText = "D"; }
-            } catch(e) {}
+            let repRes = await execSafe(sql, `SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, `SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]);
+            const repPoints = repRes.rows[0]?.rep_points || 0;
+            
+            if (repPoints >= 1000) { repLuckBonus = 10; repRankText = "SS"; }
+            else if (repPoints >= 500) { repLuckBonus = 8; repRankText = "S"; }
+            else if (repPoints >= 250) { repLuckBonus = 6; repRankText = "A"; }
+            else if (repPoints >= 100) { repLuckBonus = 5; repRankText = "B"; }
+            else if (repPoints >= 50) { repLuckBonus = 4; repRankText = "C"; }
+            else if (repPoints >= 25) { repLuckBonus = 3; repRankText = "D"; }
 
             let usedBaitName = null;
             let baitLuckBonus = 0;
             
-            let userBaitsRes;
-            try { userBaitsRes = await sql.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guild.id]); }
-            catch(e) { userBaitsRes = await sql.query(`SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]).catch(()=>({rows:[]})); }
-            
+            let userBaitsRes = await execSafe(sql, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]);
             const userBaits = userBaitsRes.rows;
             const availableBaits = userBaits.filter(invItem => fishingConfig.baits.some(b => b.id === (invItem.itemID || invItem.itemid) && Number(invItem.quantity) > 0));
 
@@ -173,27 +181,21 @@ module.exports = {
                 richBaits.sort((a, b) => b.luck - a.luck);
                 const bestBait = richBaits[0];
                 
-                try {
-                    await sql.query("BEGIN");
-                    const checkBait = await sql.query(`SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "itemID" = $2`, [user.id, bestBait.id]);
-                    if (checkBait.rows.length > 0 && Number(checkBait.rows[0].quantity) > 0) {
-                        usedBaitName = bestBait.name;
-                        baitLuckBonus = bestBait.luck;
-                        if (Number(checkBait.rows[0].quantity) > 1) {
-                            await sql.query(`UPDATE user_inventory SET "quantity" = "quantity" - 1 WHERE "userID" = $1 AND "itemID" = $2`, [user.id, bestBait.id]);
-                        } else {
-                            await sql.query(`DELETE FROM user_inventory WHERE "userID" = $1 AND "itemID" = $2`, [user.id, bestBait.id]);
-                        }
+                let checkBait = await execSafe(sql, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "itemID" = $2`, `SELECT quantity FROM user_inventory WHERE userid = $1 AND itemid = $2`, [user.id, bestBait.id]);
+                if (checkBait.rows.length > 0 && Number(checkBait.rows[0].quantity || checkBait.rows[0].Quantity) > 0) {
+                    usedBaitName = bestBait.name;
+                    baitLuckBonus = bestBait.luck;
+                    if (Number(checkBait.rows[0].quantity || checkBait.rows[0].Quantity) > 1) {
+                        await execSafe(sql, `UPDATE user_inventory SET "quantity" = "quantity" - 1 WHERE "userID" = $1 AND "itemID" = $2`, `UPDATE user_inventory SET quantity = quantity - 1 WHERE userid = $1 AND itemid = $2`, [user.id, bestBait.id]);
+                    } else {
+                        await execSafe(sql, `DELETE FROM user_inventory WHERE "userID" = $1 AND "itemID" = $2`, `DELETE FROM user_inventory WHERE userid = $1 AND itemid = $2`, [user.id, bestBait.id]);
                     }
-                    await sql.query("COMMIT");
-                } catch(e) {
-                    await sql.query("ROLLBACK").catch(()=>{});
                 }
             }
 
             let isFisherKing = false;
             try {
-                const settingsRes = await sql.query(`SELECT "roleFisherKing" FROM settings WHERE "guild" = $1`, [guild.id]);
+                const settingsRes = await execSafe(sql, `SELECT "roleFisherKing" FROM settings WHERE "guild" = $1`, `SELECT rolefisherking FROM settings WHERE guild = $1`, [guild.id]);
                 const settings = settingsRes.rows[0];
                 if (settings && (settings.roleFisherKing || settings.rolefisherking) && member.roles.cache.has(settings.roleFisherKing || settings.rolefisherking)) {
                     isFisherKing = true;
@@ -415,15 +417,12 @@ module.exports = {
                                     ? { name: f.name, count: summary[f.id].count + 1, emoji: f.emoji, rarity: f.rarity } 
                                     : { name: f.name, count: 1, emoji: f.emoji, rarity: f.rarity };
                             });
-
-                            // 🔥 تم حذف كود إدخال الأسماك للحقيبة من هنا 🔥
                             
                             if (addXPAndCheckLevel && totalValue > 0) {
                                 const xpEarned = caughtFish.length * 15;
                                 await addXPAndCheckLevel(client, member, sql, xpEarned, totalValue, false).catch(()=>{});
                             } else {
-                                try { await sql.query(`UPDATE levels SET "mora" = COALESCE(CAST("mora" AS BIGINT), 0) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalValue, user.id, guild.id]); }
-                                catch(e) { await sql.query(`UPDATE levels SET mora = COALESCE(CAST(mora AS BIGINT), 0) + $1 WHERE userid = $2 AND guildid = $3`, [totalValue, user.id, guild.id]).catch(()=>{}); }
+                                await execSafe(sql, `UPDATE levels SET "mora" = COALESCE(CAST("mora" AS BIGINT), 0) + $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET mora = COALESCE(CAST(mora AS BIGINT), 0) + $1 WHERE userid = $2 AND guildid = $3`, [totalValue, user.id, guild.id]);
                                 if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
                                     let cache = await client.getLevel(user.id, guild.id);
                                     if (cache) { cache.mora = String(Number(cache.mora || 0) + totalValue); await client.setLevel(cache); }
@@ -465,7 +464,7 @@ module.exports = {
         } catch (e) {
             console.error("Fish command main error:", e);
             activeFishingSessions.delete(user.id);
-            reply({ content: "❌ حدث خطأ أثناء تجهيز الصيد." }).catch(()=>{});
+            reply({ content: "❌ حدث خطأ أثناء تجهيز الصيد.", ephemeral: true }).catch(()=>{});
         }
     }
 };
