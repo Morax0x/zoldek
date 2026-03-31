@@ -1,10 +1,10 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, MessageFlags, AttachmentBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder } = require('discord.js');
 
-let generateGachaCard, generateGachaHub;
+let generateGachaCard, generateGachaHub, generateGachaInventory;
 try {
-    ({ generateGachaCard, generateGachaHub } = require('../../generators/gacha-generator.js'));
+    ({ generateGachaCard, generateGachaHub, generateGachaInventory } = require('../../generators/gacha-generator.js'));
 } catch (e) {
-    generateGachaCard = null; generateGachaHub = null;
+    generateGachaCard = null; generateGachaHub = null; generateGachaInventory = null;
 }
 
 const skillsConfig = require('../../json/skills-config.json');
@@ -40,7 +40,7 @@ const ID_TO_IMAGE = {
     'mat_elf_1': 'elf_branch.png', 'mat_elf_2': 'elf_bark.png', 'mat_elf_3': 'elf_flower.png', 'mat_elf_4': 'elf_crystal.png', 'mat_elf_5': 'elf_tear.png',
     'mat_darkelf_1': 'darkelf_obsidian.png', 'mat_darkelf_2': 'darkelf_glass.png', 'mat_darkelf_3': 'darkelf_crystal.png', 'mat_darkelf_4': 'darkelf_void.png', 'mat_darkelf_5': 'darkelf_ash.png',
     'mat_seraphim_1': 'seraphim_feathe.png', 'mat_seraphim_2': 'seraphim_halo.png', 'mat_seraphim_3': 'seraphim_crystal.png', 'mat_seraphim_4': 'seraphim_core.png', 'mat_seraphim_5': 'seraphim_chalice.png',
-    'mat_demon_1': 'demon_ember.png', 'mat_demon_2': 'demon_horn.png', 'mat_demon_3': 'demon_crystal.png', 'mat_demon_4': 'demon_flame.png', 'mat_demon_5': 'demon_crown.png',
+    'demon_1': 'demon_ember.png', 'mat_demon_2': 'demon_horn.png', 'mat_demon_3': 'demon_crystal.png', 'mat_demon_4': 'demon_flame.png', 'mat_demon_5': 'demon_crown.png',
     'mat_vampire_1': 'vampire_blood.png', 'mat_vampire_2': 'vampire_vial.png', 'mat_vampire_3': 'vampire_fang.png', 'mat_vampire_4': 'vampire_moon.png', 'mat_vampire_5': 'vampire_chalice.png',
     'mat_spirit_1': 'spirit_dust.png', 'mat_spirit_2': 'spirit_remnant.png', 'mat_spirit_3': 'spirit_crystal.png', 'mat_spirit_4': 'spirit_core.png', 'mat_spirit_5': 'spirit_pulse.png',
     'mat_hybrid_1': 'hybrid_claw.png', 'mat_hybrid_2': 'hybrid_fur.png', 'mat_hybrid_3': 'hybrid_bone.png', 'mat_hybrid_4': 'hybrid_crystal.png', 'mat_hybrid_5': 'hybrid_soul.png',
@@ -52,7 +52,7 @@ const ID_TO_IMAGE = {
 
 const LOOT_POOL = { Common: [], Uncommon: [], Rare: [], Epic: [], Legendary: [] };
 
-if (upgradeMats.weapon_materials) {
+if (upgradeMats && upgradeMats.weapon_materials) {
     upgradeMats.weapon_materials.forEach(race => {
         race.materials.forEach(m => {
             const raceFolder = race.race.toLowerCase().replace(' ', '_');
@@ -62,7 +62,7 @@ if (upgradeMats.weapon_materials) {
     });
 }
 
-if (upgradeMats.skill_books) {
+if (upgradeMats && upgradeMats.skill_books) {
     upgradeMats.skill_books.forEach(cat => {
         cat.books.forEach(b => {
             const typeFolder = cat.category === 'General_Skills' ? 'general' : 'race';
@@ -167,7 +167,7 @@ function performPull(pityData, userRace, ownedSkills) {
     if (rarity === 'Legendary') { pityData.legendary_pity = 0; pityData.epic_pity = 0; }
     else if (rarity === 'Epic') pityData.epic_pity = 0;
 
-    let pool = LOOT_POOL[rarity] ? [...LOOT_POOL[rarity]] : [...LOOT_POOL['Common']];
+    let pool = LOOT_POOL[rarity] && LOOT_POOL[rarity].length > 0 ? [...LOOT_POOL[rarity]] : [...LOOT_POOL['Common']];
 
     pool = pool.filter(item => !(item.type === 'skill' && ownedSkills.includes(item.id)));
     if (pool.length === 0) pool = [...LOOT_POOL['Common']]; 
@@ -200,7 +200,7 @@ module.exports = {
         const reply = async (payload) => isSlash ? interactionOrMessage.editReply(payload).catch(()=>{}) : interactionOrMessage.reply(payload).catch(()=>{});
 
         if (activeGachaUsers.has(user.id)) {
-            const msgPayload = { content: '⏳ **الرجاء إنهاء الصناديق الحالية أو انتظار فك القفل (ثواني معدودة)...**', flags: [MessageFlags.Ephemeral] };
+            const msgPayload = { content: '⏳ **الرجاء إنهاء الصناديق الحالية أو انتظار فك القفل...**', flags: [MessageFlags.Ephemeral] };
             if (isSlash) {
                 if(!interactionOrMessage.deferred && !interactionOrMessage.replied) await interactionOrMessage.reply(msgPayload).catch(()=>{});
                 else await interactionOrMessage.followUp(msgPayload).catch(()=>{});
@@ -278,8 +278,8 @@ module.exports = {
             }
 
             let dailyLimit = 0;
-            if (member.roles.cache.has('1422160802416164885')) dailyLimit = 20;
-            else if (member.roles.cache.has('1395674235002945636')) dailyLimit = 10;
+            if (member && member.roles && member.roles.cache.has('1422160802416164885')) dailyLimit = 20;
+            else if (member && member.roles && member.roles.cache.has('1395674235002945636')) dailyLimit = 10;
 
             const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
 
@@ -328,10 +328,14 @@ module.exports = {
                         if (hubBuffer) files.push(new AttachmentBuilder(hubBuffer, { name: 'gacha_hub.png' }));
                     } catch(e){}
                 }
+                
+                // استخدام مسافة مخفية للحماية من خطأ Empty Message إذا فشل توليد الصورة
+                const safeContent = files.length > 0 ? '' : '\u200B';
+
                 if (targetMsg) {
-                    await targetMsg.edit({ components: [getPullButtons(totalBal)], files, embeds: [] }).catch(()=>{});
+                    await targetMsg.edit({ components: [getPullButtons(totalBal)], files, embeds: [], content: safeContent }).catch(()=>{});
                 } else {
-                    return { components: [getPullButtons(totalBal)], files };
+                    return { components: [getPullButtons(totalBal)], files, embeds: [], content: safeContent };
                 }
             };
 
@@ -339,13 +343,10 @@ module.exports = {
                 await fetchUserData();
                 let files = [];
                 
-                if (global.generateGachaInventory || (typeof require !== 'undefined')) {
+                if (generateGachaInventory) {
                     try {
-                        const { generateGachaInventory } = require('../../generators/gacha-generator.js');
-                        if (generateGachaInventory) {
-                            const invBuffer = await generateGachaInventory(user, freeChests, paidChests);
-                            if (invBuffer) files.push(new AttachmentBuilder(invBuffer, { name: 'gacha_inventory.png' }));
-                        }
+                        const invBuffer = await generateGachaInventory(user, freeChests, paidChests);
+                        if (invBuffer) files.push(new AttachmentBuilder(invBuffer, { name: 'gacha_inventory.png' }));
                     } catch(e){}
                 }
 
@@ -355,7 +356,7 @@ module.exports = {
                 
                 row.addComponents(new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('رجوع').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
                 
-                await targetMsg.edit({ embeds: [], components: [row], files }).catch(()=>{});
+                await targetMsg.edit({ embeds: [], components: [row], files, content: files.length > 0 ? '' : '\u200B' }).catch(()=>{});
             };
 
             const executePulls = async (pullCount, isBuying, cost) => {
@@ -405,14 +406,15 @@ module.exports = {
                             bestResult = { item, rarity };
                         }
 
-                        if (item.type === 'skill') {
+                        if (item && item.type === 'skill') {
                             ownedSkills.push(item.id);
                             skillsToAdd.push(item.id);
-                        } else {
+                        } else if (item) {
                             if (!itemsToAdd[item.id]) itemsToAdd[item.id] = 0;
                             itemsToAdd[item.id]++;
                         }
-                        results.push({ item, rarity });
+                        
+                        if (item) results.push({ item, rarity });
                     }
 
                     const updatePromises = [];
@@ -459,7 +461,7 @@ module.exports = {
 
             channelCollector.on('collect', async (i) => {
                 if (isProcessing) {
-                    return i.reply({ content: '⏳ يرجى الانتظار، جاري معالجة طلبك السابق...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                    return i.reply({ content: '⏳ يرجى الانتظار...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                 }
                 isProcessing = true;
 
@@ -468,6 +470,7 @@ module.exports = {
 
                     if (i.customId === 'gacha_inventory') {
                         await showInventoryMenu(initialMsg);
+                        isProcessing = false;
                         return;
                     }
 
@@ -477,10 +480,14 @@ module.exports = {
                             activePageCollector = null;
                         }
                         await generateAndSendHub(initialMsg);
+                        isProcessing = false;
                         return;
                     }
 
-                    if (['gacha_next', 'gacha_skip'].includes(i.customId)) return;
+                    if (['gacha_next', 'gacha_skip'].includes(i.customId)) {
+                        isProcessing = false;
+                        return;
+                    }
 
                     await fetchUserData();
                     
@@ -493,51 +500,56 @@ module.exports = {
                         pullCount = i.customId === 'gacha_10' ? 10 : 1;
                         cost = pullCount * PULL_PRICE;
                         if (totalBal < cost) {
-                            await i.followUp({ content: "❌ لا تملك المورا الكافية (الرصيد + البنك)!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                            await i.followUp({ content: "❌ لا تملك المورا الكافية!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                            isProcessing = false;
                             return;
                         }
                     } else {
                         if (i.customId === 'open_chest_10') pullCount = 10;
                         if (totalChests < pullCount) {
                             await i.followUp({ content: "❌ لا تملك صناديق كافية", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                            isProcessing = false;
                             return;
                         }
                     }
 
-                    await initialMsg.edit({ components: [], embeds: [] }).catch(()=>{});
+                    await initialMsg.edit({ components: [], embeds: [], content: '' }).catch(()=>{});
 
                     const pullsData = await executePulls(pullCount, isBuying, cost);
                     if (!pullsData) {
-                        await i.followUp({ content: "❌ فشل خصم المورا! تأكد من رصيدك.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                        await i.followUp({ content: "❌ فشل خصم الموارد!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                        isProcessing = false;
                         return;
                     }
 
                     const { bestResult, results } = pullsData;
 
+                    if (!bestResult || !bestResult.item) {
+                        await generateAndSendHub(initialMsg);
+                        isProcessing = false;
+                        return;
+                    }
+
+                    // عرض الانيميشن كصورة فقط بدون ايمبد
                     const prefix = pullCount > 1 ? 'ten_' : 'single_';
                     const meteorFileName = `${prefix}${bestResult.rarity}.png`;
                     const meteorUrl = `${R2_URL}/images/gacha/${meteorFileName}`;
                     let meteorFiles = [new AttachmentBuilder(meteorUrl, { name: meteorFileName })];
                     
-                    await initialMsg.edit({ files: meteorFiles, components: [], embeds: [] }).catch(()=>{});
+                    await initialMsg.edit({ files: meteorFiles, components: [], embeds: [], content: '' }).catch(()=>{});
                     
-                    await new Promise(r => setTimeout(r, 700));
+                    await new Promise(r => setTimeout(r, 1000));
 
                     if (pullCount > 10) {
                         let files = [];
-                        if (generateGachaCard && bestResult.item.imgPath) {
+                        if (generateGachaCard && bestResult.item) {
                             try {
                                 const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
                                 if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_best.png` }));
                             } catch(e){}
                         }
                         
-                        const summaryEmbed = new EmbedBuilder()
-                            .setTitle(`📦 تم فتح ${pullCount} صندوق`)
-                            .setColor(Colors.Green)
-                            .setDescription(`**أفضل عنصر حصلت عليه:**\n✨ ${bestResult.item.emoji} ${bestResult.item.name} (${bestResult.rarity})\n\n> تم إضافة جميع العناصر المتبقية إلى حقيبتك بنجاح.`);
-
-                        await initialMsg.edit({ embeds: [summaryEmbed], files, components: [getReturnButton()] }).catch(()=>{});
+                        await initialMsg.edit({ embeds: [], files, components: [getReturnButton()], content: files.length > 0 ? '' : '\u200B' }).catch(()=>{});
 
                     } else if (pullCount > 1) {
                         let currentIndex = 0;
@@ -547,7 +559,7 @@ module.exports = {
 
                             const res = results[idx];
                             let files = [];
-                            if (generateGachaCard && res.item.imgPath) {
+                            if (generateGachaCard && res.item) {
                                 try {
                                     const buffer = await generateGachaCard(res.item, res.rarity);
                                     if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_${idx}.png` }));
@@ -566,7 +578,7 @@ module.exports = {
                                     new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('الرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Success)
                                 );
                             }
-                            return { components: [row], files };
+                            return { embeds: [], components: [row], files, content: files.length > 0 ? '' : '\u200B' };
                         };
 
                         await initialMsg.edit(await getPagePayload(0)).catch(()=>{});
@@ -598,14 +610,15 @@ module.exports = {
 
                     } else {
                         let files = [];
-                        if (generateGachaCard && bestResult && bestResult.item.imgPath) {
+                        if (generateGachaCard && bestResult.item) {
                             try {
                                 const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
-                                if (buffer) files.push(new AttachmentBuilder(buffer, { name: 'gacha_best.png' }));
+                                if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_0.png` }));
                             } catch(e){}
                         }
-                        await initialMsg.edit({ components: [getReturnButton()], files, content: '' }).catch(()=>{});
+                        await initialMsg.edit({ embeds: [], files, components: [getReturnButton()], content: files.length > 0 ? '' : '\u200B' }).catch(()=>{});
                     }
+
                 } catch (e) {
                     // Ignore
                 } finally {
