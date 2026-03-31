@@ -9,7 +9,7 @@ try {
     } catch(err) {}
 }
 
-// 🔥 نظام المعالجة الذاتية لقواعد البيانات لضمان عدم ضياع أي مورد 🔥
+// 🔥 نظام المعالجة الذاتية لقواعد البيانات لضمان عدم  ضياع أي مورد 🔥
 const safeQuery = async (db, qPg, params) => {
     let res;
     try { res = await db.query(qPg, params); } catch(e) { res = { rows: [] }; }
