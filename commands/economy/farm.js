@@ -147,58 +147,57 @@ module.exports = {
             
             const userAnimals = userFarmRes.rows;
 
-            if (!userAnimals || userAnimals.length === 0) {
-                return { content: `📦 **السعة:** [ \`0\` / \`${maxCapacity}\` ]\n\n🍂 **الحظيرة فارغة**\nتوجّه إلى المتجر 🛒 لشراء حيواناتك الأولى.`, files: [], actionRow: null };
-            }
-
             let totalFarmIncome = 0;
             let currentCapacityUsed = 0;
             const animalsMap = new Map();
 
-            for (const row of userAnimals) {
-                const animalId = row.animalID || row.animalid;
-                const animalData = farmAnimals.find(a => String(a.id) === String(animalId));
-                if (!animalData) continue; 
-                
-                const qty = Number(row.quantity) || 1;
-                currentCapacityUsed += (qty * (animalData.size || 1));
+            // حتى لو كانت فارغة سنقوم بإنشاء خريطة فارغة وتمريرها للمولد
+            if (userAnimals && userAnimals.length > 0) {
+                for (const row of userAnimals) {
+                    const animalId = row.animalID || row.animalid;
+                    const animalData = farmAnimals.find(a => String(a.id) === String(animalId));
+                    if (!animalData) continue; 
+                    
+                    const qty = Number(row.quantity) || 1;
+                    currentCapacityUsed += (qty * (animalData.size || 1));
 
-                const purchaseTime = Number(row.purchaseTimestamp || row.purchasetimestamp) || now;
-                const ageMS = now - purchaseTime;
-                const ageDays = Math.floor(ageMS / DAY_MS);
-                const lifeRemaining = Math.max(0, animalData.lifespan_days - ageDays);
+                    const purchaseTime = Number(row.purchaseTimestamp || row.purchasetimestamp) || now;
+                    const ageMS = now - purchaseTime;
+                    const ageDays = Math.floor(ageMS / DAY_MS);
+                    const lifeRemaining = Math.max(0, animalData.lifespan_days - ageDays);
 
-                const lastFed = Number(row.lastFedTimestamp || row.lastfedtimestamp) || now;
-                const maxHungerMs = (animalData.max_hunger_days || 3) * DAY_MS; 
-                const fullUntil = lastFed + maxHungerMs; 
-                const timeLeftMs = fullUntil - now;
-                const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
-                
-                let hungerStatusText = "";
-                let isHungry = false;
-                
-                if (timeLeftMs > TWELVE_HOURS_MS) {
-                    totalFarmIncome += (animalData.income_per_day * qty);
-                    hungerStatusText = `شبعان`;
-                } else if (timeLeftMs > 0) {
-                    hungerStatusText = `جائع (بلا دخل)`;
-                    isHungry = true;
-                } else {
-                    hungerStatusText = `يتضور جوعاً!`;
-                    isHungry = true;
-                }
+                    const lastFed = Number(row.lastFedTimestamp || row.lastfedtimestamp) || now;
+                    const maxHungerMs = (animalData.max_hunger_days || 3) * DAY_MS; 
+                    const fullUntil = lastFed + maxHungerMs; 
+                    const timeLeftMs = fullUntil - now;
+                    const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+                    
+                    let hungerStatusText = "";
+                    let isHungry = false;
+                    
+                    if (timeLeftMs > TWELVE_HOURS_MS) {
+                        totalFarmIncome += (animalData.income_per_day * qty);
+                        hungerStatusText = `شبعان`;
+                    } else if (timeLeftMs > 0) {
+                        hungerStatusText = `جائع (بلا دخل)`;
+                        isHungry = true;
+                    } else {
+                        hungerStatusText = `يتضور جوعاً!`;
+                        isHungry = true;
+                    }
 
-                if (animalsMap.has(animalData.id)) {
-                    const existing = animalsMap.get(animalData.id);
-                    existing.quantity += qty;
-                    if (timeLeftMs > TWELVE_HOURS_MS) existing.income += (animalData.income_per_day * qty);
-                    if (ageDays > existing.age) { existing.age = ageDays; existing.lifeRemaining = lifeRemaining; }
-                } else {
-                    animalsMap.set(animalData.id, {
-                        ...animalData, quantity: qty, 
-                        income: (timeLeftMs > TWELVE_HOURS_MS) ? (animalData.income_per_day * qty) : 0,
-                        hungerText: hungerStatusText, isHungry: isHungry, age: ageDays, lifeRemaining: lifeRemaining
-                    });
+                    if (animalsMap.has(animalData.id)) {
+                        const existing = animalsMap.get(animalData.id);
+                        existing.quantity += qty;
+                        if (timeLeftMs > TWELVE_HOURS_MS) existing.income += (animalData.income_per_day * qty);
+                        if (ageDays > existing.age) { existing.age = ageDays; existing.lifeRemaining = lifeRemaining; }
+                    } else {
+                        animalsMap.set(animalData.id, {
+                            ...animalData, quantity: qty, 
+                            income: (timeLeftMs > TWELVE_HOURS_MS) ? (animalData.income_per_day * qty) : 0,
+                            hungerText: hungerStatusText, isHungry: isHungry, age: ageDays, lifeRemaining: lifeRemaining
+                        });
+                    }
                 }
             }
 
@@ -213,13 +212,16 @@ module.exports = {
             const currentItems = processedAnimals.slice(start, end);
 
             let files = [];
+            // 🔥 الآن سيعمل المولد حتى لو كانت الحظيرة فارغة ليعرض صورة مناسبة 🔥
             if (drawFarmAnimalsGrid) {
                 const buffer = await drawFarmAnimalsGrid(targetUser, currentItems, page, totalPages, maxCapacity, currentCapacityUsed, totalFarmIncome);
                 if(buffer) files.push(new AttachmentBuilder(buffer, { name: 'farm_animals.png' }));
             }
 
             let fallbackContent = files.length > 0 ? '' : `📦 **السعة:** [ \`${currentCapacityUsed}\` / \`${maxCapacity}\` ]\n\n` + 
-                currentItems.map(item => `**✥ ${item.name} ${item.emoji}**\n✶ العدد: \`${item.quantity}\`\n✶ الدخل: \`${item.income}\` ${EMOJI_MORA}\n✥ الحالة: ${item.hungerText}`).join('\n\n');
+                (currentItems.length > 0 
+                    ? currentItems.map(item => `**✥ ${item.name} ${item.emoji}**\n✶ العدد: \`${item.quantity}\`\n✶ الدخل: \`${item.income}\` ${EMOJI_MORA}\n✥ الحالة: ${item.hungerText}`).join('\n\n')
+                    : `🍂 **الحظيرة فارغة**\nتوجّه إلى المتجر 🛒 لشراء حيواناتك الأولى.`);
 
             return { content: fallbackContent, files, actionRow: getAnimalsPaginationRow(page, totalPages) };
         };
@@ -233,18 +235,20 @@ module.exports = {
             const farmItems = [];
             let hasFeed = false;
 
-            for (const row of inventory) {
-                const itemId = row.itemID || row.itemid;
-                const qty = Number(row.quantity || row.Quantity) || 0;
-                if (qty <= 0) continue;
+            if (inventory && inventory.length > 0) {
+                for (const row of inventory) {
+                    const itemId = row.itemID || row.itemid;
+                    const qty = Number(row.quantity || row.Quantity) || 0;
+                    if (qty <= 0) continue;
 
-                const isFeed = feedItems.some(f => String(f.id) === String(itemId));
-                const isSeed = seedsData.some(s => String(s.id) === String(itemId));
+                    const isFeed = feedItems.some(f => String(f.id) === String(itemId));
+                    const isSeed = seedsData.some(s => String(s.id) === String(itemId));
 
-                if (isFeed || isSeed) {
-                    if (isFeed) hasFeed = true;
-                    let info = resolveItemInfoLocal(itemId);
-                    farmItems.push({ ...info, quantity: qty, id: itemId });
+                    if (isFeed || isSeed) {
+                        if (isFeed) hasFeed = true;
+                        let info = resolveItemInfoLocal(itemId);
+                        farmItems.push({ ...info, quantity: qty, id: itemId });
+                    }
                 }
             }
 
@@ -257,6 +261,7 @@ module.exports = {
             let files = [];
             let fallbackContent = '';
 
+            // 🔥 الآن سيعمل المولد حتى لو كان المخزن فارغاً ليعرض صورة متناسقة 🔥
             if (generateInventoryCard) {
                 const cleanUser = cleanEmojis(targetUser.username);
                 const buffer = await generateInventoryCard(cleanUser, 'المخزن الزراعي', slice, page + 1, totalPages, -1);
