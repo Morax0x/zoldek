@@ -20,7 +20,6 @@ async function applyDynamicBuffs(member, player, currentThemeKey, guildId, db) {
     const placeholders = memberRoles.map((_, i) => `$${i + 3}`).join(',');
     
     try {
-        // 🔥 الإصلاح هنا: وضع أسماء الأعمدة بين علامات تنصيص "" لـ PostgreSQL
         const activeBuffsRes = await db.query(`
             SELECT * FROM race_dungeon_buffs 
             WHERE "guildID" = $1 AND "dungeonKey" = $2 AND "roleID" IN (${placeholders})
@@ -198,7 +197,6 @@ async function startDungeonLobby(message, startFloor = 1) {
     const channelId = message.channel ? message.channel.id : message.channelId;
     const guildId = message.guild ? message.guild.id : message.guildId;
 
-    // 🔥 الإصلاح هنا أيضاً لجدول active_dungeons
     await db.query(`
         INSERT INTO active_dungeons ("channelID", "guildID", "hostID", "data") 
         VALUES ($1, $2, $3, $4) 
