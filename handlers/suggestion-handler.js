@@ -117,14 +117,11 @@ async function handleNewSuggestion(message, client, db) {
         )
         .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: message.guild.iconURL({ dynamic: true }) });
 
-    // 🔥 إصلاح مشكلة تكرار الصورة (تغيير الاسم لاسم آمن بدون مسافات) 🔥
-    const files = [];
+    // 🔥 إصلاح تكرار الصورة: سحب رابط الصورة مباشرة ووضعه في الإيمبد فقط 🔥
     if (message.attachments.size > 0) {
         const attachment = message.attachments.first();
         if (attachment.contentType && attachment.contentType.startsWith('image/')) {
-            const safeName = 'suggestion_image.png'; // اسم ثابت ومحمي لمنع التكرار خارج الإيمبد
-            files.push({ attachment: attachment.url, name: safeName });
-            embed.setImage(`attachment://${safeName}`);
+            embed.setImage(attachment.url);
         }
     }
 
@@ -135,7 +132,8 @@ async function handleNewSuggestion(message, client, db) {
     );
 
     try {
-        const suggestionMsg = await message.channel.send({ embeds: [embed], components: [row], files: files });
+        // 🔥 إرسال الإيمبد فقط بدون الـ files لمنع ظهور الصورة كمرفق خارجي 🔥
+        const suggestionMsg = await message.channel.send({ embeds: [embed], components: [row] });
         message.delete().catch(() => {});
 
         try {
