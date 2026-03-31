@@ -79,26 +79,31 @@ async function safeUpdateLevels(db, userId, guildId, addMora, addXp, context, cl
         }
         
         let hasRecord = false;
-        let currentMora = 0, currentXp = 0, currentTotalXp = 0, currentLevel = 1;
+        let currentLevel = 1;
         
-        const checkRes = await safeQuery(db, `SELECT "mora", "xp", "totalXP", "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
+        const checkRes = await safeQuery(db, `SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
         if (checkRes.rows.length > 0) {
             hasRecord = true;
-            currentMora = Number(checkRes.rows[0].mora || 0);
-            currentXp = Number(checkRes.rows[0].xp || 0);
-            currentTotalXp = Number(checkRes.rows[0].totalXP || checkRes.rows[0].totalxp || 0);
             currentLevel = Number(checkRes.rows[0].level || 1);
         }
 
-        const newMora = currentMora + addMora;
-        const newXp = currentXp + addXp;
-        const newTotalXp = currentTotalXp + addXp;
-
         if (hasRecord) {
-            await safeExecute(db, `UPDATE levels SET "mora" = $1, "xp" = $2, "totalXP" = $3 WHERE "user" = $4 AND "guild" = $5`, [newMora, newXp, newTotalXp, userId, guildId]);
+            await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [addMora, addXp, userId, guildId]);
         } else {
-            await safeExecute(db, `INSERT INTO levels ("user", "guild", "mora", "xp", "totalXP", "level") VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, newMora, newXp, newTotalXp, currentLevel]);
+            await safeExecute(db, `INSERT INTO levels ("user", "guild", "mora", "xp", "totalXP", "level") VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, addMora, addXp, addXp, currentLevel]);
         }
+
+        // 🔥 حماية الكاش لكي لا يمسح الديسكورد الجوائز 🔥
+        if (client && typeof client.getLevel === 'function') {
+            let cache = await client.getLevel(userId, guildId);
+            if (cache) {
+                cache.mora = String(BigInt(cache.mora || 0) + BigInt(addMora));
+                cache.xp = String(BigInt(cache.xp || 0) + BigInt(addXp));
+                cache.totalXP = String(BigInt(cache.totalXP || 0) + BigInt(addXp));
+                if (typeof client.setLevel === 'function') await client.setLevel(cache);
+            }
+        }
+
     } catch (e) {
         console.error(`[🚨 DUNGEON REWARDS ERROR] in safeUpdateLevels:`, e);
     }
@@ -193,17 +198,10 @@ async function handleTeamWipe(players, currentFloor, db, guildId, client) {
             note = " (Penalty -50%)";
         }
 
-        if (db && (finalMora > 0 || finalXp > 0)) {
-            await safeUpdateLevels(db, p.id, guildId, finalMora, finalXp, "TEAM WIPE", client);
-            // نحسب السمعة من 1 (أو نقطة البداية، لكن الموت يمسح الباقي)
-            await processInstantRepAndChests(p, effectiveFloor, db, guildId, 1);
-        }
-
         p.finalMora = finalMora;
         p.finalXp = finalXp;
-        p.rewardsClaimed = true; 
-        p.loot.mora = 0;
-        p.loot.xp = 0;
+        p.deathFloor = effectiveFloor; 
+        p.pendingWipeSave = true; // Signal to end-game to handle DB save safely
         results.push({ name: p.name, mora: finalMora, xp: finalXp, note: note });
     }
     return results;
@@ -216,16 +214,9 @@ async function handleLeaderRetreat(players, db, guildId, client) {
         const earnedMora = Math.floor(p.loot.mora || 0);
         const earnedXp = Math.floor(p.loot.xp || 0);
 
-        if (db && (earnedMora > 0 || earnedXp > 0)) {
-            await safeUpdateLevels(db, p.id, guildId, earnedMora, earnedXp, "LEADER RETREAT", client);
-            // السمعة والصناديق للقائد والجميع يتم حسابها في end-game.js
-        }
-
         p.finalMora = earnedMora;
         p.finalXp = earnedXp;
-        p.rewardsClaimed = true;
-        p.loot.mora = 0;
-        p.loot.xp = 0;
+        p.pendingRetreatSave = true; // Signal to end-game to handle DB save safely
         results.push({ name: p.name, mora: earnedMora, xp: earnedXp });
     }
     return results;
