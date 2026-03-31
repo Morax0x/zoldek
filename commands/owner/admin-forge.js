@@ -1,4 +1,4 @@
-const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, Colors, AttachmentBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, Colors, AttachmentBuilder, MessageFlags } = require('discord.js');
 const weaponsConfig = require('../../json/weapons-config.json');
 const skillsConfig = require('../../json/skills-config.json');
 const upgradeMats = require('../../json/upgrade-materials.json');
@@ -197,9 +197,12 @@ async function replyWithCanvas(i, targetUser, view, data, components) {
                 if (i.deferred || i.replied) {
                     returnMessage = await i.editReply({ content: null, embeds: [], components, files: [attachment] }).catch(()=>{});
                 } else if (typeof i.reply === 'function') {
-                    returnMessage = await i.reply({ content: null, embeds: [], components, files: [attachment], fetchReply: true }).catch(()=>{});
+                    // استخدمنا withResponse للامتثال لتحديثات ديسكورد الجديدة بدلاً من fetchReply
+                    returnMessage = await i.reply({ content: null, embeds: [], components, files: [attachment], withResponse: true }).catch(()=>{});
                 }
-                return returnMessage || i; 
+                
+                // إذا لم يتم جلب الرسالة، نكتفي بالتفاعل فقط لمنع تحطم الكود
+                return returnMessage ? (returnMessage.resource?.message || returnMessage) : i; 
             }
         }
     } catch (e) {}
@@ -218,16 +221,19 @@ module.exports = {
     description: 'أمر الإمبراطور لتطوير عتاد ومهارات اللاعبين مجاناً (للأونر فقط - بريفكس)',
     category: 'Owner',
     
-    async execute(message, args, client) {
+    // تم التعديل لمنع خطأ TypeError: Cannot read properties of undefined (reading 'users')
+    async execute(message, args) {
         if (message.author.id !== OWNER_ID) return;
+        
+        const client = message.client;
+        const db = client.sql;
+        const guildId = message.guild.id; 
 
+        // قراءة المنشن بأمان
         const targetUser = message.mentions.users.first() || client.users.cache.get(args[0]);
         if (!targetUser || targetUser.bot) {
             return message.reply({ content: "❌ الرجاء منشن لاعب صحيح (أو وضع الآيدي حقه)." });
         }
-        
-        const db = client.sql;
-        const guildId = message.guild.id; 
 
         const fakeInteraction = {
             guild: message.guild,
@@ -235,7 +241,6 @@ module.exports = {
             replied: false, 
             deferred: false,
             reply: async (p) => { 
-                p.fetchReply = true; 
                 return await message.channel.send(p).catch(()=>{}); 
             },
             editReply: async (p) => { 
@@ -254,6 +259,7 @@ module.exports = {
 
         let replyObj = await buildMainUI(fakeInteraction, targetUser, guildId, db);
 
+        // الحماية من الـ TypeError إذا لم يرجع الرسالة الصحيحة
         if (!replyObj || !replyObj.createMessageComponentCollector) return;
 
         // 🔥 الكولكتر يستجيب فقط للأونر 🔥
