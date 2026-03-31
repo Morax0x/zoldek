@@ -1,10 +1,11 @@
-const config = require('../config.json');
-const { getUserData, getDynamicServerData } = require('./ai/knowledge');
-const { getLeaderboardKnowledge } = require('./ai/serverLore'); 
-const { buildSystemPrompt } = require('./ai/persona');
-const { generateResponse } = require('./ai/engine');
-const aiConfig = require('../utils/aiConfig'); 
-const { checkSecurity } = require('./ai/security'); 
+const config = require('../config.json'); // تأكد من المسار حسب مجلدك
+const { getUserData, getDynamicServerData } = require('./knowledge');
+const { getLeaderboardKnowledge } = require('./serverLore'); 
+const { buildSystemPrompt } = require('./persona');
+const { generateResponse } = require('./engine');
+const aiConfig = require('../../utils/aiConfig'); 
+const { checkSecurity } = require('./security'); 
+const { executeAdminAction } = require('./admin-actions'); // 👑 استدعاء مدير الأوامر الجديد
 require('dotenv').config();
 
 const OWNER_ID = "1145327691772481577"; 
@@ -32,145 +33,36 @@ async function resolveNames(guild, dataList) {
     return names.join(', ');
 }
 
+// 👑 الدالة المحدثة والمختصرة بفضل الملف الجديد 👑
 async function detectAndExecuteCommands(message, aiResponseText, db) {
     if (!message || message.author.id !== OWNER_ID || !db) return aiResponseText;
 
     const lowerText = message.content.toLowerCase();
     let feedback = ""; 
-    let actionDone = false;
 
     const mentions = message.mentions.users.filter(u => u.id !== message.client.user.id);
     const targetUser = mentions.first(); 
 
-    try {
-        if (targetUser) {
-            if (targetUser.id === message.client.user.id || targetUser.id === OWNER_ID) return aiResponseText;
+    if (targetUser && targetUser.id !== message.client.user.id && targetUser.id !== OWNER_ID) {
+        
+        // استخراج الرقم الذكي
+        const numbers = lowerText.match(/\b\d+\b/g);
+        let amount = 0;
+        
+        if (numbers) {
+            const validNumber = numbers.find(n => n.length < 17);
+            if (validNumber) amount = parseInt(validNumber);
+        }
 
-            const numbers = lowerText.match(/\b\d+\b/g);
-            let amount = 0;
-            
-            if (numbers) {
-                const validNumber = numbers.find(n => n.length < 17);
-                if (validNumber) amount = parseInt(validNumber);
-            }
-
-            if (amount === 0) {
-                const arabicMatch = lowerText.match(/[\u0660-\u0669]+/);
-                if (arabicMatch) {
-                    amount = parseInt(arabicMatch[0].replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)));
-                }
-            }
-
-            // 1. خيمة الدانجون
-            if (lowerText.includes('خيم') || lowerText.includes('طابق')) {
-                if (amount > 0) {
-                    const guildID = message.guild.id;
-                    const userID = targetUser.id;
-                    const saveRes = await db.query('SELECT * FROM dungeon_saves WHERE "hostID" = $1 AND "guildID" = $2', [userID, guildID]);
-                    const existingSave = saveRes.rows[0];
-                    
-                    if (existingSave) {
-                        await db.query('UPDATE dungeon_saves SET "floor" = $1, "timestamp" = $2 WHERE "hostID" = $3 AND "guildID" = $4', [amount, Date.now(), userID, guildID]);
-                    } else {
-                        await db.query('INSERT INTO dungeon_saves ("hostID", "guildID", "floor", "timestamp") VALUES ($1, $2, $3, $4)', [userID, guildID, amount, Date.now()]);
-                    }
-                    await message.react('⛺').catch(()=>{});
-                    feedback = `\n\n⛺ **تم التنفيذ:** تم منح **${targetUser.username}** خيمة حفظ في الدانجون عند الطابق **${amount}**.`;
-                    actionDone = true;
-                }
-            }
-            
-            // 2. السمعة / التزكية
-            else if (!actionDone && (lowerText.includes('سمع') || lowerText.includes('تزكي') || lowerText.includes('نقاط'))) {
-                if (amount > 0) {
-                    const guildID = message.guild.id;
-                    const userID = targetUser.id;
-                    const isGive = !lowerText.includes('سحب') && !lowerText.includes('اسحب') && !lowerText.includes('خصم') && !lowerText.includes('نقص'); 
-                    
-                    const repRes = await db.query('SELECT * FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2', [userID, guildID]);
-                    if (repRes.rows.length === 0) {
-                        await db.query('INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, 0)', [userID, guildID]);
-                    }
-
-                    if (isGive) {
-                        await db.query('UPDATE user_reputation SET "rep_points" = COALESCE("rep_points", 0) + $1 WHERE "userID" = $2 AND "guildID" = $3', [amount, userID, guildID]);
-                        await message.react('🌟').catch(()=>{});
-                        feedback = `\n\n🌟 **تم التنفيذ:** تم إضافة **${amount}** نقطة سمعة إلى **${targetUser.username}**.`;
-                    } else {
-                        await db.query('UPDATE user_reputation SET "rep_points" = GREATEST(0, COALESCE("rep_points", 0) - $1) WHERE "userID" = $2 AND "guildID" = $3', [amount, userID, guildID]);
-                        await message.react('💔').catch(()=>{});
-                        feedback = `\n\n💔 **تم التنفيذ:** تم خصم **${amount}** نقطة سمعة من **${targetUser.username}**.`;
-                    }
-                    actionDone = true;
-                }
-            }
-
-            // 3. المورا
-            else if (!actionDone && (lowerText.includes('اعط') || lowerText.includes('حول') || lowerText.includes('هاتي') || lowerText.includes('سحب') || lowerText.includes('اسحب'))) {
-                if (amount > 0) {
-                    const isGive = !lowerText.includes('سحب') && !lowerText.includes('اسحب'); 
-                    
-                    const lvlRes = await db.query('SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2', [targetUser.id, message.guild.id]);
-                    if (lvlRes.rows.length === 0) {
-                        await db.query('INSERT INTO levels ("user", "guild", "xp", "level", "totalXP", "mora") VALUES ($1, $2, 0, 1, 0, 0) ON CONFLICT ("user", "guild") DO NOTHING', [targetUser.id, message.guild.id]);
-                    }
-
-                    if (isGive) {
-                        await db.query('UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + CAST($1 AS BIGINT) WHERE "user" = $2 AND "guild" = $3', [String(amount), targetUser.id, message.guild.id]);
-                        await message.react('💸').catch(()=>{});
-                        feedback = `\n\n✅ **تم التنفيذ:** تم تحويل **${amount}** مورا إلى **${targetUser.username}**.`;
-                    } else {
-                        await db.query('UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - CAST($1 AS BIGINT)) WHERE "user" = $2 AND "guild" = $3', [String(amount), targetUser.id, message.guild.id]);
-                        await message.react('📉').catch(()=>{});
-                        feedback = `\n\n✅ **تم التنفيذ:** تم سحب **${amount}** مورا من **${targetUser.username}**.`;
-                    }
-                    
-                    if (message.client.getLevel) {
-                        let cache = await message.client.getLevel(targetUser.id, message.guild.id);
-                        if (cache) {
-                            if (isGive) cache.mora = String(BigInt(cache.mora || 0) + BigInt(amount));
-                            else {
-                                let newMora = BigInt(cache.mora || 0) - BigInt(amount);
-                                cache.mora = newMora > 0n ? String(newMora) : "0";
-                            }
-                            await message.client.setLevel(cache);
-                        }
-                    }
-
-                    actionDone = true;
-                }
-            }
-
-            // 4. الميوت
-            if (!actionDone && (lowerText.includes('تايم') || lowerText.includes('سكت') || lowerText.includes('اصمت') || lowerText.includes('ميوت') || lowerText.includes('فك') || lowerText.includes('شيل') || lowerText.includes('سامح'))) {
-                const targetMemberObj = await message.guild.members.fetch(targetUser.id).catch(()=>null);
-                if (targetMemberObj) {
-                    if (lowerText.includes('فك') || lowerText.includes('شيل') || lowerText.includes('سامح')) {
-                        if (targetMemberObj.isCommunicationDisabled()) {
-                            await targetMemberObj.timeout(null, "أمر من الامبراطورة (AI)");
-                            await message.react('✅').catch(()=>{});
-                            feedback = `\n\n✅ **تم التنفيذ:** تم رفع العقوبة عن **${targetMemberObj.user.username}**.`;
-                        }
-                    } 
-                    else {
-                        let minutes = 5; 
-                        if (amount > 0) minutes = amount; 
-
-                        if (targetMemberObj.manageable) {
-                            await targetMemberObj.timeout(minutes * 60 * 1000, "أمر من الامبراطورة (AI)");
-                            await message.react('🤐').catch(()=>{});
-                            feedback = `\n\n✅ **تم التنفيذ:** تم إسكات **${targetMemberObj.user.username}** لمدة **${minutes}** دقيقة.`;
-                        } else {
-                            feedback = `\n\n❌ لا يمكنني إسكاته (رتبته أعلى مني).`;
-                        }
-                    }
-                    actionDone = true;
-                }
+        if (amount === 0) {
+            const arabicMatch = lowerText.match(/[\u0660-\u0669]+/);
+            if (arabicMatch) {
+                amount = parseInt(arabicMatch[0].replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)));
             }
         }
-    } catch (err) {
-        console.error("[AI Action Error]", err);
-        feedback = `\n\n❌ حدث خطأ تقني أثناء تنفيذ الطلب.`;
+
+        // إرسال الطلب لمحرك الأدمن الجديد
+        feedback = await executeAdminAction(message, targetUser, amount, lowerText, db);
     }
 
     return aiResponseText + feedback;
@@ -232,7 +124,7 @@ async function askMorax(userId, guildId, channelId, messageText, username, image
         }
 
         if (userId === OWNER_ID) {
-            userData.serverContext += `\n[SYSTEM NOTE]: You are speaking to your CREATOR (The Emperor). Obey his commands instantly. If he asks to give/remove mora, add/remove reputation (سمعة/تزكية), set a dungeon tent (خيمة/طابق), or mute someone, confirm you will do it enthusiastically.`;
+            userData.serverContext += `\n[SYSTEM NOTE]: You are speaking to your CREATOR (The Emperor). Obey his commands instantly. If he asks to give/remove mora, add/remove reputation (سمعة/تزكية), set a dungeon tent (خيمة/طابق), add tickets (تذاكر), give items/chests (صناديق/عناصر), or mute someone, confirm you will do it enthusiastically. You have full admin powers.`;
         }
 
         const leaderboardInfo = await getLeaderboardKnowledge(db, guildId);
