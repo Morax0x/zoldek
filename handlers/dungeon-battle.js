@@ -47,14 +47,28 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         players = resumeData.players;
         merchantState = resumeData.merchantState || merchantState;
         retreatState = resumeData.retreatState || retreatState; 
-        totalAccumulatedCoins = resumeData.loot.coins;
-        totalAccumulatedXP = resumeData.loot.xp;
+        totalAccumulatedCoins = resumeData.loot.coins || 0;
+        totalAccumulatedXP = resumeData.loot.xp || 0;
         startFloor = resumeData.floor; 
         retreatedPlayers = resumeData.retreatedPlayers || [];
         isTrapActive = resumeData.isTrapActive || false;
         resumedMonsterData = resumeData.monsterData || null;
+
+        // 🔥 إعادة إنعاش الغنائم في كائنات اللاعبين الفردية حتى لا تضيع 🔥
+        const activePlayerCount = players.filter(p => !p.isDead).length;
+        if (activePlayerCount > 0 && totalAccumulatedCoins > 0) {
+            const individualMora = Math.floor(totalAccumulatedCoins / activePlayerCount);
+            const individualXp = Math.floor(totalAccumulatedXP / activePlayerCount);
+            
+            players.forEach(p => {
+                if (!p.isDead) {
+                    if (!p.loot) p.loot = { mora: 0, xp: 0 };
+                    p.loot.mora = individualMora;
+                    p.loot.xp = individualXp;
+                }
+            });
+        }
         
-        // 🔥 إضافة رسالة ZA WARUDO هنا! 🔥
         const dioEmbed = new EmbedBuilder()
             .setDescription(`**زا واردوو!** ديو اعـاد الزمن جاري استكمال المعركة من الطابق: **${startFloor}**`)
             .setImage('https://i.postimg.cc/VvsFq67N/dio-da.gif')
