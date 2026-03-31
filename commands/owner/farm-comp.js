@@ -10,6 +10,38 @@ try {
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const OWNER_ID = "1145327691772481577";
 
+// 🛡️ نظام معالجة البيانات الفولاذي
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { 
+        res = await db.query(qPg, params); 
+    } catch(e) { 
+        res = { rows: [] }; 
+    }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/gi, "userid")
+        .replace(/"guildID"/gi, "guildid")
+        .replace(/"animalID"/gi, "animalid")
+        .replace(/"quantity"/gi, "quantity")
+        .replace(/"mora"/gi, "mora")
+        .replace(/"user"/gi, "userid")
+        .replace(/"guild"/gi, "guildid")
+        .replace(/"casinoChannelID"/gi, "casinochannelid");
+    
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
+};
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('farm-comp')
@@ -32,27 +64,20 @@ module.exports = {
 
             // 🔍 محاولة إيجاد روم الكازينو من الإعدادات
             let targetChannel = interaction.channel; // الافتراضي: نفس القناة
-            try {
-                const settingsRes = await db.query(`SELECT "casinoChannelID" FROM settings WHERE "guild" = $1`, [guildId])
-                    .catch(() => db.query(`SELECT casinochannelid as "casinoChannelID" FROM settings WHERE guild = $1`, [guildId]));
-                
-                const casinoId = settingsRes?.rows[0]?.casinoChannelID;
-                if (casinoId) {
-                    const fetchedChannel = interaction.guild.channels.cache.get(casinoId);
-                    if (fetchedChannel) {
-                        targetChannel = fetchedChannel;
-                    }
+            const settingsRes = await safeQuery(db, `SELECT "casinoChannelID" FROM settings WHERE "guild" = $1`, [guildId]);
+            const casinoId = settingsRes.rows[0] ? (settingsRes.rows[0].casinoChannelID || settingsRes.rows[0].casinochannelid) : null;
+            
+            if (casinoId) {
+                const fetchedChannel = interaction.guild.channels.cache.get(casinoId);
+                if (fetchedChannel) {
+                    targetChannel = fetchedChannel;
                 }
-            } catch(e) {
-                console.error("لم أتمكن من جلب روم الكازينو، سأستخدم الروم الحالية.");
             }
 
             // جلب جميع المزارعين وحيواناتهم
-            let userFarmRes;
-            try { userFarmRes = await db.query(`SELECT "userID", "animalID", "quantity" FROM user_farm WHERE "guildID" = $1`, [guildId]); }
-            catch(e) { userFarmRes = await db.query(`SELECT userid as "userID", animalid as "animalID", quantity FROM user_farm WHERE guildid = $1`, [guildId]).catch(()=>({rows:[]})); }
-
+            const userFarmRes = await safeQuery(db, `SELECT "userID", "animalID", "quantity" FROM user_farm WHERE "guildID" = $1`, [guildId]);
             const userFarm = userFarmRes.rows;
+            
             if (!userFarm || userFarm.length === 0) {
                 return interaction.editReply("❌ لم أجد أي حيوانات في مزارع اللاعبين لتعويضهم.");
             }
@@ -60,9 +85,9 @@ module.exports = {
             // حساب التعويض لكل لاعب (دخل 3 أيام بغض النظر عن الجوع)
             const userIncomes = new Map();
             for (const row of userFarm) {
-                const uid = row.userID;
-                const aid = row.animalID;
-                const qty = Number(row.quantity) || 1;
+                const uid = row.userID || row.userid;
+                const aid = row.animalID || row.animalid;
+                const qty = Number(row.quantity || row.Quantity) || 1;
 
                 const animal = farmAnimals.find(a => String(a.id) === String(aid));
                 if (!animal) continue;
@@ -86,14 +111,25 @@ module.exports = {
             // حلقة التوزيع والإرسال الآمن (مضاد للباند)
             for (const [uid, amount] of userIncomes.entries()) {
                 try {
-                    // أ. إضافة المورا مباشرة في الرصيد
-                    try {
-                        await db.query(`UPDATE levels SET "mora" = COALESCE(CAST("mora" AS BIGINT), 0) + $1 WHERE "user" = $2 AND "guild" = $3`, [amount, uid, guildId]);
-                    } catch(e) {
-                        await db.query(`UPDATE levels SET mora = COALESCE(CAST(mora AS BIGINT), 0) + $1 WHERE userid = $2 AND guildid = $3`, [amount, uid, guildId]).catch(()=>{});
+                    // أ. التأكد من وجود اللاعب في البنك
+                    let check = await safeQuery(db, `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [uid, guildId]);
+                    if (check.rows.length === 0) {
+                        await safeQuery(db, `INSERT INTO levels ("user", "guild", "xp", "level", "totalXP", "mora") VALUES ($1, $2, 0, 1, 0, 0)`, [uid, guildId]);
                     }
 
-                    // ب. إنشاء الإيمبد المطلوب
+                    // ب. إضافة المورا في الداتا بيز
+                    await safeQuery(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + CAST($1 AS BIGINT) WHERE "user" = $2 AND "guild" = $3`, [String(amount), uid, guildId]);
+
+                    // 🔥 ج. تحديث الذاكرة المؤقتة (Cache) لضمان عدم مسح الرصيد 🔥
+                    if (interaction.client.getLevel) {
+                        let cache = await interaction.client.getLevel(uid, guildId);
+                        if (cache) {
+                            cache.mora = String(BigInt(cache.mora || 0) + BigInt(amount));
+                            if (interaction.client.setLevel) await interaction.client.setLevel(cache);
+                        }
+                    }
+
+                    // د. إنشاء الإيمبد المطلوب
                     const embed = new EmbedBuilder()
                         .setTitle('✥ إعلان من القصر الإمبراطوري !')
                         .setDescription(`✦ مزارعو الإمبراطورية يُكافَؤون بزيادة ثلاثية في إنتاجهم تقديرًا لإخلاصهم\n✦ حـصـلـت عـلـى: **${amount.toLocaleString()}** ${EMOJI_MORA}`)
@@ -101,7 +137,7 @@ module.exports = {
                         .setThumbnail('https://i.postimg.cc/cLjcQKYN/Ganzo-pixel.jpg')
                         .setFooter({ text: 'Empire | الامبراطورية ™' });
 
-                    // ج. إرسال الرسالة إلى روم الكازينو مع المنشن
+                    // هـ. إرسال الرسالة إلى روم الكازينو مع المنشن
                     await targetChannel.send({ content: `<@${uid}>`, embeds: [embed] });
                     successCount++;
 
@@ -109,7 +145,7 @@ module.exports = {
                     console.error(`Failed to compensate user ${uid}:`, err.message);
                 }
 
-                // 🔥 سحر الأمان: تأخير لمدة ثانيتين (2000 ملي ثانية) بين كل رسالة والأخرى لتجنب باند ديسكورد 🔥
+                // سحر الأمان: تأخير لمدة ثانيتين (2000 ملي ثانية) بين كل رسالة والأخرى لتجنب باند ديسكورد
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
