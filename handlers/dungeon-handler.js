@@ -304,7 +304,6 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
             }
 
             try {
-                // 🔥 تحسين إنشاء الثريد: إضافة محاولة التأكد من الجاهزية
                 const thread = await msg.channel.threads.create({
                     name: `🏰-دانجون-${theme.name.replace(/ /g, '-')}`,
                     autoArchiveDuration: 60,
@@ -314,17 +313,14 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
 
                 if (msg.editable) await msg.edit({ content: `✅ **بوابة الـدانـجون فُتحت!** <#${thread.id}>`, components: [] });
 
-                // 💡 سر المهنة: انتظار قصير لضمان أن ديسكورد استوعب وجود الثريد
                 await new Promise(r => setTimeout(r, 1500));
 
                 for (const uid of validParty) { 
                     try { await thread.members.add(uid); } catch(e){} 
                 }
 
-                // رسالة تأكيدية داخل الثريد لتنشيطه
                 const startMsg = await thread.send(`🔔 **يتم الآن استدعاء وحوش ${theme.name}.. استعدوا!**`);
 
-                // التحقق من وجود دالة runDungeon وبدء اللعبة
                 if (typeof runDungeon === 'function') {
                     await runDungeon(thread, msg.channel, validParty, theme, db, host.id, partyClasses, activeDungeonRequests, startFloor);
                 } else {
@@ -377,4 +373,66 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
     });
 }
 
-module.exports = { startDungeon };
+// 🔥 إضافة دالة الاستعادة المفقودة هنا 🔥
+async function resumeActiveDungeons(client, db) {
+    try {
+        let res;
+        try { res = await db.query(`SELECT * FROM active_dungeons`); }
+        catch (e) { res = { rows: [] }; }
+        
+        if (!res || !res.rows || res.rows.length === 0) return;
+
+        console.log(`[Dungeon Resume] Found ${res.rows.length} active dungeons to resume...`);
+
+        for (const row of res.rows) {
+            const channelID = row.channelID || row.channelid;
+            const guildID = row.guildID || row.guildid;
+            const hostID = row.hostID || row.hostid;
+            let dataStr = row.data;
+
+            let resumeData;
+            try {
+                resumeData = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+            } catch (e) {
+                console.error(`[Dungeon Resume Error] Failed to parse resumeData for channel ${channelID}`);
+                await db.query(`DELETE FROM active_dungeons WHERE "channelID" = $1`, [channelID]).catch(()=>{});
+                continue;
+            }
+
+            const guild = client.guilds.cache.get(guildID);
+            if (!guild) continue;
+
+            let threadChannel = guild.channels.cache.get(channelID);
+            if (!threadChannel) {
+                try {
+                    threadChannel = await guild.channels.fetch(channelID);
+                } catch (e) {
+                    console.log(`[Dungeon Resume Info] Thread not found, deleting active dungeon state for ${channelID}`);
+                    await db.query(`DELETE FROM active_dungeons WHERE "channelID" = $1`, [channelID]).catch(()=>{});
+                    continue;
+                }
+            }
+
+            if (!threadChannel) continue;
+
+            const mainChannel = threadChannel.parent;
+
+            const themeName = resumeData.themeName;
+            const themeKey = Object.keys(dungeonConfig.themes).find(key => dungeonConfig.themes[key].name === themeName) || Object.keys(dungeonConfig.themes)[0];
+            const theme = { ...dungeonConfig.themes[themeKey], key: themeKey };
+
+            const partyIDs = resumeData.players.map(p => p.id);
+            const partyClasses = new Map();
+            resumeData.players.forEach(p => partyClasses.set(p.id, p.class));
+
+            activeDungeonRequests.set(hostID, { status: 'battle', startFloor: resumeData.floor });
+
+            runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostID, partyClasses, activeDungeonRequests, resumeData.floor, resumeData)
+            .catch(e => console.error(`[Dungeon Resume Fatal Error] Error resuming dungeon for ${hostID}:`, e));
+        }
+    } catch (e) {
+        console.error("[Dungeon Resume Master Error]:", e);
+    }
+}
+
+module.exports = { startDungeon, resumeActiveDungeons };
