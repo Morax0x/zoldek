@@ -87,37 +87,43 @@ function resolveText(val) {
     return String(val);
 }
 
-// 🔥 نظام المعالجة الذاتية الهجومي المطور (يقرأ أي حرف مهما كانت حالته) 🔥
+// 🔥 نظام المعالجة الذاتية الهجومي 🔥
 const safeQuery = async (db, qPg, params) => {
+    let res;
     try { 
-        let res = await db.query(qPg, params); 
-        return { rows: Array.isArray(res) ? res : (res?.rows || []) };
+        res = await db.query(qPg, params); 
     } catch(e) { 
-        let fallbackQuery = qPg
-            .replace(/"userID"/gi, "userid")
-            .replace(/"guildID"/gi, "guildid")
-            .replace(/"itemID"/gi, "itemid")
-            .replace(/"skillID"/gi, "skillid")
-            .replace(/"skillLevel"/gi, "skilllevel")
-            .replace(/"raceName"/gi, "racename")
-            .replace(/"weaponLevel"/gi, "weaponlevel")
-            .replace(/"quantity"/gi, "quantity")
-            .replace(/"mora"/gi, "mora")
-            .replace(/"bank"/gi, "bank")
-            .replace(/"level"/gi, "level")
-            .replace(/"id"/gi, "id")
-            .replace(/"user"/gi, "userid")
-            .replace(/"guild"/gi, "guildid");
-        
-        if (fallbackQuery !== qPg) {
-            try { 
-                let res2 = await db.query(fallbackQuery, params); 
-                return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) };
-            } catch(e2) { }
-        }
-        
-        return { rows: [] };
+        res = { rows: [] }; 
     }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/g, "userid")
+        .replace(/"guildID"/g, "guildid")
+        .replace(/"itemID"/g, "itemid")
+        .replace(/"skillID"/g, "skillid")
+        .replace(/"skillLevel"/g, "skilllevel")
+        .replace(/"raceName"/g, "racename")
+        .replace(/"weaponLevel"/g, "weaponlevel")
+        .replace(/"quantity"/g, "quantity")
+        .replace(/"mora"/g, "mora")
+        .replace(/"bank"/g, "bank")
+        .replace(/"level"/g, "level")
+        .replace(/"id"/g, "id")
+        .replace(/"user"/g, "userid")
+        .replace(/"guild"/g, "guildid");
+    
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
 };
 
 async function deductMora(db, userId, guildId, amount) {
@@ -536,8 +542,9 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     const currentLevel = weaponRes.rows.length > 0 ? Number(weaponRes.rows[0].weaponLevel || weaponRes.rows[0].weaponlevel) : 0;
 
     if (currentLevel === 0) {
+        // 🔥 تمت إزالة setDisabled 🔥
         const btnRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`forge_buy_weapon`).setLabel(`صناعة السلاح الأساسي (${LEARN_FEE} مورا)`).setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(userMora < LEARN_FEE),
+            new ButtonBuilder().setCustomId(`forge_buy_weapon`).setLabel(`صناعة السلاح الأساسي (${LEARN_FEE} مورا)`).setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary),
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, user, 'weapon', {
@@ -571,11 +578,11 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     });
 
     const detailedReqs = await Promise.all(matPromises);
-    const hasAllMats = detailedReqs.every(r => r.userCount >= r.count);
-    const canUpgrade = userMora >= reqs.moraCost && hasAllMats;
+    const canUpgrade = userMora >= reqs.moraCost && detailedReqs.every(r => r.userCount >= r.count);
 
+    // 🔥 تمت إزالة setDisabled 🔥
     const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`forge_upgrade_weapon`).setLabel('تـطـويـر السـلاح').setStyle(canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(!canUpgrade),
+        new ButtonBuilder().setCustomId(`forge_upgrade_weapon`).setLabel('تـطـويـر السـلاح').setStyle(canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary),
         getReturnRow().components[0]
     );
     
@@ -614,11 +621,11 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
     const raceMats = getSafeRaceMats(standardizedRace);
     let detailedReqs = reqs.materials.map(r => ({ id: raceMats.materials[r.tier].id, count: r.count }));
 
-    const hasDeductedMora = await deductMora(db, user.id, guildId, reqs.moraCost);
-    if (!hasDeductedMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك المورا الكافية للتطوير!' }, [getReturnRow()]);
-    
     const hasDeductedItems = await deductItems(db, user.id, guildId, detailedReqs);
     if (!hasDeductedItems) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك الموارد الكافية!' }, [getReturnRow()]);
+
+    const hasDeductedMora = await deductMora(db, user.id, guildId, reqs.moraCost);
+    if (!hasDeductedMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك المورا الكافية للتطوير!' }, [getReturnRow()]);
 
     await safeQuery(db, `UPDATE user_weapons SET "weaponLevel" = "weaponLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, wData.raceName || wData.racename]);
     
@@ -667,8 +674,9 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     const statSymbol = configSkill.stat_type === '%' ? '%' : '';
     
     if (currentLevel === 0) {
+        // 🔥 تمت إزالة setDisabled 🔥
         const btnRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`forge_learn_skill_${skillId}`).setLabel(`تعلم المهارة (${LEARN_FEE} مورا)`).setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(userMora < LEARN_FEE),
+            new ButtonBuilder().setCustomId(`forge_learn_skill_${skillId}`).setLabel(`تعلم المهارة (${LEARN_FEE} مورا)`).setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary),
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, user, 'skill', {
@@ -704,11 +712,11 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     });
 
     const detailedReqs = await Promise.all(matPromises);
-    const hasAllMats = detailedReqs.every(r => r.userCount >= r.count);
-    const canUpgrade = userMora >= reqs.moraCost && hasAllMats;
+    const canUpgrade = userMora >= reqs.moraCost && detailedReqs.every(r => r.userCount >= r.count);
 
+    // 🔥 تمت إزالة setDisabled 🔥
     const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`forge_upgrade_skill_${skillId}`).setLabel('صقل المهارة 📜').setStyle(canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(!canUpgrade),
+        new ButtonBuilder().setCustomId(`forge_upgrade_skill_${skillId}`).setLabel('صقل المهارة 📜').setStyle(canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary),
         getReturnRow().components[0]
     );
     
@@ -752,11 +760,11 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
         return { id: r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id, count: r.count };
     });
 
-    const hasDeductedMora = await deductMora(db, user.id, guildId, reqs.moraCost);
-    if (!hasDeductedMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
-    
     const hasDeductedItems = await deductItems(db, user.id, guildId, detailedReqs);
     if (!hasDeductedItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
+
+    const hasDeductedMora = await deductMora(db, user.id, guildId, reqs.moraCost);
+    if (!hasDeductedMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
 
     await safeQuery(db, `UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]);
     
@@ -821,7 +829,8 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
             const targetInfo = getItemInfo(state.targetItem);
             if(targetInfo) {
                 payloadData.targetMatName = targetInfo.name; payloadData.targetMatIcon = targetInfo.iconUrl;
-                components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('forge_execute_synth').setLabel(`دمــج`).setStyle(userMora >= SYNTHESIS_FEE ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(userMora < SYNTHESIS_FEE)));
+                // 🔥 تمت إزالة setDisabled 🔥
+                components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('forge_execute_synth').setLabel(`دمــج`).setStyle(userMora >= SYNTHESIS_FEE ? ButtonStyle.Success : ButtonStyle.Secondary)));
             }
         }
     }
@@ -832,11 +841,11 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
 async function handleSynthesis(i, user, guildId, db, state) {
     if (!state.sacrificeItem || !state.targetItem) return;
     
-    const hasDeductedMora = await deductMora(db, user.id, guildId, SYNTHESIS_FEE);
-    if (!hasDeductedMora) return await replyWithCanvas(i, user, 'synthesis_error', { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك المورا الكافية للدمج!` }, [getReturnRow()]);
-
     const hasDeductedItems = await deductItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: 4 }]);
     if (!hasDeductedItems) return await replyWithCanvas(i, user, 'synthesis_error', { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: 'لا تملك 4 عناصر متشابهة!' }, [getReturnRow()]);
+
+    const hasDeductedMora = await deductMora(db, user.id, guildId, SYNTHESIS_FEE);
+    if (!hasDeductedMora) return await replyWithCanvas(i, user, 'synthesis_error', { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك المورا الكافية للدمج!` }, [getReturnRow()]);
 
     let targetCheck = await safeQuery(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [user.id, guildId, state.targetItem]);
     if (targetCheck?.rows?.[0]) await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, [targetCheck.rows[0].id || targetCheck.rows[0].ID]);
