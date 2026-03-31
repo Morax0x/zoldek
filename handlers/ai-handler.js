@@ -1,11 +1,11 @@
-const config = require('../config.json'); // تأكد من المسار حسب مجلدك
-const { getUserData, getDynamicServerData } = require('./knowledge');
-const { getLeaderboardKnowledge } = require('./serverLore'); 
-const { buildSystemPrompt } = require('./persona');
-const { generateResponse } = require('./engine');
-const aiConfig = require('../../utils/aiConfig'); 
-const { checkSecurity } = require('./security'); 
-const { executeAdminAction } = require('./admin-actions'); // 👑 استدعاء مدير الأوامر الجديد
+const config = require('../config.json');
+const { getUserData, getDynamicServerData } = require('./ai/knowledge');
+const { getLeaderboardKnowledge } = require('./ai/serverLore'); 
+const { buildSystemPrompt } = require('./ai/persona');
+const { generateResponse } = require('./ai/engine');
+const aiConfig = require('../utils/aiConfig'); 
+const { checkSecurity } = require('./ai/security'); 
+const { executeAdminAction } = require('./ai/admin-actions'); // 👑 استدعاء مدير الأوامر الجديد
 require('dotenv').config();
 
 const OWNER_ID = "1145327691772481577"; 
