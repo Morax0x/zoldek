@@ -17,7 +17,7 @@ module.exports = (client, db) => {
         try {
             if (!client.marketLocks) client.marketLocks = new Set();
             let res = await db.query('SELECT * FROM market_items').catch(() => null);
-            if (!res || res.rows.length === 0) return;
+            if (!res || !res.rows || res.rows.length === 0) return;
 
             const allItems = res.rows;
             let marketStatus = 'normal';
@@ -25,7 +25,7 @@ module.exports = (client, db) => {
             try {
                 let statusRes = await db.query(`SELECT "marketStatus" FROM settings WHERE "marketStatus" IS NOT NULL LIMIT 1`)
                     .catch(() => db.query(`SELECT marketstatus as "marketStatus" FROM settings WHERE marketstatus IS NOT NULL LIMIT 1`));
-                if (statusRes && statusRes.rows[0]) marketStatus = statusRes.rows[0].marketStatus || 'normal';
+                if (statusRes && statusRes.rows && statusRes.rows[0]) marketStatus = statusRes.rows[0].marketStatus || 'normal';
             } catch(e) { console.error("Market Status Read Error:", e); }
 
             await db.query('BEGIN');
@@ -39,7 +39,7 @@ module.exports = (client, db) => {
                 try { 
                     let resOwned = await db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE "itemID" = $1`, [itemId])
                         .catch(() => db.query(`SELECT SUM(quantity) as total FROM user_portfolio WHERE itemid = $1`, [itemId]));
-                    totalOwned = (resOwned && resOwned.rows[0]?.total) ? Number(resOwned.rows[0].total) : 0;
+                    totalOwned = (resOwned && resOwned.rows && resOwned.rows[0]?.total) ? Number(resOwned.rows[0].total) : 0;
                 } catch(e) {}
 
                 let randomPercent = (Math.random() * 0.20) - 0.10;
@@ -85,7 +85,7 @@ module.exports = (client, db) => {
             let expiredRolesRes = await db.query(`SELECT * FROM temporary_roles WHERE "expiresAt" <= $1`, [now])
                 .catch(() => db.query(`SELECT * FROM temporary_roles WHERE expiresat <= $1`, [now]));
             
-            if (!expiredRolesRes || expiredRolesRes.rows.length === 0) return;
+            if (!expiredRolesRes || !expiredRolesRes.rows || expiredRolesRes.rows.length === 0) return;
 
             await db.query('BEGIN');
             for (const record of expiredRolesRes.rows) {
@@ -120,7 +120,7 @@ module.exports = (client, db) => {
             let allUsersRes = await db.query(`SELECT "user", "guild", "bank", "lastInterest", "lastDaily", "lastWork" FROM levels WHERE "bank" > 0`)
                 .catch(() => db.query(`SELECT userid as "user", guildid as "guild", bank, lastinterest as "lastInterest", lastdaily as "lastDaily", lastwork as "lastWork" FROM levels WHERE bank > 0`));
             
-            if (!allUsersRes || allUsersRes.rows.length === 0) return;
+            if (!allUsersRes || !allUsersRes.rows || allUsersRes.rows.length === 0) return;
 
             const batchSize = 100; 
             for (let i = 0; i < allUsersRes.rows.length; i += batchSize) {
@@ -156,20 +156,21 @@ module.exports = (client, db) => {
         }
     };
 
-    // 4. تحديث قنوات الوقت
+    // 4. تحديث قنوات الوقت (تم توحيده وحمايته بتوقيت السعودية)
     async function updateTimerChannels() {
         const guilds = Array.from(client.guilds.cache.values());
-        const KSA_OFFSET = 3 * 60 * 60 * 1000; 
         for (const guild of guilds) {
             try {
                 let settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]).catch(() => db.query(`SELECT * FROM settings WHERE guild = $1`, [guild.id]));
                 const settings = settingsRes?.rows[0];
                 if (!settings) continue;
 
-                const now = new Date();
-                const nowKSA = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + KSA_OFFSET);
+                // نظام توقيت السعودية الفولاذي
+                const ksaString = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh' });
+                const nowKSA = new Date(ksaString);
 
-                const endOfDay = new Date(nowKSA); endOfDay.setHours(24, 0, 0, 0);
+                const endOfDay = new Date(nowKSA); 
+                endOfDay.setHours(24, 0, 0, 0);
                 const msUntilDaily = endOfDay - nowKSA;
                 const dailyText = `${Math.floor(msUntilDaily / (1000 * 60 * 60))} سـ ${Math.floor((msUntilDaily % (1000 * 60 * 60)) / (1000 * 60))} د`;
 
@@ -209,7 +210,7 @@ module.exports = (client, db) => {
         } catch (e) {}
     }
 
-    // --- المهام الدورية (محمية لتجنب التعطل) ---
+    // --- المهام الدورية (محمية لتجنب التعطل وموزعة بذكاء) ---
 
     // 1️⃣ البنك (كل ساعة)
     setInterval(() => calculateInterest().catch(e => console.error("Interest Error", e)), 60 * 60 * 1000); 
@@ -363,10 +364,10 @@ module.exports = (client, db) => {
         }
     }, 60 * 1000);
 
-    // استدعاء أولي لتحديث اللوحة فوراً عند تشغيل البوت
+    // استدعاء أولي لتحديث اللوحة فوراً عند تشغيل البوت (تأخير 12 ثانية لتجنب الضغط)
     setTimeout(() => {
         if (typeof autoUpdateKingsBoard === 'function') {
             autoUpdateKingsBoard(client, db).catch(()=>{});
         }
-    }, 10000);
+    }, 12000);
 };
