@@ -54,7 +54,13 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         isTrapActive = resumeData.isTrapActive || false;
         resumedMonsterData = resumeData.monsterData || null;
         
-        await threadChannel.send(` <a:6DIO:1472221549367918677> **زا واردوو!** ديو اعـاد الزمن جاري استكمال المعركة من الطابق: **${startFloor}**...`).catch(()=>{});
+        // 🔥 إضافة رسالة ZA WARUDO هنا! 🔥
+        const dioEmbed = new EmbedBuilder()
+            .setDescription(`**زا واردوو!** ديو اعـاد الزمن جاري استكمال المعركة من الطابق: **${startFloor}**`)
+            .setImage('https://i.postimg.cc/VvsFq67N/dio-da.gif')
+            .setColor(Colors.Gold);
+
+        await threadChannel.send({ embeds: [dioEmbed] }).catch(()=>{});
     } else {
         const themeKey = Object.keys(dungeonConfig.themes).find(key => dungeonConfig.themes[key].name === theme.name) || null;
         players = await setupPlayers(guild, partyIDs, partyClasses, db, OWNER_ID, themeKey);
