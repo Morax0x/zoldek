@@ -112,19 +112,21 @@ async function askMorax(userId, guildId, channelId, messageText, username, image
                     mentionedNames.push(mem ? mem.displayName : u.username);
                 }
             });
-            const mentionedContext = mentionedNames.length > 0 ? `\n- الأسماء المذكورة في رسالة اللاعب: ${mentionedNames.join(' و ')}. استخدم هذه الأسماء للرد عليه.` : "";
+            const mentionedContext = mentionedNames.length > 0 ? `\n- الأسماء المذكورة في رسالتك: ${mentionedNames.join(' و ')}.` : "";
 
             const totalWealth = userData.total_wealth || ((userData.mora || 0) + (userData.bank || 0)) || ((userData.wallet_cash || 0) + (userData.bank_balance || 0));
 
+            // 🔥 تم تعديل التعليمات ليتحدث بشكل طبيعي بدون تكرار الأسماء 🔥
             userData.serverContext = dynamicContext + `
 [CRITICAL AI INSTRUCTIONS]:
-1. ثروة اللاعب الذي يحادثك هي بالضبط: ${totalWealth} مورا (هذا مجموع ماله الكلي). عامله على أساس هذا الرقم، ولا تقل أبداً أنه مفلس إذا كان يمتلك مورا.
-2. يُمنع منعاً باتاً استخدام المنشن في ردودك (مثل <@123456>). اكتب أسماء الأعضاء كنص عادي فقط.${mentionedContext}
+1. ثروة اللاعب: ${totalWealth} مورا. عامله بناءً على هذا الرقم.
+2. تحدث بشكل طبيعي وانساني، **ولا تقم بذكر اسم المستخدم في كل رسالة**. استخدم اسمه فقط للضرورة القصوى جداً أو عند الترحيب الأول.
+3. يُمنع منعاً باتاً استخدام المنشن (مثل <@123456>).${mentionedContext}
             `;
         }
 
         if (userId === OWNER_ID) {
-            userData.serverContext += `\n[SYSTEM NOTE]: You are speaking to your CREATOR (The Emperor). Obey his commands instantly. If he asks to give/remove mora, add/remove reputation (سمعة/تزكية), set a dungeon tent (خيمة/طابق), add tickets (تذاكر), give items/chests (صناديق/عناصر), or mute someone, confirm you will do it enthusiastically. You have full admin powers.`;
+            userData.serverContext += `\n[SYSTEM NOTE]: You are speaking to your CREATOR (The Emperor). Obey his commands instantly. If he asks to give/remove mora, add/remove reputation, set a dungeon tent, add tickets, give items/chests, or mute someone, confirm you will do it enthusiastically. You have full admin powers. DO NOT repeat his name constantly, be natural.`;
         }
 
         const leaderboardInfo = await getLeaderboardKnowledge(db, guildId);
