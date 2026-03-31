@@ -58,19 +58,26 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         let finalXp = 0;
 
         if (p.rewardsClaimed) {
+            // اللاعب انسحب بوقت مبكر وتم حفظ جوائزه مسبقاً
             finalMora = p.finalMora || 0;
             finalXp = p.finalXp || 0;
         } else {
-            if (status === 'lose' && floor > 20) {
-                finalMora = 1000;
-                finalXp = 100;
+            if (p.pendingWipeSave || p.pendingRetreatSave) {
+                // تمت الحسبة في rewards.js ونحن نحفظها هنا
+                finalMora = p.finalMora || 0;
+                finalXp = p.finalXp || 0;
             } else {
-                finalMora = Math.floor(p.loot?.mora || 0);
-                finalXp = Math.floor(p.loot?.xp || 0);
-                if (p.isDead) { finalMora = Math.floor(finalMora * 0.5); finalXp = Math.floor(finalXp * 0.5); }
+                if (status === 'lose' && floor > 20) {
+                    finalMora = 1000;
+                    finalXp = 100;
+                } else {
+                    finalMora = Math.floor(p.loot?.mora || 0);
+                    finalXp = Math.floor(p.loot?.xp || 0);
+                    if (p.isDead) { finalMora = Math.floor(finalMora * 0.5); finalXp = Math.floor(finalXp * 0.5); }
+                }
             }
             
-            // 🔥 إضافة حماية فولاذية للتأكد من حفظ המورا والخبرة للجميع
+            // 🔥 إضافة حماية فولاذية للتأكد من حفظ المورا والخبرة (DB + Cache)
             try {
                 const guildObj = client.guilds.cache.get(guildId);
                 const member = guildObj ? await guildObj.members.fetch(p.id).catch(()=>null) : null;
@@ -80,12 +87,26 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 } else {
                     await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [finalMora, finalXp, p.id, guildId])
                     .catch(() => sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE userid = $3 AND guildid = $4`, [finalMora, finalXp, p.id, guildId]).catch(()=>{}));
+
+                    // 🔥 تحديث الكاش 🔥
+                    if (client && typeof client.getLevel === 'function') {
+                        let cache = await client.getLevel(p.id, guildId);
+                        if (cache) {
+                            cache.mora = String(BigInt(cache.mora || 0) + BigInt(finalMora));
+                            cache.xp = String(BigInt(cache.xp || 0) + BigInt(finalXp));
+                            cache.totalXP = String(BigInt(cache.totalXP || 0) + BigInt(finalXp));
+                            if (typeof client.setLevel === 'function') await client.setLevel(cache);
+                        }
+                    }
                 }
             } catch(e) {}
+            
+            p.rewardsClaimed = true;
         }
 
         let effectiveEndFloor = floor;
-        if (status === 'lose') effectiveEndFloor = Math.max(1, floor - 1); 
+        if (p.pendingWipeSave) effectiveEndFloor = p.deathFloor || Math.max(1, floor - 1);
+        else if (status === 'lose') effectiveEndFloor = Math.max(1, floor - 1); 
         else if (p.retreatFloor) effectiveEndFloor = p.retreatFloor; 
         else if (p.isDead && p.deathFloor) effectiveEndFloor = p.deathFloor; 
 
@@ -117,7 +138,6 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         
         let statusEmoji = p.isDead ? `💀 ${p.deathFloor ? `(مات في ${p.deathFloor})` : ""}` : p.retreatFloor ? `🏃‍♂️ (انسحب في ${p.retreatFloor})` : status === 'camp' ? "⛺ (مخيم)" : "✅";
         
-        // العرض للمستخدم سيكون من الطابق الأول للشفافية
         let repString = displayRep > 0 ? ` | 🌟 سمعة: **${displayRep}**` : "";
         let chestString = displayChests > 0 ? ` | 🎁 صناديق: **${displayChests}**` : "";
         
@@ -132,7 +152,7 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         let extraRewardText = "";
         if (mvpPlayer.totalDamage > 10000) {
             extraRewardText = " + 500 مـورا";
-            // 🔥 إضافة حماية لتوزيع مكافأة الـ MVP لضمان حفظها
+            // 🔥 إضافة حماية لتوزيع مكافأة الـ MVP لضمان حفظها بالكاش 🔥
             try {
                 const guildObj = client.guilds.cache.get(guildId);
                 const mvpMem = guildObj ? await guildObj.members.fetch(mvpPlayer.id).catch(()=>null) : null;
@@ -141,6 +161,14 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 } else {
                     await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + 500 WHERE "user" = $1 AND "guild" = $2`, [mvpPlayer.id, guildId])
                     .catch(() => sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + 500 WHERE userid = $1 AND guildid = $2`, [mvpPlayer.id, guildId]).catch(()=>{}));
+
+                    if (client && typeof client.getLevel === 'function') {
+                        let cache = await client.getLevel(mvpPlayer.id, guildId);
+                        if (cache) {
+                            cache.mora = String(BigInt(cache.mora || 0) + 500n);
+                            if (typeof client.setLevel === 'function') await client.setLevel(cache);
+                        }
+                    }
                 }
             } catch(e) {}
         }
