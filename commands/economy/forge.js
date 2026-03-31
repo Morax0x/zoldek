@@ -129,20 +129,25 @@ async function checkMora(db, userId, guildId, amount) {
     return (mora + bank) >= amount;
 }
 
-// 🔥 نظام فحص الموارد الذكي (يفحص من الداتا بيز مرة واحدة ويطابق برمجياً لمنع أخطاء الحروف) 🔥
+// 🔥 نظام فحص الموارد الذكي 🔥
 async function checkItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
+    
+    // سحب جميع موارد اللاعب بدلاً من الاعتماد على استعلامات فردية لتجنب أخطاء حالة الأحرف
     let res = await safeQuery(db, `SELECT "itemID", "itemid", "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
     if(!res || !res.rows || res.rows.length === 0) return false;
 
     for (let item of itemsArray) {
         let currentQty = 0;
+        const requiredId = String(item.id).toLowerCase().trim();
+        
         res.rows.forEach(r => {
-            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase();
-            if (dbItemId === String(item.id).toLowerCase()) {
+            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+            if (dbItemId === requiredId) {
                 currentQty += Number(r.quantity || r.Quantity || 0);
             }
         });
+        
         if(currentQty < item.count) return false;
     }
     return true;
@@ -177,9 +182,11 @@ async function deductItems(db, userId, guildId, itemsArray) {
     
     for (let item of itemsArray) {
         let remainingToDeduct = item.count;
+        const requiredId = String(item.id).toLowerCase().trim();
+        
         for (let r of res.rows) {
-            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase();
-            if (dbItemId !== String(item.id).toLowerCase()) continue;
+            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+            if (dbItemId !== requiredId) continue;
 
             if (remainingToDeduct <= 0) break;
             const q = Number(r.quantity || r.Quantity || 0);
@@ -564,7 +571,6 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     const wData = weaponRes?.rows?.[0];
     const currentLevel = wData ? Number(wData.weaponLevel || wData.weaponlevel) : 0;
     
-    // 🔥 نستخدم العرق المسجل في السلاح نفسه حتى لو غير اللاعب رتبته بالغلط 🔥
     const raceName = wData ? getStandardRaceName(wData.raceName || wData.racename) : roleRaceName;
     
     const weaponConfig = getSafeWeaponConfig(raceName);
@@ -596,8 +602,8 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
         let userMatCount = 0;
         if (invRes?.rows) {
             invRes.rows.forEach(row => {
-                const dbItemId = String(row.itemID || row.itemid || '').toLowerCase();
-                if (dbItemId === String(matId).toLowerCase()) {
+                const dbItemId = String(row.itemID || row.itemid || '').toLowerCase().trim();
+                if (dbItemId === String(matId).toLowerCase().trim()) {
                     userMatCount += Number(row.quantity || row.Quantity || 0);
                 }
             });
@@ -651,7 +657,6 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
 
     const reqs = getUpgradeRequirements(currentLevel, false);
     
-    // 🔥 نستخدم العرق المسجل في السلاح للتطوير 🔥
     const standardizedRace = getStandardRaceName(wData.raceName || wData.racename);
     const weaponConfig = getSafeWeaponConfig(standardizedRace);
     const raceMats = getSafeRaceMats(standardizedRace);
@@ -741,8 +746,8 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
         let userMatCount = 0;
         if (invRes?.rows) {
             invRes.rows.forEach(row => {
-                const dbItemId = String(row.itemID || row.itemid || '').toLowerCase();
-                if (dbItemId === String(itemId).toLowerCase()) {
+                const dbItemId = String(row.itemID || row.itemid || '').toLowerCase().trim();
+                if (dbItemId === String(itemId).toLowerCase().trim()) {
                     userMatCount += Number(row.quantity || row.Quantity || 0);
                 }
             });
