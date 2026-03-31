@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, MessageFlags, AttachmentBuilder } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder } = require('discord.js');
 
 let generateGachaCard, generateGachaHub, generateGachaInventory;
 try {
@@ -545,9 +545,9 @@ module.exports = {
                             } catch(e){}
                         }
                         
-                        const textContent = `📦 **تم فتح ${pullCount} صندوق**\n\n**أفضل عنصر حصلت عليه:**\n✨ ${bestResult.item.emoji} ${bestResult.item.name} (${bestResult.rarity})\n\n> تم إضافة جميع العناصر المتبقية إلى حقيبتك بنجاح.`;
+                        const summaryText = `📦 **تم فتح ${pullCount} صندوق**\n\n**أفضل عنصر حصلت عليه:**\n✨ ${bestResult.item.emoji || ''} ${bestResult.item.name} (${bestResult.rarity})\n\n> تم إضافة جميع العناصر إلى حقيبتك بنجاح.`;
 
-                        await initialMsg.edit({ content: textContent, embeds: [], files, components: [getReturnButton()] }).catch(()=>{});
+                        await initialMsg.edit({ content: summaryText, embeds: [], files, components: [getReturnButton()] }).catch(()=>{});
 
                     } else if (pullCount === 1) {
                         let files = [];
