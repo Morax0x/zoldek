@@ -21,12 +21,83 @@ try {
     } catch(e2) {}
 }
 
+const EMOJI_MORA = '<:mora:1435647151349698621>';
+
+// 🛡️ نظام معالجة استعلامات فولاذي وذكي للحماية من الانهيارات
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { 
+        res = await db.query(qPg, params); 
+    } catch(e) { 
+        res = { rows: [] }; 
+    }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/gi, "userid")
+        .replace(/"guildID"/gi, "guildid")
+        .replace(/"itemID"/gi, "itemid")
+        .replace(/"animalID"/gi, "animalid")
+        .replace(/"quantity"/gi, "quantity")
+        .replace(/"mora"/gi, "mora")
+        .replace(/"xp"/gi, "xp")
+        .replace(/"level"/gi, "level")
+        .replace(/"id"/gi, "id")
+        .replace(/"user"/gi, "userid")
+        .replace(/"guild"/gi, "guildid")
+        .replace(/"lastPayoutDate"/gi, "lastpayoutdate")
+        .replace(/"actionType"/gi, "actiontype")
+        .replace(/"itemName"/gi, "itemname")
+        .replace(/"count"/gi, "count")
+        .replace(/"timestamp"/gi, "timestamp")
+        .replace(/"seedID"/gi, "seedid")
+        .replace(/"plantTime"/gi, "planttime")
+        .replace(/"plotID"/gi, "plotid")
+        .replace(/"status"/gi, "status")
+        .replace(/"purchaseTimestamp"/gi, "purchasetimestamp")
+        .replace(/"lastFedTimestamp"/gi, "lastfedtimestamp");
+
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
+};
+
+// 🛡️ تنفيذ أوامر الإدخال/التحديث بصمت وبدون إرجاع قراءة
+const safeExecute = async (db, qPg, params) => {
+    try { await db.query(qPg, params); return true; } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid").replace(/"guildID"/gi, "guildid")
+            .replace(/"itemID"/gi, "itemid").replace(/"animalID"/gi, "animalid")
+            .replace(/"quantity"/gi, "quantity").replace(/"mora"/gi, "mora")
+            .replace(/"xp"/gi, "xp").replace(/"level"/gi, "level")
+            .replace(/"id"/gi, "id").replace(/"user"/gi, "userid")
+            .replace(/"guild"/gi, "guildid").replace(/"lastPayoutDate"/gi, "lastpayoutdate")
+            .replace(/"actionType"/gi, "actiontype").replace(/"itemName"/gi, "itemname")
+            .replace(/"count"/gi, "count").replace(/"timestamp"/gi, "timestamp")
+            .replace(/"seedID"/gi, "seedid").replace(/"plantTime"/gi, "planttime")
+            .replace(/"plotID"/gi, "plotid").replace(/"status"/gi, "status")
+            .replace(/"purchaseTimestamp"/gi, "purchasetimestamp")
+            .replace(/"lastFedTimestamp"/gi, "lastfedtimestamp");
+
+        if (fallbackQuery !== qPg) {
+            try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
+        }
+        return false;
+    }
+};
+
 async function getGrowthMultiplier(db, userId, guildId) {
     try {
-        let repRes;
-        try { repRes = await db.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
-        catch(e) { repRes = await db.query(`SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
-        const points = repRes.rows[0]?.rep_points || 0;
+        const repRes = await safeQuery(db, `SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        const points = Number(repRes.rows[0]?.rep_points || repRes.rows[0]?.rep_Points || 0);
         if (points >= 1000) return 0.80; 
         if (points >= 500)  return 0.85; 
         if (points >= 250)  return 0.90; 
@@ -44,21 +115,14 @@ async function checkFarmIncome(client, db) {
     const TWELVE_HOURS = 12 * 60 * 60 * 1000; 
 
     try {
-        await db.query(`CREATE TABLE IF NOT EXISTS farm_last_payout ("id" TEXT PRIMARY KEY, "lastPayoutDate" BIGINT)`);
-        await db.query(`CREATE TABLE IF NOT EXISTS farm_daily_log ("id" BIGSERIAL PRIMARY KEY, "userID" TEXT, "guildID" TEXT, "actionType" TEXT, "itemName" TEXT, "count" BIGINT, "timestamp" BIGINT)`);
-    } catch (e) {
-        console.error("Error creating farm tables:", e);
-    }
+        await safeExecute(db, `CREATE TABLE IF NOT EXISTS farm_last_payout ("id" TEXT PRIMARY KEY, "lastPayoutDate" BIGINT)`, []);
+        await safeExecute(db, `CREATE TABLE IF NOT EXISTS farm_daily_log ("id" BIGSERIAL PRIMARY KEY, "userID" TEXT, "guildID" TEXT, "actionType" TEXT, "itemName" TEXT, "count" BIGINT, "timestamp" BIGINT)`, []);
+    } catch (e) { }
 
-    let farmOwnersRes;
-    try {
-        farmOwnersRes = await db.query(`SELECT DISTINCT "userID", "guildID" FROM user_farm UNION SELECT DISTINCT "userID", "guildID" FROM user_lands`);
-    } catch(e) {
-        farmOwnersRes = await db.query(`SELECT DISTINCT userid as "userID", guildid as "guildID" FROM user_farm UNION SELECT DISTINCT userid as "userID", guildid as "guildID" FROM user_lands`).catch(()=>({rows:[]}));
-    }
-    
+    const farmOwnersRes = await safeQuery(db, `SELECT DISTINCT "userID", "guildID" FROM user_farm UNION SELECT DISTINCT "userID", "guildID" FROM user_lands`, []);
     const farmOwners = farmOwnersRes.rows;
-    if (!farmOwners || !farmOwners.length) return;
+    
+    if (!farmOwners || farmOwners.length === 0) return;
     
     for (const owner of farmOwners) {
         try {
@@ -69,33 +133,32 @@ async function checkFarmIncome(client, db) {
 
             const payoutID = `${userID}-${guildID}`;
             
-            // 🚀 تسريع جلب البيانات: دمج طلبات وقت التوزيع وبف العامل في طلب متوازي واحد!
-            const [lastPayoutDataRes, workerBuffRes, growthMultiplier] = await Promise.all([
-                db.query(`SELECT "lastPayoutDate" FROM farm_last_payout WHERE "id" = $1`, [payoutID]).catch(() => db.query(`SELECT lastpayoutdate FROM farm_last_payout WHERE id = $1`, [payoutID]).catch(()=>({rows:[]}))),
-                db.query(`SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userID, guildID, now]).catch(() => db.query(`SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker' AND expiresat > $3`, [userID, guildID, now]).catch(()=>({rows:[]}))),
-                getGrowthMultiplier(db, userID, guildID)
+            const [lastPayoutDataRes, workerBuffRes] = await Promise.all([
+                safeQuery(db, `SELECT "lastPayoutDate" FROM farm_last_payout WHERE "id" = $1`, [payoutID]),
+                safeQuery(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userID, guildID, now])
             ]);
             
+            const growthMultiplier = await getGrowthMultiplier(db, userID, guildID);
+            
             const lastPayoutData = lastPayoutDataRes.rows[0];
-            const payoutTime = lastPayoutData ? (Number(lastPayoutData.lastPayoutDate || lastPayoutData.lastpayoutdate) || 0) : 0;
+            const payoutTime = lastPayoutData ? Number(lastPayoutData.lastPayoutDate || lastPayoutData.lastpayoutdate || 0) : 0;
             const isDailyPayoutDue = (now - payoutTime) >= ONE_DAY;
             const hasWorker = workerBuffRes.rows.length > 0;
 
+            // ============================================
             // 1. نظام الحصاد المستمر للعامل
+            // ============================================
             if (hasWorker) {
-                let plantedPlotsRes;
-                try { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userID, guildID]); }
-                catch(e) { plantedPlotsRes = await db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userID, guildID]).catch(()=>({rows:[]})); }
-                
+                const plantedPlotsRes = await safeQuery(db, `SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userID, guildID]);
                 const plantedPlots = plantedPlotsRes.rows;
                 
                 if (plantedPlots.length > 0) {
-                    const harvestUpdates = [];
                     let totalExtraMora = 0;
                     let totalExtraXp = 0;
                     
                     for (const plot of plantedPlots) {
                         const seedId = plot.seedID || plot.seedid;
+                        const plotId = plot.plotID || plot.plotid;
                         const seed = seedsData.find(s => String(s.id) === String(seedId));
                         if (!seed) continue;
 
@@ -104,42 +167,35 @@ async function checkFarmIncome(client, db) {
                         const age = now - plantTime;
 
                         if (age >= growthMs) {
-                            harvestUpdates.push(
-                                db.query(`UPDATE user_lands SET "status" = 'empty', "seedID" = NULL, "plantTime" = NULL WHERE "userID" = $1 AND "guildID" = $2 AND "plotID" = $3`, [userID, guildID, plot.plotID || plot.plotid]).catch(() => db.query(`UPDATE user_lands SET status = 'empty', seedid = NULL, planttime = NULL WHERE userid = $1 AND guildid = $2 AND plotid = $3`, [userID, guildID, plot.plotID || plot.plotid]).catch(()=>{}))
-                            );
+                            await safeExecute(db, `UPDATE user_lands SET "status" = 'empty', "seedID" = NULL, "plantTime" = NULL WHERE "userID" = $1 AND "guildID" = $2 AND "plotID" = $3`, [userID, guildID, plotId]);
                             
                             totalExtraMora += Number(seed.sell_price) || 0;
                             totalExtraXp += Number(seed.xp_reward) || 0;
                             
                             if (updateGuildStat) updateGuildStat(client, guildID, userID, 'crops_harvested', seed.sell_price);
 
-                            harvestUpdates.push(
-                                db.query(`INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'harvest', seed.name, 1, now]).catch(() => db.query(`INSERT INTO farm_daily_log (userid, guildid, actiontype, itemname, count, timestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'harvest', seed.name, 1, now]).catch(()=>{}))
-                            );
+                            await safeExecute(db, `INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'harvest', seed.name, 1, now]);
                         }
                     }
 
-                    // 🚀 تنفيذ كل عمليات الحصاد في وقت واحد
-                    if (harvestUpdates.length > 0) {
-                        await Promise.all(harvestUpdates);
-                        
+                    if (totalExtraMora > 0 || totalExtraXp > 0) {
                         try {
                             const guildObj = client.guilds.cache.get(guildID);
                             const memberObj = guildObj ? await guildObj.members.fetch(userID).catch(()=>null) : null;
                             if (memberObj && addXPAndCheckLevel) {
                                 await addXPAndCheckLevel(client, memberObj, db, totalExtraXp, totalExtraMora, false).catch(()=>{});
                             } else {
-                                await db.query(`UPDATE levels SET "mora" = COALESCE(CAST("mora" AS BIGINT), 0) + $1, "xp" = COALESCE(CAST("xp" AS BIGINT), 0) + $2, "totalXP" = COALESCE(CAST("totalXP" AS BIGINT), 0) + $2 WHERE "user" = $3 AND "guild" = $4`, [totalExtraMora, totalExtraXp, userID, guildID]).catch(()=>{});
+                                await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [totalExtraMora, totalExtraXp, userID, guildID]);
                             }
                         } catch(e) {}
                     }
                 }
             }
 
-            // 2. معالجة الحيوانات (الموت، الجوع، الإطعام التلقائي، والدخل اليومي)
-            let userFarmRes;
-            try { userFarmRes = await db.query(`SELECT * FROM user_farm WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
-            catch(e) { userFarmRes = await db.query(`SELECT * FROM user_farm WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
+            // ============================================
+            // 2. معالجة الحيوانات والدخل اليومي
+            // ============================================
+            const userFarmRes = await safeQuery(db, `SELECT * FROM user_farm WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
             const userFarm = userFarmRes.rows;
             
             let dailyAnimalIncome = 0;
@@ -147,24 +203,22 @@ async function checkFarmIncome(client, db) {
             let hungryAnimalsCount = 0;
             let oldDeaths = [];
             let outOfStock = false;
-            const animalUpdates = [];
 
             for (const row of userFarm) {
                 const animalId = row.animalID || row.animalid;
+                const rowId = row.id || row.ID;
                 const animal = farmAnimals.find(a => String(a.id) === String(animalId));
                 if (!animal) continue; 
 
-                const qty = Number(row.quantity) || 1;
+                const qty = Number(row.quantity || row.Quantity) || 1;
                 const purchaseTimestamp = Number(row.purchaseTimestamp || row.purchasetimestamp) || now; 
                 const ageInMs = now - purchaseTimestamp;
                 const lifespanInMs = animal.lifespan_days * ONE_DAY;
 
                 // نظام الموت الطبيعي
                 if (ageInMs >= lifespanInMs) {
-                    animalUpdates.push(
-                        db.query(`DELETE FROM user_farm WHERE "id" = $1`, [row.id || row.ID]).catch(() => db.query(`DELETE FROM user_farm WHERE id = $1`, [row.id || row.ID]).catch(()=>{})),
-                        db.query(`INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'death_old', animal.name, qty, now]).catch(() => db.query(`INSERT INTO farm_daily_log (userid, guildid, actiontype, itemname, count, timestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'death_old', animal.name, qty, now]).catch(()=>{}))
-                    );
+                    await safeExecute(db, `DELETE FROM user_farm WHERE "id" = $1`, [rowId]);
+                    await safeExecute(db, `INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'death_old', animal.name, qty, now]);
                     if (!oldDeaths.includes(animal.name)) oldDeaths.push(animal.name);
                     continue; 
                 }
@@ -176,25 +230,23 @@ async function checkFarmIncome(client, db) {
                 let timeLeft = fullUntil - now; 
                 const feedThreshold = Math.max(14 * 60 * 60 * 1000, maxHungerMs * 0.25);
 
-                // إطعام العامل التلقائي
+                // إطعام التلقائي من العامل
                 if (hasWorker && timeLeft <= feedThreshold) {
-                    let invDataRes;
-                    try { invDataRes = await db.query(`SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userID, guildID, animal.feed_id]); }
-                    catch(e) { invDataRes = await db.query(`SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userID, guildID, animal.feed_id]).catch(()=>({rows:[]})); }
+                    const invDataRes = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userID, guildID, animal.feed_id]);
                     const invData = invDataRes.rows[0];
                     
                     if (invData && Number(invData.quantity || invData.Quantity) >= qty) {
+                        const invId = invData.id || invData.ID;
                         const newQty = Number(invData.quantity || invData.Quantity) - qty;
+                        
                         if(newQty > 0) {
-                            animalUpdates.push(db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invData.id || invData.ID]).catch(() => db.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, invData.id || invData.ID]).catch(()=>{})));
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, invId]);
                         } else {
-                            animalUpdates.push(db.query(`DELETE FROM user_inventory WHERE "id" = $1`, [invData.id || invData.ID]).catch(() => db.query(`DELETE FROM user_inventory WHERE id = $1`, [invData.id || invData.ID]).catch(()=>{})));
+                            await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [invId]);
                         }
                         
-                        animalUpdates.push(
-                            db.query(`UPDATE user_farm SET "lastFedTimestamp" = $1 WHERE "id" = $2`, [now, row.id || row.ID]).catch(() => db.query(`UPDATE user_farm SET lastfedtimestamp = $1 WHERE id = $2`, [now, row.id || row.ID]).catch(()=>{})),
-                            db.query(`INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'feed', animal.name, qty, now]).catch(() => db.query(`INSERT INTO farm_daily_log (userid, guildid, actiontype, itemname, count, timestamp) VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'feed', animal.name, qty, now]).catch(()=>{}))
-                        );
+                        await safeExecute(db, `UPDATE user_farm SET "lastFedTimestamp" = $1 WHERE "id" = $2`, [now, rowId]);
+                        await safeExecute(db, `INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'feed', animal.name, qty, now]);
                         
                         lastFed = now;
                         timeLeft = maxHungerMs;
@@ -213,12 +265,9 @@ async function checkFarmIncome(client, db) {
                 }
             } 
 
-            // 🚀 تنفيذ كل عمليات الحيوانات (الموت والإطعام) في وقت واحد
-            if (animalUpdates.length > 0) {
-                await Promise.all(animalUpdates);
-            }
-
-            // 3. التقرير والتوزيع
+            // ============================================
+            // 3. التقرير والتوزيع النهائي (يُنفذ مرة كل 24 ساعة)
+            // ============================================
             if (!isDailyPayoutDue) continue;
 
             if (dailyAnimalIncome > 0) {
@@ -228,15 +277,12 @@ async function checkFarmIncome(client, db) {
                     if (memberObj && addXPAndCheckLevel) {
                         await addXPAndCheckLevel(client, memberObj, db, 0, dailyAnimalIncome, false).catch(()=>{});
                     } else {
-                        await db.query(`UPDATE levels SET "mora" = COALESCE(CAST("mora" AS BIGINT), 0) + $1 WHERE "user" = $2 AND "guild" = $3`, [dailyAnimalIncome, userID, guildID]).catch(()=>{});
+                        await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [dailyAnimalIncome, userID, guildID]);
                     }
                 } catch(e) {}
             }
 
-            let dailyLogsRes;
-            try { dailyLogsRes = await db.query(`SELECT * FROM farm_daily_log WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]); }
-            catch(e) { dailyLogsRes = await db.query(`SELECT * FROM farm_daily_log WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
-            
+            const dailyLogsRes = await safeQuery(db, `SELECT * FROM farm_daily_log WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
             let harvestedMap = new Map(), fedMap = new Map();
 
             for (const log of dailyLogsRes.rows) {
@@ -247,20 +293,16 @@ async function checkFarmIncome(client, db) {
                 else if (aType === 'feed') fedMap.set(iName, (fedMap.get(iName) || 0) + logCount);
             }
 
-            // 🚀 تسريع تنظيف السجلات
-            await Promise.all([
-                db.query(`DELETE FROM farm_daily_log WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]).catch(() => db.query(`DELETE FROM farm_daily_log WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>{})),
-                db.query(`INSERT INTO farm_last_payout ("id", "lastPayoutDate") VALUES ($1, $2) ON CONFLICT("id") DO UPDATE SET "lastPayoutDate" = $3`, [payoutID, now, now]).catch(() => db.query(`INSERT INTO farm_last_payout (id, lastpayoutdate) VALUES ($1, $2) ON CONFLICT(id) DO UPDATE SET lastpayoutdate = $3`, [payoutID, now, now]).catch(()=>{}))
-            ]);
+            // تحديث وقت الاستلام لتجنب التكرار وتفريغ سجل اليوم
+            await safeExecute(db, `DELETE FROM farm_daily_log WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+            await safeExecute(db, `INSERT INTO farm_last_payout ("id", "lastPayoutDate") VALUES ($1, $2) ON CONFLICT("id") DO UPDATE SET "lastPayoutDate" = $3`, [payoutID, now, now]);
 
             if (dailyAnimalIncome <= 0 && dailyLogsRes.rows.length === 0 && hungryAnimalsCount === 0 && oldDeaths.length === 0) continue;
 
             const guildObj = client.guilds.cache.get(guildID);
             if (!guildObj) continue;
             
-            let settingsRes;
-            try { settingsRes = await db.query(`SELECT "casinoChannelID" FROM settings WHERE "guild" = $1`, [guildID]); }
-            catch(e) { settingsRes = await db.query(`SELECT casinochannelid FROM settings WHERE guild = $1`, [guildID]).catch(()=>({rows:[]})); }
+            const settingsRes = await safeQuery(db, `SELECT "casinoChannelID" FROM settings WHERE "guild" = $1`, [guildID]);
             const casinoId = settingsRes.rows[0]?.casinochannelid || settingsRes.rows[0]?.casinoChannelID;
             if (!casinoId) continue;
             
