@@ -63,6 +63,22 @@ function getStandardRaceName(rawName) {
     return weaponsConfig.find(w => w.race.toLowerCase() === name)?.race || null;
 }
 
+// 🛡️ دالات مساعدة لضمان جلب التكوينات بدون أخطاء الحروف 🛡️
+function getSafeWeaponConfig(raceName) {
+    if (!raceName) return weaponsConfig[0];
+    return weaponsConfig.find(w => w.race.toLowerCase() === raceName.toLowerCase()) || weaponsConfig[0];
+}
+
+function getSafeRaceMats(raceName) {
+    if (!raceName) return upgradeMats.weapon_materials[0];
+    return upgradeMats.weapon_materials.find(m => m.race.toLowerCase() === raceName.toLowerCase()) || upgradeMats.weapon_materials[0];
+}
+
+function getSafeBookCat(categoryName) {
+    if (!categoryName) return upgradeMats.skill_books[0];
+    return upgradeMats.skill_books.find(c => c.category.toLowerCase() === categoryName.toLowerCase()) || upgradeMats.skill_books[0];
+}
+
 function translateRarity(rarity) { return RARITY_ARABIC[rarity] || rarity; }
 
 function resolveText(val) {
@@ -71,43 +87,37 @@ function resolveText(val) {
     return String(val);
 }
 
-// 🔥 نظام المعالجة الذاتية الهجومي 🔥
+// 🔥 نظام المعالجة الذاتية الهجومي المطور (يقرأ أي حرف مهما كانت حالته) 🔥
 const safeQuery = async (db, qPg, params) => {
-    let res;
     try { 
-        res = await db.query(qPg, params); 
+        let res = await db.query(qPg, params); 
+        return { rows: Array.isArray(res) ? res : (res?.rows || []) };
     } catch(e) { 
-        res = { rows: [] }; 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"itemID"/gi, "itemid")
+            .replace(/"skillID"/gi, "skillid")
+            .replace(/"skillLevel"/gi, "skilllevel")
+            .replace(/"raceName"/gi, "racename")
+            .replace(/"weaponLevel"/gi, "weaponlevel")
+            .replace(/"quantity"/gi, "quantity")
+            .replace(/"mora"/gi, "mora")
+            .replace(/"bank"/gi, "bank")
+            .replace(/"level"/gi, "level")
+            .replace(/"id"/gi, "id")
+            .replace(/"user"/gi, "userid")
+            .replace(/"guild"/gi, "guildid");
+        
+        if (fallbackQuery !== qPg) {
+            try { 
+                let res2 = await db.query(fallbackQuery, params); 
+                return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) };
+            } catch(e2) { }
+        }
+        
+        return { rows: [] };
     }
-
-    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
-    if (rows1.length > 0) return { rows: rows1 };
-
-    let fallbackQuery = qPg
-        .replace(/"userID"/g, "userid")
-        .replace(/"guildID"/g, "guildid")
-        .replace(/"itemID"/g, "itemid")
-        .replace(/"skillID"/g, "skillid")
-        .replace(/"skillLevel"/g, "skilllevel")
-        .replace(/"raceName"/g, "racename")
-        .replace(/"weaponLevel"/g, "weaponlevel")
-        .replace(/"quantity"/g, "quantity")
-        .replace(/"mora"/g, "mora")
-        .replace(/"bank"/g, "bank")
-        .replace(/"level"/g, "level")
-        .replace(/"id"/g, "id")
-        .replace(/"user"/g, "userid")
-        .replace(/"guild"/g, "guildid");
-    
-    if (fallbackQuery !== qPg) {
-        try { 
-            let res2 = await db.query(fallbackQuery, params); 
-            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
-            return { rows: rows2 };
-        } catch(e2) { }
-    }
-    
-    return { rows: [] };
 };
 
 async function deductMora(db, userId, guildId, amount) {
@@ -136,7 +146,7 @@ async function deductItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
 
     for (let item of itemsArray) {
-        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, item.id]);
+        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [userId, guildId, item.id]);
         if(!res || !res.rows || res.rows.length === 0) return false;
         let currentQty = 0;
         res.rows.forEach(r => currentQty += Number(r.quantity || r.Quantity || 0));
@@ -144,7 +154,7 @@ async function deductItems(db, userId, guildId, itemsArray) {
     }
 
     for (let item of itemsArray) {
-        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, item.id]);
+        let res = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [userId, guildId, item.id]);
         let remainingToDeduct = item.count;
         for (let r of res.rows) {
             if (remainingToDeduct <= 0) break;
@@ -246,8 +256,9 @@ function getUpgradeRequirements(currentLevel, isSkill = false) {
 
 function getItemInfo(itemId) {
     if(!itemId) return null;
+    const lowerId = itemId.toLowerCase();
     for (const r of upgradeMats.weapon_materials) {
-        const mat = r.materials.find(m => m.id === itemId);
+        const mat = r.materials.find(m => m.id.toLowerCase() === lowerId);
         if (mat) {
             const raceFolder = r.race.toLowerCase().replace(' ', '_');
             const imgName = ID_TO_IMAGE[mat.id] || `${mat.id}.png`;
@@ -255,7 +266,7 @@ function getItemInfo(itemId) {
         }
     }
     for (const c of upgradeMats.skill_books) {
-        const book = c.books.find(b => b.id === itemId);
+        const book = c.books.find(b => b.id.toLowerCase() === lowerId);
         if (book) {
             const typeFolder = c.category === 'General_Skills' ? 'general' : 'race';
             const imgName = ID_TO_IMAGE[book.id] || `${book.id}.png`;
@@ -268,7 +279,7 @@ function getItemInfo(itemId) {
 function aggregateInventory(rows) {
     const map = {};
     for (const r of rows) {
-        const id = r.itemID || r.itemid;
+        const id = (r.itemID || r.itemid).toLowerCase(); 
         const qty = Number(r.quantity || r.Quantity);
         if (!map[id]) map[id] = 0;
         map[id] += qty;
@@ -521,7 +532,7 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     ]);
 
     const userMora = Number(userMoraRes?.rows?.[0]?.mora || userMoraRes?.rows?.[0]?.Mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || userMoraRes?.rows?.[0]?.Bank || 0);
-    const weaponConfig = weaponsConfig.find(w => w.race === raceName) || weaponsConfig[0];
+    const weaponConfig = getSafeWeaponConfig(raceName);
     const currentLevel = weaponRes.rows.length > 0 ? Number(weaponRes.rows[0].weaponLevel || weaponRes.rows[0].weaponlevel) : 0;
 
     if (currentLevel === 0) {
@@ -542,11 +553,11 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     if (currentLevel >= 15 && playerServerLevel < 30) return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: 'قفل المستوى: يجب أن تصل إلى المستوى 30 في السيرفر.' }, [getReturnRow()]);
 
     const reqs = getUpgradeRequirements(currentLevel, false);
-    const raceMats = upgradeMats.weapon_materials.find(m => m.race === raceName) || upgradeMats.weapon_materials[0];
+    const raceMats = getSafeRaceMats(raceName);
     
     const matPromises = reqs.materials.map(async (r) => {
         let matId = raceMats.materials[r.tier].id;
-        let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guildId, matId]);
+        let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [user.id, guildId, matId]);
         
         let userMatCount = 0;
         if (invRes?.rows) {
@@ -599,8 +610,8 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
 
     const reqs = getUpgradeRequirements(currentLevel, false);
     const standardizedRace = getStandardRaceName(wData.raceName || wData.racename);
-    const weaponConfig = weaponsConfig.find(w => w.race === standardizedRace) || weaponsConfig[0];
-    const raceMats = upgradeMats.weapon_materials.find(m => m.race === standardizedRace) || upgradeMats.weapon_materials[0];
+    const weaponConfig = getSafeWeaponConfig(standardizedRace);
+    const raceMats = getSafeRaceMats(standardizedRace);
     let detailedReqs = reqs.materials.map(r => ({ id: raceMats.materials[r.tier].id, count: r.count }));
 
     const hasDeductedMora = await deductMora(db, user.id, guildId, reqs.moraCost);
@@ -674,12 +685,12 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
 
     const reqs = getUpgradeRequirements(currentLevel, true);
     const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
-    const bookCat = upgradeMats.skill_books.find(c => c.category === categoryName) || upgradeMats.skill_books[0];
-    const raceMats = upgradeMats.weapon_materials.find(m => m.race === raceName) || upgradeMats.weapon_materials[0];
+    const bookCat = getSafeBookCat(categoryName);
+    const raceMats = getSafeRaceMats(raceName);
 
     const matPromises = reqs.materials.map(async (r) => {
         let itemId = r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id;
-        let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guildId, itemId]);
+        let invRes = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [user.id, guildId, itemId]);
         
         let userMatCount = 0;
         if (invRes?.rows) {
@@ -732,9 +743,10 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
     const reqs = getUpgradeRequirements(currentLevel, true);
     const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
     const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
-    const bookCat = upgradeMats.skill_books.find(c => c.category === categoryName) || upgradeMats.skill_books[0];
     const userRace = getStandardRaceName(wRes?.rows?.[0]?.raceName || wRes?.rows?.[0]?.racename);
-    const raceMats = upgradeMats.weapon_materials.find(m => m.race === userRace) || upgradeMats.weapon_materials[0];
+    
+    const bookCat = getSafeBookCat(categoryName);
+    const raceMats = getSafeRaceMats(userRace);
 
     let detailedReqs = reqs.materials.map(r => {
         return { id: r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id, count: r.count };
@@ -788,7 +800,7 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
         payloadData.sacMatName = sacInfo.name; payloadData.reqMatIcon = sacInfo.iconUrl;
 
         let targetOptions = [];
-        const rMats = upgradeMats.weapon_materials.find(m => m.race === userRace);
+        const rMats = getSafeRaceMats(userRace);
         if (rMats) {
             const matMatch = rMats.materials.find(m => m.rarity === sacInfo.rarity);
             if (matMatch && matMatch.id !== sacInfo.id) targetOptions.push({ label: resolveText(matMatch.name).substring(0, 100), value: matMatch.id.substring(0, 100) });
@@ -826,7 +838,7 @@ async function handleSynthesis(i, user, guildId, db, state) {
     const hasDeductedItems = await deductItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: 4 }]);
     if (!hasDeductedItems) return await replyWithCanvas(i, user, 'synthesis_error', { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: 'لا تملك 4 عناصر متشابهة!' }, [getReturnRow()]);
 
-    let targetCheck = await safeQuery(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guildId, state.targetItem]);
+    let targetCheck = await safeQuery(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [user.id, guildId, state.targetItem]);
     if (targetCheck?.rows?.[0]) await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, [targetCheck.rows[0].id || targetCheck.rows[0].ID]);
     else await safeQuery(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]);
     
