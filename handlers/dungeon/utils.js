@@ -138,10 +138,15 @@ async function getRealPlayerData(member, db, assignedClass = 'Adventurer') {
     const userRoleIDs = member.roles.cache.map(r => r.id);
     const userRace = allRaceRoles.find(r => userRoleIDs.includes(r.roleID || r.roleid));
 
+    let expectedRaceSkillId = null;
+
     if (userRace) {
-        const wConfig = weaponsConfig.find(w => w.race === (userRace.raceName || userRace.racename));
+        const rName = userRace.raceName || userRace.racename;
+        expectedRaceSkillId = `race_${rName.toLowerCase().replace(/\s+/g, '_')}_skill`;
+
+        const wConfig = weaponsConfig.find(w => w.race === rName);
         if (wConfig) {
-            const userWeaponRes = await db.query('SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3', [userID, guildID, (userRace.raceName || userRace.racename)]);
+            const userWeaponRes = await db.query('SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3', [userID, guildID, rName]);
             const userWeapon = userWeaponRes.rows[0];
             if (userWeapon && parseInt(userWeapon.weaponLevel || userWeapon.weaponlevel) > 0) {
                 damage = wConfig.base_damage + (wConfig.damage_increment * (parseInt(userWeapon.weaponLevel || userWeapon.weaponlevel) - 1));
@@ -156,7 +161,14 @@ async function getRealPlayerData(member, db, assignedClass = 'Adventurer') {
       
     if (userSkillsData) {
         userSkillsData.forEach(userSkill => {
-            const skillConfig = skillsConfig.find(s => s.id === (userSkill.skillID || userSkill.skillid));
+            const skillId = userSkill.skillID || userSkill.skillid;
+
+            // 🔥 الحماية هنا: لو المهارة عرقية (تبدأ بـ race_) وماتطابق العرق الحالي، نتجاهلها! 🔥
+            if (skillId.startsWith('race_')) {
+                if (skillId !== expectedRaceSkillId) return; 
+            }
+
+            const skillConfig = skillsConfig.find(s => s.id === skillId);
             if (skillConfig && parseInt(userSkill.skillLevel || userSkill.skilllevel) > 0) {
                 const effectValue = skillConfig.base_value + (skillConfig.value_increment * (parseInt(userSkill.skillLevel || userSkill.skilllevel) - 1));
                 skillsOutput[skillConfig.id] = { ...skillConfig, currentLevel: parseInt(userSkill.skillLevel || userSkill.skilllevel), effectValue: effectValue };
@@ -164,11 +176,11 @@ async function getRealPlayerData(member, db, assignedClass = 'Adventurer') {
         });
     }
 
-    if (userRace) {
-        const raceSkillId = `race_${(userRace.raceName || userRace.racename).toLowerCase().replace(/\s+/g, '_')}_skill`;
-        const raceSkillConfig = skillsConfig.find(s => s.id === raceSkillId);
-        if (raceSkillConfig && !skillsOutput[raceSkillId]) {
-            skillsOutput[raceSkillId] = { ...raceSkillConfig, currentLevel: 1, effectValue: raceSkillConfig.base_value };
+    // إعطاء مهارة العرق الافتراضية إذا كان اللاعب لا يملكها بعد
+    if (userRace && expectedRaceSkillId) {
+        const raceSkillConfig = skillsConfig.find(s => s.id === expectedRaceSkillId);
+        if (raceSkillConfig && !skillsOutput[expectedRaceSkillId]) {
+            skillsOutput[expectedRaceSkillId] = { ...raceSkillConfig, currentLevel: 1, effectValue: raceSkillConfig.base_value };
         }
     }
 
