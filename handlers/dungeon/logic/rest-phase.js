@@ -56,7 +56,8 @@ async function applyPostBattleUpdates(players, floor, threadChannel, totals) {
     });
 }
 
-function calculateSessionLoot(sessionStartFloor, currentFloor) {
+// الدالة الآن تحسب من الطابق 1 دائماً فقط للعرض البصري عشان اللاعب يشوف إنجازه الكلي
+function calculateTotalLootForDisplay(currentFloor) {
     const repMilestones = {
         20: 1, 30: 1, 35: 1, 40: 1, 45: 1, 50: 1,
         55: 2, 60: 2, 65: 3, 70: 3, 75: 4, 
@@ -64,11 +65,10 @@ function calculateSessionLoot(sessionStartFloor, currentFloor) {
     };
 
     let totalRep = 0;
-    let totalChests = 0;
+    let totalChests = Math.floor(currentFloor / 10);
 
-    for (let f = sessionStartFloor; f <= currentFloor; f++) {
+    for (let f = 1; f <= currentFloor; f++) {
         if (repMilestones[f]) totalRep += repMilestones[f];
-        if (f % 10 === 0) totalChests++; 
     }
     
     return { rep: totalRep, chests: totalChests };
@@ -85,15 +85,15 @@ async function handleRestMenu(context) {
     } = context;
 
     const startFloor = sessionStartFloor || 1;
-    const sessionLoot = calculateSessionLoot(startFloor, floor);
+    const totalDisplayLoot = calculateTotalLootForDisplay(floor);
     
-    let restDesc = `✶ نجحتـم في تصفية الطابق الـ: **${floor}**\n✶ تم استعادة صحة المغامرين بنسبة **%30**\n\n**✶ الغنـائـم المتراكمة لهذه الجلسة:**\n✬ Mora: **${totalAccumulatedCoins.toLocaleString()}** ${EMOJI_MORA}\n✬ XP: **${totalAccumulatedXP.toLocaleString()}** ${EMOJI_XP}`;
+    let restDesc = `✶ نجحتـم في تصفية الطابق الـ: **${floor}**\n✶ تم استعادة صحة المغامرين بنسبة **%30**\n\n**✶ الغنـائـم المتراكمة لرحلتكم:**\n✬ Mora: **${totalAccumulatedCoins.toLocaleString()}** ${EMOJI_MORA}\n✬ XP: **${totalAccumulatedXP.toLocaleString()}** ${EMOJI_XP}`;
     
-    if (sessionLoot.rep > 0) {
-        restDesc += `\n🌟 REP: **${sessionLoot.rep}**`;
+    if (totalDisplayLoot.rep > 0) {
+        restDesc += `\n🌟 REP: **${totalDisplayLoot.rep}**`;
     }
-    if (sessionLoot.chests > 0) {
-        restDesc += `\n🎁 Box: **${sessionLoot.chests}**`;
+    if (totalDisplayLoot.chests > 0) {
+        restDesc += `\n🎁 Box: **${totalDisplayLoot.chests}**`;
     }
 
     const restRow = new ActionRowBuilder().addComponents(
@@ -190,19 +190,19 @@ async function handleRestMenu(context) {
                     if (pIndex > -1) {
                         const leavingPlayer = players[pIndex];
                         leavingPlayer.retreatFloor = floor;
-                        const rewards = await handleMemberRetreat(leavingPlayer, floor, db, guild.id, threadChannel);
+                        // نمرر startFloor عشان نعطيه جوائزه فقط للجلسة اللي لعبها الآن
+                        const rewards = await handleMemberRetreat(leavingPlayer, floor, db, guild.id, threadChannel, startFloor);
                         retreatedPlayers.push(leavingPlayer);
                         players.splice(pIndex, 1); 
                         
                         let extraMsg = "";
-                        const pSessionLoot = calculateSessionLoot(startFloor, floor);
-                        if (pSessionLoot.rep > 0) extraMsg += ` و **${pSessionLoot.rep}** 🌟 REP`;
-                        if (pSessionLoot.chests > 0) extraMsg += ` و **${pSessionLoot.chests}** 🎁 Box`;
+                        // العرض البصري للرسالة هنا نحسبها من نقطة البداية
+                        let pRepReward = 0; let pChests = 0;
+                        const repM = { 20: 1, 30: 1, 35: 1, 40: 1, 45: 1, 50: 1, 55: 2, 60: 2, 65: 3, 70: 3, 75: 4, 80: 5, 85: 5, 90: 5, 95: 5, 100: 5 };
+                        for(let x = startFloor; x <= floor; x++) { if(repM[x]) pRepReward+=repM[x]; if(x%10===0) pChests++; }
 
-                        if (safeUpdateRepAndChests && db) {
-                            await safeUpdateRepAndChests(db, leavingPlayer.id, guild.id, pSessionLoot.rep, pSessionLoot.chests);
-                            leavingPlayer.repAndChestsClaimed = true;
-                        }
+                        if (pRepReward > 0) extraMsg += ` و **${pRepReward}** 🌟 REP`;
+                        if (pChests > 0) extraMsg += ` و **${pChests}** 🎁 Box`;
 
                         await i.reply({ content: `👋 **انسحبت!** وحصلت على: **${rewards.mora}** مورا و **${rewards.xp}** XP${extraMsg}.`, flags: [MessageFlags.Ephemeral] });
                         await threadChannel.send(`💨 **${leavingPlayer.name}** انسحب واكتفى بغنائمه!`).catch(()=>{});
