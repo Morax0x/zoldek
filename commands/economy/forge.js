@@ -86,42 +86,36 @@ function resolveText(val) {
     return String(val);
 }
 
+// 🔥 نظام المعالجة الذاتية الهجومي المطور 🔥
 const safeQuery = async (db, qPg, params) => {
-    let res;
     try { 
-        res = await db.query(qPg, params); 
+        let res = await db.query(qPg, params); 
+        return { rows: Array.isArray(res) ? res : (res?.rows || []) };
     } catch(e) { 
-        res = { rows: [] }; 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"itemID"/gi, "itemid")
+            .replace(/"skillID"/gi, "skillid")
+            .replace(/"skillLevel"/gi, "skilllevel")
+            .replace(/"raceName"/gi, "racename")
+            .replace(/"weaponLevel"/gi, "weaponlevel")
+            .replace(/"quantity"/gi, "quantity")
+            .replace(/"mora"/gi, "mora")
+            .replace(/"bank"/gi, "bank")
+            .replace(/"level"/gi, "level")
+            .replace(/"id"/gi, "id")
+            .replace(/"user"/gi, "userid")
+            .replace(/"guild"/gi, "guildid");
+        
+        if (fallbackQuery !== qPg) {
+            try { 
+                let res2 = await db.query(fallbackQuery, params); 
+                return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) };
+            } catch(e2) { }
+        }
+        return { rows: [] };
     }
-
-    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
-    if (rows1.length > 0) return { rows: rows1 };
-
-    let fallbackQuery = qPg
-        .replace(/"userID"/gi, "userid")
-        .replace(/"guildID"/gi, "guildid")
-        .replace(/"itemID"/gi, "itemid")
-        .replace(/"skillID"/gi, "skillid")
-        .replace(/"skillLevel"/gi, "skilllevel")
-        .replace(/"raceName"/gi, "racename")
-        .replace(/"weaponLevel"/gi, "weaponlevel")
-        .replace(/"quantity"/gi, "quantity")
-        .replace(/"mora"/gi, "mora")
-        .replace(/"bank"/gi, "bank")
-        .replace(/"level"/gi, "level")
-        .replace(/"id"/gi, "id")
-        .replace(/"user"/gi, "userid")
-        .replace(/"guild"/gi, "guildid");
-    
-    if (fallbackQuery !== qPg) {
-        try { 
-            let res2 = await db.query(fallbackQuery, params); 
-            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
-            return { rows: rows2 };
-        } catch(e2) { }
-    }
-    
-    return { rows: [] };
 };
 
 async function checkMora(db, userId, guildId, amount) {
@@ -135,14 +129,25 @@ async function checkMora(db, userId, guildId, amount) {
     return (mora + bank) >= amount;
 }
 
+// 🔥 نظام فحص الموارد الذكي المحدث (بدون استخدام LOWER في SQL لتجنب مشاكل الـ Case) 🔥
 async function checkItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
+    
+    // سحب جميع الموارد الخاصة باللاعب للمطابقة في الجافاسكربت بدلاً من الداتا بيز
+    let res = await safeQuery(db, `SELECT "itemID", "itemid", "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    if(!res || !res.rows || res.rows.length === 0) return false;
+
     for (let item of itemsArray) {
-        // 🔥 الحل الجذري والوحيد لحالة الحروف LOWER 🔥
-        let res = await safeQuery(db, `SELECT "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [userId, guildId, item.id]);
-        if(!res || !res.rows || res.rows.length === 0) return false;
         let currentQty = 0;
-        res.rows.forEach(r => currentQty += Number(r.quantity || r.Quantity || 0));
+        const requiredId = String(item.id).toLowerCase().trim();
+        
+        res.rows.forEach(r => {
+            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+            if (dbItemId === requiredId) {
+                currentQty += Number(r.quantity || r.Quantity || 0);
+            }
+        });
+        
         if(currentQty < item.count) return false;
     }
     return true;
@@ -170,18 +175,29 @@ async function deductMora(db, userId, guildId, amount) {
     return true;
 }
 
+// 🔥 تحديث نظام سحب الموارد ليتماشى مع التحديث الجديد في الفلترة 🔥
 async function deductItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
 
+    let res = await safeQuery(db, `SELECT "id", "ID", "itemID", "itemid", "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    
     for (let item of itemsArray) {
-        let res = await safeQuery(db, `SELECT "id", "ID", "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [userId, guildId, item.id]);
         let remainingToDeduct = item.count;
+        const requiredId = String(item.id).toLowerCase().trim();
+        
         for (let r of res.rows) {
+            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+            if (dbItemId !== requiredId) continue;
+
             if (remainingToDeduct <= 0) break;
-            const q = Number(r.quantity || r.Quantity);
+            const q = Number(r.quantity || r.Quantity || 0);
+            if (q <= 0) continue;
+            
             const deduct = Math.min(q, remainingToDeduct);
-            await safeQuery(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, r.id || r.ID]);
+            const rowId = r.id || r.ID;
+            await safeQuery(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, rowId]);
             remainingToDeduct -= deduct;
+            r.quantity = q - deduct; 
         }
     }
     
@@ -580,23 +596,23 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     const reqs = getUpgradeRequirements(currentLevel, false);
     const raceMats = getSafeRaceMats(raceName);
     
-    // 🔥 الحل الفولاذي: جلب الموارد بمطابقة الأحرف LOWER 🔥
-    const matPromises = reqs.materials.map(async (r) => {
+    let invRes = await safeQuery(db, `SELECT "itemID", "itemid", "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+    
+    const detailedReqs = reqs.materials.map(r => {
         let matId = raceMats.materials[r.tier].id;
-        let invRes = await safeQuery(db, `SELECT "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [user.id, guildId, matId]);
-        
         let userMatCount = 0;
         if (invRes?.rows) {
             invRes.rows.forEach(row => {
-                userMatCount += Number(row.quantity || row.Quantity || 0);
+                const dbItemId = String(row.itemID || row.itemid || '').toLowerCase().trim();
+                if (dbItemId === String(matId).toLowerCase().trim()) {
+                    userMatCount += Number(row.quantity || row.Quantity || 0);
+                }
             });
         }
-        
         let matInfo = getItemInfo(matId);
         return { id: matId, count: r.count, userCount: userMatCount, name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl };
     });
 
-    const detailedReqs = await Promise.all(matPromises);
     const canUpgrade = userMora >= reqs.moraCost && detailedReqs.every(r => r.userCount >= r.count);
 
     const btnRow = new ActionRowBuilder().addComponents(
@@ -724,23 +740,23 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     const bookCat = getSafeBookCat(categoryName);
     const raceMats = getSafeRaceMats(raceName);
 
-    // 🔥 الحل الفولاذي: جلب الموارد بمطابقة الأحرف LOWER 🔥
-    const matPromises = reqs.materials.map(async (r) => {
+    let invRes = await safeQuery(db, `SELECT "itemID", "itemid", "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+    
+    const detailedReqs = reqs.materials.map(r => {
         let itemId = r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id;
-        let invRes = await safeQuery(db, `SELECT "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [user.id, guildId, itemId]);
-        
         let userMatCount = 0;
         if (invRes?.rows) {
             invRes.rows.forEach(row => {
-                userMatCount += Number(row.quantity || row.Quantity || 0);
+                const dbItemId = String(row.itemID || row.itemid || '').toLowerCase().trim();
+                if (dbItemId === String(itemId).toLowerCase().trim()) {
+                    userMatCount += Number(row.quantity || row.Quantity || 0);
+                }
             });
         }
-        
         let matInfo = getItemInfo(itemId);
         return { id: itemId, count: r.count, userCount: userMatCount, name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl };
     });
 
-    const detailedReqs = await Promise.all(matPromises);
     const canUpgrade = userMora >= reqs.moraCost && detailedReqs.every(r => r.userCount >= r.count);
 
     const btnRow = new ActionRowBuilder().addComponents(
