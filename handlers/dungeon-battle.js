@@ -54,7 +54,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         isTrapActive = resumeData.isTrapActive || false;
         resumedMonsterData = resumeData.monsterData || null;
         
-        await threadChannel.send(`🔄 **تم استعادة البيانات!** جاري استكمال المعركة من الطابق **${startFloor}**...`).catch(()=>{});
+        await threadChannel.send(` <a:6DIO:1472221549367918677> **زا واردوو!** ديو اعـاد الزمن جاري استكمال المعركة من الطابق: **${startFloor}**...`).catch(()=>{});
     } else {
         const themeKey = Object.keys(dungeonConfig.themes).find(key => dungeonConfig.themes[key].name === theme.name) || null;
         players = await setupPlayers(guild, partyIDs, partyClasses, db, OWNER_ID, themeKey);
