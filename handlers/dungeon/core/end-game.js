@@ -70,13 +70,16 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 if (p.isDead) { finalMora = Math.floor(finalMora * 0.5); finalXp = Math.floor(finalXp * 0.5); }
             }
             
+            // 🔥 إضافة حماية فولاذية للتأكد من حفظ המورا والخبرة للجميع
             try {
                 const guildObj = client.guilds.cache.get(guildId);
-                const member = await guildObj.members.fetch(p.id).catch(()=>null);
+                const member = guildObj ? await guildObj.members.fetch(p.id).catch(()=>null) : null;
+                
                 if (member && addXPAndCheckLevel) {
                     await addXPAndCheckLevel(client, member, sql, finalXp, finalMora, false);
                 } else {
-                    await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [finalMora, finalXp, p.id, guildId]).catch(()=>{});
+                    await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [finalMora, finalXp, p.id, guildId])
+                    .catch(() => sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE userid = $3 AND guildid = $4`, [finalMora, finalXp, p.id, guildId]).catch(()=>{}));
                 }
             } catch(e) {}
         }
@@ -129,13 +132,15 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         let extraRewardText = "";
         if (mvpPlayer.totalDamage > 10000) {
             extraRewardText = " + 500 مـورا";
+            // 🔥 إضافة حماية لتوزيع مكافأة الـ MVP لضمان حفظها
             try {
                 const guildObj = client.guilds.cache.get(guildId);
-                const mvpMem = await guildObj.members.fetch(mvpPlayer.id).catch(()=>null);
+                const mvpMem = guildObj ? await guildObj.members.fetch(mvpPlayer.id).catch(()=>null) : null;
                 if (mvpMem && addXPAndCheckLevel) {
                     await addXPAndCheckLevel(client, mvpMem, sql, 0, 500, false);
                 } else {
-                    await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + 500 WHERE "user" = $1 AND "guild" = $2`, [mvpPlayer.id, guildId]).catch(()=>{});
+                    await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + 500 WHERE "user" = $1 AND "guild" = $2`, [mvpPlayer.id, guildId])
+                    .catch(() => sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + 500 WHERE userid = $1 AND guildid = $2`, [mvpPlayer.id, guildId]).catch(()=>{}));
                 }
             } catch(e) {}
         }
