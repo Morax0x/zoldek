@@ -50,13 +50,43 @@ const kingStatsMap = {
     'rolePvPKing': 'pvp_wins'
 };
 
+// 🔥 نظام المعالجة الذاتية لقاعدة البيانات المُحسّن لحماية الأدمن تولز 🔥
 const safeQuery = async (db, qPg, params) => {
+    let res;
     try { 
-        return await db.query(qPg, params); 
+        res = await db.query(qPg, params); 
     } catch(e) { 
-        console.error("\n❌ [DB ERROR in Admin Tools]:", e.message);
-        return {rows:[]};
+        res = { rows: [] }; 
     }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/g, "userid")
+        .replace(/"guildID"/g, "guildid")
+        .replace(/"itemID"/g, "itemid")
+        .replace(/"skillID"/g, "skillid")
+        .replace(/"skillLevel"/g, "skilllevel")
+        .replace(/"raceName"/g, "racename")
+        .replace(/"weaponLevel"/g, "weaponlevel")
+        .replace(/"quantity"/g, "quantity")
+        .replace(/"mora"/g, "mora")
+        .replace(/"bank"/g, "bank")
+        .replace(/"level"/g, "level")
+        .replace(/"id"/g, "id")
+        .replace(/"user"/g, "userid")
+        .replace(/"guild"/g, "guildid");
+    
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
 };
 
 async function getUserRace(member, db) {
@@ -476,7 +506,7 @@ module.exports = {
                     if (isNaN(amount) || amount < 0) return modalSubmit.editReply({ content: "❌ الرجاء إدخال رقم صحيح وموجب." });
 
                     const repDataRes = await safeQuery(db, `SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-                    let currentPoints = repDataRes.rows[0] ? Number(repDataRes.rows[0].rep_points) : 0;
+                    let currentPoints = repDataRes.rows[0] ? Number(repDataRes.rows[0].rep_points || repDataRes.rows[0].rep_Points || 0) : 0;
                     let newPoints = currentPoints;
 
                     if (action.includes('اضاف') || action.includes('زود')) newPoints += amount;
@@ -727,14 +757,14 @@ module.exports = {
                             if (found) return { ...found, type: 'inventory' };
                         }
 
-                        if (upgradeMats.weapon_materials) {
+                        if (upgradeMats && upgradeMats.weapon_materials) {
                             for (const race of upgradeMats.weapon_materials) {
                                 const mat = race.materials.find(m => normalize(m.name) === input || m.id.toLowerCase() === rawId);
                                 if (mat) return { ...mat, type: 'inventory' };
                             }
                         }
                         
-                        if (upgradeMats.skill_books) {
+                        if (upgradeMats && upgradeMats.skill_books) {
                             for (const cat of upgradeMats.skill_books) {
                                 const book = cat.books.find(b => normalize(b.name) === input || b.id.toLowerCase() === rawId);
                                 if (book) return { ...book, type: 'inventory' };
@@ -821,7 +851,7 @@ module.exports = {
             const val = interaction.values[0];
 
             if (val === 'crash') {
-                const allItemsRes = await db.query("SELECT * FROM market_items");
+                const allItemsRes = await safeQuery(db, "SELECT * FROM market_items", []);
                 let report = [];
                 for (const item of allItemsRes.rows) {
                     if (!REAL_MARKET_IDS.includes(item.id)) continue;
@@ -836,7 +866,7 @@ module.exports = {
                 await interaction.reply({ content: `📉 **انهيار السوق!**\n\`\`\`\n${report.join('\n')}\n\`\`\``, flags: [MessageFlags.Ephemeral] });
             }
             else if (val === 'boom') {
-                const allItemsRes = await db.query("SELECT * FROM market_items");
+                const allItemsRes = await safeQuery(db, "SELECT * FROM market_items", []);
                 let report = [];
                 for (const item of allItemsRes.rows) {
                     if (!REAL_MARKET_IDS.includes(item.id)) continue;
@@ -887,8 +917,8 @@ module.exports = {
                     const itemID = modalSubmit.fields.getTextInputValue('m_name');
                     const price = parseInt(modalSubmit.fields.getTextInputValue('m_price'));
                     
-                    const item = this.findItem(itemID);
-                    if (!item || item.type !== 'market') return modalSubmit.editReply({ content: "❌ السهم غير موجود." });
+                    const item = marketItems.find(i => normalize(i.name) === normalize(itemID) || i.id.toLowerCase() === itemID.toLowerCase().trim());
+                    if (!item) return modalSubmit.editReply({ content: "❌ السهم غير موجود." });
 
                     let dbItemRes = await safeQuery(db, `SELECT * FROM market_items WHERE "id" = $1`, [item.id]);
 
@@ -932,7 +962,7 @@ module.exports = {
         
         let dungeonStatsRes = await safeQuery(db, `SELECT "tickets" FROM dungeon_stats WHERE "guildID" = $1 AND "userID" = $2`, [guildID, userID]);
         let dungeonStats = dungeonStatsRes.rows[0];
-        let tickets = dungeonStats ? dungeonStats.tickets : 0;
+        let tickets = dungeonStats ? (dungeonStats.tickets || dungeonStats.Tickets || 0) : 0;
 
         const embed = new EmbedBuilder()
             .setTitle(`📋 تقرير فحص: ${targetUser.username}`)
@@ -940,9 +970,9 @@ module.exports = {
             .setColor(Colors.Green)
             .addFields(
                 { name: '💰 الاقتصاد', value: `مورا: **${(parseInt(userData.mora) || 0).toLocaleString()}**\nبنك: **${(parseInt(userData.bank) || 0).toLocaleString()}**\nXP: **${(parseInt(userData.xp) || 0).toLocaleString()}** (Lv. ${userData.level || 1})`, inline: true },
-                { name: '🌟 السمعة والتذاكر', value: `السمعة: **${repData.rep_points || repData.rep_points}**\nالتذاكر: **${tickets}**`, inline: true },
+                { name: '🌟 السمعة والتذاكر', value: `السمعة: **${repData.rep_points || repData.rep_Points || 0}**\nالتذاكر: **${tickets}**`, inline: true },
                 { name: '🔥 الستريك', value: `شات: **${streakData.streakCount || streakData.streakcount || 0}** (Shield: ${streakData.hasItemShield || streakData.hasitemshield ? '✅' : '❌'})\nميديا: **${mediaStreakData.streakCount || mediaStreakData.streakcount || 0}** (Shield: ${mediaStreakData.hasItemShield || mediaStreakData.hasitemshield ? '✅' : '❌'})`, inline: true },
-                { name: '📈 المحفظة', value: portfolio.length > 0 ? portfolio.map(p => `${p.itemID || p.itemid}: ${p.quantity}`).join(', ') : 'لا يوجد', inline: false },
+                { name: '📈 المحفظة', value: portfolio.length > 0 ? portfolio.map(p => `${p.itemID || p.itemid}: ${p.quantity || p.Quantity}`).join(', ') : 'لا يوجد', inline: false },
                 { name: '🏆 الإنجازات', value: `مكتمل: **${achievements.length}**`, inline: true }
             );
 
