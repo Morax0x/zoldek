@@ -10,43 +10,37 @@ const upgradeMats = require('../../json/upgrade-materials.json');
 
 function normalize(str) {
     if (!str) return "";
-    return str.toString().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ي/g, 'ى').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').trim();
+    return str.toString().toLowerCase()
+        .replace(/[أإآ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/ي/g, 'ى')
+        .replace(/ؤ/g, 'و')
+        .replace(/ئ/g, 'ي')
+        .trim();
 }
 
-const findUniversalItem = (searchQuery) => {
-    const input = normalize(searchQuery);
-    let found = null;
-
-    found = shopItems.find(i => normalize(i.name).includes(input) || i.id.toLowerCase() === input);
-    if (found && !marketItems.some(m => m.id === found.id) && !farmAnimals.some(f => f.id === found.id)) return { ...found, type: 'inventory' };
-
-    found = marketItems.find(i => normalize(i.name).includes(input) || i.id.toLowerCase() === input);
-    if (found) return { ...found, type: 'market' };
-
-    found = farmAnimals.find(i => normalize(i.name).includes(input) || String(i.id).toLowerCase() === input);
-    if (found) return { ...found, type: 'farm' };
-
-    found = seedsData.find(i => normalize(i.name).includes(input) || String(i.id).toLowerCase() === input);
-    if (found) return { ...found, type: 'inventory' };
-
-    found = feedItems.find(i => normalize(i.name).includes(input) || String(i.id).toLowerCase() === input);
-    if (found) return { ...found, type: 'inventory' };
-
-    if (upgradeMats && upgradeMats.weapon_materials) {
-        for (const race of upgradeMats.weapon_materials) {
-            const mat = race.materials.find(m => normalize(m.name).includes(input) || m.id.toLowerCase() === input);
-            if (mat) return { ...mat, type: 'inventory' };
+// 🛡️ نظام معالجة البيانات الفولاذي لحماية الأوامر من الفشل الصامت
+const safeQuery = async (db, qPg, params) => {
+    try { 
+        return await db.query(qPg, params); 
+    } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"itemID"/gi, "itemid")
+            .replace(/"animalID"/gi, "animalid")
+            .replace(/"quantity"/gi, "quantity")
+            .replace(/"mora"/gi, "mora")
+            .replace(/"xp"/gi, "xp")
+            .replace(/"rep_points"/gi, "rep_points")
+            .replace(/"tickets"/gi, "tickets")
+            .replace(/"id"/gi, "id");
+        
+        if (fallbackQuery !== qPg) {
+            try { return await db.query(fallbackQuery, params); } catch(e2) { return {rows:[]}; }
         }
+        return {rows:[]};
     }
-    
-    if (upgradeMats && upgradeMats.skill_books) {
-        for (const cat of upgradeMats.skill_books) {
-            const book = cat.books.find(b => normalize(b.name).includes(input) || b.id.toLowerCase() === input);
-            if (book) return { ...book, type: 'inventory' };
-        }
-    }
-
-    return null;
 };
 
 async function executeAdminAction(message, targetUser, amount, text, db) {
@@ -59,10 +53,12 @@ async function executeAdminAction(message, targetUser, amount, text, db) {
         // 1. إدارة الخيم (الدانجون)
         if (text.includes('خيم') || text.includes('طابق')) {
             if (amount > 0) {
-                await db.query(`
-                    INSERT INTO dungeon_saves ("hostID", "guildID", "floor", "timestamp") VALUES ($1, $2, $3, $4)
-                    ON CONFLICT("hostID") DO UPDATE SET "floor" = $3, "timestamp" = $4
-                `, [userID, guildID, amount, Date.now()]);
+                let check = await safeQuery(db, `SELECT * FROM dungeon_saves WHERE "hostID"=$1 AND "guildID"=$2`, [userID, guildID]);
+                if (check.rows.length > 0) {
+                    await safeQuery(db, `UPDATE dungeon_saves SET "floor"=$1, "timestamp"=$2 WHERE "hostID"=$3 AND "guildID"=$4`, [amount, Date.now(), userID, guildID]);
+                } else {
+                    await safeQuery(db, `INSERT INTO dungeon_saves ("hostID", "guildID", "floor", "timestamp") VALUES ($1, $2, $3, $4)`, [userID, guildID, amount, Date.now()]);
+                }
                 await message.react('⛺').catch(()=>{});
                 return `\n\n⛺ **تم التنفيذ:** تم منح **${targetUser.username}** خيمة حفظ في الدانجون عند الطابق **${amount}**.`;
             }
@@ -72,73 +68,40 @@ async function executeAdminAction(message, targetUser, amount, text, db) {
         if (text.includes('تذكر') || text.includes('تذاكر')) {
             if (amount > 0) {
                 const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
-                await db.query(`
-                    INSERT INTO dungeon_stats ("guildID", "userID", "tickets", "last_reset") VALUES ($1, $2, $3, $4)
-                    ON CONFLICT("guildID", "userID") DO UPDATE SET "tickets" = COALESCE(dungeon_stats."tickets", 0) + $3
-                `, [guildID, userID, amount, todayStr]);
+                let check = await safeQuery(db, `SELECT * FROM dungeon_stats WHERE "userID"=$1 AND "guildID"=$2`, [userID, guildID]);
+                if (check.rows.length > 0) {
+                    await safeQuery(db, `UPDATE dungeon_stats SET "tickets" = "tickets" + $1, "last_reset" = $2 WHERE "userID"=$3 AND "guildID"=$4`, [amount, todayStr, userID, guildID]);
+                } else {
+                    await safeQuery(db, `INSERT INTO dungeon_stats ("guildID", "userID", "tickets", "last_reset") VALUES ($1, $2, $3, $4)`, [guildID, userID, amount, todayStr]);
+                }
                 await message.react('🎟️').catch(()=>{});
                 return `\n\n🎟️ **تم التنفيذ:** تم إضافة **${amount}** تذكرة دانجون لـ **${targetUser.username}**.`;
             }
         }
 
         // 3. إدارة السمعة (التزكية)
-        if (text.includes('سمع') || text.includes('زكي') || text.includes('نقاط')) {
+        if (text.includes('سمع') || text.includes('تزكي') || text.includes('نقاط')) {
             if (amount > 0) {
+                let check = await safeQuery(db, `SELECT "rep_points" FROM user_reputation WHERE "userID"=$1 AND "guildID"=$2`, [userID, guildID]);
                 if (isGive) {
-                    await db.query('INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3) ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = COALESCE(user_reputation."rep_points", 0) + $3', [userID, guildID, amount]);
+                    if (check.rows.length > 0) {
+                        await safeQuery(db, `UPDATE user_reputation SET "rep_points" = "rep_points" + $1 WHERE "userID"=$2 AND "guildID"=$3`, [amount, userID, guildID]);
+                    } else {
+                        await safeQuery(db, `INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3)`, [userID, guildID, amount]);
+                    }
                     await message.react('🌟').catch(()=>{});
                     return `\n\n🌟 **تم التنفيذ:** تم إضافة **${amount}** نقطة سمعة إلى **${targetUser.username}**.`;
                 } else {
-                    await db.query('UPDATE user_reputation SET "rep_points" = GREATEST(0, COALESCE("rep_points", 0) - $1) WHERE "userID" = $2 AND "guildID" = $3', [amount, userID, guildID]);
+                    if (check.rows.length > 0) {
+                        await safeQuery(db, `UPDATE user_reputation SET "rep_points" = GREATEST(0, "rep_points" - $1) WHERE "userID"=$2 AND "guildID"=$3`, [amount, userID, guildID]);
+                    }
                     await message.react('💔').catch(()=>{});
                     return `\n\n💔 **تم التنفيذ:** تم خصم **${amount}** نقطة سمعة من **${targetUser.username}**.`;
                 }
             }
         }
 
-        // 4. إدارة العناصر (صناديق، موارد، بذور، إلخ)
-        if (text.includes('عنصر') || text.includes('صندوق') || text.includes('سلاح') || text.includes('كتاب') || text.includes('اعطيه')) {
-            // محاولة العثور على اسم العنصر من النص
-            const words = text.split(' ');
-            let foundItem = null;
-            
-            // نبحث في الكلمات اللي بعد الرقم أو في النص كامل
-            for (let word of words) {
-                if (word.length < 3) continue;
-                let check = findUniversalItem(word);
-                if (check) { foundItem = check; break; }
-            }
-
-            // حالات خاصة للكلمات الشائعة
-            if (!foundItem && text.includes('صندوق')) foundItem = { id: 'gacha_chest', name: 'صندوق غاتشا', type: 'inventory' };
-            if (!foundItem && text.includes('مجاني')) foundItem = { id: 'free_gacha_chest', name: 'صندوق مجاني', type: 'inventory' };
-
-            if (foundItem && amount > 0) {
-                if (isGive) {
-                    if (foundItem.type === 'market') {
-                        await db.query(`INSERT INTO user_portfolio ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT DO UPDATE SET "quantity" = user_portfolio."quantity" + $4`, [guildID, userID, foundItem.id, amount]).catch(()=>{});
-                    } else if (foundItem.type === 'farm') {
-                        await db.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, foundItem.id, amount, Date.now(), Date.now()]).catch(()=>{});
-                    } else {
-                        await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT DO UPDATE SET "quantity" = user_inventory."quantity" + $4`, [guildID, userID, foundItem.id, amount]).catch(()=>{});
-                    }
-                    await message.react('🎒').catch(()=>{});
-                    return `\n\n🎒 **تم التنفيذ:** تم إضافة **${amount}** × **${foundItem.name}** إلى حقيبة **${targetUser.username}**.`;
-                } else {
-                    if (foundItem.type === 'market') {
-                        await db.query(`UPDATE user_portfolio SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [amount, userID, guildID, foundItem.id]).catch(()=>{});
-                    } else if (foundItem.type === 'farm') {
-                        await db.query(`UPDATE user_farm SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "animalID" = $4`, [amount, userID, guildID, foundItem.id]).catch(()=>{});
-                    } else {
-                        await db.query(`UPDATE user_inventory SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [amount, userID, guildID, foundItem.id]).catch(()=>{});
-                    }
-                    await message.react('🗑️').catch(()=>{});
-                    return `\n\n🗑️ **تم التنفيذ:** تم سحب **${amount}** × **${foundItem.name}** من حقيبة **${targetUser.username}**.`;
-                }
-            }
-        }
-
-        // 5. الميوت وفك الميوت
+        // 4. الميوت وفك الميوت
         if (text.includes('تايم') || text.includes('سكت') || text.includes('اصمت') || text.includes('ميوت') || text.includes('فك') || text.includes('سامح')) {
             const targetMemberObj = await message.guild.members.fetch(userID).catch(()=>null);
             if (targetMemberObj) {
@@ -161,15 +124,19 @@ async function executeAdminAction(message, targetUser, amount, text, db) {
             }
         }
 
-        // 6. المورا (الإعداد الافتراضي إذا تم ذكر رقم ولم يتطابق مع شيء آخر)
+        // 5. المورا والفلوس
         if (amount > 0 && (text.includes('مورا') || text.includes('فلوس') || text.includes('حول') || text.includes('هاتي'))) {
-            await db.query('INSERT INTO levels ("user", "guild", "xp", "level", "totalXP", "mora") VALUES ($1, $2, 0, 1, 0, 0) ON CONFLICT ("user", "guild") DO NOTHING', [userID, guildID]);
+            let check = await safeQuery(db, `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [userID, guildID]);
+            if (check.rows.length === 0) {
+                await safeQuery(db, `INSERT INTO levels ("user", "guild", "xp", "level", "totalXP", "mora") VALUES ($1, $2, 0, 1, 0, 0)`, [userID, guildID]);
+            }
+
             if (isGive) {
-                await db.query('UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + CAST($1 AS BIGINT) WHERE "user" = $2 AND "guild" = $3', [String(amount), userID, guildID]);
+                await safeQuery(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + CAST($1 AS BIGINT) WHERE "user" = $2 AND "guild" = $3`, [String(amount), userID, guildID]);
                 await message.react('💸').catch(()=>{});
                 feedback = `\n\n✅ **تم التنفيذ:** تم تحويل **${amount}** مورا إلى **${targetUser.username}**.`;
             } else {
-                await db.query('UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - CAST($1 AS BIGINT)) WHERE "user" = $2 AND "guild" = $3', [String(amount), userID, guildID]);
+                await safeQuery(db, `UPDATE levels SET "mora" = GREATEST(0, CAST("mora" AS BIGINT) - CAST($1 AS BIGINT)) WHERE "user" = $2 AND "guild" = $3`, [String(amount), userID, guildID]);
                 await message.react('📉').catch(()=>{});
                 feedback = `\n\n✅ **تم التنفيذ:** تم سحب **${amount}** مورا من **${targetUser.username}**.`;
             }
@@ -186,6 +153,80 @@ async function executeAdminAction(message, targetUser, amount, text, db) {
                 }
             }
             return feedback;
+        }
+
+        // 6. إدارة العناصر الذكية (يبحث في كل الكلمات عن أي شيء يشبه العنصر)
+        if (amount > 0) {
+            let foundItem = null;
+
+            // اختصارات الصناديق
+            if (text.includes('صندوق مجاني') || text.includes('صناديق مجانية')) {
+                foundItem = { id: 'free_gacha_chest', name: 'صندوق مجاني', type: 'inventory' };
+            } else if (text.includes('صندوق') || text.includes('غاتشا')) {
+                foundItem = { id: 'gacha_chest', name: 'صندوق غاتشا', type: 'inventory' };
+            }
+
+            if (!foundItem) {
+                const allSearchable = [];
+                shopItems.forEach(i => allSearchable.push({...i, type: 'inventory'}));
+                marketItems.forEach(i => allSearchable.push({...i, type: 'market'}));
+                farmAnimals.forEach(i => allSearchable.push({...i, type: 'farm'}));
+                seedsData.forEach(i => allSearchable.push({...i, type: 'inventory'}));
+                feedItems.forEach(i => allSearchable.push({...i, type: 'inventory'}));
+                
+                if (upgradeMats && upgradeMats.weapon_materials) {
+                    upgradeMats.weapon_materials.forEach(r => r.materials.forEach(m => allSearchable.push({...m, type: 'inventory'})));
+                }
+                if (upgradeMats && upgradeMats.skill_books) {
+                    upgradeMats.skill_books.forEach(c => c.books.forEach(b => allSearchable.push({...b, type: 'inventory'})));
+                }
+
+                // ترتيب من الأطول اسماً للأقصر، عشان يلقط الاسم الكامل أولاً (مثلاً يلقط "حراشف تنين" قبل "تنين")
+                allSearchable.sort((a, b) => normalize(b.name).length - normalize(a.name).length);
+
+                for (const item of allSearchable) {
+                    const nName = normalize(item.name);
+                    if (nName.length >= 3 && text.includes(nName)) {
+                        foundItem = item;
+                        break;
+                    }
+                    if (item.id && text.includes(item.id.toLowerCase())) {
+                        foundItem = item;
+                        break;
+                    }
+                }
+            }
+
+            if (foundItem) {
+                if (isGive) {
+                    if (foundItem.type === 'market') {
+                        let check = await safeQuery(db, `SELECT * FROM user_portfolio WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [userID, guildID, foundItem.id]);
+                        if (check.rows.length > 0) await safeQuery(db, `UPDATE user_portfolio SET "quantity" = "quantity" + $1 WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4`, [amount, userID, guildID, foundItem.id]);
+                        else await safeQuery(db, `INSERT INTO user_portfolio ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildID, userID, foundItem.id, amount]);
+                    } 
+                    else if (foundItem.type === 'farm') {
+                        await safeQuery(db, `INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastFedTimestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, foundItem.id, amount, Date.now(), Date.now()]);
+                    } 
+                    else {
+                        let check = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [userID, guildID, foundItem.id]);
+                        if (check.rows.length > 0) await safeQuery(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4`, [amount, userID, guildID, foundItem.id]);
+                        else await safeQuery(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildID, userID, foundItem.id, amount]);
+                    }
+                    await message.react('🎒').catch(()=>{});
+                    return `\n\n🎒 **تم التنفيذ:** تم إضافة **${amount}** × **${foundItem.name}** إلى حقيبة **${targetUser.username}**.`;
+                } 
+                else {
+                    if (foundItem.type === 'market') {
+                        await safeQuery(db, `UPDATE user_portfolio SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [amount, userID, guildID, foundItem.id]);
+                    } else if (foundItem.type === 'farm') {
+                        await safeQuery(db, `UPDATE user_farm SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "animalID" = $4`, [amount, userID, guildID, foundItem.id]);
+                    } else {
+                        await safeQuery(db, `UPDATE user_inventory SET "quantity" = GREATEST(0, "quantity" - $1) WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [amount, userID, guildID, foundItem.id]);
+                    }
+                    await message.react('🗑️').catch(()=>{});
+                    return `\n\n🗑️ **تم التنفيذ:** تم سحب **${amount}** × **${foundItem.name}** من حقيبة **${targetUser.username}**.`;
+                }
+            }
         }
 
     } catch (err) {
