@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
-const core = require('./forge-core.js'); // 🔥 استدعاء المحرك الأساسي
+const core = require('../../handlers/forge-core.js'); // 🔥 تم ضبط المسار ليكون فولاذي 100%
 
 module.exports = {
     data: new SlashCommandBuilder().setName('حدادة').setDescription('الدخول إلى المجمع الإمبراطوري لتطوير الأسلحة وصقل المهارات'),
