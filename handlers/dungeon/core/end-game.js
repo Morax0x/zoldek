@@ -58,12 +58,10 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         let finalXp = 0;
 
         if (p.rewardsClaimed) {
-            // اللاعب انسحب بوقت مبكر وتم حفظ جوائزه مسبقاً
             finalMora = p.finalMora || 0;
             finalXp = p.finalXp || 0;
         } else {
             if (p.pendingWipeSave || p.pendingRetreatSave) {
-                // تمت الحسبة في rewards.js ونحن نحفظها هنا
                 finalMora = p.finalMora || 0;
                 finalXp = p.finalXp || 0;
             } else {
@@ -77,7 +75,6 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 }
             }
             
-            // 🔥 إضافة حماية فولاذية للتأكد من حفظ المورا والخبرة (DB + Cache)
             try {
                 const guildObj = client.guilds.cache.get(guildId);
                 const member = guildObj ? await guildObj.members.fetch(p.id).catch(()=>null) : null;
@@ -85,16 +82,18 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 if (member && addXPAndCheckLevel) {
                     await addXPAndCheckLevel(client, member, sql, finalXp, finalMora, false);
                 } else {
-                    await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [finalMora, finalXp, p.id, guildId])
-                    .catch(() => sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE userid = $3 AND guildid = $4`, [finalMora, finalXp, p.id, guildId]).catch(()=>{}));
+                    try {
+                        await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $3 WHERE "user" = $4 AND "guild" = $5`, [finalMora, finalXp, finalXp, p.id, guildId]);
+                    } catch(e) {
+                        await sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $3 WHERE userid = $4 AND guildid = $5`, [finalMora, finalXp, finalXp, p.id, guildId]).catch(()=>{});
+                    }
 
-                    // 🔥 تحديث الكاش 🔥
                     if (client && typeof client.getLevel === 'function') {
                         let cache = await client.getLevel(p.id, guildId);
                         if (cache) {
                             cache.mora = String(BigInt(cache.mora || 0) + BigInt(finalMora));
                             cache.xp = String(BigInt(cache.xp || 0) + BigInt(finalXp));
-                            cache.totalXP = String(BigInt(cache.totalXP || 0) + BigInt(finalXp));
+                            cache.totalXP = String(BigInt(cache.totalXP || cache.totalxp || 0) + BigInt(finalXp));
                             if (typeof client.setLevel === 'function') await client.setLevel(cache);
                         }
                     }
@@ -119,16 +118,35 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
             if (repMilestones[f]) displayRep += repMilestones[f];
             if (f % 10 === 0) displayChests++;
 
-            // نعطي السمعة والصناديق فقط للأدوار اللي لعبها هذي الجلسة عشان ما تتكرر
             if (f >= sessionStartFloor) {
                 if (repMilestones[f]) sessionRep += repMilestones[f];
                 if (f % 10 === 0) sessionChests++;
             }
         }
 
-        // حفظ المكافآت الجديدة في قاعدة البيانات بأمان
+        // 🔥 تم دمج الصناديق لتضاف رسمياً للغاتشا 🔥
         if (!p.repAndChestsClaimed && (sessionRep > 0 || sessionChests > 0)) {
             await safeUpdateRepAndChests(sql, p.id, guildId, sessionRep, sessionChests);
+            
+            // 🎁 إضافة الصناديق كصناديق مجانية في الحقيبة لكي تظهر بالمتجر
+            if (sessionChests > 0) {
+                try {
+                    let invRes = await sql.query(`SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'free_gacha_chest'`, [p.id, guildId]).catch(()=>({rows:[]}));
+                    if (!invRes.rows || invRes.rows.length === 0) {
+                        invRes = await sql.query(`SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = 'free_gacha_chest'`, [p.id, guildId]).catch(()=>({rows:[]}));
+                    }
+                    
+                    if (invRes.rows && invRes.rows.length > 0) {
+                        const rowId = invRes.rows[0].id || invRes.rows[0].ID;
+                        await sql.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [sessionChests, rowId])
+                        .catch(() => sql.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE id = $2`, [sessionChests, rowId]).catch(()=>{}));
+                    } else {
+                        await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, p.id, sessionChests])
+                        .catch(() => sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, p.id, sessionChests]).catch(()=>{}));
+                    }
+                } catch(e) { console.error("Error adding gacha chests", e); }
+            }
+
             p.repAndChestsClaimed = true;
         }
 
@@ -152,15 +170,17 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         let extraRewardText = "";
         if (mvpPlayer.totalDamage > 10000) {
             extraRewardText = " + 500 مـورا";
-            // 🔥 إضافة حماية لتوزيع مكافأة الـ MVP لضمان حفظها بالكاش 🔥
             try {
                 const guildObj = client.guilds.cache.get(guildId);
                 const mvpMem = guildObj ? await guildObj.members.fetch(mvpPlayer.id).catch(()=>null) : null;
                 if (mvpMem && addXPAndCheckLevel) {
                     await addXPAndCheckLevel(client, mvpMem, sql, 0, 500, false);
                 } else {
-                    await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + 500 WHERE "user" = $1 AND "guild" = $2`, [mvpPlayer.id, guildId])
-                    .catch(() => sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + 500 WHERE userid = $1 AND guildid = $2`, [mvpPlayer.id, guildId]).catch(()=>{}));
+                    try {
+                        await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + 500 WHERE "user" = $1 AND "guild" = $2`, [mvpPlayer.id, guildId]);
+                    } catch (e) {
+                        await sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + 500 WHERE userid = $1 AND guildid = $2`, [mvpPlayer.id, guildId]).catch(()=>{});
+                    }
 
                     if (client && typeof client.getLevel === 'function') {
                         let cache = await client.getLevel(mvpPlayer.id, guildId);
