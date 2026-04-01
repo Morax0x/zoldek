@@ -1,7 +1,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors } = require("discord.js");
 
 const MORA_EMOJI = '<:mora:1435647151349698621>';
-const MAX_CHILDREN = 10;
+const BASE_CHILDREN_LIMIT = 10;
 const BASE_ADOPT_FEE = 2000;
 
 const SUCCESS_IMAGES = [
@@ -13,6 +13,54 @@ const SUCCESS_IMAGES = [
 
 const BOT_REJECT_IMAGE = "https://i.postimg.cc/qvDt3BLj/106a40ccbff92cbaf02fd54ba9de5ebc.gif";
 const OWNER_ID = "1145327691772481577"; 
+
+// 🛡️ نظام معالجة استعلامات فولاذي وذكي للحماية من الانهيارات 🛡️
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { 
+        res = await db.query(qPg, params); 
+    } catch(e) { 
+        res = { rows: [] }; 
+    }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/gi, "userid")
+        .replace(/"guildID"/gi, "guildid")
+        .replace(/"parentID"/gi, "parentid")
+        .replace(/"childID"/gi, "childid")
+        .replace(/"partnerID"/gi, "partnerid")
+        .replace(/"adoptDate"/gi, "adoptdate");
+
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
+};
+
+const safeExecute = async (db, qPg, params) => {
+    try { await db.query(qPg, params); return true; } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"parentID"/gi, "parentid")
+            .replace(/"childID"/gi, "childid")
+            .replace(/"partnerID"/gi, "partnerid")
+            .replace(/"adoptDate"/gi, "adoptdate");
+
+        if (fallbackQuery !== qPg) {
+            try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
+        }
+        return false;
+    }
+};
 
 module.exports = {
     name: 'adopt',
@@ -49,21 +97,21 @@ module.exports = {
         if (childMember.id === userId) return replyTemp("❌ لا يمكنك تبني نفسك!");
         if (childMember.user.bot) return replyTemp("🤖 لا يمكنك تبني الروبوتات!");
 
-        try {
-            await db.query(`CREATE TABLE IF NOT EXISTS children ("parentID" TEXT, "childID" TEXT, "adoptDate" BIGINT, "guildID" TEXT)`);
-        } catch (e) {}
+        await safeExecute(db, `CREATE TABLE IF NOT EXISTS children ("parentID" TEXT, "childID" TEXT, "adoptDate" BIGINT, "guildID" TEXT)`, []);
         
         let currentChildrenCount = 0;
-        try {
-            // 🔥 حماية الحروف الصغيرة والكبيرة لكي يحسب الأبناء بشكل صحيح 🔥
-            let countRes;
-            try { countRes = await db.query(`SELECT count(*) as count FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [userId, guildId]); }
-            catch(e) { countRes = await db.query(`SELECT count(*) as count FROM children WHERE parentid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[{count:0}]})); }
-            currentChildrenCount = Number(countRes.rows[0].count);
-        } catch(e) {}
+        const countRes = await safeQuery(db, `SELECT count(*) as count FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        currentChildrenCount = Number(countRes.rows[0]?.count || 0);
 
-        if (currentChildrenCount >= MAX_CHILDREN) {
-            return replyTemp(`🚫 **لقد وصلت للحد الأقصى من الأطفال (${MAX_CHILDREN})!**\nعليك التبرؤ من أحدهم أولاً باستخدام أمر \`!disown @الابن\``);
+        // 🔥 فحص الزيجات لحساب الحد الأقصى للأبناء 🔥
+        const marriagesRes = await safeQuery(db, `SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        const numberOfSpouses = marriagesRes.rows.length;
+        
+        // حد الأبناء: 10 للأعزب، 20 لمتزوج واحد، 30 لمتزوج اثنين... الخ
+        const maxChildrenAllowed = BASE_CHILDREN_LIMIT * (numberOfSpouses + 1);
+
+        if (currentChildrenCount >= maxChildrenAllowed) {
+            return replyTemp(`🚫 **لقد وصلت للحد الأقصى من الأطفال (${maxChildrenAllowed})!**\nعليك التبرؤ من أحدهم أولاً باستخدام أمر \`!disown @الابن\``);
         }
 
         const fee = BASE_ADOPT_FEE + (currentChildrenCount * 2000);
@@ -75,23 +123,13 @@ module.exports = {
             return replyTemp(`💸 **ليس لديك مورا كافية!**\nالرسوم: **${fee.toLocaleString()}** ${MORA_EMOJI}`);
         }
         
-        let partnerId = null;
-        try {
-            let marriageData;
-            try { marriageData = await db.query(`SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
-            catch(e) { marriageData = await db.query(`SELECT partnerid as "partnerID" FROM marriages WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
-            if (marriageData.rows.length > 0) partnerId = marriageData.rows[0].partnerID || marriageData.rows[0].partnerid;
-        } catch(e) {}
+        // سنأخذ الشريك الأول للموافقة عليه في حال كان متزوجاً
+        let partnerId = numberOfSpouses > 0 ? (marriagesRes.rows[0].partnerID || marriagesRes.rows[0].partnerid) : null;
 
         if (partnerId === childMember.id) return replyTemp("🚫 **لا يمكنك تبني شريك حياتك!**");
 
-        let currentParents = [];
-        try {
-            let cpRes;
-            try { cpRes = await db.query(`SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [childMember.id, guildId]); }
-            catch(e) { cpRes = await db.query(`SELECT parentid as "parentID" FROM children WHERE childid = $1 AND guildid = $2`, [childMember.id, guildId]).catch(()=>({rows:[]})); }
-            currentParents = cpRes.rows;
-        } catch(e) {}
+        const cpRes = await safeQuery(db, `SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [childMember.id, guildId]);
+        const currentParents = cpRes.rows;
         
         if (currentParents.length > 0) {
             let isStepParent = false;
@@ -100,16 +138,12 @@ module.exports = {
                 if (pId === userId) {
                     return replyTemp(`❌ **${childMember.displayName}** هو ابنك بالفعل!`);
                 }
-                try {
-                    let parentSpouseRes;
-                    try { parentSpouseRes = await db.query(`SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [pId, guildId]); }
-                    catch(e) { parentSpouseRes = await db.query(`SELECT partnerid as "partnerID" FROM marriages WHERE userid = $1 AND guildid = $2`, [pId, guildId]).catch(()=>({rows:[]})); }
-                    const pSpouse = parentSpouseRes.rows[0];
-                    if (pSpouse && (pSpouse.partnerID === userId || pSpouse.partnerid === userId)) {
-                        isStepParent = true;
-                        break;
-                    }
-                } catch(e) {}
+                const parentSpouseRes = await safeQuery(db, `SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [pId, guildId]);
+                const pSpouse = parentSpouseRes.rows[0];
+                if (pSpouse && (pSpouse.partnerID === userId || pSpouse.partnerid === userId)) {
+                    isStepParent = true;
+                    break;
+                }
             }
 
             if (!isStepParent) {
@@ -125,18 +159,14 @@ module.exports = {
             if (checked.has(current)) continue;
             checked.add(current);
 
-            try {
-                let parentsRes;
-                try { parentsRes = await db.query(`SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [current, guildId]); }
-                catch(e) { parentsRes = await db.query(`SELECT parentid as "parentID" FROM children WHERE childid = $1 AND guildid = $2`, [current, guildId]).catch(()=>({rows:[]})); }
-                for (const p of parentsRes.rows) {
-                    const pId = p.parentID || p.parentid;
-                    if (pId === childMember.id) {
-                        return replyTemp(`🚫 **لا يعقل!** كيف تتبنى **${childMember.displayName}** وهو (أبوك/جدك)؟ احترم المقامات.`);
-                    }
-                    if (!checked.has(pId)) queue.push(pId);
+            const parentsRes = await safeQuery(db, `SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [current, guildId]);
+            for (const p of parentsRes.rows) {
+                const pId = p.parentID || p.parentid;
+                if (pId === childMember.id) {
+                    return replyTemp(`🚫 **لا يعقل!** كيف تتبنى **${childMember.displayName}** وهو (أبوك/جدك)؟ احترم المقامات.`);
                 }
-            } catch(e) {}
+                if (!checked.has(pId)) queue.push(pId);
+            }
             if (checked.size > 20) break; 
         }
 
@@ -149,49 +179,33 @@ module.exports = {
             if (checked.has(current)) continue;
             checked.add(current);
 
-            try {
-                let childrenRes;
-                try { childrenRes = await db.query(`SELECT "childID" FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [current, guildId]); }
-                catch(e) { childrenRes = await db.query(`SELECT childid as "childID" FROM children WHERE parentid = $1 AND guildid = $2`, [current, guildId]).catch(()=>({rows:[]})); }
-                for (const c of childrenRes.rows) {
-                    const cId = c.childID || c.childid;
-                    myDescendants.add(cId);
-                    if (cId === childMember.id) {
-                        return replyTemp(`🚫 **هذا من نسلك!**\n**${childMember.displayName}** موجود بالفعل في شجرة عائلتك (حفيد أو حفيد حفيد..).\nهو مربوط بك بالدم ولا يحتاج لتبني.`);
-                    }
-                    if (!checked.has(cId)) queue.push(cId);
+            const childrenRes = await safeQuery(db, `SELECT "childID" FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [current, guildId]);
+            for (const c of childrenRes.rows) {
+                const cId = c.childID || c.childid;
+                myDescendants.add(cId);
+                if (cId === childMember.id) {
+                    return replyTemp(`🚫 **هذا من نسلك!**\n**${childMember.displayName}** موجود بالفعل في شجرة عائلتك (حفيد أو حفيد حفيد..).\nهو مربوط بك بالدم ولا يحتاج لتبني.`);
                 }
-            } catch(e) {}
+                if (!checked.has(cId)) queue.push(cId);
+            }
             if (checked.size > 50) break;
         }
 
-        let myParents = [];
-        let childParents = [];
-        try {
-            let mpRes;
-            try { mpRes = await db.query(`SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [userId, guildId]); }
-            catch(e) { mpRes = await db.query(`SELECT parentid as "parentID" FROM children WHERE childid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
-            myParents = mpRes.rows.map(r => r.parentID || r.parentid);
-            
-            let cpRes;
-            try { cpRes = await db.query(`SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [childMember.id, guildId]); }
-            catch(e) { cpRes = await db.query(`SELECT parentid as "parentID" FROM children WHERE childid = $1 AND guildid = $2`, [childMember.id, guildId]).catch(()=>({rows:[]})); }
-            childParents = cpRes.rows.map(r => r.parentID || r.parentid);
-        } catch(e) {}
+        const mpRes = await safeQuery(db, `SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        const myParents = mpRes.rows.map(r => r.parentID || r.parentid);
+        
+        const cpParentsRes = await safeQuery(db, `SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [childMember.id, guildId]);
+        const childParents = cpParentsRes.rows.map(r => r.parentID || r.parentid);
         
         if (myParents.some(p => childParents.includes(p))) {
             return replyTemp(`🚫 **لا يعقل!** كيف تتبنى أخاك/أختك؟`);
         }
 
-        try {
-            let targetSpouseRes;
-            try { targetSpouseRes = await db.query(`SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [childMember.id, guildId]); }
-            catch(e) { targetSpouseRes = await db.query(`SELECT partnerid as "partnerID" FROM marriages WHERE userid = $1 AND guildid = $2`, [childMember.id, guildId]).catch(()=>({rows:[]})); }
-            const targetSpouse = targetSpouseRes.rows[0];
-            if (targetSpouse && myDescendants.has(targetSpouse.partnerID || targetSpouse.partnerid)) {
-                return replyTemp(`🚫 **هذه زوجة ابنك / زوج ابنتك!**\nلا يمكن تبني أصهارك الموجودين في شجرة العائلة.`);
-            }
-        } catch(e) {}
+        const targetSpouseRes = await safeQuery(db, `SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [childMember.id, guildId]);
+        const targetSpouse = targetSpouseRes.rows[0];
+        if (targetSpouse && myDescendants.has(targetSpouse.partnerID || targetSpouse.partnerid)) {
+            return replyTemp(`🚫 **هذه زوجة ابنك / زوج ابنتك!**\nلا يمكن تبني أصهارك الموجودين في شجرة العائلة.`);
+        }
 
         if (partnerId) {
             const partnerMember = await message.guild.members.fetch(partnerId).catch(() => null);
@@ -279,22 +293,13 @@ module.exports = {
             await client.setLevel(childData);
 
             const now = Date.now();
-            try {
-                await db.query(`INSERT INTO children ("parentID", "childID", "adoptDate", "guildID") VALUES ($1, $2, $3, $4)`, [userId, childMember.id, now, guildId]);
-            } catch(e) {
-                await db.query(`INSERT INTO children (parentid, childid, adoptdate, guildid) VALUES ($1, $2, $3, $4)`, [userId, childMember.id, now, guildId]).catch(()=>{});
-            }
+            await safeExecute(db, `INSERT INTO children ("parentID", "childID", "adoptDate", "guildID") VALUES ($1, $2, $3, $4)`, [userId, childMember.id, now, guildId]);
 
             if (partnerId) {
-                try {
-                    let checkPartnerRes;
-                    try { checkPartnerRes = await db.query(`SELECT 1 FROM children WHERE "parentID" = $1 AND "childID" = $2`, [partnerId, childMember.id]); }
-                    catch(e) { checkPartnerRes = await db.query(`SELECT 1 FROM children WHERE parentid = $1 AND childid = $2`, [partnerId, childMember.id]).catch(()=>({rows:[]})); }
-                    if (checkPartnerRes.rows.length === 0) {
-                        try { await db.query(`INSERT INTO children ("parentID", "childID", "adoptDate", "guildID") VALUES ($1, $2, $3, $4)`, [partnerId, childMember.id, now, guildId]); }
-                        catch(e) { await db.query(`INSERT INTO children (parentid, childid, adoptdate, guildid) VALUES ($1, $2, $3, $4)`, [partnerId, childMember.id, now, guildId]).catch(()=>{}); }
-                    }
-                } catch(e) {}
+                const checkPartnerRes = await safeQuery(db, `SELECT 1 FROM children WHERE "parentID" = $1 AND "childID" = $2`, [partnerId, childMember.id]);
+                if (checkPartnerRes.rows.length === 0) {
+                    await safeExecute(db, `INSERT INTO children ("parentID", "childID", "adoptDate", "guildID") VALUES ($1, $2, $3, $4)`, [partnerId, childMember.id, now, guildId]);
+                }
             }
 
             const randomImage = SUCCESS_IMAGES[Math.floor(Math.random() * SUCCESS_IMAGES.length)];
