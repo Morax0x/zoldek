@@ -139,13 +139,15 @@ async function checkItems(db, userId, guildId, itemsArray) {
     let requiredMap = {};
     for (let item of itemsArray) {
         const reqId = String(item.id).toLowerCase().trim();
-        requiredMap[reqId] = (requiredMap[reqId] || 0) + item.count;
+        requiredMap[reqId] = (requiredMap[reqId] || 0) + Number(item.count);
     }
 
     let userMap = {};
     res.rows.forEach(r => {
         const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
-        userMap[dbItemId] = (userMap[dbItemId] || 0) + Number(r.quantity || r.Quantity || 0);
+        // 🔥 حل مشكلة NaN بسبب القراءة الخاطئة للكمية 🔥
+        const dbQty = Number(r.quantity) || 0; 
+        userMap[dbItemId] = (userMap[dbItemId] || 0) + dbQty;
     });
 
     for (let reqId in requiredMap) {
@@ -185,7 +187,7 @@ async function deductItems(db, userId, guildId, itemsArray) {
     let requiredMap = {};
     for (let item of itemsArray) {
         const reqId = String(item.id).toLowerCase().trim();
-        requiredMap[reqId] = (requiredMap[reqId] || 0) + item.count;
+        requiredMap[reqId] = (requiredMap[reqId] || 0) + Number(item.count);
     }
 
     for (let reqId in requiredMap) {
@@ -196,7 +198,7 @@ async function deductItems(db, userId, guildId, itemsArray) {
             if (dbItemId !== reqId) continue;
 
             if (remainingToDeduct <= 0) break;
-            const q = Number(r.quantity || r.Quantity || 0);
+            const q = Number(r.quantity || 0);
             if (q <= 0) continue;
             
             const deduct = Math.min(q, remainingToDeduct);
@@ -251,19 +253,14 @@ function getWeaponDisplayDamage(weaponConfig, level) {
         const damageAt15 = base + (inc * 14);
         const targetDamageAt30 = 800;
         const levelsRemaining = 15; 
-        
-        if (damageAt15 >= targetDamageAt30) {
-            return Math.floor(base + (inc * (level - 1)));
-        } else {
-            const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
-            let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
-            if (level >= 30) return targetDamageAt30;
-            return Math.floor(finalDamage);
-        }
+        if (damageAt15 >= targetDamageAt30) return Math.floor(base + (inc * (level - 1)));
+        const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
+        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
+        if (level >= 30) return targetDamageAt30;
+        return Math.floor(finalDamage);
     }
 }
 
-// 🔥 تم استبدال الكود وعمل الإصلاح الذي طلبته للمهارات لتظهر النسب الحقيقية الصحيحة 🔥
 function getSkillDisplayValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -272,23 +269,19 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
     const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
 
     let finalValue = 0;
-
     if (level <= 15) {
         finalValue = base + (inc * (level - 1));
     } else {
         const valueAt15 = base + (inc * 14);
         const targetValueAt30 = isPercentage ? 50 : 200; 
         const levelsRemaining = 15;
-        
-        if (valueAt15 >= targetValueAt30) {
-             finalValue = base + (inc * (level - 1));
-        } else {
+        if (valueAt15 >= targetValueAt30) finalValue = base + (inc * (level - 1));
+        else {
              const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
              finalValue = valueAt15 + (dynamicIncrement * (level - 15));
              if (level >= 30) finalValue = targetValueAt30;
         }
     }
-
     return isPercentage ? Number(finalValue.toFixed(1)) : Math.floor(finalValue);
 }
 
@@ -346,7 +339,7 @@ function aggregateInventory(rows) {
     const map = {};
     for (const r of rows) {
         const id = String(r.itemID || r.itemid || '').toLowerCase().trim(); 
-        const qty = Number(r.quantity || r.Quantity || 0);
+        const qty = Number(r.quantity || 0);
         if (!map[id]) map[id] = 0;
         map[id] += qty;
     }
@@ -637,7 +630,7 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
             invRes.rows.forEach(row => {
                 const dbItemId = String(row.itemID || row.itemid || '').toLowerCase().trim();
                 if (dbItemId === String(matId).toLowerCase().trim()) {
-                    userMatCount += Number(row.quantity || row.Quantity || 0);
+                    userMatCount += Number(row.quantity || 0); // 🔥 إصلاح جلب الكمية للواجهة
                 }
             });
         }
@@ -689,18 +682,20 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
 
     const reqs = getUpgradeRequirements(currentLevel, false);
     
-    // 🔥 هذا السطر كان يسبب الرفض لأن العرق يختلف بين واجهة العرض والمطور الداخلي 🔥
     const standardizedRace = getStandardRaceName(wData.raceName || wData.racename) || roleRaceName;
     
     if (!standardizedRace) return;
     
     const weaponConfig = getSafeWeaponConfig(standardizedRace);
     const raceMats = getSafeRaceMats(standardizedRace);
+    
+    // 🔥 تأكد من بناء قائمة الموارد المطلوبة بشكل صحيح هنا
     let detailedReqs = reqs.materials.map(r => ({ id: raceMats.materials[r.tier].id, count: r.count }));
 
     const hasMora = await checkMora(db, user.id, guildId, reqs.moraCost);
     if (!hasMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك المورا الكافية للتطوير!' }, [getReturnRow()]);
     
+    // 🔥 التحقق الفولاذي
     const hasItems = await checkItems(db, user.id, guildId, detailedReqs);
     if (!hasItems) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك الموارد الكافية للتطوير!' }, [getReturnRow()]);
 
@@ -788,7 +783,7 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
             invRes.rows.forEach(row => {
                 const dbItemId = String(row.itemID || row.itemid || '').toLowerCase().trim();
                 if (dbItemId === String(itemId).toLowerCase().trim()) {
-                    userMatCount += Number(row.quantity || row.Quantity || 0);
+                    userMatCount += Number(row.quantity || 0); // 🔥 إصلاح هنا أيضاً!
                 }
             });
         }
@@ -855,6 +850,7 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
     const hasMora = await checkMora(db, user.id, guildId, reqs.moraCost);
     if (!hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
     
+    // 🔥 التحقق الفولاذي يعمل هنا
     const hasItems = await checkItems(db, user.id, guildId, detailedReqs);
     if (!hasItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
 
