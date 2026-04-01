@@ -20,7 +20,7 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
     let title = "", color = "", randomImage = null;
 
     if (status === 'win') { 
-        title = "❖ أسطـورة الدانـجون !"; 
+        title = "❖ أسطــورة الدانـجون !"; 
         color = `#${Math.floor(Math.random() * 16777215).toString(16)}`; 
         randomImage = getRandomImage(WIN_IMAGES); 
     } 
