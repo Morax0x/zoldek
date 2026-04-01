@@ -129,25 +129,27 @@ async function checkMora(db, userId, guildId, amount) {
     return (mora + bank) >= amount;
 }
 
-// 🔥 الفلتر الجديد المنيع: يسحب الحقيبة كلها ويفلترها داخلياً لتجنب أي تعارض في أسماء الأعمدة 🔥
+// 🔥 الفلتر الجديد المنيع والمحسن للتحقق من الموارد بتجميع ذكي 🔥
 async function checkItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
     
     let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
-    if(!res || !res.rows || res.rows.length === 0) return false;
+    if(!res || !res.rows) return false;
 
+    let requiredMap = {};
     for (let item of itemsArray) {
-        let currentQty = 0;
-        const requiredId = String(item.id).toLowerCase().trim();
-        
-        res.rows.forEach(r => {
-            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
-            if (dbItemId === requiredId) {
-                currentQty += Number(r.quantity || r.Quantity || 0);
-            }
-        });
-        
-        if(currentQty < item.count) return false;
+        const reqId = String(item.id).toLowerCase().trim();
+        requiredMap[reqId] = (requiredMap[reqId] || 0) + item.count;
+    }
+
+    let userMap = {};
+    res.rows.forEach(r => {
+        const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+        userMap[dbItemId] = (userMap[dbItemId] || 0) + Number(r.quantity || r.Quantity || 0);
+    });
+
+    for (let reqId in requiredMap) {
+        if ((userMap[reqId] || 0) < requiredMap[reqId]) return false;
     }
     return true;
 }
@@ -174,18 +176,24 @@ async function deductMora(db, userId, guildId, amount) {
     return true;
 }
 
+// 🔥 نظام السحب الذكي المطور (Deduction) لحماية الحقيبة من التعليق 🔥
 async function deductItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
 
     let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
     
+    let requiredMap = {};
     for (let item of itemsArray) {
-        let remainingToDeduct = item.count;
-        const requiredId = String(item.id).toLowerCase().trim();
+        const reqId = String(item.id).toLowerCase().trim();
+        requiredMap[reqId] = (requiredMap[reqId] || 0) + item.count;
+    }
+
+    for (let reqId in requiredMap) {
+        let remainingToDeduct = requiredMap[reqId];
         
         for (let r of res.rows) {
             const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
-            if (dbItemId !== requiredId) continue;
+            if (dbItemId !== reqId) continue;
 
             if (remainingToDeduct <= 0) break;
             const q = Number(r.quantity || r.Quantity || 0);
@@ -206,9 +214,9 @@ async function deductItems(db, userId, guildId, itemsArray) {
     }
     
     try {
-        await db.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1`, [userId]);
+        await db.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
     } catch(e) {
-        await db.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1`, [userId]).catch(()=>{});
+        await db.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>{});
     }
     return true;
 }
@@ -243,13 +251,19 @@ function getWeaponDisplayDamage(weaponConfig, level) {
         const damageAt15 = base + (inc * 14);
         const targetDamageAt30 = 800;
         const levelsRemaining = 15; 
-        const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
-        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
-        if (level >= 30) return targetDamageAt30;
-        return Math.floor(finalDamage);
+        
+        if (damageAt15 >= targetDamageAt30) {
+            return Math.floor(base + (inc * (level - 1)));
+        } else {
+            const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
+            let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
+            if (level >= 30) return targetDamageAt30;
+            return Math.floor(finalDamage);
+        }
     }
 }
 
+// 🔥 تم استبدال الكود وعمل الإصلاح الذي طلبته للمهارات لتظهر النسب الحقيقية الصحيحة 🔥
 function getSkillDisplayValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -257,17 +271,25 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
     const inc = skillConfig.value_increment;
     const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
 
+    let finalValue = 0;
+
     if (level <= 15) {
-        return Math.floor(base + (inc * (level - 1)));
+        finalValue = base + (inc * (level - 1));
     } else {
         const valueAt15 = base + (inc * 14);
         const targetValueAt30 = isPercentage ? 50 : 200; 
         const levelsRemaining = 15;
-        const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
-        let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
-        if (level >= 30) return targetValueAt30;
-        return Math.floor(finalValue);
+        
+        if (valueAt15 >= targetValueAt30) {
+             finalValue = base + (inc * (level - 1));
+        } else {
+             const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
+             finalValue = valueAt15 + (dynamicIncrement * (level - 15));
+             if (level >= 30) finalValue = targetValueAt30;
+        }
     }
+
+    return isPercentage ? Number(finalValue.toFixed(1)) : Math.floor(finalValue);
 }
 
 function getUpgradeRequirements(currentLevel, isSkill = false) {
@@ -567,20 +589,23 @@ module.exports = {
 
 async function buildWeaponForgeUI(i, user, guildId, db) {
     const roleRaceName = await getUserRaceName(user, i.guild, db);
-    if (!roleRaceName) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
-
+    
     const [userMoraRes, weaponRes, lvlRes] = await Promise.all([
         safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
         safeQuery(db, `SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]),
         safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId])
     ]);
 
-    const userMora = Number(userMoraRes?.rows?.[0]?.mora || userMoraRes?.rows?.[0]?.Mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || userMoraRes?.rows?.[0]?.Bank || 0);
-    
     const wData = weaponRes?.rows?.[0];
+    
+    // 🔥 تم توحيد الاعتماد على العرق ليكون متطابقاً في الشاشة وفي زر التطوير 🔥
+    const raceName = wData ? (getStandardRaceName(wData.raceName || wData.racename) || roleRaceName) : roleRaceName;
+    
+    if (!raceName) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
+
+    const userMora = Number(userMoraRes?.rows?.[0]?.mora || userMoraRes?.rows?.[0]?.Mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || userMoraRes?.rows?.[0]?.Bank || 0);
     const currentLevel = wData ? Number(wData.weaponLevel || wData.weaponlevel) : 0;
     
-    const raceName = wData ? getStandardRaceName(wData.raceName || wData.racename) : roleRaceName;
     const weaponConfig = getSafeWeaponConfig(raceName);
 
     if (currentLevel === 0) {
@@ -648,8 +673,7 @@ async function handleWeaponBuy(i, user, guildId, db) {
 
 async function handleWeaponUpgrade(i, user, guildId, db) {
     const roleRaceName = await getUserRaceName(user, i.guild, db);
-    if (!roleRaceName) return;
-
+    
     const [weaponRes, lvlRes] = await Promise.all([
         safeQuery(db, `SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]),
         safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId])
@@ -665,7 +689,11 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
 
     const reqs = getUpgradeRequirements(currentLevel, false);
     
-    const standardizedRace = getStandardRaceName(wData.raceName || wData.racename);
+    // 🔥 هذا السطر كان يسبب الرفض لأن العرق يختلف بين واجهة العرض والمطور الداخلي 🔥
+    const standardizedRace = getStandardRaceName(wData.raceName || wData.racename) || roleRaceName;
+    
+    if (!standardizedRace) return;
+    
     const weaponConfig = getSafeWeaponConfig(standardizedRace);
     const raceMats = getSafeRaceMats(standardizedRace);
     let detailedReqs = reqs.materials.map(r => ({ id: raceMats.materials[r.tier].id, count: r.count }));
@@ -816,10 +844,9 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
     const reqs = getUpgradeRequirements(currentLevel, true);
     const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
     const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
-    const userRace = getStandardRaceName(raceName);
     
     const bookCat = getSafeBookCat(categoryName);
-    const raceMats = getSafeRaceMats(userRace);
+    const raceMats = getSafeRaceMats(raceName);
 
     let detailedReqs = reqs.materials.map(r => {
         return { id: r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id, count: r.count };
