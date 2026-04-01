@@ -4,6 +4,50 @@ const RUNAWAY_FEE = 1000;
 const MORA_EMOJI = '<:mora:1435647151349698621>'; 
 const RUNAWAY_GIF = "https://media.tenor.com/ScoBC7-a5QkAAAAC/anime-run.gif"; 
 
+// 🛡️ نظام معالجة استعلامات فولاذي وذكي للحماية من الانهيارات 🛡️
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { 
+        res = await db.query(qPg, params); 
+    } catch(e) { 
+        res = { rows: [] }; 
+    }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/gi, "userid")
+        .replace(/"guildID"/gi, "guildid")
+        .replace(/"parentID"/gi, "parentid")
+        .replace(/"childID"/gi, "childid");
+
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
+};
+
+const safeExecute = async (db, qPg, params) => {
+    try { await db.query(qPg, params); return true; } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"parentID"/gi, "parentid")
+            .replace(/"childID"/gi, "childid");
+
+        if (fallbackQuery !== qPg) {
+            try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
+        }
+        return false;
+    }
+};
+
 module.exports = {
     name: 'runaway',
     description: 'الهروب من العائلة (يتم دفع الرسوم للوالدين كتعويض)',
@@ -20,11 +64,8 @@ module.exports = {
             setTimeout(() => msg.delete().catch(() => {}), 5000);
         };
 
-        let parents = [];
-        try {
-            const res = await db.query(`SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [userId, guildId]);
-            parents = res.rows;
-        } catch (e) {}
+        const res = await safeQuery(db, `SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        const parents = res.rows;
 
         if (parents.length === 0) {
             return replyTemp("🚫 **أنت لست ابناً لأحد!** أنت حر طليق بالفعل 🦅.");
@@ -90,7 +131,7 @@ module.exports = {
                         await client.setLevel(parentData);
                     }
 
-                    await db.query(`DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [userId, guildId]);
+                    await safeExecute(db, `DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [userId, guildId]);
 
                     await db.query('COMMIT');
 
@@ -106,9 +147,9 @@ module.exports = {
                     await i.update({ content: `💔 **انقطعت صلة الرحم..**`, embeds: [successEmbed], components: [] });
 
                 } catch (error) {
-                    await db.query('ROLLBACK');
+                    await db.query('ROLLBACK').catch(()=>{});
                     console.error("Runaway Error:", error);
-                    return i.update({ content: `❌ حدث خطأ داخلي أثناء عملية الهروب.`, embeds: [], components: [] });
+                    return i.update({ content: `❌ حدث خطأ داخلي أثناء عملية الهروب.`, embeds: [], components: [] }).catch(()=>{});
                 }
             }
         });
