@@ -62,6 +62,21 @@ const safeQuery = async (db, qPg, params) => {
     return { rows: [] };
 };
 
+// ⚡ كاش للصور لتسريع الرسم ⚡
+const imageCache = new Map();
+
+async function getCachedImage(url) {
+    if (!url) return null;
+    if (imageCache.has(url)) return imageCache.get(url);
+    try {
+        const img = await Canvas.loadImage(url);
+        imageCache.set(url, img);
+        return img;
+    } catch {
+        return null;
+    }
+}
+
 async function getUserColor(client, userId, guild, db) {
     if (TEST_MODE) return THEME.DEFAULT;
     try {
@@ -132,21 +147,18 @@ async function drawTreePage(treeData, pageIndex) {
     const canvas = Canvas.createCanvas(canvasWidth, CANVAS_HEIGHT);
     const ctx = canvas.getContext('2d');
 
-    // رسم الخلفية الاحترافية
     const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
     grad.addColorStop(0, THEME.BG_TOP);
     grad.addColorStop(1, THEME.BG_BOT);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, canvasWidth, CANVAS_HEIGHT);
 
-    // رسم الشبكة
     ctx.lineWidth = 1;
     ctx.strokeStyle = THEME.GRID;
     const gridSize = 40;
     for(let x=0; x<canvasWidth; x+=gridSize) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,CANVAS_HEIGHT); ctx.stroke(); }
     for(let y=0; y<CANVAS_HEIGHT; y+=gridSize) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvasWidth,y); ctx.stroke(); }
 
-    // إضاءة مركزية
     const radGrad = ctx.createRadialGradient(centerX, Y_MAIN, 50, centerX, Y_MAIN, 800);
     radGrad.addColorStop(0, "rgba(226, 183, 20, 0.08)");
     radGrad.addColorStop(1, "rgba(0,0,0,0)");
@@ -187,7 +199,6 @@ async function drawTreePage(treeData, pageIndex) {
         renderQueue.push({ user, x, y, radius, isMain });
     }
 
-    // دوال رسم الخطوط المنحنية الاحترافية
     function drawCurvedLine(x1, y1, x2, y2, color=THEME.LINE, width=3) {
         ctx.save();
         ctx.beginPath();
@@ -214,7 +225,6 @@ async function drawTreePage(treeData, pageIndex) {
         ctx.restore();
     }
 
-    // --- حساب الإحداثيات ورسم الخطوط أولاً (لتكون خلف الصور) ---
     let currentPX = centerX - (parentsWidth / 2) + 25;
     for(const p of treeData.parents) {
         const gpCount = p.grandparents ? p.grandparents.length : 0;
@@ -235,7 +245,6 @@ async function drawTreePage(treeData, pageIndex) {
         currentPX += pBlockW + 40;
     }
 
-    // رسم شركاء الحياة (الزوجات/الأزواج) بخط متصل أفقي
     let pX = centerX + DIMS.NODE + 50;
     if (treeData.partners.length > 0) {
         let lastPx = centerX + DIMS.NODE + 50 + ((treeData.partners.length - 1) * (DIMS.PARTNER * 2 + 30));
@@ -247,7 +256,6 @@ async function drawTreePage(treeData, pageIndex) {
         pX += DIMS.PARTNER * 2 + 30;
     }
 
-    // رسم الإخوة
     const siblingsLineY = Y_MAIN - DIMS.NODE - 50;
     if (treeData.siblings.left.length > 0 || treeData.siblings.right.length > 0) {
         drawHorizontalLine(centerX, Y_MAIN, centerX, siblingsLineY, THEME.LINE, 3);
@@ -269,10 +277,8 @@ async function drawTreePage(treeData, pageIndex) {
         rightStart += (DIMS.SIBLING * 2 + 30);
     }
 
-    // وضع الحساب الرئيسي
     queueAvatar(treeData.main, centerX, Y_MAIN, DIMS.NODE, true);
 
-    // رسم الأبناء
     if (childBlocks.length > 0) {
         let currentX = centerX - (childrenTotalWidth / 2);
         for(const block of childBlocks) {
@@ -321,7 +327,6 @@ async function drawTreePage(treeData, pageIndex) {
         }
     }
 
-    // --- تنفيذ رسم الصور الآن لتكون فوق الخطوط ---
     for (const data of renderQueue) {
         const { user, x, y, radius, isMain } = data;
         ctx.save();
@@ -335,8 +340,12 @@ async function drawTreePage(treeData, pageIndex) {
 
         try {
             if (user.avatarURL) {
-                const img = await Canvas.loadImage(user.avatarURL);
-                ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
+                const img = await getCachedImage(user.avatarURL);
+                if(img) ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
+                else {
+                    ctx.fillStyle = "#161b22";
+                    ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+                }
             } else {
                 ctx.fillStyle = "#161b22";
                 ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
@@ -347,7 +356,6 @@ async function drawTreePage(treeData, pageIndex) {
         }
         ctx.restore();
 
-        // الإطار المضيء
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
         ctx.lineWidth = isMain ? 7 : 4;
@@ -355,7 +363,7 @@ async function drawTreePage(treeData, pageIndex) {
         ctx.shadowColor = isMain ? THEME.GOLD : (user.color || THEME.DEFAULT);
         ctx.shadowBlur = 10;
         ctx.stroke();
-        ctx.shadowBlur = 0; // إعادة التعيين
+        ctx.shadowBlur = 0; 
         
         const name = user.username || "مجهول";
         const shortName = name.length > 12 ? name.substring(0, 10)+".." : name;
@@ -387,6 +395,9 @@ module.exports = {
         const targetUser = targetMember.user;
         const guildId = guild.id;
 
+        // 🔥 نظام منع الحلقات اللانهائية (Anti-Loop) 🔥
+        const processedNodes = new Set();
+        
         const allInvolvedUserIds = new Set();
         const addId = (id) => { if (id) allInvolvedUserIds.add(id); };
         addId(targetUser.id);
@@ -419,6 +430,8 @@ module.exports = {
         let allParentFigures = new Set(directParents);
 
         for (const pid of directParents) {
+            if(processedNodes.has(pid)) continue;
+            processedNodes.add(pid);
             const pPartners = await getPartners(pid);
             pPartners.forEach(id => { addId(id); allParentFigures.add(id); });
         }
@@ -441,6 +454,8 @@ module.exports = {
 
         let allChildren = new Set(await getChildren(targetUser.id));
         for (const pid of targetPartners) {
+            if(processedNodes.has(`part_${pid}`)) continue;
+            processedNodes.add(`part_${pid}`);
             const pKids = await getChildren(pid);
             pKids.forEach(k => allChildren.add(k));
         }
@@ -453,6 +468,8 @@ module.exports = {
 
             let cKids = new Set(await getChildren(cid));
             for (const cpid of cPartners) {
+                if(processedNodes.has(`cpart_${cpid}`)) continue;
+                processedNodes.add(`cpart_${cpid}`);
                 const cpKids = await getChildren(cpid);
                 cpKids.forEach(k => cKids.add(k));
             }
@@ -465,6 +482,8 @@ module.exports = {
 
                 let gKids = new Set(await getChildren(gid));
                 for(const gpid of gPartners) {
+                     if(processedNodes.has(`gpart_${gpid}`)) continue;
+                     processedNodes.add(`gpart_${gpid}`);
                      const gpKids = await getChildren(gpid);
                      gpKids.forEach(k => gKids.add(k));
                 }
@@ -595,36 +614,44 @@ module.exports = {
             return row;
         };
 
-        message.channel.sendTyping();
-        const img = await drawTreePage(treeData, currentPage);
-        const msg = await message.reply({ 
-            files: [img],
-            components: totalPages > 1 ? [getButtons(currentPage)] : []
-        });
-
-        if (!client.ignoredTreeMessages) client.ignoredTreeMessages = new Set();
-        client.ignoredTreeMessages.add(msg.id);
+        // 🔥 تأمين عملية الرد لتجنب التعليق عند الحسابات الضخمة 🔥
+        message.channel.sendTyping().catch(()=>{});
         
-        setTimeout(() => {
-            client.ignoredTreeMessages.delete(msg.id);
-        }, 10 * 60 * 1000);
+        try {
+            const img = await drawTreePage(treeData, currentPage);
+            const msg = await message.reply({ 
+                files: [img],
+                components: totalPages > 1 ? [getButtons(currentPage)] : []
+            });
 
-        if (totalPages <= 1) return;
+            if (!client.ignoredTreeMessages) client.ignoredTreeMessages = new Set();
+            client.ignoredTreeMessages.add(msg.id);
+            
+            setTimeout(() => {
+                client.ignoredTreeMessages.delete(msg.id);
+            }, 10 * 60 * 1000);
 
-        const collector = msg.createMessageComponentCollector({ 
-            filter: i => i.user.id === message.author.id, 
-            time: 300000,
-            componentType: ComponentType.Button 
-        });
+            if (totalPages <= 1) return;
 
-        collector.on('collect', async i => {
-            if (i.customId === 'prev_tree') currentPage--;
-            if (i.customId === 'next_tree') currentPage++;
-            await i.deferUpdate();
-            const newImg = await drawTreePage(treeData, currentPage);
-            await i.editReply({ files: [newImg], components: [getButtons(currentPage)] });
-        });
+            const collector = msg.createMessageComponentCollector({ 
+                filter: i => i.user.id === message.author.id, 
+                time: 300000,
+                componentType: ComponentType.Button 
+            });
 
-        collector.on('end', () => msg.edit({ components: [] }).catch(()=>{}));
+            collector.on('collect', async i => {
+                if (i.customId === 'prev_tree') currentPage--;
+                if (i.customId === 'next_tree') currentPage++;
+                await i.deferUpdate().catch(()=>{});
+                const newImg = await drawTreePage(treeData, currentPage);
+                await i.editReply({ files: [newImg], components: [getButtons(currentPage)] }).catch(()=>{});
+            });
+
+            collector.on('end', () => msg.edit({ components: [] }).catch(()=>{}));
+            
+        } catch (fatalError) {
+            console.error("Fatal Error generating tree:", fatalError);
+            message.reply("❌ حدث خطأ فادح أثناء رسم شجرة العائلة، ربما الشجرة معقدة جداً أو تحتوي على علاقات متعارضة.").catch(()=>{});
+        }
     }
 };
