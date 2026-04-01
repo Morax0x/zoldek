@@ -1,10 +1,15 @@
 const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, Colors, AttachmentBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
-const weaponsConfig = require('../../json/weapons-config.json');
-const skillsConfig = require('../../json/skills-config.json');
-const upgradeMats = require('../../json/upgrade-materials.json');
 
-let generateForgeUI;
-try { ({ generateForgeUI } = require('../../generators/forge-generator.js')); } catch (e) { generateForgeUI = null; }
+// 🛡️ نظام استيراد محمي لمنع انهيار البوت 🛡️
+let weaponsConfig = [];
+let skillsConfig = [];
+let upgradeMats = { weapon_materials: [], skill_books: [] };
+let generateForgeUI = null;
+
+try { weaponsConfig = require('../../json/weapons-config.json'); } catch (e) { console.error("⚠️ لم يتم العثور على weapons-config.json"); }
+try { skillsConfig = require('../../json/skills-config.json'); } catch (e) { console.error("⚠️ لم يتم العثور على skills-config.json"); }
+try { upgradeMats = require('../../json/upgrade-materials.json'); } catch (e) { console.error("⚠️ لم يتم العثور على upgrade-materials.json"); }
+try { ({ generateForgeUI } = require('../../generators/forge-generator.js')); } catch (e) { console.error("⚠️ لم يتم العثور على forge-generator.js"); }
 
 let addXPAndCheckLevel;
 try { ({ addXPAndCheckLevel } = require('../handler-utils.js')); } 
@@ -60,17 +65,17 @@ function getStandardRaceName(rawName) {
 }
 
 function getSafeWeaponConfig(raceName) {
-    if (!raceName) return weaponsConfig[0];
+    if (!raceName || weaponsConfig.length === 0) return { name: "غير معروف", base_damage: 15, damage_increment: 5 };
     return weaponsConfig.find(w => w.race.toLowerCase() === raceName.toLowerCase()) || weaponsConfig[0];
 }
 
 function getSafeRaceMats(raceName) {
-    if (!raceName) return upgradeMats.weapon_materials[0];
+    if (!raceName || !upgradeMats.weapon_materials || upgradeMats.weapon_materials.length === 0) return { materials: [] };
     return upgradeMats.weapon_materials.find(m => m.race.toLowerCase() === raceName.toLowerCase()) || upgradeMats.weapon_materials[0];
 }
 
 function getSafeBookCat(categoryName) {
-    if (!categoryName) return upgradeMats.skill_books[0];
+    if (!categoryName || !upgradeMats.skill_books || upgradeMats.skill_books.length === 0) return { books: [] };
     return upgradeMats.skill_books.find(c => c.category.toLowerCase() === categoryName.toLowerCase()) || upgradeMats.skill_books[0];
 }
 
@@ -98,7 +103,6 @@ const safeQuery = async (db, qPg, params) => {
     }
 };
 
-// 🔥 قراءة فولاذية للمورا 🔥
 async function checkMora(db, userId, guildId, amount) {
     if (amount <= 0) return true;
     let res = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
@@ -113,7 +117,6 @@ async function checkMora(db, userId, guildId, amount) {
     return (mora + bank) >= amount;
 }
 
-// 🔥 قراءة فولاذية للموارد يتجاهل حالة الأحرف نهائياً 🔥
 async function checkItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
     let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
@@ -121,6 +124,7 @@ async function checkItems(db, userId, guildId, itemsArray) {
 
     let requiredMap = {};
     for (let item of itemsArray) {
+        if (!item || !item.id) continue;
         const reqId = String(item.id).toLowerCase().trim();
         requiredMap[reqId] = (requiredMap[reqId] || 0) + Number(item.count);
     }
@@ -129,10 +133,8 @@ async function checkItems(db, userId, guildId, itemsArray) {
     res.rows.forEach(r => {
         const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
         const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
-        
         const dbItemId = idKey ? String(r[idKey]).toLowerCase().trim() : '';
         const dbQty = qtyKey ? Number(r[qtyKey]) : 0; 
-        
         if (dbItemId) userMap[dbItemId] = (userMap[dbItemId] || 0) + dbQty;
     });
 
@@ -162,13 +164,13 @@ async function deductMora(db, userId, guildId, amount) {
     return true;
 }
 
-// 🔥 خصم فولاذي للموارد يتجاهل حالة الأحرف 🔥
 async function deductItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
     let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
     
     let requiredMap = {};
     for (let item of itemsArray) {
+        if (!item || !item.id) continue;
         const reqId = String(item.id).toLowerCase().trim();
         requiredMap[reqId] = (requiredMap[reqId] || 0) + Number(item.count);
     }
@@ -220,46 +222,6 @@ async function getUserRaceName(user, guild, db) {
     return null;
 }
 
-function getWeaponDisplayDamage(weaponConfig, level) {
-    if (!weaponConfig || level < 1) return 15;
-    const base = weaponConfig.base_damage;
-    const inc = weaponConfig.damage_increment;
-
-    if (level <= 15) return Math.floor(base + (inc * (level - 1)));
-    
-    const damageAt15 = base + (inc * 14);
-    const targetDamageAt30 = 800;
-    const levelsRemaining = 15; 
-    if (damageAt15 >= targetDamageAt30) return Math.floor(base + (inc * (level - 1)));
-    const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
-    let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
-    if (level >= 30) return targetDamageAt30;
-    return Math.floor(finalDamage);
-}
-
-function getSkillDisplayValue(skillConfig, currentLevel) {
-    if (!skillConfig) return 0;
-    const level = Math.max(1, currentLevel || 1);
-    const base = skillConfig.base_value;
-    const inc = skillConfig.value_increment;
-    const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
-
-    let finalValue = 0;
-    if (level <= 15) finalValue = base + (inc * (level - 1));
-    else {
-        const valueAt15 = base + (inc * 14);
-        const targetValueAt30 = isPercentage ? 50 : 200; 
-        const levelsRemaining = 15;
-        if (valueAt15 >= targetValueAt30) finalValue = base + (inc * (level - 1));
-        else {
-             const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
-             finalValue = valueAt15 + (dynamicIncrement * (level - 15));
-             if (level >= 30) finalValue = targetValueAt30;
-        }
-    }
-    return isPercentage ? Number(finalValue.toFixed(1)) : Math.floor(finalValue);
-}
-
 function getUpgradeRequirements(currentLevel, isSkill = false) {
     if (currentLevel >= 30 || currentLevel === 0) return null;
     let reqs = [], moraCost = 0;
@@ -289,20 +251,24 @@ function getUpgradeRequirements(currentLevel, isSkill = false) {
 function getItemInfo(itemId) {
     if(!itemId) return null;
     const lowerId = itemId.toLowerCase();
-    for (const r of upgradeMats.weapon_materials) {
-        const mat = r.materials.find(m => m.id.toLowerCase() === lowerId);
-        if (mat) {
-            const raceFolder = r.race.toLowerCase().replace(' ', '_');
-            const imgName = ID_TO_IMAGE[mat.id] || `${mat.id}.png`;
-            return { ...mat, type: 'material', race: r.race, name: resolveText(mat.name), iconUrl: `${R2_URL}/images/materials/${raceFolder}/${imgName}`, rarity: mat.rarity };
+    if (upgradeMats.weapon_materials) {
+        for (const r of upgradeMats.weapon_materials) {
+            const mat = r.materials.find(m => m.id.toLowerCase() === lowerId);
+            if (mat) {
+                const raceFolder = r.race.toLowerCase().replace(' ', '_');
+                const imgName = ID_TO_IMAGE[mat.id] || `${mat.id}.png`;
+                return { ...mat, type: 'material', race: r.race, name: resolveText(mat.name), iconUrl: `${R2_URL}/images/materials/${raceFolder}/${imgName}`, rarity: mat.rarity };
+            }
         }
     }
-    for (const c of upgradeMats.skill_books) {
-        const book = c.books.find(b => b.id.toLowerCase() === lowerId);
-        if (book) {
-            const typeFolder = c.category === 'General_Skills' ? 'general' : 'race';
-            const imgName = ID_TO_IMAGE[book.id] || `${book.id}.png`;
-            return { ...book, type: 'book', name: resolveText(book.name), iconUrl: `${R2_URL}/images/materials/${typeFolder}/${imgName}`, rarity: book.rarity };
+    if (upgradeMats.skill_books) {
+        for (const c of upgradeMats.skill_books) {
+            const book = c.books.find(b => b.id.toLowerCase() === lowerId);
+            if (book) {
+                const typeFolder = c.category === 'General_Skills' ? 'general' : 'race';
+                const imgName = ID_TO_IMAGE[book.id] || `${book.id}.png`;
+                return { ...book, type: 'book', name: resolveText(book.name), iconUrl: `${R2_URL}/images/materials/${typeFolder}/${imgName}`, rarity: book.rarity };
+            }
         }
     }
     return null;
@@ -342,18 +308,24 @@ const getReturnRow = () => new ActionRowBuilder().addComponents(
 async function replyWithCanvas(i, user, view, data, components, isInitial = false) {
     let returnMessage = null;
     try {
-        if (generateForgeUI) {
-            const buffer = await generateForgeUI(user, view, data);
-            if (buffer) {
-                const filename = `forge_${Date.now()}.png`; 
-                const attachment = new AttachmentBuilder(buffer, { name: filename });
-                
-                if (i.deferred || i.replied) returnMessage = await i.editReply({ content: null, embeds: [], components, files: [attachment] }).catch(()=>{});
-                else if (typeof i.reply === 'function') returnMessage = await i.reply({ content: null, embeds: [], components, files: [attachment], fetchReply: true }).catch(()=>{});
-                return returnMessage || i; 
-            }
+        if (!generateForgeUI) {
+            const fbEmbed = new EmbedBuilder().setTitle(data.title || "النظام").setDescription("❌ عذراً، محرك الرسم متوقف حالياً. يرجى التأكد من مسار `forge-generator.js`.").setColor(Colors.Red);
+            if (i.deferred || i.replied) returnMessage = await i.editReply({ content: null, embeds: [fbEmbed], components }).catch(()=>{});
+            else if (typeof i.reply === 'function') returnMessage = await i.reply({ content: null, embeds: [fbEmbed], components, fetchReply: true }).catch(()=>{});
+            return returnMessage || i;
         }
-    } catch (e) {}
+
+        const buffer = await generateForgeUI(user, view, data);
+        if (buffer) {
+            const filename = `forge_${Date.now()}.png`; 
+            const attachment = new AttachmentBuilder(buffer, { name: filename });
+            if (i.deferred || i.replied) returnMessage = await i.editReply({ content: null, embeds: [], components, files: [attachment] }).catch(()=>{});
+            else if (typeof i.reply === 'function') returnMessage = await i.reply({ content: null, embeds: [], components, files: [attachment], fetchReply: true }).catch(()=>{});
+            return returnMessage || i; 
+        }
+    } catch (e) {
+        console.error("[Forge Core Error]", e);
+    }
     return i;
 }
 
@@ -397,7 +369,8 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
     
     const detailedReqs = reqs.materials.map(r => {
-        let matId = raceMats.materials[r.tier].id;
+        let matId = raceMats.materials[r.tier]?.id;
+        if (!matId) return null;
         let userMatCount = 0;
         if (invRes?.rows) {
             invRes.rows.forEach(row => {
@@ -408,8 +381,8 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
             });
         }
         let matInfo = getItemInfo(matId);
-        return { id: matId, count: r.count, userCount: userMatCount, name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl };
-    });
+        return { id: matId, count: r.count, userCount: userMatCount, name: matInfo?.name || "مورد مفقود", rarity: matInfo?.rarity || "Common", iconUrl: matInfo?.iconUrl };
+    }).filter(r => r !== null);
 
     const canUpgrade = userMora >= reqs.moraCost && detailedReqs.every(r => r.userCount >= r.count);
     const btnRow = new ActionRowBuilder().addComponents(
@@ -452,7 +425,7 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
     
     const weaponConfig = getSafeWeaponConfig(standardizedRace);
     const raceMats = getSafeRaceMats(standardizedRace);
-    let detailedReqs = reqs.materials.map(r => ({ id: raceMats.materials[r.tier].id, count: r.count }));
+    let detailedReqs = reqs.materials.map(r => ({ id: raceMats.materials[r.tier]?.id, count: r.count })).filter(r => r.id);
 
     const hasMora = await checkMora(db, user.id, guildId, reqs.moraCost);
     if (!hasMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك المورا الكافية للتطوير!' }, [getReturnRow()]);
@@ -506,7 +479,7 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     const userMora = Number(userMoraRes?.rows?.[0]?.mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || 0);
     const currentLevel = skillRes.rows.length > 0 ? Number(skillRes.rows[0].skillLevel || skillRes.rows[0].skilllevel) : 0;
     const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
-    const statSymbol = configSkill.stat_type === '%' ? '%' : '';
+    const statSymbol = configSkill?.stat_type === '%' ? '%' : '';
     
     if (currentLevel === 0) {
         const btnRow = new ActionRowBuilder().addComponents(
@@ -532,7 +505,8 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
     
     const detailedReqs = reqs.materials.map(r => {
-        let itemId = r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id;
+        let itemId = r.type === 'book' ? bookCat.books[r.tier]?.id : raceMats.materials[r.tier]?.id;
+        if (!itemId) return null;
         let userMatCount = 0;
         if (invRes?.rows) {
             invRes.rows.forEach(row => {
@@ -543,8 +517,8 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
             });
         }
         let matInfo = getItemInfo(itemId);
-        return { id: itemId, count: r.count, userCount: userMatCount, name: matInfo.name, rarity: matInfo.rarity, iconUrl: matInfo.iconUrl };
-    });
+        return { id: itemId, count: r.count, userCount: userMatCount, name: matInfo?.name || "مجهول", rarity: matInfo?.rarity || "Common", iconUrl: matInfo?.iconUrl };
+    }).filter(r => r !== null);
 
     const canUpgrade = userMora >= reqs.moraCost && detailedReqs.every(r => r.userCount >= r.count);
     const btnRow = new ActionRowBuilder().addComponents(
@@ -592,8 +566,8 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
     const raceMats = getSafeRaceMats(raceName);
 
     let detailedReqs = reqs.materials.map(r => {
-        return { id: r.type === 'book' ? bookCat.books[r.tier].id : raceMats.materials[r.tier].id, count: r.count };
-    });
+        return { id: r.type === 'book' ? bookCat.books[r.tier]?.id : raceMats.materials[r.tier]?.id, count: r.count };
+    }).filter(r => r.id);
 
     const hasMora = await checkMora(db, user.id, guildId, reqs.moraCost);
     if (!hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
@@ -648,14 +622,16 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
 
         let targetOptions = [];
         const rMats = getSafeRaceMats(userRace);
-        if (rMats) {
+        if (rMats && rMats.materials) {
             const matMatch = rMats.materials.find(m => m.rarity === sacInfo.rarity);
             if (matMatch && matMatch.id !== sacInfo.id) targetOptions.push({ label: resolveText(matMatch.name).substring(0, 100), value: matMatch.id.substring(0, 100) });
         }
-        upgradeMats.skill_books.forEach(cat => {
-            const bookMatch = cat.books.find(b => b.rarity === sacInfo.rarity);
-            if (bookMatch && bookMatch.id !== sacInfo.id) targetOptions.push({ label: resolveText(bookMatch.name).substring(0, 100), value: bookMatch.id.substring(0, 100) });
-        });
+        if (upgradeMats.skill_books) {
+            upgradeMats.skill_books.forEach(cat => {
+                const bookMatch = cat.books.find(b => b.rarity === sacInfo.rarity);
+                if (bookMatch && bookMatch.id !== sacInfo.id) targetOptions.push({ label: resolveText(bookMatch.name).substring(0, 100), value: bookMatch.id.substring(0, 100) });
+            });
+        }
 
         const uniqueTargetsMap = new Map(); targetOptions.forEach(opt => uniqueTargetsMap.set(opt.value, opt));
         const uniqueTargets = Array.from(uniqueTargetsMap.values());
@@ -690,11 +666,17 @@ async function handleSynthesis(i, user, guildId, db, state) {
 
     const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
     let targetRow = null;
-    if (invRes.rows) targetRow = invRes.rows.find(r => String(r.itemID || r.itemid || '').toLowerCase().trim() === String(state.targetItem).toLowerCase().trim());
+    if (invRes.rows) {
+        targetRow = invRes.rows.find(r => {
+            const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+            return idKey && String(r[idKey]).toLowerCase().trim() === String(state.targetItem).toLowerCase().trim();
+        });
+    }
 
     if (targetRow) {
-        try { await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, [targetRow.id || targetRow.ID]); } 
-        catch(e) { await db.query(`UPDATE user_inventory SET quantity = quantity + 1 WHERE id = $1`, [targetRow.id || targetRow.ID]).catch(()=>{}); }
+        const rowIdKey = Object.keys(targetRow).find(k => k.toLowerCase() === 'id');
+        try { await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, [targetRow[rowIdKey]]); } 
+        catch(e) { await db.query(`UPDATE user_inventory SET quantity = quantity + 1 WHERE id = $1`, [targetRow[rowIdKey]]).catch(()=>{}); }
     } else {
         try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]); } 
         catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]).catch(()=>{}); }
