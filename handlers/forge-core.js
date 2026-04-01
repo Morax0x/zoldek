@@ -337,7 +337,7 @@ const getReturnRow = () => new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('forge_return_main').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
 );
 
-// 🔥 المحرك الأساسي الموحد (يُستخدم في العرض وفي التنفيذ لضمان التوافق المطلق) 🔥
+// 🔥 محرك الحالة الموحد: يضمن تطابقاً بنسبة 1000% بين الصورة والزر الخفي! 🔥
 async function getUpgradeState(db, userId, guildId, currentLevel, isSkill, skillId, roleRaceName, wData) {
     const dbRaceName = getSafeVal(wData, 'racename', null);
     const raceName = dbRaceName ? (getStandardRaceName(dbRaceName) || roleRaceName) : roleRaceName;
@@ -359,9 +359,9 @@ async function getUpgradeState(db, userId, guildId, currentLevel, isSkill, skill
     }).filter(r => r.id);
 
     const hasMora = await checkMora(db, userId, guildId, reqs.moraCost);
-    const hasItems = await checkItems(db, userId, guildId, detailedReqs);
-
+    
     let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    
     let uiReqs = detailedReqs.map(r => {
         let userMatCount = 0;
         if (invRes?.rows) {
@@ -373,6 +373,9 @@ async function getUpgradeState(db, userId, guildId, currentLevel, isSkill, skill
         let matInfo = getItemInfo(r.id);
         return { id: r.id, count: r.count, userCount: userMatCount, name: matInfo?.name || "مجهول", rarity: matInfo?.rarity || "Common", iconUrl: matInfo?.iconUrl };
     });
+
+    // سر السحر: القرار يؤخذ مباشرة من مخرجات الصورة (uiReqs)
+    const hasItems = uiReqs.every(r => r.userCount >= r.count);
 
     return { canUpgrade: hasMora && hasItems, hasMora, hasItems, reqMora: reqs.moraCost, uiReqs, detailedReqs, raceName };
 }
