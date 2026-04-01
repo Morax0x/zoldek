@@ -268,8 +268,8 @@ module.exports = {
                             if (!isBait && !isRod && !isBoat) info.category = 'أخرى'; 
                         }
 
-                        return { ...info, quantity: row.quantity, id: itemId };
-                    }).filter(item => item !== null); 
+                        return { ...info, quantity: Number(row.quantity) || 0, id: itemId };
+                    }).filter(item => item !== null && item.quantity > 0); 
 
                     if (cat === 'صيد') {
                         let fishRes = await safeQuery(db, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, `SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2 LIMIT 1`, [targetUser.id, guildId]);
@@ -648,30 +648,29 @@ module.exports = {
                             return modalSubmit.reply({ content: `❌ **لا يمكنك إرسال هذه الكمية!**\nالطرف الآخر سيصل للحد الأقصى (${MAX_INVENTORY_LIMIT}).\n> يمتلك حالياً: **${targetCurrentQty}**`, flags: [MessageFlags.Ephemeral] });
                         }
 
-                        let checkInvRes = await safeQuery(db, `SELECT "quantity", "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity, id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [authorUser.id, guildId, activeItemDetails.id]);
+                        let checkInvRes = await safeQuery(db, `SELECT "quantity", "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity, id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [authorUser.id, guildId, activeItemDetails.id]);
                         const senderInvData = checkInvRes.rows[0];
 
-                        if (!senderInvData || Number(senderInvData.quantity) < qty) return modalSubmit.reply({ content: '❌ أنت لا تملك هذه الكمية في حقيبتك!', flags: [MessageFlags.Ephemeral] });
+                        // 🔥 التعديل هنا: التأكد من الكمية بشكل صارم 🔥
+                        if (!senderInvData || Number(senderInvData.quantity || senderInvData.Quantity) < qty) return modalSubmit.reply({ content: `❌ أنت لا تملك هذه الكمية في حقيبتك! (لديك: ${senderInvData ? senderInvData.quantity : 0})`, flags: [MessageFlags.Ephemeral] });
 
                         if (price === 0) {
-                            // 🔥 تم تحديث طريقة إعطاء الهدايا لضمان وصولها عبر safeExecute 🔥
-                            await db.query('BEGIN').catch(()=>{});
-                            const newSenderQty = Number(senderInvData.quantity) - qty;
+                            // 🔥 عملية الإهداء المجاني 🔥
+                            const senderIdRecord = senderInvData.id || senderInvData.ID;
+                            const newSenderQty = Number(senderInvData.quantity || senderInvData.Quantity) - qty;
+                            
                             if (newSenderQty > 0) {
-                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newSenderQty, senderInvData.id]);
+                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newSenderQty, senderIdRecord]);
                             } else {
-                                await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [senderInvData.id]);
+                                await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [senderIdRecord]);
                             }
 
-                            // التأكد من أن المستلم يمتلك العنصر أولاً لتحديث الكمية أو الإدراج كعنصر جديد
-                            const targetCheckRes = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [targetID, guildId, activeItemDetails.id]);
                             if (targetCheckRes.rows[0]) {
-                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, targetCheckRes.rows[0].id || targetCheckRes.rows[0].ID]);
+                                const targetIdRecord = targetCheckRes.rows[0].id || targetCheckRes.rows[0].ID;
+                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, targetIdRecord]);
                             } else {
                                 await safeExecute(db, `INSERT INTO user_inventory ("userID", "guildID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [targetID, guildId, activeItemDetails.id, qty]);
                             }
-
-                            await db.query('COMMIT').catch(()=>{});
 
                             await modalSubmit.reply({ content: `🎁 <@${authorUser.id}> أرسل **${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}** كهدية إلى <@${targetID}>!` });
                             
@@ -706,52 +705,46 @@ module.exports = {
                                 let checkInvFinalRes = await safeQuery(db, `SELECT "quantity", "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity, id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [authorUser.id, guildId, activeItemDetails.id]);
                                 const senderInvFinal = checkInvFinalRes.rows[0];
 
-                                if (!senderInvFinal || Number(senderInvFinal.quantity) < qty) {
+                                if (!senderInvFinal || Number(senderInvFinal.quantity || senderInvFinal.Quantity) < qty) {
                                     tradeCollector.stop('failed');
                                     return tradeMsgObj.edit({ content: `❌ فشلت الصفقة: البائع لا يملك الكمية المطلوبة حالياً!`, components: [] });
                                 }
 
-                                try {
-                                    // 🔥 تحديث المبادلة وتأمينها 🔥
-                                    await db.query('BEGIN').catch(()=>{});
-                                    const finalSenderQty = Number(senderInvFinal.quantity) - qty;
-                                    if (finalSenderQty > 0) {
-                                        await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [finalSenderQty, senderInvFinal.id || senderInvFinal.ID]);
-                                    } else {
-                                        await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [senderInvFinal.id || senderInvFinal.ID]);
-                                    }
-                                    
-                                    const targetCheckResTrade = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [targetID, guildId, activeItemDetails.id]);
-                                    if (targetCheckResTrade.rows[0]) {
-                                        await safeExecute(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, targetCheckResTrade.rows[0].id || targetCheckResTrade.rows[0].ID]);
-                                    } else {
-                                        await safeExecute(db, `INSERT INTO user_inventory ("userID", "guildID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [targetID, guildId, activeItemDetails.id, qty]);
-                                    }
-
-                                    // تحويل الرصيد
-                                    await safeExecute(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [price, targetID, guildId]);
-                                    await safeExecute(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [price, authorUser.id, guildId]);
-                                    
-                                    if (client.getLevel) {
-                                        let bUser = await client.getLevel(targetID, guildId);
-                                        if (bUser) { bUser.mora -= price; await client.setLevel(bUser); }
-                                        let sUser = await client.getLevel(authorUser.id, guildId);
-                                        if (sUser) { sUser.mora += price; await client.setLevel(sUser); }
-                                    }
-                                    
-                                    await db.query('COMMIT').catch(()=>{});
-
-                                    tradeCollector.stop('accepted');
-                                    await tradeMsgObj.edit({ content: `✅ **تمت الصفقة بنجاح!**\nاشترى <@${targetID}> ${qty}x ${activeItemDetails.name} مقابل ${price.toLocaleString()} 🪙 من <@${authorUser.id}>.`, components: [] });
-
-                                    activeItemDetails.quantity -= qty;
-                                    if(activeItemDetails.quantity <= 0) activeItemDetails = null;
-                                    await msg.edit(await renderView());
-                                } catch (e) {
-                                    await db.query('ROLLBACK').catch(()=>{});
-                                    tradeCollector.stop('error');
-                                    await tradeMsgObj.edit({ content: `❌ حدث خطأ فني أثناء الصفقة.`, components: [] });
+                                // 🔥 تحديث المبادلة وتأمينها 🔥
+                                const senderIdRecord = senderInvFinal.id || senderInvFinal.ID;
+                                const finalSenderQty = Number(senderInvFinal.quantity || senderInvFinal.Quantity) - qty;
+                                
+                                if (finalSenderQty > 0) {
+                                    await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [finalSenderQty, senderIdRecord]);
+                                } else {
+                                    await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [senderIdRecord]);
                                 }
+                                
+                                const targetCheckResTrade = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [targetID, guildId, activeItemDetails.id]);
+                                if (targetCheckResTrade.rows[0]) {
+                                    const targetIdRecord = targetCheckResTrade.rows[0].id || targetCheckResTrade.rows[0].ID;
+                                    await safeExecute(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, targetIdRecord]);
+                                } else {
+                                    await safeExecute(db, `INSERT INTO user_inventory ("userID", "guildID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [targetID, guildId, activeItemDetails.id, qty]);
+                                }
+
+                                // تحويل الرصيد
+                                await safeExecute(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [price, targetID, guildId]);
+                                await safeExecute(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [price, authorUser.id, guildId]);
+                                
+                                if (client.getLevel) {
+                                    let bUser = await client.getLevel(targetID, guildId);
+                                    if (bUser) { bUser.mora -= price; await client.setLevel(bUser); }
+                                    let sUser = await client.getLevel(authorUser.id, guildId);
+                                    if (sUser) { sUser.mora += price; await client.setLevel(sUser); }
+                                }
+
+                                tradeCollector.stop('accepted');
+                                await tradeMsgObj.edit({ content: `✅ **تمت الصفقة بنجاح!**\nاشترى <@${targetID}> ${qty}x ${activeItemDetails.name} مقابل ${price.toLocaleString()} 🪙 من <@${authorUser.id}>.`, components: [] });
+
+                                activeItemDetails.quantity -= qty;
+                                if(activeItemDetails.quantity <= 0) activeItemDetails = null;
+                                await msg.edit(await renderView());
                             });
 
                             tradeCollector.on('end', (collected, reason) => {
