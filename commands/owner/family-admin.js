@@ -12,6 +12,25 @@ const {
 
 const OWNER_ID = "1145327691772481577"; 
 
+// 🛡️ نظام استعلامات فولاذي لحماية قاعدة البيانات 🛡️
+const safeExecute = async (db, qPg, params) => {
+    try { await db.query(qPg, params); return true; } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"partnerID"/gi, "partnerid")
+            .replace(/"parentID"/gi, "parentid")
+            .replace(/"childID"/gi, "childid")
+            .replace(/"marriageDate"/gi, "marriagedate")
+            .replace(/"adoptDate"/gi, "adoptdate");
+
+        if (fallbackQuery !== qPg) {
+            try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
+        }
+        return false;
+    }
+};
+
 module.exports = {
     name: 'family-admin',
     description: 'لوحة التحكم بالعائلات (بريفكس فقط)',
@@ -85,7 +104,6 @@ module.exports = {
                 modal = new ModalBuilder().setCustomId('modal_force_adopt').setTitle('👶 تبني إجباري (يقبل المتعدد)');
                 modal.addComponents(
                     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('parent').setLabel('الأب / الأم (آيدي/منشن/اسم)').setStyle(TextInputStyle.Short)),
-                    // 🔥 تم تصغير الجملة لتصبح أقل من 45 حرف لتفادي الانهيار 🔥
                     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('children').setLabel('الأبناء (ضع مسافة بينهم للتعدد)').setStyle(TextInputStyle.Paragraph))
                 );
             } else if (choice === 'force_disown') {
@@ -111,19 +129,10 @@ module.exports = {
                     if (!u1 || !u2) return submitted.reply({ content: `❌ لم يتم العثور على الأعضاء.`, flags: [MessageFlags.Ephemeral] });
                     if (u1 === u2) return submitted.reply({ content: "❌ لا يمكنك تزويج الشخص لنفسه!", flags: [MessageFlags.Ephemeral] });
 
-                    try {
-                        await db.query(`DELETE FROM marriages WHERE "userID" = $1 OR "partnerID" = $2`, [u1, u1]);
-                        await db.query(`DELETE FROM marriages WHERE "userID" = $1 OR "partnerID" = $2`, [u2, u2]);
-                        const now = Date.now();
-                        await db.query(`INSERT INTO marriages ("userID", "partnerID", "guildID", "marriageDate") VALUES ($1, $2, $3, $4)`, [u1, u2, guildId, now]);
-                        await db.query(`INSERT INTO marriages ("userID", "partnerID", "guildID", "marriageDate") VALUES ($1, $2, $3, $4)`, [u2, u1, guildId, now]);
-                    } catch(e) {
-                        await db.query(`DELETE FROM marriages WHERE userid = $1 OR partnerid = $2`, [u1, u1]).catch(()=>{});
-                        await db.query(`DELETE FROM marriages WHERE userid = $1 OR partnerid = $2`, [u2, u2]).catch(()=>{});
-                        const now = Date.now();
-                        await db.query(`INSERT INTO marriages (userid, partnerid, guildid, marriagedate) VALUES ($1, $2, $3, $4)`, [u1, u2, guildId, now]).catch(()=>{});
-                        await db.query(`INSERT INTO marriages (userid, partnerid, guildid, marriagedate) VALUES ($1, $2, $3, $4)`, [u2, u1, guildId, now]).catch(()=>{});
-                    }
+                    // 🔥 إزالة DELETE من الطرف الأول للتعدد وعدم فسخ الزواجات السابقة 🔥
+                    const now = Date.now();
+                    await safeExecute(db, `INSERT INTO marriages ("userID", "partnerID", "guildID", "marriageDate") VALUES ($1, $2, $3, $4)`, [u1, u2, guildId, now]);
+                    await safeExecute(db, `INSERT INTO marriages ("userID", "partnerID", "guildID", "marriageDate") VALUES ($1, $2, $3, $4)`, [u2, u1, guildId, now]);
                     
                     await submitted.reply({ content: `✅ **تم تزويج <@${u1}> و <@${u2}> غصباً عنهم وبأمر الإمبراطور!**` });
                 }
@@ -133,11 +142,7 @@ module.exports = {
                     const t = await resolveUser(rawT);
                     if (!t) return submitted.reply({ content: `❌ لم يتم العثور على الشخص.`, flags: [MessageFlags.Ephemeral] });
 
-                    try {
-                        await db.query(`DELETE FROM marriages WHERE "userID" = $1 OR "partnerID" = $2`, [t, t]);
-                    } catch(e) {
-                        await db.query(`DELETE FROM marriages WHERE userid = $1 OR partnerid = $2`, [t, t]).catch(()=>{});
-                    }
+                    await safeExecute(db, `DELETE FROM marriages WHERE "userID" = $1 OR "partnerID" = $2`, [t, t]);
                     await submitted.reply({ content: `✅ **تم تطليق <@${t}> من أي شريك!**` });
                 }
                 
@@ -163,16 +168,13 @@ module.exports = {
                             continue;
                         }
 
-                        try {
-                            await db.query(`DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [c, guildId]);
-                            await db.query(`INSERT INTO children ("parentID", "childID", "adoptDate", "guildID") VALUES ($1, $2, $3, $4)`, [p, c, Date.now(), guildId]);
+                        // إزالة الآباء السابقين للطفل وضمّه للأب الجديد
+                        await safeExecute(db, `DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [c, guildId]);
+                        const success = await safeExecute(db, `INSERT INTO children ("parentID", "childID", "adoptDate", "guildID") VALUES ($1, $2, $3, $4)`, [p, c, Date.now(), guildId]);
+                        if (success) {
                             successList.push(`<@${c}>`);
-                        } catch(e) {
-                            try {
-                                await db.query(`DELETE FROM children WHERE childid = $1 AND guildid = $2`, [c, guildId]);
-                                await db.query(`INSERT INTO children (parentid, childid, adoptdate, guildid) VALUES ($1, $2, $3, $4)`, [p, c, Date.now(), guildId]);
-                                successList.push(`<@${c}>`);
-                            } catch(err) { failList.push(rawC + " (خطأ DB)"); }
+                        } else {
+                            failList.push(rawC + " (خطأ DB)");
                         }
                     }
 
@@ -188,11 +190,7 @@ module.exports = {
                     const c = await resolveUser(rawC);
                     if (!c) return submitted.reply({ content: `❌ لم يتم العثور على العضو.`, flags: [MessageFlags.Ephemeral] });
 
-                    try {
-                        await db.query(`DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [c, guildId]);
-                    } catch(e) {
-                        await db.query(`DELETE FROM children WHERE childid = $1 AND guildid = $2`, [c, guildId]).catch(()=>{});
-                    }
+                    await safeExecute(db, `DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [c, guildId]);
                     await submitted.reply({ content: `✅ **تم تحرير <@${c}> وطرده من عائلته!**` });
                 }
                 
@@ -201,15 +199,10 @@ module.exports = {
                     const t = await resolveUser(rawT);
                     if (!t) return submitted.reply({ content: `❌ لم يتم العثور على العضو.`, flags: [MessageFlags.Ephemeral] });
 
-                    try {
-                        await db.query(`DELETE FROM marriages WHERE "userID" = $1 OR "partnerID" = $2`, [t, t]);
-                        await db.query(`DELETE FROM children WHERE "childID" = $1`, [t]);
-                        await db.query(`DELETE FROM children WHERE "parentID" = $1`, [t]);
-                    } catch(e) {
-                        await db.query(`DELETE FROM marriages WHERE userid = $1 OR partnerid = $2`, [t, t]).catch(()=>{});
-                        await db.query(`DELETE FROM children WHERE childid = $1`, [t]).catch(()=>{});
-                        await db.query(`DELETE FROM children WHERE parentid = $1`, [t]).catch(()=>{});
-                    }
+                    await safeExecute(db, `DELETE FROM marriages WHERE "userID" = $1 OR "partnerID" = $2`, [t, t]);
+                    await safeExecute(db, `DELETE FROM children WHERE "childID" = $1`, [t]);
+                    await safeExecute(db, `DELETE FROM children WHERE "parentID" = $1`, [t]);
+
                     await submitted.reply({ content: `✅ **تم تصفير ونفي <@${t}> من سجلات العائلة بالكامل!**` });
                 }
 
