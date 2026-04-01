@@ -20,7 +20,7 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
     let title = "", color = "", randomImage = null;
 
     if (status === 'win') { 
-        title = "❖ أسطــورة الدانـجون !"; 
+        title = "❖ أسطـورة الدانـجون !"; 
         color = `#${Math.floor(Math.random() * 16777215).toString(16)}`; 
         randomImage = getRandomImage(WIN_IMAGES); 
     } 
@@ -128,12 +128,12 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         if (!p.repAndChestsClaimed && (sessionRep > 0 || sessionChests > 0)) {
             await safeUpdateRepAndChests(sql, p.id, guildId, sessionRep, sessionChests);
             
-            // 🎁 إضافة الصناديق كصناديق مجانية في الحقيبة لكي تظهر بالمتجر
+            // 🎁 تم تغيير free_gacha_chest إلى gacha_chest لضمان عدم ضياع الصناديق مع التجديد اليومي
             if (sessionChests > 0) {
                 try {
-                    let invRes = await sql.query(`SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'free_gacha_chest'`, [p.id, guildId]).catch(()=>({rows:[]}));
+                    let invRes = await sql.query(`SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'gacha_chest'`, [p.id, guildId]).catch(()=>({rows:[]}));
                     if (!invRes.rows || invRes.rows.length === 0) {
-                        invRes = await sql.query(`SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = 'free_gacha_chest'`, [p.id, guildId]).catch(()=>({rows:[]}));
+                        invRes = await sql.query(`SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = 'gacha_chest'`, [p.id, guildId]).catch(()=>({rows:[]}));
                     }
                     
                     if (invRes.rows && invRes.rows.length > 0) {
@@ -141,8 +141,8 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                         await sql.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [sessionChests, rowId])
                         .catch(() => sql.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE id = $2`, [sessionChests, rowId]).catch(()=>{}));
                     } else {
-                        await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, p.id, sessionChests])
-                        .catch(() => sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, p.id, sessionChests]).catch(()=>{}));
+                        await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, p.id, sessionChests])
+                        .catch(() => sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, p.id, sessionChests]).catch(()=>{}));
                     }
                 } catch(e) { console.error("Error adding gacha chests", e); }
             }
