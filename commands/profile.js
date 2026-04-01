@@ -63,9 +63,29 @@ try {
     };
 }
 
+// 🛡️ نظام معالجة الاستعلامات الفولاذي 🛡️
 const safeQuery = async (db, qPg, qLite, params) => {
     try { return await db.query(qPg, params); } 
     catch(e) { return await db.query(qLite, params).catch(()=>({rows:[]})); }
+};
+
+const safeExecute = async (db, qPg, params) => {
+    try { await db.query(qPg, params); return true; } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"itemID"/gi, "itemid")
+            .replace(/"quantity"/gi, "quantity")
+            .replace(/"mora"/gi, "mora")
+            .replace(/"bank"/gi, "bank")
+            .replace(/"user"/gi, "userid")
+            .replace(/"guild"/gi, "guildid");
+
+        if (fallbackQuery !== qPg) {
+            try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
+        }
+        return false;
+    }
 };
 
 const upgradeMats = require('../json/upgrade-materials.json');
@@ -91,7 +111,6 @@ function getRepRankInfo(points) {
     return { name: '🪵 رتبة F', color: '#654321' }; 
 }
 
-// 🔥 دوال الحسبة الجديدة (Hard Sync) للبروفايل 🔥
 function getWeaponDisplayDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     const base = weaponConfig.base_damage;
@@ -103,6 +122,7 @@ function getWeaponDisplayDamage(weaponConfig, level) {
         const damageAt15 = base + (inc * 14);
         const targetDamageAt30 = 800;
         const levelsRemaining = 15; 
+        if (damageAt15 >= targetDamageAt30) return Math.floor(base + (inc * (level - 1)));
         const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
         let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
         if (level >= 30) return targetDamageAt30;
@@ -117,17 +137,21 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
     const inc = skillConfig.value_increment;
     const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
 
+    let finalValue = 0;
     if (level <= 15) {
-        return Math.floor(base + (inc * (level - 1)));
+        finalValue = base + (inc * (level - 1));
     } else {
         const valueAt15 = base + (inc * 14);
         const targetValueAt30 = isPercentage ? 50 : 200; 
         const levelsRemaining = 15;
-        const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
-        let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
-        if (level >= 30) return targetValueAt30;
-        return Math.floor(finalValue);
+        if (valueAt15 >= targetValueAt30) finalValue = base + (inc * (level - 1));
+        else {
+             const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
+             finalValue = valueAt15 + (dynamicIncrement * (level - 15));
+             if (level >= 30) finalValue = targetValueAt30;
+        }
     }
+    return isPercentage ? Number(finalValue.toFixed(1)) : Math.floor(finalValue);
 }
 
 async function calculateStrongestRank(db, guildID, targetUserID) {
@@ -147,7 +171,7 @@ async function calculateStrongestRank(db, guildID, targetUserID) {
             const conf = weaponsConfig.find(c => c.race === (w.raceName || w.racename));
             if(!conf) continue;
             const wLvl = w.weaponLevel || w.weaponlevel || 1;
-            const dmg = getWeaponDisplayDamage(conf, wLvl); // استخدام الحسبة الجديدة هنا
+            const dmg = getWeaponDisplayDamage(conf, wLvl);
             const playerLevel = levelsMap.get(w.userID) || 1;
             const hp = PROFILE_BASE_HP + (playerLevel * PROFILE_HP_PER_LEVEL);
             const skillLevelsTotal = skillsMap.get(w.userID) || 0;
@@ -261,7 +285,7 @@ module.exports = {
                     
                     fetchedItems = tempItems.filter(it => it.category === cat);
                     
-                    // 🔥 ترتيب العناصر من الأندر إلى الأقل ندرة 🔥
+                    // ترتيب العناصر من الأندر
                     fetchedItems.sort((a, b) => {
                         const rankA = RARITY_ORDER[a.rarity] || 0;
                         const rankB = RARITY_ORDER[b.rarity] || 0;
@@ -291,7 +315,6 @@ module.exports = {
                 const weaponName = wpnRes ? wpnRes.name : "بدون سلاح";
                 const streakData = streakRes?.rows?.[0] || {};
                 
-                // استخدام الحسبة الجديدة للضرر المحدث (لصورة البروفايل الرئيسية)
                 const weaponDmg = wpnRes ? getWeaponDisplayDamage(wpnRes, wpnRes.currentLevel) : 0;
 
                 if (currentView === 'profile') {
@@ -318,7 +341,7 @@ module.exports = {
                         user: targetUser, displayName: cleanName, rankInfo, repPoints,
                         level: levelData.level, currentXP: Number(levelData.xp), requiredXP: calculateRequiredXP(levelData.level),
                         mora: (targetUser.id === TARGET_OWNER_ID && authorUser.id !== TARGET_OWNER_ID) ? "???" : totalMora.toLocaleString(),
-                        raceName: arabicRaceName, weaponName, weaponDmg: weaponDmg, // استخدام الضرر المحدث هنا
+                        raceName: arabicRaceName, weaponName, weaponDmg: weaponDmg,
                         maxHp: PROFILE_BASE_HP + (levelData.level * PROFILE_HP_PER_LEVEL), streakCount: streakData.streakCount || streakData.streakcount || 0,
                         xpBuff: Math.floor((xpBuff - 1) * 100), moraBuff: Math.floor((moraBuff - 1) * 100),
                         shields: Number(streakData.hasItemShield || 0) + (streakData.hasGracePeriod === 1 ? 1 : 0), ranks
@@ -338,11 +361,10 @@ module.exports = {
                         const skillRes = await safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillLevel" > 0`, `SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2 AND skilllevel > 0`, [targetUser.id, guildId]);
                         allSkills = (skillRes?.rows || []).map(s => {
                             const conf = skillsConfig.find(sc => sc.id === (s.skillID || s.skillid));
-                            // تحديث قوة المهارة لتتوافق مع نظام الـ Hard Sync الجديد
                             if (conf) {
                                 const realValue = getSkillDisplayValue(conf, s.skillLevel || s.skilllevel);
                                 const isPercent = conf.stat_type === '%' ? '%' : '';
-                                const updatedDescription = conf.description.replace(/[0-9]+%?/, `${realValue}${isPercent}`); // محاولة تعديل الوصف بذكاء لعرض الرقم الصحيح
+                                const updatedDescription = conf.description.replace(/[0-9]+%?/, `${realValue}${isPercent}`);
                                 
                                 return { id: conf.id, name: conf.name, level: s.skillLevel || s.skilllevel, description: updatedDescription };
                             }
@@ -354,10 +376,7 @@ module.exports = {
                     const totalSkillPages = Math.max(1, Math.ceil(allSkills.length / SKILLS_PER_PAGE));
                     const slice = allSkills.slice(skillPage * SKILLS_PER_PAGE, (skillPage + 1) * SKILLS_PER_PAGE);
                     
-                    // تمرير بيانات السلاح المحدثة لملف generateSkillsCard
-                    if (wpnRes) {
-                        wpnRes.currentDamage = weaponDmg;
-                    }
+                    if (wpnRes) { wpnRes.currentDamage = weaponDmg; }
 
                     const cardData = {
                         user: targetUser, avatarUrl: targetUser.displayAvatarURL({ extension: 'png', size: 256 }),
@@ -635,15 +654,23 @@ module.exports = {
                         if (!senderInvData || Number(senderInvData.quantity) < qty) return modalSubmit.reply({ content: '❌ أنت لا تملك هذه الكمية في حقيبتك!', flags: [MessageFlags.Ephemeral] });
 
                         if (price === 0) {
+                            // 🔥 تم تحديث طريقة إعطاء الهدايا لضمان وصولها عبر safeExecute 🔥
                             await db.query('BEGIN').catch(()=>{});
                             const newSenderQty = Number(senderInvData.quantity) - qty;
                             if (newSenderQty > 0) {
-                                await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newSenderQty, senderInvData.id]);
+                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newSenderQty, senderInvData.id]);
                             } else {
-                                await db.query(`DELETE FROM user_inventory WHERE "id" = $1`, [senderInvData.id]);
+                                await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [senderInvData.id]);
                             }
 
-                            await db.query(`INSERT INTO user_inventory ("userID", "guildID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "itemID") DO UPDATE SET "quantity" = LEAST(user_inventory."quantity" + $4, 999)`, [targetID, guildId, activeItemDetails.id, qty]);
+                            // التأكد من أن المستلم يمتلك العنصر أولاً لتحديث الكمية أو الإدراج كعنصر جديد
+                            const targetCheckRes = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [targetID, guildId, activeItemDetails.id]);
+                            if (targetCheckRes.rows[0]) {
+                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, targetCheckRes.rows[0].id || targetCheckRes.rows[0].ID]);
+                            } else {
+                                await safeExecute(db, `INSERT INTO user_inventory ("userID", "guildID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [targetID, guildId, activeItemDetails.id, qty]);
+                            }
+
                             await db.query('COMMIT').catch(()=>{});
 
                             await modalSubmit.reply({ content: `🎁 <@${authorUser.id}> أرسل **${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}** كهدية إلى <@${targetID}>!` });
@@ -676,7 +703,7 @@ module.exports = {
                                 
                                 if (targetMora < price) return btn.followUp({ content: '❌ لا تملك المورا الكافية!', flags: [MessageFlags.Ephemeral] });
 
-                                let checkInvFinalRes = await safeQuery(db, `SELECT "quantity", "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity, id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [authorUser.id, guildId, activeItemDetails.id]);
+                                let checkInvFinalRes = await safeQuery(db, `SELECT "quantity", "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT quantity, id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [authorUser.id, guildId, activeItemDetails.id]);
                                 const senderInvFinal = checkInvFinalRes.rows[0];
 
                                 if (!senderInvFinal || Number(senderInvFinal.quantity) < qty) {
@@ -685,19 +712,26 @@ module.exports = {
                                 }
 
                                 try {
+                                    // 🔥 تحديث المبادلة وتأمينها 🔥
                                     await db.query('BEGIN').catch(()=>{});
                                     const finalSenderQty = Number(senderInvFinal.quantity) - qty;
                                     if (finalSenderQty > 0) {
-                                        await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [finalSenderQty, senderInvFinal.id]);
+                                        await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [finalSenderQty, senderInvFinal.id || senderInvFinal.ID]);
                                     } else {
-                                        await db.query(`DELETE FROM user_inventory WHERE "id" = $1`, [senderInvFinal.id]);
+                                        await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [senderInvFinal.id || senderInvFinal.ID]);
                                     }
                                     
-                                    await db.query(`INSERT INTO user_inventory ("userID", "guildID", "itemID", "quantity") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "itemID") DO UPDATE SET "quantity" = LEAST(user_inventory."quantity" + $4, 999)`, [targetID, guildId, activeItemDetails.id, qty]);
-                                    await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [price, targetID, guildId]).catch(()=> db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [price, targetID, guildId]));
-                                    await db.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [price, authorUser.id, guildId]).catch(()=> db.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [price, authorUser.id, guildId]));
+                                    const targetCheckResTrade = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [targetID, guildId, activeItemDetails.id]);
+                                    if (targetCheckResTrade.rows[0]) {
+                                        await safeExecute(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qty, targetCheckResTrade.rows[0].id || targetCheckResTrade.rows[0].ID]);
+                                    } else {
+                                        await safeExecute(db, `INSERT INTO user_inventory ("userID", "guildID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [targetID, guildId, activeItemDetails.id, qty]);
+                                    }
+
+                                    // تحويل الرصيد
+                                    await safeExecute(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [price, targetID, guildId]);
+                                    await safeExecute(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [price, authorUser.id, guildId]);
                                     
-                                    // مسح الكاش من البوت لو موجود
                                     if (client.getLevel) {
                                         let bUser = await client.getLevel(targetID, guildId);
                                         if (bUser) { bUser.mora -= price; await client.setLevel(bUser); }
