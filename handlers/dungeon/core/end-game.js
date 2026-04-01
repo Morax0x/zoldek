@@ -13,7 +13,7 @@ try {
     } catch(err) {}
 }
 
-// 🛡️ نظام الاستعلام الفولاذي الشامل 🛡️
+// 🛡️ نظام معالجة استعلامات فولاذي لقراءة وتحديث البيانات
 const safeQuery = async (db, qPg, params) => {
     try { 
         let res = await db.query(qPg, params); 
@@ -146,10 +146,9 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
             }
         }
 
-        // 🔥 نظام الجوائز الفولاذي المنيع (السمعة والصناديق) يحسب ويوزع بدون فشل 🔥
+        // 🔥 نظام الجوائز الفولاذي המنيع: يقرأ داخلياً بدون LOWER في الـ SQL 🔥
         if (!p.repAndChestsClaimed && (sessionRep > 0 || sessionChests > 0)) {
             
-            // 1. تحديث السمعة
             if (sessionRep > 0) {
                 let repRes = await safeQuery(sql, `SELECT * FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [p.id, guildId]);
                 if (repRes.rows && repRes.rows.length > 0) {
@@ -159,13 +158,12 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 }
             }
             
-            // 2. إضافة الصناديق (بمستشعر ذكي لـ ID)
             if (sessionChests > 0) {
-                let invRes = await safeQuery(sql, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [p.id, guildId]);
+                let allInvRes = await safeQuery(sql, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [p.id, guildId]);
                 let targetRow = null;
                 
-                if (invRes.rows) {
-                    targetRow = invRes.rows.find(r => {
+                if (allInvRes.rows) {
+                    targetRow = allInvRes.rows.find(r => {
                         const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
                         return idKey && String(r[idKey]).toLowerCase().trim() === 'gacha_chest';
                     });
