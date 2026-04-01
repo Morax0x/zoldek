@@ -1,17 +1,10 @@
-const { 
-    EmbedBuilder, 
-    ActionRowBuilder, 
-    ButtonBuilder, 
-    ButtonStyle, 
-    Colors,
-    ComponentType,
-    MessageFlags 
-} = require('discord.js');
-
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, ComponentType, MessageFlags } = require('discord.js');
 const { EMOJI_MORA, EMOJI_XP } = require('../constants');
 const { getBaseFloorMora, manageCampfires } = require('../utils');
-const { snapshotLootAtFloor20, handleMemberRetreat, safeUpdateRepAndChests } = require('../core/rewards');
 const { handleLeaderSuccession } = require('../core/battle-utils');
+
+// الملف اللي فيه الهاندلرز الوهمية لتجهيز الأرقام (تأكد من تعديل المسار إذا كان مختلف)
+const { snapshotLootAtFloor20, handleMemberRetreat } = require('../core/rewards'); 
 
 async function applyPostBattleUpdates(players, floor, threadChannel, totals) {
     let baseMora = Math.floor(getBaseFloorMora(floor));
@@ -56,7 +49,6 @@ async function applyPostBattleUpdates(players, floor, threadChannel, totals) {
     });
 }
 
-// الدالة الآن تحسب من الطابق 1 دائماً فقط للعرض البصري عشان اللاعب يشوف إنجازه الكلي
 function calculateTotalLootForDisplay(currentFloor) {
     const repMilestones = {
         20: 1, 30: 1, 35: 1, 40: 1, 45: 1, 50: 1,
@@ -190,13 +182,13 @@ async function handleRestMenu(context) {
                     if (pIndex > -1) {
                         const leavingPlayer = players[pIndex];
                         leavingPlayer.retreatFloor = floor;
-                        // نمرر startFloor عشان نعطيه جوائزه فقط للجلسة اللي لعبها الآن
+                        
+                        // 🔥 هنا الإختلاف الجذري: نستلم الأرقام ونحط علامة بس ما ننفذ داتا بيز لأن ملف النهاية سيفعل ذلك! 🔥
                         const rewards = await handleMemberRetreat(leavingPlayer, floor, db, guild.id, threadChannel, startFloor);
                         retreatedPlayers.push(leavingPlayer);
                         players.splice(pIndex, 1); 
                         
                         let extraMsg = "";
-                        // العرض البصري للرسالة هنا نحسبها من نقطة البداية
                         let pRepReward = 0; let pChests = 0;
                         const repM = { 20: 1, 30: 1, 35: 1, 40: 1, 45: 1, 50: 1, 55: 2, 60: 2, 65: 3, 70: 3, 75: 4, 80: 5, 85: 5, 90: 5, 95: 5, 100: 5 };
                         for(let x = startFloor; x <= floor; x++) { if(repM[x]) pRepReward+=repM[x]; if(x%10===0) pChests++; }
@@ -204,8 +196,8 @@ async function handleRestMenu(context) {
                         if (pRepReward > 0) extraMsg += ` و **${pRepReward}** 🌟 REP`;
                         if (pChests > 0) extraMsg += ` و **${pChests}** 🎁 Box`;
 
-                        await i.reply({ content: `👋 **انسحبت!** وحصلت على: **${rewards.mora}** مورا و **${rewards.xp}** XP${extraMsg}.`, flags: [MessageFlags.Ephemeral] });
-                        await threadChannel.send(`💨 **${leavingPlayer.name}** انسحب واكتفى بغنائمه!`).catch(()=>{});
+                        await i.reply({ content: `👋 **انسحبت!** غنائمك في الحفظ والصون وسوف تسجل في التقرير النهائي للدانجون!`, flags: [MessageFlags.Ephemeral] });
+                        await threadChannel.send(`💨 **${leavingPlayer.name}** انسحب بسلام وبانتظار التقرير النهائي!`).catch(()=>{});
                         
                         if (players.length === 0) decCollector.stop('retreat');
                         if (leavingPlayer.class === 'Leader') handleLeaderSuccession(players, log);
