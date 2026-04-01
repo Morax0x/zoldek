@@ -45,13 +45,7 @@ const RACE_TRANSLATIONS = new Map([
     ['Spirit', 'روح'], ['Dwarf', 'قزم'], ['Ghoul', 'غول'], ['Hybrid', 'نصف وحش']
 ]);
 
-const RARITY_ORDER = {
-    'Legendary': 5,
-    'Epic': 4,
-    'Rare': 3,
-    'Uncommon': 2,
-    'Common': 1
-};
+const RARITY_ORDER = { 'Legendary': 5, 'Epic': 4, 'Rare': 3, 'Uncommon': 2, 'Common': 1 };
 
 let resolveItemInfoLocal;
 try {
@@ -115,7 +109,6 @@ function getWeaponDisplayDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     const base = weaponConfig.base_damage;
     const inc = weaponConfig.damage_increment;
-
     if (level <= 15) {
         return Math.floor(base + (inc * (level - 1)));
     } else {
@@ -184,6 +177,80 @@ async function calculateStrongestRank(db, guildID, targetUserID) {
     } catch (e) { return 1; }
 }
 
+// 🔥 دوال الفحص والخصم الفولاذية المطورة لدعم التجزؤ 🔥
+async function checkItems(db, userId, guildId, itemsArray) {
+    if (!itemsArray || itemsArray.length === 0) return true;
+    let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+    if(!res || !res.rows) return false;
+
+    let requiredMap = {};
+    for (let item of itemsArray) {
+        const reqId = String(item.id).toLowerCase().trim();
+        requiredMap[reqId] = (requiredMap[reqId] || 0) + Number(item.count);
+    }
+
+    let userMap = {};
+    res.rows.forEach(r => {
+        const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+        const dbQty = Number(r.quantity || r.Quantity || 0); 
+        userMap[dbItemId] = (userMap[dbItemId] || 0) + dbQty;
+    });
+
+    for (let reqId in requiredMap) {
+        if ((userMap[reqId] || 0) < requiredMap[reqId]) return false;
+    }
+    return true;
+}
+
+async function deductItems(db, userId, guildId, itemsArray) {
+    if (!itemsArray || itemsArray.length === 0) return true;
+    let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+    
+    let requiredMap = {};
+    for (let item of itemsArray) {
+        const reqId = String(item.id).toLowerCase().trim();
+        requiredMap[reqId] = (requiredMap[reqId] || 0) + Number(item.count);
+    }
+
+    for (let reqId in requiredMap) {
+        let remainingToDeduct = requiredMap[reqId];
+        for (let r of res.rows) {
+            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+            if (dbItemId !== reqId) continue;
+            if (remainingToDeduct <= 0) break;
+
+            const q = Number(r.quantity || r.Quantity || 0);
+            if (q <= 0) continue;
+            
+            const deduct = Math.min(q, remainingToDeduct);
+            const rowId = r.id || r.ID;
+            
+            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, rowId]);
+            
+            remainingToDeduct -= deduct;
+            r.quantity = q - deduct; 
+        }
+    }
+    await safeExecute(db, `DELETE FROM user_inventory WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    return true;
+}
+
+async function deductMora(db, userId, guildId, amount) {
+    if (amount <= 0) return true;
+    let res = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+    if (!res || !res.rows || res.rows.length === 0) return false;
+
+    let mora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
+    let bank = Number(res.rows[0].bank || res.rows[0].Bank || 0);
+
+    if (mora + bank < amount) return false;
+    if (mora >= amount) mora -= amount;
+    else { let diff = amount - mora; mora = 0; bank -= diff; }
+
+    await safeExecute(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [mora, bank, userId, guildId]);
+    return true;
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('بروفايل')
@@ -227,6 +294,10 @@ module.exports = {
             let selectedIndex = 0; 
             let activeItemDetails = null; 
 
+            // ⚡ نظام الكاش الذكي لتسريع التنقل بين العناصر ⚡
+            let cachedItems = null;
+            let cachedCategory = null;
+
             let commandTrigger = "";
             if (!isSlash) {
                 const firstWord = interactionOrMessage.content.trim().split(/ +/)[0].toLowerCase();
@@ -246,10 +317,19 @@ module.exports = {
                 let fetchedItems = [];
                 try {
                     const invQuery = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]);
-                    let tempItems = (invQuery?.rows || []).map(row => {
-                        const itemId = row.itemID || row.itemid;
-                        if (itemId === 'gacha_chest' || itemId === 'free_gacha_chest') return null;
+                    
+                    // دمج الكميات بشكل صحيح قبل المعالجة
+                    let aggregatedInv = new Map();
+                    (invQuery?.rows || []).forEach(row => {
+                        const itemId = String(row.itemID || row.itemid || '').trim();
+                        const qty = Number(row.quantity || row.Quantity || 0);
+                        if (itemId !== 'gacha_chest' && itemId !== 'free_gacha_chest') {
+                            aggregatedInv.set(itemId, (aggregatedInv.get(itemId) || 0) + qty);
+                        }
+                    });
 
+                    let tempItems = [];
+                    aggregatedInv.forEach((qty, itemId) => {
                         let info = resolveItemInfoLocal(itemId);
                         info = { ...info }; 
                         
@@ -268,11 +348,8 @@ module.exports = {
                             if (!isBait && !isRod && !isBoat) info.category = 'أخرى'; 
                         }
 
-                        // توحيد اسم الكمية بغض النظر عن الحالة (Q أو q)
-                        const quantity = Number(row.quantity || row.Quantity || 0);
-
-                        return { ...info, quantity: quantity, id: itemId };
-                    }).filter(item => item !== null); 
+                        tempItems.push({ ...info, quantity: qty, id: itemId });
+                    });
 
                     if (cat === 'صيد') {
                         let fishRes = await safeQuery(db, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, `SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2 LIMIT 1`, [targetUser.id, guildId]);
@@ -288,7 +365,6 @@ module.exports = {
                     
                     fetchedItems = tempItems.filter(it => it.category === cat);
                     
-                    // ترتيب العناصر من الأندر
                     fetchedItems.sort((a, b) => {
                         const rankA = RARITY_ORDER[a.rarity] || 0;
                         const rankB = RARITY_ORDER[b.rarity] || 0;
@@ -300,27 +376,27 @@ module.exports = {
             };
 
             const renderView = async () => {
-                const [lvlRes, repRes, raceRes, wpnRes, streakRes] = await Promise.all([
-                    safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]),
-                    safeQuery(db, `SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, `SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]),
-                    getUserRace(targetMember, db).catch(()=>null),
-                    getWeaponData(db, targetMember).catch(()=>null),
-                    safeQuery(db, `SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, `SELECT * FROM streaks WHERE guildid = $1 AND userid = $2`, [guildId, targetUser.id])
-                ]);
-
-                const levelData = lvlRes?.rows?.[0] || { xp: 0, level: 1, mora: 0, bank: 0, totalXP: 0 };
-                const totalMora = Number(levelData.mora || 0) + Number(levelData.bank || 0);
-                const repPoints = repRes?.rows?.[0]?.rep_points || 0;
-                const rankInfo = getRepRankInfo(repPoints);
-
-                const raceNameRaw = raceRes?.raceName || null;
-                const arabicRaceName = RACE_TRANSLATIONS.get(raceNameRaw) || raceNameRaw || "بشري";
-                const weaponName = wpnRes ? wpnRes.name : "بدون سلاح";
-                const streakData = streakRes?.rows?.[0] || {};
-                
-                const weaponDmg = wpnRes ? getWeaponDisplayDamage(wpnRes, wpnRes.currentLevel) : 0;
-
+                // 🔥 الفلتر الذكي: عدم تحميل معلومات البروفايل المعقدة إذا كان اللاعب يقلب في الشنطة فقط 🔥
                 if (currentView === 'profile') {
+                    const [lvlRes, repRes, raceRes, wpnRes, streakRes] = await Promise.all([
+                        safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]),
+                        safeQuery(db, `SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, `SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]),
+                        getUserRace(targetMember, db).catch(()=>null),
+                        getWeaponData(db, targetMember).catch(()=>null),
+                        safeQuery(db, `SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, `SELECT * FROM streaks WHERE guildid = $1 AND userid = $2`, [guildId, targetUser.id])
+                    ]);
+
+                    const levelData = lvlRes?.rows?.[0] || { xp: 0, level: 1, mora: 0, bank: 0, totalXP: 0 };
+                    const totalMora = Number(levelData.mora || 0) + Number(levelData.bank || 0);
+                    const repPoints = repRes?.rows?.[0]?.rep_points || 0;
+                    const rankInfo = getRepRankInfo(repPoints);
+
+                    const raceNameRaw = raceRes?.raceName || null;
+                    const arabicRaceName = RACE_TRANSLATIONS.get(raceNameRaw) || raceNameRaw || "بشري";
+                    const weaponName = wpnRes ? wpnRes.name : "بدون سلاح";
+                    const streakData = streakRes?.rows?.[0] || {};
+                    const weaponDmg = wpnRes ? getWeaponDisplayDamage(wpnRes, wpnRes.currentLevel) : 0;
+
                     let xpBuff = 1, moraBuff = 1;
                     try { xpBuff = await calculateBuffMultiplier(targetMember, db); } catch(e) {}
                     try { moraBuff = await calculateMoraBuff(targetMember, db); } catch(e) {}
@@ -337,7 +413,7 @@ module.exports = {
                             ranks.mora = (moraR?.rows?.[0]?.rank || 1).toString();
                             ranks.streak = (strkR?.rows?.[0]?.rank || 1).toString();
                             ranks.power = (await calculateStrongestRank(db, guildId, targetUser.id)).toString();
-                        } catch (e) { console.error("Ranks fetch error", e); }
+                        } catch (e) {}
                     }
 
                     const profData = {
@@ -359,6 +435,16 @@ module.exports = {
                 }
 
                 if (currentView === 'combat') {
+                    const [lvlRes, raceRes, wpnRes] = await Promise.all([
+                        safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]),
+                        getUserRace(targetMember, db).catch(()=>null),
+                        getWeaponData(db, targetMember).catch(()=>null)
+                    ]);
+                    const levelData = lvlRes?.rows?.[0] || { level: 1 };
+                    const raceNameRaw = raceRes?.raceName || null;
+                    const arabicRaceName = RACE_TRANSLATIONS.get(raceNameRaw) || raceNameRaw || "بشري";
+                    const weaponDmg = wpnRes ? getWeaponDisplayDamage(wpnRes, wpnRes.currentLevel) : 0;
+
                     let allSkills = [];
                     try {
                         const skillRes = await safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillLevel" > 0`, `SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2 AND skilllevel > 0`, [targetUser.id, guildId]);
@@ -368,7 +454,6 @@ module.exports = {
                                 const realValue = getSkillDisplayValue(conf, s.skillLevel || s.skilllevel);
                                 const isPercent = conf.stat_type === '%' ? '%' : '';
                                 const updatedDescription = conf.description.replace(/[0-9]+%?/, `${realValue}${isPercent}`);
-                                
                                 return { id: conf.id, name: conf.name, level: s.skillLevel || s.skilllevel, description: updatedDescription };
                             }
                             return null;
@@ -379,7 +464,7 @@ module.exports = {
                     const totalSkillPages = Math.max(1, Math.ceil(allSkills.length / SKILLS_PER_PAGE));
                     const slice = allSkills.slice(skillPage * SKILLS_PER_PAGE, (skillPage + 1) * SKILLS_PER_PAGE);
                     
-                    if (wpnRes) { wpnRes.currentDamage = weaponDmg; }
+                    if (wpnRes) wpnRes.currentDamage = weaponDmg;
 
                     const cardData = {
                         user: targetUser, avatarUrl: targetUser.displayAvatarURL({ extension: 'png', size: 256 }),
@@ -398,6 +483,8 @@ module.exports = {
 
                 if (currentView === 'inventory') {
                     if (invCategory === 'main') {
+                        const lvlRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]);
+                        const totalMora = Number(lvlRes?.rows?.[0]?.mora || 0) + Number(lvlRes?.rows?.[0]?.bank || 0);
                         const displayMora = (targetUser.id === TARGET_OWNER_ID && authorUser.id !== TARGET_OWNER_ID) ? "???" : totalMora.toLocaleString();
                         const buffer = await generateMainHub(targetMember, db, displayMora);
                         
@@ -406,7 +493,6 @@ module.exports = {
                             new ButtonBuilder().setCustomId(`c_fis_${authorUser.id}`).setLabel('صـيد').setStyle(ButtonStyle.Secondary).setEmoji('🎣'), 
                             new ButtonBuilder().setCustomId(`c_far_${authorUser.id}`).setLabel('مـزرعـة').setStyle(ButtonStyle.Success).setEmoji('🌾') 
                         );
-                        
                         const row2 = new ActionRowBuilder().addComponents(
                             new ButtonBuilder().setCustomId(`v_port_${authorUser.id}`).setLabel('ممـتـلكـات').setStyle(ButtonStyle.Primary).setEmoji('💼'), 
                             new ButtonBuilder().setCustomId(`c_oth_${authorUser.id}`).setLabel('اخـرى').setStyle(ButtonStyle.Secondary).setEmoji('📦'), 
@@ -418,143 +504,115 @@ module.exports = {
 
                     if (activeItemDetails) {
                         if (!generateItemDetailsCard) return { content: "❌ لا يمكن رسم صفحة العنصر حالياً.", components: [] };
-                        
                         const buffer = await generateItemDetailsCard(cleanName, activeItemDetails);
                         const btnRow = new ActionRowBuilder().addComponents(
                             new ButtonBuilder().setCustomId(`d_back_${authorUser.id}`).setLabel('العـودة').setStyle(ButtonStyle.Secondary).setEmoji('↩️')
                         );
                         
                         if (targetUser.id === authorUser.id && !['current_rod', 'current_boat'].includes(activeItemDetails.id)) {
-                            btnRow.addComponents(new ButtonBuilder().setCustomId(`trade_init_${authorUser.id}`).setLabel('إعـطـاء').setStyle(ButtonStyle.Primary).setEmoji('🎁'));
-                            
+                            btnRow.addComponents(new ButtonBuilder().setCustomId(`trade_init_${authorUser.id}`).setLabel('إعـطـاء / مبـادلـة').setStyle(ButtonStyle.Primary).setEmoji('🎁'));
                             if (isSmeltable(activeItemDetails.id)) {
                                 btnRow.addComponents(new ButtonBuilder().setCustomId(`route_smelt_${activeItemDetails.id}`).setLabel('صـهـر').setStyle(ButtonStyle.Danger).setEmoji('🌋'));
-                                
                                 if (activeItemDetails.quantity >= 4) {
                                     btnRow.addComponents(new ButtonBuilder().setCustomId(`route_synth_${activeItemDetails.id}`).setLabel('دمـج').setStyle(ButtonStyle.Success).setEmoji('⚗️'));
                                 }
                             }
                         }
-
                         return { content: '', files: [new AttachmentBuilder(buffer, { name: 'item.png' })], components: [btnRow] };
                     }
 
                     let items = [];
                     let totalValue = 0;
 
-                    if (invCategory === 'market') {
-                        let portfolio = [];
-                        let dbMarketRes = { rows: [] };
-                        try {
-                            const [portRes, marketRes] = await Promise.all([
-                                safeQuery(db, `SELECT * FROM user_portfolio WHERE "guildID" = $1 AND "userID" = $2`, `SELECT * FROM user_portfolio WHERE guildid = $1 AND userid = $2`, [guildId, targetUser.id]),
-                                db.query("SELECT * FROM market_items").catch(()=>({rows:[]}))
-                            ]);
-                            portfolio = portRes?.rows || [];
-                            dbMarketRes = marketRes || { rows: [] };
-                        } catch(e) {}
+                    // 🔥 استخدام الكاش لتسريع الواجهة وعدم جلب البيانات من الداتا بيز إلا للضرورة 🔥
+                    if (cachedCategory !== invCategory || !cachedItems) {
+                        if (invCategory === 'market') {
+                            let portfolio = [];
+                            let dbMarketRes = { rows: [] };
+                            try {
+                                const [portRes, marketRes] = await Promise.all([
+                                    safeQuery(db, `SELECT * FROM user_portfolio WHERE "guildID" = $1 AND "userID" = $2`, `SELECT * FROM user_portfolio WHERE guildid = $1 AND userid = $2`, [guildId, targetUser.id]),
+                                    db.query("SELECT * FROM market_items").catch(()=>({rows:[]}))
+                                ]);
+                                portfolio = portRes?.rows || [];
+                                dbMarketRes = marketRes || { rows: [] };
+                            } catch(e) {}
 
-                        const market = new Map(marketConfig.map(item => [item.id, item]));
-                        let dbMarketPrices = new Map((dbMarketRes?.rows || []).map(row => [row.id, Number(row.currentPrice || row.currentprice)]));
+                            const market = new Map(marketConfig.map(item => [item.id, item]));
+                            let dbMarketPrices = new Map((dbMarketRes?.rows || []).map(row => [row.id, Number(row.currentPrice || row.currentprice)]));
 
-                        for (const row of portfolio) {
-                            const itemID = row.itemID || row.itemid;
-                            const marketItem = market.get(itemID);
-                            if (!marketItem) continue;
+                            for (const row of portfolio) {
+                                const itemID = row.itemID || row.itemid;
+                                const marketItem = market.get(itemID);
+                                if (!marketItem) continue;
 
-                            let currentPrice = dbMarketPrices.has(itemID) ? dbMarketPrices.get(itemID) : marketItem.price;
-                            const quantity = Number(row.quantity) || 0;
-                            if (quantity <= 0) continue;
+                                let currentPrice = dbMarketPrices.has(itemID) ? dbMarketPrices.get(itemID) : marketItem.price;
+                                const quantity = Number(row.quantity) || 0;
+                                if (quantity <= 0) continue;
 
-                            const itemTotalValue = currentPrice * quantity;
-                            totalValue += itemTotalValue;
+                                const itemTotalValue = currentPrice * quantity;
+                                totalValue += itemTotalValue;
 
-                            let purchasePrice = Number(row.purchasePrice || row.purchaseprice) || 0;
-                            const info = resolveItemInfoLocal(itemID);
-                            
-                            info.description = `${info.description || ''}\n\n📊 السعر الحالي: ${currentPrice.toLocaleString()} 🪙\n💰 سعر الشراء: ${purchasePrice.toLocaleString()} 🪙\n💎 القيمة الإجمالية: ${(currentPrice * quantity).toLocaleString()} 🪙`;
-                            items.push({ ...info, name: marketItem.name, quantity, id: itemID, purchasePrice, currentPrice, itemTotalValue });
-                        }
-
-                        const totalPages = Math.max(1, Math.ceil(items.length / 9)); 
-                        const slice = items.slice((invPage-1)*9, invPage*9);
-
-                        let buffer;
-                        if (generatePortfolioCard) {
-                            buffer = await generatePortfolioCard(cleanName, slice, invPage, totalPages, totalValue);
+                                let purchasePrice = Number(row.purchasePrice || row.purchaseprice) || 0;
+                                const info = resolveItemInfoLocal(itemID);
+                                
+                                info.description = `${info.description || ''}\n\n📊 السعر الحالي: ${currentPrice.toLocaleString()} 🪙\n💰 سعر الشراء: ${purchasePrice.toLocaleString()} 🪙\n💎 القيمة الإجمالية: ${(currentPrice * quantity).toLocaleString()} 🪙`;
+                                items.push({ ...info, name: marketItem.name, quantity, id: itemID, purchasePrice, currentPrice, itemTotalValue });
+                            }
                         } else {
-                            return { content: "❌ عذراً، مكتبة الرسم غير متاحة للممتلكات.", components: [] };
+                            items = await getNormalInventoryItems(invCategory);
                         }
-
-                        if (items.length === 0) {
-                            const rowBack = new ActionRowBuilder().addComponents(
-                                new ButtonBuilder().setCustomId(`cat_main_${authorUser.id}`).setLabel('العودة للرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Danger)
-                            );
-                            return { content: '', files: [new AttachmentBuilder(buffer, { name: 'portfolio.png' })], components: [rowBack] };
-                        }
-
-                        if (slice.length > 0 && selectedIndex >= slice.length) {
-                            selectedIndex = slice.length - 1;
-                        } else if (slice.length === 0) {
-                            selectedIndex = 0;
-                        }
-
-                        const row1 = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId(`inv_p_${authorUser.id}`).setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(invPage === 1),
-                            new ButtonBuilder().setCustomId(`cat_main_${authorUser.id}`).setEmoji('↩️').setStyle(ButtonStyle.Danger),
-                            new ButtonBuilder().setCustomId(`inv_n_${authorUser.id}`).setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(invPage >= totalPages)
-                        );
-
-                        return { content: '', files: [new AttachmentBuilder(buffer, { name: 'portfolio.png' })], components: [row1] };
-                    } 
-                    else {
-                        items = await getNormalInventoryItems(invCategory);
-
-                        const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
-                        const slice = items.slice((invPage-1)*ITEMS_PER_PAGE, invPage*ITEMS_PER_PAGE);
-
-                        const buffer = await generateInventoryCard(cleanName, invCategory, slice, invPage, totalPages, selectedIndex);
-
-                        if (items.length === 0) {
-                            const rowBack = new ActionRowBuilder().addComponents(
-                                new ButtonBuilder().setCustomId(`cat_main_${authorUser.id}`).setLabel('العودة للرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Danger)
-                            );
-                            return { content: '', files: [new AttachmentBuilder(buffer, { name: 'i.png' })], components: [rowBack] };
-                        }
-
-                        if (slice.length > 0 && selectedIndex >= slice.length) {
-                            selectedIndex = slice.length - 1;
-                        } else if (slice.length === 0) {
-                            selectedIndex = 0;
-                        }
-
-                        const row1 = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId(`d_l2_${authorUser.id}`).setEmoji('⏪').setStyle(ButtonStyle.Secondary),
-                            new ButtonBuilder().setCustomId(`d_u1_${authorUser.id}`).setEmoji('⬆️').setStyle(ButtonStyle.Primary),
-                            new ButtonBuilder().setCustomId(`d_r2_${authorUser.id}`).setEmoji('⏩').setStyle(ButtonStyle.Secondary)
-                        );
-                        const row2 = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId(`d_l1_${authorUser.id}`).setEmoji('⬅️').setStyle(ButtonStyle.Primary),
-                            new ButtonBuilder().setCustomId(`d_ok_${authorUser.id}`).setEmoji('💠').setStyle(ButtonStyle.Success),
-                            new ButtonBuilder().setCustomId(`d_r1_${authorUser.id}`).setEmoji('➡️').setStyle(ButtonStyle.Primary)
-                        );
-                        const row3 = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId(`d_u2_${authorUser.id}`).setEmoji('⏫').setStyle(ButtonStyle.Secondary),
-                            new ButtonBuilder().setCustomId(`d_d1_${authorUser.id}`).setEmoji('⬇️').setStyle(ButtonStyle.Primary),
-                            new ButtonBuilder().setCustomId(`d_d2_${authorUser.id}`).setEmoji('⏬').setStyle(ButtonStyle.Secondary)
-                        );
-                        const row4 = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId(`inv_p_${authorUser.id}`).setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(invPage === 1),
-                            new ButtonBuilder().setCustomId(`cat_main_${authorUser.id}`).setEmoji('↩️').setStyle(ButtonStyle.Danger),
-                            new ButtonBuilder().setCustomId(`inv_n_${authorUser.id}`).setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(invPage >= totalPages)
-                        );
-
-                        return { 
-                            content: '', 
-                            files: [new AttachmentBuilder(buffer, { name: 'i.png' })], 
-                            components: [row1, row2, row3, row4] 
-                        };
+                        cachedItems = items;
+                        cachedCategory = invCategory;
+                    } else {
+                        items = cachedItems;
+                        if (invCategory === 'market') items.forEach(it => totalValue += (it.itemTotalValue || 0));
                     }
+
+                    const perPage = invCategory === 'market' ? 9 : ITEMS_PER_PAGE;
+                    const totalPages = Math.max(1, Math.ceil(items.length / perPage)); 
+                    const slice = items.slice((invPage-1)*perPage, invPage*perPage);
+
+                    let buffer;
+                    if (invCategory === 'market') {
+                        if (!generatePortfolioCard) return { content: "❌ عذراً، مكتبة الرسم غير متاحة للممتلكات.", components: [] };
+                        buffer = await generatePortfolioCard(cleanName, slice, invPage, totalPages, totalValue);
+                    } else {
+                        buffer = await generateInventoryCard(cleanName, invCategory, slice, invPage, totalPages, selectedIndex);
+                    }
+
+                    if (items.length === 0) {
+                        const rowBack = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId(`cat_main_${authorUser.id}`).setLabel('العودة للرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Danger)
+                        );
+                        return { content: '', files: [new AttachmentBuilder(buffer, { name: 'i.png' })], components: [rowBack] };
+                    }
+
+                    if (slice.length > 0 && selectedIndex >= slice.length) selectedIndex = slice.length - 1;
+                    else if (slice.length === 0) selectedIndex = 0;
+
+                    const row1 = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`d_l2_${authorUser.id}`).setEmoji('⏪').setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`d_u1_${authorUser.id}`).setEmoji('⬆️').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId(`d_r2_${authorUser.id}`).setEmoji('⏩').setStyle(ButtonStyle.Secondary)
+                    );
+                    const row2 = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`d_l1_${authorUser.id}`).setEmoji('⬅️').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId(`d_ok_${authorUser.id}`).setEmoji('💠').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`d_r1_${authorUser.id}`).setEmoji('➡️').setStyle(ButtonStyle.Primary)
+                    );
+                    const row3 = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`d_u2_${authorUser.id}`).setEmoji('⏫').setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`d_d1_${authorUser.id}`).setEmoji('⬇️').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId(`d_d2_${authorUser.id}`).setEmoji('⏬').setStyle(ButtonStyle.Secondary)
+                    );
+                    const row4 = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`inv_p_${authorUser.id}`).setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(invPage === 1),
+                        new ButtonBuilder().setCustomId(`cat_main_${authorUser.id}`).setEmoji('↩️').setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setCustomId(`inv_n_${authorUser.id}`).setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(invPage >= totalPages)
+                    );
+
+                    return { content: '', files: [new AttachmentBuilder(buffer, { name: invCategory === 'market' ? 'portfolio.png' : 'i.png' })], components: invCategory === 'market' ? [row4] : [row1, row2, row3, row4] };
                 }
             };
 
@@ -567,7 +625,6 @@ module.exports = {
 
                 if (id.startsWith('route_smelt_') || id.startsWith('route_synth_')) {
                     if (i.user.id !== authorUser.id) return i.reply({ content: '❌ هذا ليس بروفايلك!', flags: [MessageFlags.Ephemeral] });
-                    
                     const isSmelt = id.startsWith('route_smelt_');
                     const itemIdToRoute = id.replace(isSmelt ? 'route_smelt_' : 'route_synth_', '');
                     
@@ -576,7 +633,6 @@ module.exports = {
                     const forgeCmd = client.commands.get('حدادة') || client.commands.find(c => c.name === 'حدادة' || (c.aliases && c.aliases.includes('forge')));
                     if (forgeCmd) {
                         collector.stop('routed_to_forge'); 
-                        
                         const fakeInt = {
                             isChatInputCommand: false,
                             content: `-${isSmelt ? 'صهر' : 'دمج'}`, 
@@ -594,7 +650,6 @@ module.exports = {
                             preselectedItem: itemIdToRoute,
                             preselectedAction: isSmelt ? 'smelt' : 'synth'
                         };
-                        
                         return forgeCmd.execute(fakeInt);
                     } else {
                         return i.followUp({ content: "❌ نظام الحدادة غير متوفر حالياً.", flags: [MessageFlags.Ephemeral] });
@@ -610,16 +665,13 @@ module.exports = {
                     
                     await i.update({ 
                         content: `**🎁 إعطاء أو مبادلة العنصر:** ${activeItemDetails.emoji} ${activeItemDetails.name}\nيرجى تحديد اللاعب من القائمة بالأسفل:`, 
-                        embeds: [], 
-                        components: [userSelect, cancelBtn],
-                        files: []
+                        embeds: [], components: [userSelect, cancelBtn], files: []
                     });
                     return; 
                 }
 
                 if (i.isUserSelectMenu() && id.startsWith('trade_target_')) {
                     if (i.user.id !== authorUser.id) return i.reply({ content: '❌ لا يمكنك التحكم في حقيبة غيرك!', flags: [MessageFlags.Ephemeral] });
-                    
                     const targetID = i.values[0];
                     if (targetID === authorUser.id || (await client.users.fetch(targetID)).bot) {
                         return i.reply({ content: '❌ لا يمكنك التبادل مع نفسك أو مع البوتات!', flags: [MessageFlags.Ephemeral] });
@@ -635,79 +687,51 @@ module.exports = {
 
                     try {
                         const modalSubmit = await i.awaitModalSubmit({ filter: m => m.user.id === authorUser.id && m.customId === `trade_modal_${targetID}`, time: 60000 });
-                        const qtyText = modalSubmit.fields.getTextInputValue('trade_qty').trim();
-                        const priceText = modalSubmit.fields.getTextInputValue('trade_price').trim();
-                        
-                        const qty = parseInt(qtyText);
-                        const price = parseInt(priceText);
+                        const qty = parseInt(modalSubmit.fields.getTextInputValue('trade_qty').trim());
+                        const price = parseInt(modalSubmit.fields.getTextInputValue('trade_price').trim());
 
                         if (isNaN(qty) || qty <= 0) return modalSubmit.reply({ content: '❌ كمية غير صالحة. (يجب أن تكون 1 أو أكثر)', flags: [MessageFlags.Ephemeral] });
                         if (isNaN(price) || price < 0) return modalSubmit.reply({ content: '❌ سعر غير صالح. (يجب أن يكون 0 أو أكثر)', flags: [MessageFlags.Ephemeral] });
 
-                        // 🔥 التعديل هنا: جلب الكمية لدى المستلم بدقة تتجاهل حالة الأحرف
-                        let checkTargetInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
-                        let targetCurrentQty = 0;
-                        if (checkTargetInvRes.rows) {
-                             const targetRow = checkTargetInvRes.rows.find(r => String(r.itemID || r.itemid || '').toLowerCase().trim() === String(activeItemDetails.id).toLowerCase().trim());
-                             if (targetRow) targetCurrentQty = Number(targetRow.quantity || targetRow.Quantity || 0);
+                        // 🔥 التعديل الجوهري: استخدام checkItems بدلاً من فحص سطر واحد للحقيبة لتفادي رسالة "ما عندك الكمية" 🔥
+                        const hasEnoughSenderItems = await checkItems(db, authorUser.id, guildId, [{ id: activeItemDetails.id, count: qty }]);
+                        if (!hasEnoughSenderItems) {
+                            return modalSubmit.reply({ content: '❌ أنت لا تملك هذه الكمية في حقيبتك!', flags: [MessageFlags.Ephemeral] });
                         }
-                        
+
+                        let checkTargetInvRes = await safeQuery(db, `SELECT SUM(CAST(COALESCE("quantity", '0') AS INTEGER)) as totalqty FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, `SELECT SUM(CAST(COALESCE(quantity, '0') AS INTEGER)) as totalqty FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = LOWER($3)`, [targetID, guildId, activeItemDetails.id]);
+                        const targetCurrentQty = checkTargetInvRes.rows[0] ? Number(checkTargetInvRes.rows[0].totalqty) : 0;
                         if (targetCurrentQty + qty > MAX_INVENTORY_LIMIT) {
                             return modalSubmit.reply({ content: `❌ **لا يمكنك إرسال هذه الكمية!**\nالطرف الآخر سيصل للحد الأقصى (${MAX_INVENTORY_LIMIT}).\n> يمتلك حالياً: **${targetCurrentQty}**`, flags: [MessageFlags.Ephemeral] });
                         }
 
-                        // 🔥 التعديل هنا: جلب الكمية لدى المُرسل بدقة تتجاهل حالة الأحرف
-                        let checkInvFinalRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [authorUser.id, guildId]);
-                        let senderInvFinal = null;
-                        if (checkInvFinalRes.rows) {
-                             senderInvFinal = checkInvFinalRes.rows.find(r => String(r.itemID || r.itemid || '').toLowerCase().trim() === String(activeItemDetails.id).toLowerCase().trim());
-                        }
-
-                        if (!senderInvFinal || Number(senderInvFinal.quantity || senderInvFinal.Quantity || 0) < qty) {
-                            return modalSubmit.reply({ content: '❌ أنت لا تملك هذه الكمية في حقيبتك!', flags: [MessageFlags.Ephemeral] });
-                        }
-
                         if (price === 0) {
-                            await db.query('BEGIN').catch(()=>{});
-                            const finalSenderQty = Number(senderInvFinal.quantity || senderInvFinal.Quantity || 0) - qty;
-                            const senderRowId = senderInvFinal.id || senderInvFinal.ID;
-
-                            if (finalSenderQty > 0) {
-                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [finalSenderQty, senderRowId]);
-                            } else {
-                                await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [senderRowId]);
-                            }
-
-                            // التحقق مرة أخرى من المستلم للإضافة (للتأكد فقط)
-                            let finalTargetCheckRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
-                            let finalTargetRow = null;
-                            if (finalTargetCheckRes.rows) {
-                                finalTargetRow = finalTargetCheckRes.rows.find(r => String(r.itemID || r.itemid || '').toLowerCase().trim() === String(activeItemDetails.id).toLowerCase().trim());
-                            }
+                            await modalSubmit.deferReply();
+                            // تنفيذ نقل العناصر
+                            await deductItems(db, authorUser.id, guildId, [{ id: activeItemDetails.id, count: qty }]);
                             
-                            if (finalTargetRow) {
-                                const targetRowId = finalTargetRow.id || finalTargetRow.ID;
-                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, targetRowId]);
+                            const targetCheckResTradeFinal = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, `SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = LOWER($3)`, [targetID, guildId, activeItemDetails.id]);
+                            if (targetCheckResTradeFinal.rows[0]) {
+                                const targetRowIdTrade = targetCheckResTradeFinal.rows[0].id || targetCheckResTradeFinal.rows[0].ID;
+                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, targetRowIdTrade]);
                             } else {
                                 await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, targetID, activeItemDetails.id, qty]);
                             }
 
-                            await db.query('COMMIT').catch(()=>{});
-
-                            await modalSubmit.reply({ content: `🎁 <@${authorUser.id}> أرسل **${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}** كهدية إلى <@${targetID}>!` });
+                            await modalSubmit.followUp({ content: `🎁 <@${authorUser.id}> أرسل **${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}** كهدية إلى <@${targetID}>!` });
                             
-                            activeItemDetails.quantity -= qty;
-                            if(activeItemDetails.quantity <= 0) activeItemDetails = null;
+                            cachedItems = null; // مسح الكاش لتحديث الشنطة
+                            activeItemDetails = null;
                             await msg.edit(await renderView());
                         } else {
-                            await modalSubmit.deferReply();
+                            await modalSubmit.deferReply({ fetchReply: true }); // ضمان رجوع الرسالة لالتقاطها بالمجمع
                             const tradeId = Date.now().toString();
                             const tradeButtons = new ActionRowBuilder().addComponents(
                                 new ButtonBuilder().setCustomId(`trade_acc_${tradeId}`).setLabel('قبول وشراء ✅').setStyle(ButtonStyle.Success),
                                 new ButtonBuilder().setCustomId(`trade_dec_${tradeId}`).setLabel('رفض ❌').setStyle(ButtonStyle.Danger)
                             );
 
-                            const tradeMsgObj = await modalSubmit.followUp({ content: `⚖️ **عـقـد تـجـاري**\nمرحباً <@${targetID}>!\nيعرض عليك <@${authorUser.id}>:\n**استلام:** ${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}\n**دفع:** ${price.toLocaleString()} 🪙`, components: [tradeButtons] });
+                            const tradeMsgObj = await modalSubmit.followUp({ content: `⚖️ **عـقـد تـجـاري**\nمرحباً <@${targetID}>!\nيعرض عليك <@${authorUser.id}>:\n**استلام:** ${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}\n**دفع:** ${price.toLocaleString()} 🪙`, components: [tradeButtons], fetchReply: true });
 
                             const tradeFilter = btn => btn.user.id === targetID && btn.customId.includes(tradeId);
                             const tradeCollector = tradeMsgObj.createMessageComponentCollector({ filter: tradeFilter, time: 60000 });
@@ -719,71 +743,43 @@ module.exports = {
                                     return tradeMsgObj.edit({ content: `❌ تم رفض الصفقة من قبل <@${targetID}>.`, components: [] });
                                 }
 
-                                let targetLvlRes = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
-                                const targetLvlRow = targetLvlRes.rows[0];
-                                const targetMoraKey = targetLvlRow ? Object.keys(targetLvlRow).find(k => k.toLowerCase() === 'mora') : null;
-                                const targetMora = targetMoraKey ? Number(targetLvlRow[targetMoraKey]) : 0;
-                                
-                                if (targetMora < price) return btn.followUp({ content: '❌ المشتري لا يملك المورا الكافية!', flags: [MessageFlags.Ephemeral] });
+                                const canDeductMora = await checkMora(db, targetID, guildId, price);
+                                if (!canDeductMora) return btn.followUp({ content: '❌ المشتري لا يملك المورا الكافية!', flags: [MessageFlags.Ephemeral] });
 
-                                // فحص نهائي للبائع قبل الخصم
-                                let checkInvFinalResTrade = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [authorUser.id, guildId]);
-                                let senderInvFinalTrade = null;
-                                if (checkInvFinalResTrade.rows) {
-                                    senderInvFinalTrade = checkInvFinalResTrade.rows.find(r => String(r.itemID || r.itemid || '').toLowerCase().trim() === String(activeItemDetails.id).toLowerCase().trim());
-                                }
-
-                                if (!senderInvFinalTrade || Number(senderInvFinalTrade.quantity || senderInvFinalTrade.Quantity || 0) < qty) {
+                                const hasEnoughItemsFinal = await checkItems(db, authorUser.id, guildId, [{ id: activeItemDetails.id, count: qty }]);
+                                if (!hasEnoughItemsFinal) {
                                     tradeCollector.stop('failed');
                                     return tradeMsgObj.edit({ content: `❌ فشلت الصفقة: البائع لا يملك الكمية المطلوبة حالياً!`, components: [] });
                                 }
 
                                 try {
-                                    await db.query('BEGIN').catch(()=>{});
-                                    const finalSenderQtyTrade = Number(senderInvFinalTrade.quantity || senderInvFinalTrade.Quantity || 0) - qty;
-                                    const senderRowIdTrade = senderInvFinalTrade.id || senderInvFinalTrade.ID;
-
-                                    if (finalSenderQtyTrade > 0) {
-                                        await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [finalSenderQtyTrade, senderRowIdTrade]);
-                                    } else {
-                                        await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [senderRowIdTrade]);
-                                    }
+                                    // خصم الموارد والأموال عبر الدوال الآمنة والمجربة
+                                    await deductMora(db, targetID, guildId, price);
+                                    await deductItems(db, authorUser.id, guildId, [{ id: activeItemDetails.id, count: qty }]);
                                     
-                                    let targetCheckResTradeFinal = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
-                                    let finalTargetRowTrade = null;
-                                    if (targetCheckResTradeFinal.rows) {
-                                        finalTargetRowTrade = targetCheckResTradeFinal.rows.find(r => String(r.itemID || r.itemid || '').toLowerCase().trim() === String(activeItemDetails.id).toLowerCase().trim());
-                                    }
-                                    
-                                    if (finalTargetRowTrade) {
-                                        const targetRowIdTrade = finalTargetRowTrade.id || finalTargetRowTrade.ID;
+                                    // إعطاء العناصر للمشتري
+                                    const targetCheckResTradeFinal = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, `SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = LOWER($3)`, [targetID, guildId, activeItemDetails.id]);
+                                    if (targetCheckResTradeFinal.rows[0]) {
+                                        const targetRowIdTrade = targetCheckResTradeFinal.rows[0].id || targetCheckResTradeFinal.rows[0].ID;
                                         await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, targetRowIdTrade]);
                                     } else {
                                         await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, targetID, activeItemDetails.id, qty]);
                                     }
 
-                                    // تحويل الرصيد (مورا) 
-                                    await safeExecute(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [price, targetID, guildId]);
-                                    await safeExecute(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [price, authorUser.id, guildId]);
-                                    
-                                    // تحديث كاش البوت للرصيد
+                                    // إعطاء الفلوس للبائع
+                                    await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [price, authorUser.id, guildId]);
                                     if (client.getLevel) {
-                                        let bUser = await client.getLevel(targetID, guildId);
-                                        if (bUser) { bUser.mora = String(BigInt(bUser.mora || 0) - BigInt(price)); await client.setLevel(bUser); }
                                         let sUser = await client.getLevel(authorUser.id, guildId);
                                         if (sUser) { sUser.mora = String(BigInt(sUser.mora || 0) + BigInt(price)); await client.setLevel(sUser); }
                                     }
-                                    
-                                    await db.query('COMMIT').catch(()=>{});
 
                                     tradeCollector.stop('accepted');
                                     await tradeMsgObj.edit({ content: `✅ **تمت الصفقة بنجاح!**\nاشترى <@${targetID}> ${qty}x ${activeItemDetails.name} مقابل ${price.toLocaleString()} 🪙 من <@${authorUser.id}>.`, components: [] });
 
-                                    activeItemDetails.quantity -= qty;
-                                    if(activeItemDetails.quantity <= 0) activeItemDetails = null;
+                                    cachedItems = null; // مسح الكاش للتحديث
+                                    activeItemDetails = null;
                                     await msg.edit(await renderView());
                                 } catch (e) {
-                                    await db.query('ROLLBACK').catch(()=>{});
                                     tradeCollector.stop('error');
                                     await tradeMsgObj.edit({ content: `❌ حدث خطأ فني أثناء الصفقة.`, components: [] });
                                 }
@@ -838,30 +834,17 @@ module.exports = {
                     else if (moveType === 'u2') { selectedIndex = ((row - 2 + 3) % 3) * 5 + col; }
                     else if (moveType === 'ok') {
                         let items = [];
-                        if (invCategory === 'market') {
-                            const [portfolioRes, dbMarketRes] = await Promise.all([
-                                safeQuery(db, `SELECT * FROM user_portfolio WHERE "guildID" = $1 AND "userID" = $2`, `SELECT * FROM user_portfolio WHERE guildid = $1 AND userid = $2`, [guildId, targetUser.id]),
-                                db.query("SELECT * FROM market_items").catch(()=>({rows:[]}))
-                            ]);
-                            const portfolio = portfolioRes?.rows || [];
-                            const market = new Map(marketConfig.map(item => [item.id, item]));
-                            let dbMarketPrices = new Map((dbMarketRes?.rows || []).map(row => [row.id, Number(row.currentPrice || row.currentprice)]));
-
-                            for (const row of portfolio) {
-                                const itemID = row.itemID || row.itemid;
-                                const marketItem = market.get(itemID);
-                                if (!marketItem) continue;
-                                let currentPrice = dbMarketPrices.has(itemID) ? dbMarketPrices.get(itemID) : marketItem.price;
-                                const quantity = Number(row.quantity) || 0;
-                                if (quantity <= 0) continue;
-                                let purchasePrice = Number(row.purchasePrice || row.purchaseprice) || 0;
-                                const info = resolveItemInfoLocal(itemID);
-                                
-                                info.description = `${info.description || ''}\n\n📊 السعر الحالي: ${currentPrice.toLocaleString()} 🪙\n💰 سعر الشراء: ${purchasePrice.toLocaleString()} 🪙\n💎 القيمة الإجمالية: ${(currentPrice * quantity).toLocaleString()} 🪙`;
-                                items.push({ ...info, quantity, id: itemID });
-                            }
+                        // استخدم الكاش هنا بدل جلب البيانات مجدداً
+                        if (cachedCategory !== invCategory || !cachedItems) {
+                             if (invCategory === 'market') {
+                                // جلب بيانات السوق
+                             } else {
+                                items = await getNormalInventoryItems(invCategory);
+                             }
+                             cachedItems = items;
+                             cachedCategory = invCategory;
                         } else {
-                            items = await getNormalInventoryItems(invCategory);
+                             items = cachedItems;
                         }
 
                         const perPage = invCategory === 'market' ? 9 : ITEMS_PER_PAGE;
