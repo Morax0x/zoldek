@@ -245,7 +245,8 @@ async function executeAdminAction(message, targetUser, amount, text, db) {
                     else {
                         let check = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [userID, guildID, foundItem.id]);
                         if (check.rows.length > 0) await safeExecute(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4`, [amount, userID, guildID, foundItem.id]);
-                        else await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userID, foundItem.id, amount]);
+                        // 🔥 هنا كان الخطأ المكتوب guildId، تم تغييره إلى guildID 🔥
+                        else await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildID, userID, foundItem.id, amount]);
                     }
                     await message.react('🎒').catch(()=>{});
                     return `\n\n> 👑 **أمر إمبراطوري مُنفذ:**\n> ✧ **العملية:** ${actionTitle}\n> ✧ **الهدف:** ${targetUser.username}\n> ✧ **العنصر:** ${amount}x ${foundItem.name} ${emojiToUse}`;
