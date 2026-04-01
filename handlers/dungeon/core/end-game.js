@@ -14,6 +14,36 @@ try {
     } catch(err) {}
 }
 
+const safeExecute = async (db, qPg, params) => {
+    try { await db.query(qPg, params); return true; } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"itemID"/gi, "itemid")
+            .replace(/"quantity"/gi, "quantity")
+            .replace(/"mora"/gi, "mora")
+            .replace(/"bank"/gi, "bank")
+            .replace(/"user"/gi, "userid")
+            .replace(/"guild"/gi, "guildid");
+        if (fallbackQuery !== qPg) {
+            try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
+        }
+        return false;
+    }
+};
+
+const safeQuery = async (db, qPg, params) => {
+    try { let res = await db.query(qPg, params); return { rows: Array.isArray(res) ? res : (res?.rows || []) }; } 
+    catch(e) { 
+        let fallbackQuery = qPg.replace(/"userID"/gi, "userid").replace(/"guildID"/gi, "guildid").replace(/"itemID"/gi, "itemid").replace(/"quantity"/gi, "quantity").replace(/"mora"/gi, "mora").replace(/"bank"/gi, "bank").replace(/"user"/gi, "userid").replace(/"guild"/gi, "guildid");
+        if (fallbackQuery !== qPg) {
+            try { let res2 = await db.query(fallbackQuery, params); return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) }; } 
+            catch(e2) { }
+        }
+        return { rows: [] };
+    }
+};
+
 async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlayers, floor, status, sql, guildId, hostId, activeDungeonRequests, client) {
     if (!sql) return;
     
@@ -82,12 +112,7 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 if (member && addXPAndCheckLevel) {
                     await addXPAndCheckLevel(client, member, sql, finalXp, finalMora, false);
                 } else {
-                    try {
-                        await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $3 WHERE "user" = $4 AND "guild" = $5`, [finalMora, finalXp, finalXp, p.id, guildId]);
-                    } catch(e) {
-                        await sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $3 WHERE userid = $4 AND guildid = $5`, [finalMora, finalXp, finalXp, p.id, guildId]).catch(()=>{});
-                    }
-
+                    await safeExecute(sql, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $3 WHERE "user" = $4 AND "guild" = $5`, [finalMora, finalXp, finalXp, p.id, guildId]);
                     if (client && typeof client.getLevel === 'function') {
                         let cache = await client.getLevel(p.id, guildId);
                         if (cache) {
@@ -124,27 +149,22 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
             }
         }
 
+        // 🔥 نظام الجوائز الفولاذي: الصناديق المجانية الدائمة 🔥
         if (!p.repAndChestsClaimed && (sessionRep > 0 || sessionChests > 0)) {
             await safeUpdateRepAndChests(sql, p.id, guildId, sessionRep, sessionChests);
             
             if (sessionChests > 0) {
                 try {
-                    let invRes = await sql.query(`SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'gacha_chest'`, [p.id, guildId]).catch(()=>({rows:[]}));
-                    if (!invRes.rows || invRes.rows.length === 0) {
-                        invRes = await sql.query(`SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = 'gacha_chest'`, [p.id, guildId]).catch(()=>({rows:[]}));
-                    }
-                    
-                    if (invRes.rows && invRes.rows.length > 0) {
-                        const rowId = invRes.rows[0].id || invRes.rows[0].ID;
-                        await sql.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [sessionChests, rowId])
-                        .catch(() => sql.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE id = $2`, [sessionChests, rowId]).catch(()=>{}));
+                    let checkTargetInvRes = await safeQuery(sql, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'gacha_chest'`, [p.id, guildId]);
+                    let targetRowId = null;
+                    if (checkTargetInvRes.rows && checkTargetInvRes.rows.length > 0) {
+                        targetRowId = checkTargetInvRes.rows[0].id || checkTargetInvRes.rows[0].ID;
+                        await safeExecute(sql, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [sessionChests, targetRowId]);
                     } else {
-                        await sql.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, p.id, sessionChests])
-                        .catch(() => sql.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, p.id, sessionChests]).catch(()=>{}));
+                        await safeExecute(sql, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, p.id, sessionChests]);
                     }
                 } catch(e) { console.error("Error adding gacha chests", e); }
             }
-
             p.repAndChestsClaimed = true;
         }
 
@@ -174,12 +194,7 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 if (mvpMem && addXPAndCheckLevel) {
                     await addXPAndCheckLevel(client, mvpMem, sql, 0, 500, false);
                 } else {
-                    try {
-                        await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + 500 WHERE "user" = $1 AND "guild" = $2`, [mvpPlayer.id, guildId]);
-                    } catch (e) {
-                        await sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + 500 WHERE userid = $1 AND guildid = $2`, [mvpPlayer.id, guildId]).catch(()=>{});
-                    }
-
+                    await safeExecute(sql, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + 500 WHERE "user" = $1 AND "guild" = $2`, [mvpPlayer.id, guildId]);
                     if (client && typeof client.getLevel === 'function') {
                         let cache = await client.getLevel(mvpPlayer.id, guildId);
                         if (cache) {
@@ -199,30 +214,16 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         const expiresAt = Date.now() + debuffDuration;
         
         for (const p of allParticipants) {
-            try {
-                await sql.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, p.id, -15, expiresAt, 'mora', -0.15]);
-                await sql.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, p.id, -15, expiresAt, 'xp', -0.15]);
-            } catch(e1) {
-                try {
-                    await sql.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, p.id, -15, expiresAt, 'mora', -0.15]);
-                    await sql.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, p.id, -15, expiresAt, 'xp', -0.15]);
-                } catch(e2) {}
-            }
+            await safeExecute(sql, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, p.id, -15, expiresAt, 'mora', -0.15]);
+            await safeExecute(sql, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, p.id, -15, expiresAt, 'xp', -0.15]);
         }
     }
 
     if (floor >= 10 && status !== 'lose' && status !== 'camp' && mvpPlayer) {
         const buffDuration = 15 * 60 * 1000; 
         const expiresAt = Date.now() + buffDuration;
-        try {
-            await sql.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, mvpPlayer.id, 15, expiresAt, 'mora', 0.15]);
-            await sql.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, mvpPlayer.id, 15, expiresAt, 'xp', 0.15]);
-        } catch(e1) {
-            try {
-                await sql.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, mvpPlayer.id, 15, expiresAt, 'mora', 0.15]);
-                await sql.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, mvpPlayer.id, 15, expiresAt, 'xp', 0.15]);
-            } catch(e2) {}
-        }
+        await safeExecute(sql, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, mvpPlayer.id, 15, expiresAt, 'mora', 0.15]);
+        await safeExecute(sql, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, mvpPlayer.id, 15, expiresAt, 'xp', 0.15]);
     }
 
     const embed = new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setImage(randomImage).setTimestamp();
