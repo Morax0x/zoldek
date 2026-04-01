@@ -80,7 +80,7 @@ if (skillsConfig) {
     });
 }
 
-// 🔥 نظام استعلام فولاذي للحماية من الصمت والفشل 🔥
+// 🔥 نظام استعلام فولاذي للحماية من الفشل 🔥
 const safeQuery = async (db, qPg, params) => {
     try { 
         let res = await db.query(qPg, params); 
@@ -320,17 +320,15 @@ module.exports = {
 
             const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
 
-            // 🔥 تحديث الصناديق اليومية: تتجدد دائماً إذا كان اليوم جديد 🔥
             if (dailyLimit > 0 && pityData.last_free_claim !== todaySaudi) {
+                // 🔥 مسح كل الصناديق المجانية القديمة للمستخدم لضمان عدم تراكمها 🔥
+                await safeExecute(db, `DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'free_gacha_chest'`, [user.id, guildId]);
+                
+                // إدخال الصناديق اليومية الجديدة برقم صافي ونظيف
+                await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]);
+                
                 freeChests = dailyLimit;
                 totalChests = freeChests + paidChests;
-                
-                let checkFreeRes = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'free_gacha_chest'`, [user.id, guildId]);
-                if (checkFreeRes.rows[0]) {
-                    await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [freeChests, checkFreeRes.rows[0].id || checkFreeRes.rows[0].ID]);
-                } else {
-                    await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, freeChests]);
-                }
                 
                 await safeExecute(db, `UPDATE user_gacha_pity SET "last_free_claim" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [todaySaudi, user.id, guildId]);
                 pityData.last_free_claim = todaySaudi;
@@ -400,25 +398,37 @@ module.exports = {
                         let deducted = await deductMora(client, db, user.id, guildId, cost);
                         if (!deducted) return null;
                     } else {
-                        let remaining = pullCount;
-                        let consumeFree = Math.min(freeChests, remaining);
-                        remaining -= consumeFree;
-                        let consumePaid = Math.min(paidChests, remaining);
+                        let remainingFree = Math.min(freeChests, pullCount);
+                        let remainingPaid = Math.min(paidChests, pullCount - remainingFree);
                         
-                        // 🔥 خصم الصناديق الفولاذي 🔥
-                        if (consumeFree > 0) {
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER("itemID") = 'free_gacha_chest'`, [consumeFree, user.id, guildId]);
-                        }
-                        if (consumePaid > 0) {
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER("itemID") = 'gacha_chest'`, [consumePaid, user.id, guildId]);
+                        // 🔥 نظام خصم ذكي للصناديق يمنع حذف الأسطر بشكل جماعي 🔥
+                        let invResUpdate = await safeQuery(db, `SELECT "id", "ID", "itemID", "itemid", "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") IN ('gacha_chest', 'free_gacha_chest')`, [user.id, guildId]);
+                        
+                        if (invResUpdate.rows) {
+                            for (let r of invResUpdate.rows) {
+                                const rowId = r.id || r.ID;
+                                const itemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+                                let q = Number(r.quantity || r.Quantity || 0);
+
+                                if (itemId === 'free_gacha_chest' && remainingFree > 0 && q > 0) {
+                                    const deduct = Math.min(q, remainingFree);
+                                    await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, rowId]);
+                                    remainingFree -= deduct;
+                                }
+                                if (itemId === 'gacha_chest' && remainingPaid > 0 && q > 0) {
+                                    const deduct = Math.min(q, remainingPaid);
+                                    await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, rowId]);
+                                    remainingPaid -= deduct;
+                                }
+                            }
                         }
                         
-                        freeChests -= consumeFree;
-                        paidChests -= consumePaid;
+                        freeChests -= (Math.min(freeChests, pullCount));
+                        paidChests -= (pullCount - Math.min(freeChests, pullCount));
                         totalChests = freeChests + paidChests;
                         
-                        // تنظيف الصناديق التي أصبحت صفر
-                        await safeExecute(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+                        // تنظيف الصناديق التي أصبحت صفر بأمان تام
+                        await safeExecute(db, `DELETE FROM user_inventory WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0 AND "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
                     }
 
                     const results = [];
