@@ -1,19 +1,19 @@
 const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, Colors, AttachmentBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
-// 🛡️ نظام استيراد محمي لمنع انهيار البوت 🛡️
+// 🛡️ نظام استيراد محمي بمسارات معدلة لتناسب مجلد handlers 🛡️
 let weaponsConfig = [];
 let skillsConfig = [];
 let upgradeMats = { weapon_materials: [], skill_books: [] };
 let generateForgeUI = null;
 
-try { weaponsConfig = require('../../json/weapons-config.json'); } catch (e) { console.error("⚠️ لم يتم العثور على weapons-config.json"); }
-try { skillsConfig = require('../../json/skills-config.json'); } catch (e) { console.error("⚠️ لم يتم العثور على skills-config.json"); }
-try { upgradeMats = require('../../json/upgrade-materials.json'); } catch (e) { console.error("⚠️ لم يتم العثور على upgrade-materials.json"); }
-try { ({ generateForgeUI } = require('../../generators/forge-generator.js')); } catch (e) { console.error("⚠️ لم يتم العثور على forge-generator.js"); }
+try { weaponsConfig = require('../json/weapons-config.json'); } catch (e) { console.error("⚠️ لم يتم العثور على weapons-config.json"); }
+try { skillsConfig = require('../json/skills-config.json'); } catch (e) { console.error("⚠️ لم يتم العثور على skills-config.json"); }
+try { upgradeMats = require('../json/upgrade-materials.json'); } catch (e) { console.error("⚠️ لم يتم العثور على upgrade-materials.json"); }
+try { ({ generateForgeUI } = require('../generators/forge-generator.js')); } catch (e) { console.error("⚠️ لم يتم العثور على forge-generator.js"); }
 
 let addXPAndCheckLevel;
-try { ({ addXPAndCheckLevel } = require('../handler-utils.js')); } 
-catch (e) { try { ({ addXPAndCheckLevel } = require('./handler-utils.js')); } catch (e2) {} }
+try { ({ addXPAndCheckLevel } = require('./handler-utils.js')); } 
+catch (e) { try { ({ addXPAndCheckLevel } = require('../handler-utils.js')); } catch (e2) {} }
 
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 const SMELT_XP_RATES = { 'Common': 10, 'Uncommon': 20, 'Rare': 30, 'Epic': 100, 'Legendary': 1000 };
@@ -61,21 +61,24 @@ function getStandardRaceName(rawName) {
             if (name.includes(key)) return group.race;
         }
     }
-    return weaponsConfig.find(w => w.race.toLowerCase() === name)?.race || null;
+    if(weaponsConfig && weaponsConfig.length > 0) {
+        return weaponsConfig.find(w => w.race.toLowerCase() === name)?.race || null;
+    }
+    return null;
 }
 
 function getSafeWeaponConfig(raceName) {
-    if (!raceName || weaponsConfig.length === 0) return { name: "غير معروف", base_damage: 15, damage_increment: 5 };
+    if (!raceName || !weaponsConfig || weaponsConfig.length === 0) return { name: "غير معروف", base_damage: 15, damage_increment: 5 };
     return weaponsConfig.find(w => w.race.toLowerCase() === raceName.toLowerCase()) || weaponsConfig[0];
 }
 
 function getSafeRaceMats(raceName) {
-    if (!raceName || !upgradeMats.weapon_materials || upgradeMats.weapon_materials.length === 0) return { materials: [] };
+    if (!raceName || !upgradeMats || !upgradeMats.weapon_materials || upgradeMats.weapon_materials.length === 0) return { materials: [] };
     return upgradeMats.weapon_materials.find(m => m.race.toLowerCase() === raceName.toLowerCase()) || upgradeMats.weapon_materials[0];
 }
 
 function getSafeBookCat(categoryName) {
-    if (!categoryName || !upgradeMats.skill_books || upgradeMats.skill_books.length === 0) return { books: [] };
+    if (!categoryName || !upgradeMats || !upgradeMats.skill_books || upgradeMats.skill_books.length === 0) return { books: [] };
     return upgradeMats.skill_books.find(c => c.category.toLowerCase() === categoryName.toLowerCase()) || upgradeMats.skill_books[0];
 }
 
@@ -222,6 +225,49 @@ async function getUserRaceName(user, guild, db) {
     return null;
 }
 
+function getWeaponDisplayDamage(weaponConfig, level) {
+    if (!weaponConfig || level < 1) return 15;
+    const base = weaponConfig.base_damage;
+    const inc = weaponConfig.damage_increment;
+
+    if (level <= 15) {
+        return Math.floor(base + (inc * (level - 1)));
+    } else {
+        const damageAt15 = base + (inc * 14);
+        const targetDamageAt30 = 800;
+        const levelsRemaining = 15; 
+        if (damageAt15 >= targetDamageAt30) return Math.floor(base + (inc * (level - 1)));
+        const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
+        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
+        if (level >= 30) return targetDamageAt30;
+        return Math.floor(finalDamage);
+    }
+}
+
+function getSkillDisplayValue(skillConfig, currentLevel) {
+    if (!skillConfig) return 0;
+    const level = Math.max(1, currentLevel || 1);
+    const base = skillConfig.base_value;
+    const inc = skillConfig.value_increment;
+    const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
+
+    let finalValue = 0;
+    if (level <= 15) {
+        finalValue = base + (inc * (level - 1));
+    } else {
+        const valueAt15 = base + (inc * 14);
+        const targetValueAt30 = isPercentage ? 50 : 200; 
+        const levelsRemaining = 15;
+        if (valueAt15 >= targetValueAt30) finalValue = base + (inc * (level - 1));
+        else {
+             const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
+             finalValue = valueAt15 + (dynamicIncrement * (level - 15));
+             if (level >= 30) finalValue = targetValueAt30;
+        }
+    }
+    return isPercentage ? Number(finalValue.toFixed(1)) : Math.floor(finalValue);
+}
+
 function getUpgradeRequirements(currentLevel, isSkill = false) {
     if (currentLevel >= 30 || currentLevel === 0) return null;
     let reqs = [], moraCost = 0;
@@ -345,7 +391,7 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
 
     const wData = weaponRes?.rows?.[0];
     const raceName = wData ? (getStandardRaceName(wData.raceName || wData.racename) || roleRaceName) : roleRaceName;
-    if (!raceName) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
+    if (!raceName) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب اختيار عرق أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
 
     const userMora = Number(userMoraRes?.rows?.[0]?.mora || userMoraRes?.rows?.[0]?.Mora || 0) + Number(userMoraRes?.rows?.[0]?.bank || userMoraRes?.rows?.[0]?.Bank || 0);
     const currentLevel = wData ? Number(wData.weaponLevel || wData.weaponlevel) : 0;
