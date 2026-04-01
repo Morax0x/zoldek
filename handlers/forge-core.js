@@ -52,7 +52,6 @@ const RACE_MAPPING = [
     { keys: ['hybrid', 'نصف', 'هجين', 'هجناء', 'هايبرد'], race: 'Hybrid' }
 ];
 
-// 🔥 الأداة الفولاذية لقراءة قواعد البيانات مهما اختلفت حالة الأحرف 🔥
 function getSafeVal(row, keyName, fallback) {
     if (!row) return fallback;
     const key = Object.keys(row).find(k => k.toLowerCase() === keyName.toLowerCase());
@@ -338,6 +337,46 @@ const getReturnRow = () => new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('forge_return_main').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
 );
 
+// 🔥 المحرك الأساسي الموحد (يُستخدم في العرض وفي التنفيذ لضمان التوافق المطلق) 🔥
+async function getUpgradeState(db, userId, guildId, currentLevel, isSkill, skillId, roleRaceName, wData) {
+    const dbRaceName = getSafeVal(wData, 'racename', null);
+    const raceName = dbRaceName ? (getStandardRaceName(dbRaceName) || roleRaceName) : roleRaceName;
+    if (!raceName) return null;
+
+    const reqs = getUpgradeRequirements(currentLevel, isSkill);
+    if (!reqs) return null;
+
+    const raceMats = getSafeRaceMats(raceName);
+    let bookCat = null;
+    if (isSkill) {
+        const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
+        bookCat = getSafeBookCat(categoryName);
+    }
+
+    let detailedReqs = reqs.materials.map(r => {
+        let itemId = isSkill ? (r.type === 'book' ? bookCat.books[r.tier]?.id : raceMats.materials[r.tier]?.id) : raceMats.materials[r.tier]?.id;
+        return { id: itemId, count: r.count };
+    }).filter(r => r.id);
+
+    const hasMora = await checkMora(db, userId, guildId, reqs.moraCost);
+    const hasItems = await checkItems(db, userId, guildId, detailedReqs);
+
+    let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    let uiReqs = detailedReqs.map(r => {
+        let userMatCount = 0;
+        if (invRes?.rows) {
+            invRes.rows.forEach(row => {
+                const dbItemId = getSafeVal(row, 'itemid', '').toString().toLowerCase().trim();
+                if (dbItemId === String(r.id).toLowerCase().trim()) userMatCount += Number(getSafeVal(row, 'quantity', 0));
+            });
+        }
+        let matInfo = getItemInfo(r.id);
+        return { id: r.id, count: r.count, userCount: userMatCount, name: matInfo?.name || "مجهول", rarity: matInfo?.rarity || "Common", iconUrl: matInfo?.iconUrl };
+    });
+
+    return { canUpgrade: hasMora && hasItems, hasMora, hasItems, reqMora: reqs.moraCost, uiReqs, detailedReqs, raceName };
+}
+
 async function replyWithCanvas(i, user, view, data, components, isInitial = false) {
     let returnMessage = null;
     try {
@@ -377,14 +416,14 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     ]);
 
     const wData = weaponRes?.rows?.[0];
-    const dbRaceName = getSafeVal(wData, 'racename', null);
-    const raceName = dbRaceName ? (getStandardRaceName(dbRaceName) || roleRaceName) : roleRaceName;
-    
-    if (!raceName) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
-
     const userMora = Number(getSafeVal(userMoraRes?.rows?.[0], 'mora', 0)) + Number(getSafeVal(userMoraRes?.rows?.[0], 'bank', 0));
     const currentLevel = Number(getSafeVal(wData, 'weaponlevel', 0));
-    const weaponConfig = getSafeWeaponConfig(raceName);
+    
+    const dbRaceName = getSafeVal(wData, 'racename', null);
+    const fallbackRaceName = dbRaceName ? (getStandardRaceName(dbRaceName) || roleRaceName) : roleRaceName;
+    const weaponConfig = getSafeWeaponConfig(fallbackRaceName);
+
+    if (!fallbackRaceName) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
 
     if (currentLevel === 0) {
         const btnRow = new ActionRowBuilder().addComponents(
@@ -399,33 +438,16 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
     if (currentLevel >= 15 && playerServerLevel < 30) return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: 'قفل المستوى: يجب أن تصل إلى المستوى 30 في السيرفر.' }, [getReturnRow()]);
 
-    const reqs = getUpgradeRequirements(currentLevel, false);
-    const raceMats = getSafeRaceMats(raceName);
-    let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
-    
-    const detailedReqs = reqs.materials.map(r => {
-        let matId = raceMats.materials[r.tier]?.id;
-        if (!matId) return null;
-        let userMatCount = 0;
-        if (invRes?.rows) {
-            invRes.rows.forEach(row => {
-                const dbItemId = getSafeVal(row, 'itemid', '').toString().toLowerCase().trim();
-                if (dbItemId === String(matId).toLowerCase().trim()) userMatCount += Number(getSafeVal(row, 'quantity', 0)); 
-            });
-        }
-        let matInfo = getItemInfo(matId);
-        return { id: matId, count: r.count, userCount: userMatCount, name: matInfo?.name || "مورد مفقود", rarity: matInfo?.rarity || "Common", iconUrl: matInfo?.iconUrl };
-    }).filter(r => r !== null);
+    // 🔥 استدعاء المحرك الموحد 🔥
+    const state = await getUpgradeState(db, user.id, guildId, currentLevel, false, null, roleRaceName, wData);
+    if (!state) return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: 'الحدادة', hasError: true, errorMsg: 'حدث خطأ في قراءة موارد التطوير.' }, [getReturnRow()]);
 
-    const hasItemsBool = await checkItems(db, user.id, guildId, detailedReqs.map(r => ({ id: r.id, count: r.count })));
-    const canUpgrade = userMora >= reqs.moraCost && hasItemsBool;
-    
     const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`forge_upgrade_weapon`).setLabel('تـطـويـر السـلاح').setStyle(canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`forge_upgrade_weapon`).setLabel('تـطـويـر السـلاح').setStyle(state.canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary),
         getReturnRow().components[0]
     );
     
-    return await replyWithCanvas(i, user, 'weapon', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel)} DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel + 1)} DMG`, reqMora: reqs.moraCost, detailedReqs: detailedReqs }, [btnRow], []);
+    return await replyWithCanvas(i, user, 'weapon', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel)} DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel + 1)} DMG`, reqMora: state.reqMora, detailedReqs: state.uiReqs }, [btnRow], []);
 }
 
 async function handleWeaponBuy(i, user, guildId, db) {
@@ -454,27 +476,22 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
     const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
     if (currentLevel >= 15 && playerServerLevel < 30) return; 
 
-    const reqs = getUpgradeRequirements(currentLevel, false);
-    const dbRaceName = getSafeVal(wData, 'racename', null);
-    const standardizedRace = dbRaceName ? getStandardRaceName(dbRaceName) : roleRaceName;
-    if (!standardizedRace) return;
-    
-    const weaponConfig = getSafeWeaponConfig(standardizedRace);
-    const raceMats = getSafeRaceMats(standardizedRace);
-    let detailedReqs = reqs.materials.map(r => ({ id: raceMats.materials[r.tier]?.id, count: r.count })).filter(r => r.id);
+    // 🔥 استدعاء المحرك الموحد لضمان التطابق التام 🔥
+    const state = await getUpgradeState(db, user.id, guildId, currentLevel, false, null, roleRaceName, wData);
+    if (!state) return;
 
-    const hasMora = await checkMora(db, user.id, guildId, reqs.moraCost);
-    if (!hasMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك المورا الكافية للتطوير!' }, [getReturnRow()]);
-    
-    const hasItems = await checkItems(db, user.id, guildId, detailedReqs);
-    if (!hasItems) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك الموارد الكافية للتطوير!' }, [getReturnRow()]);
+    if (!state.hasMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك المورا الكافية للتطوير!' }, [getReturnRow()]);
+    if (!state.hasItems) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك الموارد الكافية للتطوير!' }, [getReturnRow()]);
 
-    await deductMora(db, user.id, guildId, reqs.moraCost);
-    await deductItems(db, user.id, guildId, detailedReqs);
+    await deductMora(db, user.id, guildId, state.reqMora);
+    await deductItems(db, user.id, guildId, state.detailedReqs);
+
+    const dbRaceName = getSafeVal(wData, 'racename', state.raceName);
 
     try { await db.query(`UPDATE user_weapons SET "weaponLevel" = "weaponLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, dbRaceName]); } 
     catch(e) { await db.query(`UPDATE user_weapons SET weaponlevel = weaponlevel + 1 WHERE userid = $1 AND guildid = $2 AND racename = $3`, [user.id, guildId, dbRaceName]).catch(()=>{}); }
     
+    const weaponConfig = getSafeWeaponConfig(state.raceName);
     const nextLevel = currentLevel + 1;
     await replyWithCanvas(i, user, 'success_weapon', { title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel: currentLevel, nextLevel: nextLevel, nextStat: `${getWeaponDisplayDamage(weaponConfig, nextLevel)} DMG` }, [getReturnRow()], []);
 }
@@ -534,40 +551,18 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
     if (currentLevel >= 15 && playerServerLevel < 30) return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, hasError: true, errorMsg: 'قفل المستوى: يجب أن تصل لـ Lv 30 أولاً.' }, [getReturnRow()]);
 
-    const dbRaceName = getSafeVal(wpnRes?.rows?.[0], 'racename', null);
-    const raceName = dbRaceName ? getStandardRaceName(dbRaceName) : roleRaceName;
-    if (!raceName) return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'أكاديمية السحر', hasError: true, errorMsg: 'يجب اختيار عرق أولاً من القائمة الرئيسية للحدادة!' }, [getReturnRow()]);
-
-    const reqs = getUpgradeRequirements(currentLevel, true);
-    const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
-    const bookCat = getSafeBookCat(categoryName);
-    const raceMats = getSafeRaceMats(raceName);
-
-    let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+    const wData = wpnRes?.rows?.[0] || null;
     
-    const detailedReqs = reqs.materials.map(r => {
-        let itemId = r.type === 'book' ? bookCat.books[r.tier]?.id : raceMats.materials[r.tier]?.id;
-        if (!itemId) return null;
-        let userMatCount = 0;
-        if (invRes?.rows) {
-            invRes.rows.forEach(row => {
-                const dbItemId = getSafeVal(row, 'itemid', '').toString().toLowerCase().trim();
-                if (dbItemId === String(itemId).toLowerCase().trim()) userMatCount += Number(getSafeVal(row, 'quantity', 0));
-            });
-        }
-        let matInfo = getItemInfo(itemId);
-        return { id: itemId, count: r.count, userCount: userMatCount, name: matInfo?.name || "مجهول", rarity: matInfo?.rarity || "Common", iconUrl: matInfo?.iconUrl };
-    }).filter(r => r !== null);
-
-    const hasItemsBool = await checkItems(db, user.id, guildId, detailedReqs.map(r => ({ id: r.id, count: r.count })));
-    const canUpgrade = userMora >= reqs.moraCost && hasItemsBool; // 🔥 ربط الصورة بزر التطوير مباشرة 🔥
+    // 🔥 استدعاء المحرك الموحد لضمان التطابق التام 🔥
+    const state = await getUpgradeState(db, user.id, guildId, currentLevel, true, skillId, roleRaceName, wData);
+    if (!state) return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'أكاديمية السحر', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً!' }, [getReturnRow()]);
 
     const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`forge_upgrade_skill_${skillId}`).setLabel('صقل المهارة 📜').setStyle(canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`forge_upgrade_skill_${skillId}`).setLabel('صقل المهارة 📜').setStyle(state.canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary),
         getReturnRow().components[0]
     );
     
-    return await replyWithCanvas(i, user, 'skill', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getSkillDisplayValue(configSkill, currentLevel)}${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}`, reqMora: reqs.moraCost, detailedReqs: detailedReqs }, [btnRow], []);
+    return await replyWithCanvas(i, user, 'skill', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getSkillDisplayValue(configSkill, currentLevel)}${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}`, reqMora: state.reqMora, detailedReqs: state.uiReqs }, [btnRow], []);
 }
 
 async function handleSkillLearn(i, user, guildId, db, skillId) {
@@ -598,33 +593,22 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
     const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
     if (currentLevel >= 15 && playerServerLevel < 30) return; 
 
-    const dbRaceName = getSafeVal(wpnRes?.rows?.[0], 'racename', null);
-    const raceName = dbRaceName ? getStandardRaceName(dbRaceName) : roleRaceName;
-    if (!raceName) return;
+    const wData = wpnRes?.rows?.[0] || null;
 
-    const reqs = getUpgradeRequirements(currentLevel, true);
-    const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
-    const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
-    
-    const bookCat = getSafeBookCat(categoryName);
-    const raceMats = getSafeRaceMats(raceName);
+    // 🔥 استدعاء المحرك الموحد لضمان التطابق التام 🔥
+    const state = await getUpgradeState(db, user.id, guildId, currentLevel, true, skillId, roleRaceName, wData);
+    if (!state) return;
 
-    let detailedReqs = reqs.materials.map(r => {
-        return { id: r.type === 'book' ? bookCat.books[r.tier]?.id : raceMats.materials[r.tier]?.id, count: r.count };
-    }).filter(r => r.id);
+    if (!state.hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
+    if (!state.hasItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
 
-    const hasMora = await checkMora(db, user.id, guildId, reqs.moraCost);
-    if (!hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
-    
-    const hasItems = await checkItems(db, user.id, guildId, detailedReqs);
-    if (!hasItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
-
-    await deductMora(db, user.id, guildId, reqs.moraCost);
-    await deductItems(db, user.id, guildId, detailedReqs);
+    await deductMora(db, user.id, guildId, state.reqMora);
+    await deductItems(db, user.id, guildId, state.detailedReqs);
 
     try { await db.query(`UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]); } 
     catch(e) { await db.query(`UPDATE user_skills SET skilllevel = skilllevel + 1 WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]).catch(()=>{}); }
     
+    const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
     const statSymbol = configSkill.stat_type === '%' ? '%' : '';
     await replyWithCanvas(i, user, 'success_skill', { title: `صقل ${resolveText(configSkill.name)}`, currentLevel: currentLevel, nextLevel: currentLevel + 1, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}` }, [getReturnRow()], []);
 }
