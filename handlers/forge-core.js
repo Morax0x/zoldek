@@ -337,7 +337,7 @@ const getReturnRow = () => new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('forge_return_main').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
 );
 
-// 🔥 محرك الحالة الموحد: يضمن تطابقاً بنسبة 1000% بين الصورة والزر الخفي! 🔥
+// 🔥 محرك الحالة الموحد: تم إصلاح دمج المتطلبات لمنع أي تعارض 🔥
 async function getUpgradeState(db, userId, guildId, currentLevel, isSkill, skillId, roleRaceName, wData) {
     const dbRaceName = getSafeVal(wData, 'racename', null);
     const raceName = dbRaceName ? (getStandardRaceName(dbRaceName) || roleRaceName) : roleRaceName;
@@ -353,10 +353,16 @@ async function getUpgradeState(db, userId, guildId, currentLevel, isSkill, skill
         bookCat = getSafeBookCat(categoryName);
     }
 
-    let detailedReqs = reqs.materials.map(r => {
+    // إصلاح: تجميع المواد لتجنب التكرار في الحسابات
+    let reqMap = {};
+    reqs.materials.forEach(r => {
         let itemId = isSkill ? (r.type === 'book' ? bookCat.books[r.tier]?.id : raceMats.materials[r.tier]?.id) : raceMats.materials[r.tier]?.id;
-        return { id: itemId, count: r.count };
-    }).filter(r => r.id);
+        if (itemId) {
+            reqMap[itemId] = (reqMap[itemId] || 0) + r.count;
+        }
+    });
+
+    let detailedReqs = Object.keys(reqMap).map(id => ({ id: id, count: reqMap[id] }));
 
     const hasMora = await checkMora(db, userId, guildId, reqs.moraCost);
     
@@ -374,7 +380,6 @@ async function getUpgradeState(db, userId, guildId, currentLevel, isSkill, skill
         return { id: r.id, count: r.count, userCount: userMatCount, name: matInfo?.name || "مجهول", rarity: matInfo?.rarity || "Common", iconUrl: matInfo?.iconUrl };
     });
 
-    // سر السحر: القرار يؤخذ مباشرة من مخرجات الصورة (uiReqs)
     const hasItems = uiReqs.every(r => r.userCount >= r.count);
 
     return { canUpgrade: hasMora && hasItems, hasMora, hasItems, reqMora: reqs.moraCost, uiReqs, detailedReqs, raceName };
@@ -430,7 +435,11 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
 
     if (currentLevel === 0) {
         const btnRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`forge_buy_weapon`).setLabel(`صناعة السلاح الأساسي (${LEARN_FEE} مورا)`).setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId(`forge_buy_weapon`)
+                .setLabel(`صناعة السلاح الأساسي (${LEARN_FEE} مورا)`)
+                .setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary)
+                .setDisabled(userMora < LEARN_FEE), // <-- تم إضافة التعطيل
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, user, 'weapon', { mora: userMora, title: `صناعة ${resolveText(weaponConfig.name)}`, currentLevel: 0, nextLevel: 1, currentStat: `0 DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, 1)} DMG`, reqMora: LEARN_FEE, detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم الصناعة', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }] }, [btnRow], false);
@@ -441,12 +450,15 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
     const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
     if (currentLevel >= 15 && playerServerLevel < 30) return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: 'قفل المستوى: يجب أن تصل إلى المستوى 30 في السيرفر.' }, [getReturnRow()]);
 
-    // 🔥 استدعاء المحرك الموحد 🔥
     const state = await getUpgradeState(db, user.id, guildId, currentLevel, false, null, roleRaceName, wData);
     if (!state) return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: 'الحدادة', hasError: true, errorMsg: 'حدث خطأ في قراءة موارد التطوير.' }, [getReturnRow()]);
 
     const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`forge_upgrade_weapon`).setLabel('تـطـويـر السـلاح').setStyle(state.canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(`forge_upgrade_weapon`)
+            .setLabel('تـطـويـر السـلاح')
+            .setStyle(state.canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary)
+            .setDisabled(!state.canUpgrade), // <-- تم إضافة التعطيل هنا لمنع الاستجابة الخاطئة
         getReturnRow().components[0]
     );
     
@@ -479,7 +491,6 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
     const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
     if (currentLevel >= 15 && playerServerLevel < 30) return; 
 
-    // 🔥 استدعاء المحرك الموحد لضمان التطابق التام 🔥
     const state = await getUpgradeState(db, user.id, guildId, currentLevel, false, null, roleRaceName, wData);
     if (!state) return;
 
@@ -540,7 +551,11 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     
     if (currentLevel === 0) {
         const btnRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`forge_learn_skill_${skillId}`).setLabel(`تعلم المهارة (${LEARN_FEE} مورا)`).setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId(`forge_learn_skill_${skillId}`)
+                .setLabel(`تعلم المهارة (${LEARN_FEE} مورا)`)
+                .setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary)
+                .setDisabled(userMora < LEARN_FEE), // <-- تم إضافة التعطيل
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, user, 'skill', {
@@ -556,12 +571,15 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
 
     const wData = wpnRes?.rows?.[0] || null;
     
-    // 🔥 استدعاء المحرك الموحد لضمان التطابق التام 🔥
     const state = await getUpgradeState(db, user.id, guildId, currentLevel, true, skillId, roleRaceName, wData);
     if (!state) return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'أكاديمية السحر', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً!' }, [getReturnRow()]);
 
     const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`forge_upgrade_skill_${skillId}`).setLabel('صقل المهارة 📜').setStyle(state.canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(`forge_upgrade_skill_${skillId}`)
+            .setLabel('صقل المهارة 📜')
+            .setStyle(state.canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary)
+            .setDisabled(!state.canUpgrade), // <-- تم إضافة التعطيل هنا
         getReturnRow().components[0]
     );
     
@@ -598,7 +616,6 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
 
     const wData = wpnRes?.rows?.[0] || null;
 
-    // 🔥 استدعاء المحرك الموحد لضمان التطابق التام 🔥
     const state = await getUpgradeState(db, user.id, guildId, currentLevel, true, skillId, roleRaceName, wData);
     if (!state) return;
 
@@ -679,7 +696,7 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
             const targetInfo = getItemInfo(state.targetItem);
             if(targetInfo) {
                 payloadData.targetMatName = targetInfo.name; payloadData.targetMatIcon = targetInfo.iconUrl;
-                components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('forge_execute_synth').setLabel(`دمــج`).setStyle(userMora >= SYNTHESIS_FEE ? ButtonStyle.Success : ButtonStyle.Secondary)));
+                components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('forge_execute_synth').setLabel(`دمــج`).setStyle(userMora >= SYNTHESIS_FEE ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(userMora < SYNTHESIS_FEE)));
             }
         }
     }
