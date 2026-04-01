@@ -4,42 +4,72 @@ const Canvas = require('canvas');
 const TEST_MODE = false;
 const CHILDREN_PER_PAGE = 10; 
 
+// 🔥 نظام ألوان وتصميم إمبراطوري احترافي جداً 🔥
 const THEME = {
-    BG_TOP: "#14161f",
-    BG_BOT: "#0a0b10",
-    GRID: "rgba(255, 255, 255, 0.03)",
-    MALE: "#00a8ff",
-    FEMALE: "#ff0055",
-    DEFAULT: "#00ff88",
-    GOLD: "#ffd700",
-    LINE: "#cfd8dc",
+    BG_TOP: "#0d1117",
+    BG_BOT: "#010409",
+    GRID: "rgba(255, 255, 255, 0.02)",
+    MALE: "#58a6ff",
+    FEMALE: "#f778ba",
+    DEFAULT: "#2ea043",
+    GOLD: "#e2b714",
+    LINE: "#30363d",
+    LINE_GLOW: "rgba(88, 166, 255, 0.4)",
     TEXT: "#ffffff",
-    NAME_BG: "rgba(0, 0, 0, 0.85)"
+    NAME_BG: "rgba(13, 17, 23, 0.9)"
 };
 
 const DIMS = {
-    NODE: 80, PARTNER: 65, KID: 60, GRAND: 45, GREAT_GRAND: 35, 
-    PARENT: 70, GRANDPARENT: 50, SIBLING: 60,
-    LEVEL_GAP: 250, SIB_GAP: 50,
+    NODE: 85, PARTNER: 70, KID: 65, GRAND: 50, GREAT_GRAND: 40, 
+    PARENT: 75, GRANDPARENT: 55, SIBLING: 65,
+    LEVEL_GAP: 280, SIB_GAP: 60,
 };
 
-const Y_GRANDPARENTS = 60;
+const Y_GRANDPARENTS = 80;
 const Y_PARENTS = Y_GRANDPARENTS + DIMS.LEVEL_GAP;
 const Y_MAIN = Y_PARENTS + DIMS.LEVEL_GAP;
 const Y_KIDS = Y_MAIN + DIMS.LEVEL_GAP;
 const Y_GRAND = Y_KIDS + DIMS.LEVEL_GAP;
 const Y_GREAT_GRAND = Y_GRAND + DIMS.LEVEL_GAP; 
-const CANVAS_HEIGHT = Y_GREAT_GRAND + DIMS.GREAT_GRAND + 100;
+const CANVAS_HEIGHT = Y_GREAT_GRAND + DIMS.GREAT_GRAND + 120;
+
+// 🛡️ نظام معالجة استعلامات فولاذي 🛡️
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { 
+        res = await db.query(qPg, params); 
+    } catch(e) { 
+        res = { rows: [] }; 
+    }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/gi, "userid")
+        .replace(/"guildID"/gi, "guildid")
+        .replace(/"parentID"/gi, "parentid")
+        .replace(/"childID"/gi, "childid")
+        .replace(/"partnerID"/gi, "partnerid");
+
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    return { rows: [] };
+};
 
 async function getUserColor(client, userId, guild, db) {
     if (TEST_MODE) return THEME.DEFAULT;
     try {
-        const configRes = await db.query(`SELECT "maleRole", "femaleRole" FROM family_config WHERE "guildID" = $1`, [guild.id]);
+        const configRes = await safeQuery(db, `SELECT "maleRole", "femaleRole" FROM family_config WHERE "guildID" = $1`, [guild.id]);
         const config = configRes.rows[0];
         if (!config) return THEME.DEFAULT;
         
-        let member = guild.members.cache.get(userId);
-        if (!member) member = await guild.members.fetch(userId).catch(() => null);
+        let member = guild.members.cache.get(userId) || await guild.members.fetch(userId).catch(() => null);
         if (!member) return THEME.DEFAULT;
         
         const checkRole = (rolesData) => {
@@ -68,13 +98,13 @@ async function drawTreePage(treeData, pageIndex) {
     let childrenTotalWidth = 0;
 
     for (let child of currentChildren) {
-        const spouseW = (child.partners.length * (DIMS.PARTNER * 2 + 10));
+        const spouseW = (child.partners.length * (DIMS.PARTNER * 2 + 20));
         const topW = (DIMS.KID * 2) + spouseW;
         
         let botW = 0;
         for (const grand of child.offspring) {
             const greatCount = grand.offspring ? grand.offspring.length : 0;
-            const grandBlockW = Math.max(DIMS.GRAND * 2 + 10, greatCount * (DIMS.GREAT_GRAND * 2 + 5));
+            const grandBlockW = Math.max(DIMS.GRAND * 2 + 20, greatCount * (DIMS.GREAT_GRAND * 2 + 10));
             botW += grandBlockW;
         }
         
@@ -83,175 +113,185 @@ async function drawTreePage(treeData, pageIndex) {
         childrenTotalWidth += blockW + DIMS.SIB_GAP;
     }
 
-    const leftSiblingsWidth = treeData.siblings.left.length * (DIMS.SIBLING * 2 + 15);
-    const rightSiblingsWidth = treeData.siblings.right.length * (DIMS.SIBLING * 2 + 15);
+    const leftSiblingsWidth = treeData.siblings.left.length * (DIMS.SIBLING * 2 + 30);
+    const rightSiblingsWidth = treeData.siblings.right.length * (DIMS.SIBLING * 2 + 30);
     
-    // حساب عرض الآباء والأجداد
     let parentsWidth = 0;
     for (const p of treeData.parents) {
         const gpCount = p.grandparents ? p.grandparents.length : 0;
-        const pBlockW = Math.max(DIMS.PARENT * 2 + 40, gpCount * (DIMS.GRANDPARENT * 2 + 20));
-        parentsWidth += pBlockW + 30;
+        const pBlockW = Math.max(DIMS.PARENT * 2 + 50, gpCount * (DIMS.GRANDPARENT * 2 + 30));
+        parentsWidth += pBlockW + 40;
     }
 
-    const partnersWidth = (treeData.partners.length * (DIMS.PARTNER * 2 + 20)) + (DIMS.NODE * 2);
-    const mainRowWidth = partnersWidth + leftSiblingsWidth + rightSiblingsWidth + 150;
+    const partnersWidth = (treeData.partners.length * (DIMS.PARTNER * 2 + 30)) + (DIMS.NODE * 2);
+    const mainRowWidth = partnersWidth + leftSiblingsWidth + rightSiblingsWidth + 200;
 
-    const canvasWidth = Math.max(childrenTotalWidth, mainRowWidth, parentsWidth, 1400) + 150;
+    const canvasWidth = Math.max(childrenTotalWidth, mainRowWidth, parentsWidth, 1600) + 200;
     const centerX = canvasWidth / 2;
 
     const canvas = Canvas.createCanvas(canvasWidth, CANVAS_HEIGHT);
     const ctx = canvas.getContext('2d');
 
+    // رسم الخلفية الاحترافية
     const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
     grad.addColorStop(0, THEME.BG_TOP);
     grad.addColorStop(1, THEME.BG_BOT);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, canvasWidth, CANVAS_HEIGHT);
 
+    // رسم الشبكة
     ctx.lineWidth = 1;
     ctx.strokeStyle = THEME.GRID;
-    const gridSize = 50;
+    const gridSize = 40;
     for(let x=0; x<canvasWidth; x+=gridSize) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,CANVAS_HEIGHT); ctx.stroke(); }
     for(let y=0; y<CANVAS_HEIGHT; y+=gridSize) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvasWidth,y); ctx.stroke(); }
 
-    const radGrad = ctx.createRadialGradient(centerX, CANVAS_HEIGHT/2, 100, centerX, CANVAS_HEIGHT/2, canvasWidth);
-    radGrad.addColorStop(0, "rgba(0,0,0,0)");
-    radGrad.addColorStop(1, "rgba(0,0,0,0.5)");
+    // إضاءة مركزية
+    const radGrad = ctx.createRadialGradient(centerX, Y_MAIN, 50, centerX, Y_MAIN, 800);
+    radGrad.addColorStop(0, "rgba(226, 183, 20, 0.08)");
+    radGrad.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = radGrad;
     ctx.fillRect(0, 0, canvasWidth, CANVAS_HEIGHT);
 
     function drawNameLabel(name, x, y, color) {
-        const fontSize = 16;
+        const fontSize = 18;
         ctx.font = `bold ${fontSize}px "Sans", "Arial"`;
         const textMetrics = ctx.measureText(name);
-        const boxWidth = textMetrics.width + 20;
-        const boxHeight = 32;
+        const boxWidth = textMetrics.width + 30;
+        const boxHeight = 36;
         const boxX = x - (boxWidth / 2);
-        const boxY = y + 15;
+        const boxY = y + 10;
 
-        ctx.shadowColor = "rgba(0,0,0,0.5)";
-        ctx.shadowBlur = 5;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 10;
         ctx.fillStyle = THEME.NAME_BG;
         ctx.beginPath();
-        if(ctx.roundRect) ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 10);
+        if(ctx.roundRect) ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 18);
         else ctx.rect(boxX, boxY, boxWidth, boxHeight);
         ctx.fill();
+
+        ctx.shadowBlur = 0;
         ctx.lineWidth = 2;
         ctx.strokeStyle = color;
         ctx.stroke();
+
         ctx.fillStyle = THEME.TEXT;
         ctx.textAlign = "center";
-        ctx.fillText(name, x, boxY + 22);
+        ctx.textBaseline = "middle";
+        ctx.fillText(name, x, boxY + (boxHeight / 2));
     }
 
-    async function drawCircleImg(user, x, y, radius, isMain=false) {
+    const renderQueue = [];
+
+    function queueAvatar(user, x, y, radius, isMain=false) {
+        renderQueue.push({ user, x, y, radius, isMain });
+    }
+
+    // دوال رسم الخطوط المنحنية الاحترافية
+    function drawCurvedLine(x1, y1, x2, y2, color=THEME.LINE, width=3) {
         ctx.save();
-        ctx.shadowColor = "rgba(0,0,0,0.6)";
-        ctx.shadowBlur = 20;
         ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.clip();
-        try {
-            const img = await Canvas.loadImage(user.avatarURL);
-            ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
-        } catch (err) {
-            ctx.fillStyle = "#2c3e50";
-            ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-        }
-        ctx.restore();
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.lineWidth = isMain ? 6 : 4;
-        ctx.strokeStyle = isMain ? THEME.GOLD : (user.color || THEME.DEFAULT);
+        ctx.moveTo(x1, y1);
+        ctx.bezierCurveTo(x1, y1 + (y2 - y1)/2, x2, y1 + (y2 - y1)/2, x2, y2);
+        ctx.lineWidth = width;
+        ctx.strokeStyle = color;
+        ctx.shadowColor = THEME.LINE_GLOW;
+        ctx.shadowBlur = 5;
         ctx.stroke();
-        
-        const name = user.username || "???";
-        const shortName = name.length > 12 ? name.substring(0, 10)+".." : name;
-        drawNameLabel(shortName, x, y + radius, isMain ? THEME.GOLD : (user.color || THEME.DEFAULT));
+        ctx.restore();
     }
 
-    function drawLine(x1, y1, x2, y2, color=THEME.LINE, width=3) {
+    function drawHorizontalLine(x1, y1, x2, y2, color=THEME.LINE, width=3) {
         ctx.save();
         ctx.beginPath();
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
         ctx.lineWidth = width;
         ctx.strokeStyle = color;
-        ctx.shadowColor = "rgba(0,0,0,0.8)";
-        ctx.shadowBlur = 2;
+        ctx.shadowColor = THEME.LINE_GLOW;
+        ctx.shadowBlur = 5;
         ctx.stroke();
         ctx.restore();
     }
 
-    function drawElbow(x1, y1, x2, y2, color=THEME.LINE) {
-        const midY = (y1 + y2) / 2;
-        drawLine(x1, y1, x1, midY, color);
-        drawLine(x1, midY, x2, midY, color);
-        drawLine(x2, midY, x2, y2, color);
-    }
-
-    // --- رسم الخطوط ---
-    
-    let currentPX = centerX - (parentsWidth / 2) + 20;
+    // --- حساب الإحداثيات ورسم الخطوط أولاً (لتكون خلف الصور) ---
+    let currentPX = centerX - (parentsWidth / 2) + 25;
     for(const p of treeData.parents) {
         const gpCount = p.grandparents ? p.grandparents.length : 0;
-        const pBlockW = Math.max(DIMS.PARENT * 2 + 40, gpCount * (DIMS.GRANDPARENT * 2 + 20));
+        const pBlockW = Math.max(DIMS.PARENT * 2 + 50, gpCount * (DIMS.GRANDPARENT * 2 + 30));
         const pCenterX = currentPX + (pBlockW / 2);
 
         if (gpCount > 0) {
-            let gpX = pCenterX - ((gpCount * (DIMS.GRANDPARENT * 2 + 20)) / 2) + DIMS.GRANDPARENT;
+            let gpX = pCenterX - ((gpCount * (DIMS.GRANDPARENT * 2 + 30)) / 2) + DIMS.GRANDPARENT;
             for (const gp of p.grandparents) {
-                drawElbow(pCenterX, Y_PARENTS - DIMS.PARENT, gpX, Y_GRANDPARENTS + DIMS.GRANDPARENT);
-                gpX += DIMS.GRANDPARENT * 2 + 20;
+                drawCurvedLine(pCenterX, Y_PARENTS, gpX, Y_GRANDPARENTS);
+                queueAvatar(gp, gpX, Y_GRANDPARENTS, DIMS.GRANDPARENT);
+                gpX += DIMS.GRANDPARENT * 2 + 30;
             }
         }
         
-        drawLine(pCenterX, Y_PARENTS + DIMS.PARENT, centerX, Y_MAIN - DIMS.NODE - 40);
-        currentPX += pBlockW + 30;
+        drawCurvedLine(centerX, Y_MAIN, pCenterX, Y_PARENTS);
+        queueAvatar(p, pCenterX, Y_PARENTS, DIMS.PARENT);
+        currentPX += pBlockW + 40;
     }
 
-    const siblingsLineY = Y_MAIN - DIMS.NODE - 60;
-    let sX = centerX - DIMS.NODE - 60;
-    for(const sib of treeData.siblings.left) {
-        drawLine(centerX, siblingsLineY, sX, siblingsLineY);
-        drawLine(sX, siblingsLineY, sX, Y_MAIN - DIMS.SIBLING);
-        sX -= (DIMS.SIBLING * 2 + 20);
+    // رسم شركاء الحياة (الزوجات/الأزواج) بخط متصل أفقي
+    let pX = centerX + DIMS.NODE + 50;
+    if (treeData.partners.length > 0) {
+        let lastPx = centerX + DIMS.NODE + 50 + ((treeData.partners.length - 1) * (DIMS.PARTNER * 2 + 30));
+        drawHorizontalLine(centerX, Y_MAIN, lastPx, Y_MAIN, THEME.FEMALE, 4);
     }
     
-    let rightStart = centerX + DIMS.NODE + (treeData.partners.length * (DIMS.PARTNER * 2 + 20)) + 60;
-    for(const sib of treeData.siblings.right) {
-        drawLine(centerX, siblingsLineY, rightStart, siblingsLineY);
-        drawLine(rightStart, siblingsLineY, rightStart, Y_MAIN - DIMS.SIBLING);
-        rightStart += (DIMS.SIBLING * 2 + 20);
+    for(const p of treeData.partners) {
+        queueAvatar(p, pX, Y_MAIN, DIMS.PARTNER);
+        pX += DIMS.PARTNER * 2 + 30;
     }
-    
+
+    // رسم الإخوة
+    const siblingsLineY = Y_MAIN - DIMS.NODE - 50;
     if (treeData.siblings.left.length > 0 || treeData.siblings.right.length > 0) {
-        drawLine(centerX, siblingsLineY, centerX, Y_MAIN - DIMS.NODE);
+        drawHorizontalLine(centerX, Y_MAIN, centerX, siblingsLineY, THEME.LINE, 3);
     }
 
-    let pX = centerX + DIMS.NODE + 40;
-    treeData.partners.forEach((p) => {
-        drawLine(centerX + DIMS.NODE, Y_MAIN, pX - DIMS.PARTNER, Y_MAIN, THEME.FEMALE);
-        pX += DIMS.PARTNER * 2 + 20;
-    });
+    let sX = centerX - DIMS.NODE - 80;
+    for(const sib of treeData.siblings.left) {
+        drawHorizontalLine(centerX, siblingsLineY, sX, siblingsLineY, THEME.LINE, 3);
+        drawHorizontalLine(sX, siblingsLineY, sX, Y_MAIN, THEME.LINE, 3);
+        queueAvatar(sib, sX, Y_MAIN, DIMS.SIBLING);
+        sX -= (DIMS.SIBLING * 2 + 30);
+    }
+    
+    let rightStart = centerX + DIMS.NODE + (treeData.partners.length * (DIMS.PARTNER * 2 + 30)) + 80;
+    for(const sib of treeData.siblings.right) {
+        drawHorizontalLine(centerX, siblingsLineY, rightStart, siblingsLineY, THEME.LINE, 3);
+        drawHorizontalLine(rightStart, siblingsLineY, rightStart, Y_MAIN, THEME.LINE, 3);
+        queueAvatar(sib, rightStart, Y_MAIN, DIMS.SIBLING);
+        rightStart += (DIMS.SIBLING * 2 + 30);
+    }
 
+    // وضع الحساب الرئيسي
+    queueAvatar(treeData.main, centerX, Y_MAIN, DIMS.NODE, true);
+
+    // رسم الأبناء
     if (childBlocks.length > 0) {
-        drawElbow(centerX, Y_MAIN + DIMS.NODE, centerX, Y_KIDS - DIMS.KID - 40);
         let currentX = centerX - (childrenTotalWidth / 2);
         for(const block of childBlocks) {
             const blockCenter = currentX + (block.width / 2);
             const kidRealX = blockCenter - (block.spouseW / 2);
-            drawElbow(centerX, Y_MAIN + DIMS.NODE, kidRealX, Y_KIDS - DIMS.KID);
             
-            let spX = kidRealX + DIMS.KID + 20;
+            drawCurvedLine(centerX, Y_MAIN, kidRealX, Y_KIDS);
+            queueAvatar(block.data, kidRealX, Y_KIDS, DIMS.KID);
+            
+            let spX = kidRealX + DIMS.KID + 30;
             let lastSpouseX = kidRealX;
-            if (block.data.partners) {
+            
+            if (block.data.partners && block.data.partners.length > 0) {
+                let endSpousePx = kidRealX + DIMS.KID + 30 + ((block.data.partners.length - 1) * (DIMS.PARTNER * 2 + 20));
+                drawHorizontalLine(kidRealX, Y_KIDS, endSpousePx, Y_KIDS, THEME.FEMALE, 3);
                 for (const sp of block.data.partners) {
-                    drawLine(kidRealX + DIMS.KID, Y_KIDS, spX - DIMS.PARTNER, Y_KIDS, THEME.FEMALE);
+                    queueAvatar(sp, spX, Y_KIDS, DIMS.PARTNER);
                     lastSpouseX = spX;
-                    spX += DIMS.PARTNER * 2 + 10;
+                    spX += DIMS.PARTNER * 2 + 20;
                 }
             }
 
@@ -260,16 +300,18 @@ async function drawTreePage(treeData, pageIndex) {
                 let grandStartX = currentX; 
                 for (const grand of block.data.offspring) {
                     const greatCount = grand.offspring ? grand.offspring.length : 0;
-                    const grandBlockW = Math.max(DIMS.GRAND * 2 + 10, greatCount * (DIMS.GREAT_GRAND * 2 + 5));
+                    const grandBlockW = Math.max(DIMS.GRAND * 2 + 20, greatCount * (DIMS.GREAT_GRAND * 2 + 10));
                     const grandCenterX = grandStartX + (grandBlockW / 2);
 
-                    drawElbow(parentsCenterX, Y_KIDS + DIMS.KID, grandCenterX, Y_GRAND - DIMS.GRAND);
+                    drawCurvedLine(parentsCenterX, Y_KIDS, grandCenterX, Y_GRAND);
+                    queueAvatar(grand, grandCenterX, Y_GRAND, DIMS.GRAND);
 
                     if (greatCount > 0) {
-                        let greatX = grandStartX + DIMS.GREAT_GRAND + 5;
+                        let greatX = grandStartX + DIMS.GREAT_GRAND + 10;
                         for (const great of grand.offspring) {
-                            drawElbow(grandCenterX, Y_GRAND + DIMS.GRAND, greatX, Y_GREAT_GRAND - DIMS.GREAT_GRAND);
-                            greatX += DIMS.GREAT_GRAND * 2 + 5;
+                            drawCurvedLine(grandCenterX, Y_GRAND, greatX, Y_GREAT_GRAND);
+                            queueAvatar(great, greatX, Y_GREAT_GRAND, DIMS.GREAT_GRAND);
+                            greatX += DIMS.GREAT_GRAND * 2 + 10;
                         }
                     }
                     grandStartX += grandBlockW;
@@ -279,91 +321,58 @@ async function drawTreePage(treeData, pageIndex) {
         }
     }
 
-    // --- رسم الصور ---
-    currentPX = centerX - (parentsWidth / 2) + 20;
-    for(const p of treeData.parents) {
-        const gpCount = p.grandparents ? p.grandparents.length : 0;
-        const pBlockW = Math.max(DIMS.PARENT * 2 + 40, gpCount * (DIMS.GRANDPARENT * 2 + 20));
-        const pCenterX = currentPX + (pBlockW / 2);
+    // --- تنفيذ رسم الصور الآن لتكون فوق الخطوط ---
+    for (const data of renderQueue) {
+        const { user, x, y, radius, isMain } = data;
+        ctx.save();
+        ctx.shadowColor = "rgba(0,0,0,0.8)";
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.fill(); 
+        ctx.clip();
 
-        if (gpCount > 0) {
-            let gpX = pCenterX - ((gpCount * (DIMS.GRANDPARENT * 2 + 20)) / 2) + DIMS.GRANDPARENT;
-            for (const gp of p.grandparents) {
-                await drawCircleImg(gp, gpX, Y_GRANDPARENTS, DIMS.GRANDPARENT);
-                gpX += DIMS.GRANDPARENT * 2 + 20;
+        try {
+            if (user.avatarURL) {
+                const img = await Canvas.loadImage(user.avatarURL);
+                ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
+            } else {
+                ctx.fillStyle = "#161b22";
+                ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
             }
+        } catch (err) {
+            ctx.fillStyle = "#161b22";
+            ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
         }
-        await drawCircleImg(p, pCenterX, Y_PARENTS, DIMS.PARENT);
-        currentPX += pBlockW + 30;
-    }
+        ctx.restore();
 
-    sX = centerX - DIMS.NODE - 60;
-    for(const sib of treeData.siblings.left) {
-        await drawCircleImg(sib, sX, Y_MAIN, DIMS.SIBLING);
-        sX -= (DIMS.SIBLING * 2 + 20);
-    }
-
-    await drawCircleImg(treeData.main, centerX, Y_MAIN, DIMS.NODE, true);
-
-    pX = centerX + DIMS.NODE + 40;
-    for(const p of treeData.partners) {
-        await drawCircleImg(p, pX, Y_MAIN, DIMS.PARTNER);
-        pX += DIMS.PARTNER * 2 + 20;
-    }
-
-    rightStart = centerX + DIMS.NODE + (treeData.partners.length * (DIMS.PARTNER * 2 + 20)) + 60;
-    for(const sib of treeData.siblings.right) {
-        await drawCircleImg(sib, rightStart, Y_MAIN, DIMS.SIBLING);
-        rightStart += (DIMS.SIBLING * 2 + 20);
-    }
-
-    let currentX = centerX - (childrenTotalWidth / 2);
-    for(const block of childBlocks) {
-        const blockCenter = currentX + (block.width / 2);
-        const kidRealX = blockCenter - (block.spouseW / 2);
+        // الإطار المضيء
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.lineWidth = isMain ? 7 : 4;
+        ctx.strokeStyle = isMain ? THEME.GOLD : (user.color || THEME.DEFAULT);
+        ctx.shadowColor = isMain ? THEME.GOLD : (user.color || THEME.DEFAULT);
+        ctx.shadowBlur = 10;
+        ctx.stroke();
+        ctx.shadowBlur = 0; // إعادة التعيين
         
-        await drawCircleImg(block.data, kidRealX, Y_KIDS, DIMS.KID);
-
-        let spX = kidRealX + DIMS.KID + 20;
-        if (block.data.partners) {
-            for (const sp of block.data.partners) {
-                await drawCircleImg(sp, spX, Y_KIDS, DIMS.PARTNER);
-                spX += DIMS.PARTNER * 2 + 10;
-            }
-        }
-
-        if (block.data.offspring.length > 0) {
-            let grandStartX = currentX;
-            for (const grand of block.data.offspring) {
-                const greatCount = grand.offspring ? grand.offspring.length : 0;
-                const grandBlockW = Math.max(DIMS.GRAND * 2 + 10, greatCount * (DIMS.GREAT_GRAND * 2 + 5));
-                const grandCenterX = grandStartX + (grandBlockW / 2);
-
-                await drawCircleImg(grand, grandCenterX, Y_GRAND, DIMS.GRAND);
-
-                if (greatCount > 0) {
-                    let greatX = grandStartX + DIMS.GREAT_GRAND + 5;
-                    for (const great of grand.offspring) {
-                        await drawCircleImg(great, greatX, Y_GREAT_GRAND, DIMS.GREAT_GRAND);
-                        greatX += DIMS.GREAT_GRAND * 2 + 5;
-                    }
-                }
-                grandStartX += grandBlockW;
-            }
-        }
-        currentX += block.width + DIMS.SIB_GAP;
+        const name = user.username || "مجهول";
+        const shortName = name.length > 12 ? name.substring(0, 10)+".." : name;
+        drawNameLabel(shortName, x, y + radius, isMain ? THEME.GOLD : (user.color || THEME.DEFAULT));
     }
 
-    ctx.fillStyle = "rgba(255,255,255,0.3)";
-    ctx.font = '20px "Sans", "Arial"';
-    ctx.fillText(`الصفحة ${pageIndex + 1}`, canvasWidth - 100, CANVAS_HEIGHT - 30);
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.font = 'bold 24px "Sans", "Arial"';
+    ctx.textAlign = 'right';
+    ctx.fillText(`إمبراطورية العائلات - الصفحة ${pageIndex + 1}`, canvasWidth - 40, CANVAS_HEIGHT - 30);
 
     return new AttachmentBuilder(canvas.toBuffer(), { name: 'family-tree.png' });
 }
 
 module.exports = {
     name: 'tree',
-    description: 'عرض شجرة العائلة الشاملة والموسعة',
+    description: 'عرض شجرة العائلة الشاملة والموسعة بتصميم إمبراطوري',
     aliases: ['شجرة', 'family'],
     
     async execute(message, args) {
@@ -383,22 +392,26 @@ module.exports = {
         addId(targetUser.id);
 
         const getParents = async (id) => {
-            let res;
-            try { res = await db.query(`SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [id, guildId]); }
-            catch(e) { res = await db.query(`SELECT parentid FROM children WHERE childid = $1 AND guildid = $2`, [id, guildId]).catch(()=>({rows:[]})); }
-            return res.rows.map(r => r.parentID || r.parentid);
+            const res = await safeQuery(db, `SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [id, guildId]);
+            const pSet = new Set();
+            res.rows.forEach(r => { if(r.parentID) pSet.add(r.parentID); if(r.parentid) pSet.add(r.parentid); });
+            return Array.from(pSet);
         };
+
         const getChildren = async (id) => {
-            let res;
-            try { res = await db.query(`SELECT "childID" FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [id, guildId]); }
-            catch(e) { res = await db.query(`SELECT childid FROM children WHERE parentid = $1 AND guildid = $2`, [id, guildId]).catch(()=>({rows:[]})); }
-            return res.rows.map(r => r.childID || r.childid);
+            const res = await safeQuery(db, `SELECT "childID" FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [id, guildId]);
+            const cSet = new Set();
+            res.rows.forEach(r => { if(r.childID) cSet.add(r.childID); if(r.childid) cSet.add(r.childid); });
+            return Array.from(cSet);
         };
+
         const getPartners = async (id) => {
-            let res;
-            try { res = await db.query(`SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [id, guildId]); }
-            catch(e) { res = await db.query(`SELECT partnerid FROM marriages WHERE userid = $1 AND guildid = $2`, [id, guildId]).catch(()=>({rows:[]})); }
-            return res.rows.map(r => r.partnerID || r.partnerid);
+            const res1 = await safeQuery(db, `SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [id, guildId]);
+            const res2 = await safeQuery(db, `SELECT "userID" FROM marriages WHERE "partnerID" = $1 AND "guildID" = $2`, [id, guildId]);
+            const pSet = new Set();
+            res1.rows.forEach(r => { if(r.partnerID) pSet.add(r.partnerID); if(r.partnerid) pSet.add(r.partnerid); });
+            res2.rows.forEach(r => { if(r.userID) pSet.add(r.userID); if(r.userid) pSet.add(r.userid); });
+            return Array.from(pSet);
         };
 
         const directParents = await getParents(targetUser.id);
@@ -476,14 +489,22 @@ module.exports = {
 
         const prepareUserObj = async (id) => {
             const m = membersMap.get(id);
-            if (!m) return null;
-            const color = await getUserColor(client, id, guild, db);
-            return {
-                username: m.user.username,
-                id: id,
-                color: color,
-                avatarURL: m.user.displayAvatarURL({ extension: 'png' })
-            };
+            let username = "مجهول";
+            let avatarURL = null;
+            if (m) {
+                username = m.user.username;
+                avatarURL = m.user.displayAvatarURL({ extension: 'png', size: 256 });
+            } else {
+                try {
+                    const u = await client.users.fetch(id);
+                    username = u.username;
+                    avatarURL = u.displayAvatarURL({ extension: 'png', size: 256 });
+                } catch {
+                    username = `عضو (${id.substring(0,4)}..)`;
+                }
+            }
+            const color = m ? await getUserColor(client, id, guild, db) : THEME.DEFAULT;
+            return { username, id, color, avatarURL };
         };
 
         const mainUserObj = await prepareUserObj(targetUser.id);
@@ -581,11 +602,9 @@ module.exports = {
             components: totalPages > 1 ? [getButtons(currentPage)] : []
         });
 
-        // 🔥 إضافة رسالة الشجرة للذاكرة المؤقتة لمنع الإمبراطورة من الرد عليها 🔥
         if (!client.ignoredTreeMessages) client.ignoredTreeMessages = new Set();
         client.ignoredTreeMessages.add(msg.id);
         
-        // حذف الآيدي من الذاكرة بعد 10 دقائق لتخفيف الضغط
         setTimeout(() => {
             client.ignoredTreeMessages.delete(msg.id);
         }, 10 * 60 * 1000);
