@@ -80,71 +80,107 @@ if (skillsConfig) {
     });
 }
 
-async function execSafe(db, qPg, qLite, params = []) {
-    try {
-        let res = await db.query(qPg, params);
-        return res || { rows: [] };
-    } catch(e1) {
-        try {
-            let res2 = await db.query(qLite, params);
-            return res2 || { rows: [] };
-        } catch(e2) {
-            return { rows: [], error: true };
+// 🔥 نظام استعلام فولاذي للحماية من الصمت والفشل 🔥
+const safeQuery = async (db, qPg, params) => {
+    try { 
+        let res = await db.query(qPg, params); 
+        return { rows: Array.isArray(res) ? res : (res?.rows || []) };
+    } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"itemID"/gi, "itemid")
+            .replace(/"skillID"/gi, "skillid")
+            .replace(/"skillLevel"/gi, "skilllevel")
+            .replace(/"raceName"/gi, "racename")
+            .replace(/"weaponLevel"/gi, "weaponlevel")
+            .replace(/"quantity"/gi, "quantity")
+            .replace(/"mora"/gi, "mora")
+            .replace(/"bank"/gi, "bank")
+            .replace(/"level"/gi, "level")
+            .replace(/"id"/gi, "id")
+            .replace(/"user"/gi, "userid")
+            .replace(/"guild"/gi, "guildid")
+            .replace(/"epic_pity"/gi, "epic_pity")
+            .replace(/"legendary_pity"/gi, "legendary_pity")
+            .replace(/"last_free_claim"/gi, "last_free_claim");
+        
+        if (fallbackQuery !== qPg) {
+            try { 
+                let res2 = await db.query(fallbackQuery, params); 
+                return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) };
+            } catch(e2) { }
         }
+        return { rows: [] };
     }
-}
+};
 
-async function deductMora(client, db, userId, guildId, amount) {
-    try {
-        let rCheck = await execSafe(db, 
-            `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, 
-            `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, 
-            [userId, guildId]
-        );
-        
-        if (rCheck.error || rCheck.rows.length === 0) return false;
-        
-        let m = Number(rCheck.rows[0].mora || rCheck.rows[0].Mora || 0);
-        let b = Number(rCheck.rows[0].bank || rCheck.rows[0].Bank || 0);
+const safeExecute = async (db, qPg, params) => {
+    try { await db.query(qPg, params); return true; } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"itemID"/gi, "itemid")
+            .replace(/"skillID"/gi, "skillid")
+            .replace(/"skillLevel"/gi, "skilllevel")
+            .replace(/"quantity"/gi, "quantity")
+            .replace(/"mora"/gi, "mora")
+            .replace(/"bank"/gi, "bank")
+            .replace(/"user"/gi, "userid")
+            .replace(/"guild"/gi, "guildid")
+            .replace(/"epic_pity"/gi, "epic_pity")
+            .replace(/"legendary_pity"/gi, "legendary_pity")
+            .replace(/"last_free_claim"/gi, "last_free_claim");
 
-        if ((m + b) < amount) return false; 
-
-        let newMora = m;
-        let newBank = b;
-
-        if (m >= amount) {
-            newMora = m - amount; 
-        } else {
-            let remainder = amount - m; 
-            newMora = 0;
-            newBank = b - remainder;
+        if (fallbackQuery !== qPg) {
+            try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
         }
-
-        if (client && typeof client.getLevel === 'function') {
-            let u = await client.getLevel(userId, guildId);
-            if (u) {
-                u.mora = newMora;
-                u.bank = newBank;
-                if (typeof client.setLevel === 'function') await client.setLevel(u);
-            }
-        }
-
-        let rUpdate = await execSafe(db,
-            `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`,
-            `UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`,
-            [newMora, newBank, userId, guildId]
-        );
-        return !rUpdate.error;
-    } catch(e) {
         return false;
     }
+};
+
+async function deductMora(client, db, userId, guildId, amount) {
+    if (amount <= 0) return true;
+    let res = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
+    if (!res || !res.rows || res.rows.length === 0) return false;
+
+    let mora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
+    let bank = Number(res.rows[0].bank || res.rows[0].Bank || 0);
+
+    if (mora + bank < amount) return false;
+
+    if (mora >= amount) {
+        mora -= amount;
+    } else {
+        let diff = amount - mora;
+        mora = 0;
+        bank -= diff;
+    }
+
+    if (client && typeof client.getLevel === 'function') {
+        let u = await client.getLevel(userId, guildId);
+        if (u) {
+            u.mora = String(mora);
+            u.bank = String(bank);
+            if (typeof client.setLevel === 'function') await client.setLevel(u);
+        }
+    }
+
+    await safeExecute(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [mora, bank, userId, guildId]);
+    return true;
 }
 
 async function ensurePityTable(db) {
-    await execSafe(db, 
-        `CREATE TABLE IF NOT EXISTS user_gacha_pity ("userID" TEXT, "guildID" TEXT, "epic_pity" INTEGER DEFAULT 0, "legendary_pity" INTEGER DEFAULT 0, "last_free_claim" TEXT DEFAULT '', PRIMARY KEY ("userID", "guildID"))`,
-        `CREATE TABLE IF NOT EXISTS user_gacha_pity (userid TEXT, guildid TEXT, epic_pity INTEGER DEFAULT 0, legendary_pity INTEGER DEFAULT 0, last_free_claim TEXT DEFAULT '', PRIMARY KEY (userid, guildid))`
-    );
+    await safeExecute(db, `
+        CREATE TABLE IF NOT EXISTS user_gacha_pity (
+            "userID" TEXT, 
+            "guildID" TEXT, 
+            "epic_pity" INTEGER DEFAULT 0, 
+            "legendary_pity" INTEGER DEFAULT 0, 
+            "last_free_claim" TEXT DEFAULT '', 
+            PRIMARY KEY ("userID", "guildID")
+        )
+    `, []);
 }
 
 function performPull(pityData, userRace, ownedSkills) {
@@ -243,10 +279,10 @@ module.exports = {
                 } catch(e) {}
 
                 const [lvlRes, invRes, skillRes, wepRes] = await Promise.all([
-                    execSafe(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-                    execSafe(db, `SELECT "itemID", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" IN ('gacha_chest', 'free_gacha_chest')`, `SELECT itemid, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid IN ('gacha_chest', 'free_gacha_chest')`, [user.id, guildId]),
-                    execSafe(db, `SELECT "skillID" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, `SELECT skillid FROM user_skills WHERE userid = $1 AND guildid = $2`, [user.id, guildId]),
-                    execSafe(db, `SELECT "raceName" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, `SELECT racename FROM user_weapons WHERE userid = $1 AND guildid = $2`, [user.id, guildId])
+                    safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
+                    safeQuery(db, `SELECT "itemID", "itemid", "quantity", "Quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]),
+                    safeQuery(db, `SELECT "skillID", "skillid" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]),
+                    safeQuery(db, `SELECT "raceName", "racename" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
                 ]);
 
                 userMora = cacheMora !== null ? cacheMora : (lvlRes.rows[0] ? Number(lvlRes.rows[0].mora || lvlRes.rows[0].Mora || 0) : 0);
@@ -254,27 +290,28 @@ module.exports = {
                 
                 freeChests = 0;
                 paidChests = 0;
-                if (!invRes.error && invRes.rows) {
+                if (invRes.rows) {
                     invRes.rows.forEach(r => {
-                        const id = r.itemID || r.itemid;
-                        const qty = Number(r.quantity || r.Quantity);
-                        if (id === 'free_gacha_chest') freeChests = qty;
-                        if (id === 'gacha_chest') paidChests = qty;
+                        const id = String(r.itemID || r.itemid || '').toLowerCase().trim();
+                        const qty = Number(r.quantity || r.Quantity || 0);
+                        if (id === 'free_gacha_chest') freeChests += qty;
+                        if (id === 'gacha_chest') paidChests += qty;
                     });
                 }
                 totalChests = freeChests + paidChests;
-                if (!skillRes.error && skillRes.rows) ownedSkills = skillRes.rows.map(r => r.skillID || r.skillid);
-                if (!wepRes.error && wepRes.rows[0]) userRace = wepRes.rows[0].raceName || wepRes.rows[0].racename;
+                
+                if (skillRes.rows) ownedSkills = skillRes.rows.map(r => r.skillID || r.skillid);
+                if (wepRes.rows[0]) userRace = wepRes.rows[0].raceName || wepRes.rows[0].racename;
             };
 
             await fetchUserData();
-            const pityRes = await execSafe(db, `SELECT * FROM user_gacha_pity WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_gacha_pity WHERE userid = $1 AND guildid = $2`, [user.id, guildId]);
-            if (!pityRes.error && pityRes.rows[0]) {
+            const pityRes = await safeQuery(db, `SELECT * FROM user_gacha_pity WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+            if (pityRes.rows[0]) {
                 pityData.epic_pity = pityRes.rows[0].epic_pity || 0;
                 pityData.legendary_pity = pityRes.rows[0].legendary_pity || 0;
                 pityData.last_free_claim = pityRes.rows[0].last_free_claim || '';
             } else {
-                await execSafe(db, `INSERT INTO user_gacha_pity ("userID", "guildID", "last_free_claim") VALUES ($1, $2, '')`, `INSERT INTO user_gacha_pity (userid, guildid, last_free_claim) VALUES ($1, $2, '')`, [user.id, guildId]);
+                await safeExecute(db, `INSERT INTO user_gacha_pity ("userID", "guildID", "last_free_claim") VALUES ($1, $2, '')`, [user.id, guildId]);
             }
 
             let dailyLimit = 0;
@@ -283,23 +320,22 @@ module.exports = {
 
             const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
 
+            // 🔥 تحديث الصناديق اليومية: تتجدد دائماً إذا كان اليوم جديد 🔥
             if (dailyLimit > 0 && pityData.last_free_claim !== todaySaudi) {
-                if (freeChests === 0) {
-                    freeChests = dailyLimit;
-                    totalChests = freeChests + paidChests;
-                    
-                    let checkFreeRes = await execSafe(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = 'free_gacha_chest'`, `SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = 'free_gacha_chest'`, [user.id, guildId]);
-                    if (!checkFreeRes.error && checkFreeRes.rows[0]) {
-                        await execSafe(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [freeChests, checkFreeRes.rows[0].id || checkFreeRes.rows[0].ID]);
-                    } else {
-                        await execSafe(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, freeChests]);
-                    }
-                    
-                    await execSafe(db, `UPDATE user_gacha_pity SET "last_free_claim" = $1 WHERE "userID" = $2 AND "guildID" = $3`, `UPDATE user_gacha_pity SET last_free_claim = $1 WHERE userid = $2 AND guildid = $3`, [todaySaudi, user.id, guildId]);
-                    pityData.last_free_claim = todaySaudi;
-
-                    (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).send({ content: `🎁 <@${user.id}> **مكافأة يومية!** لقد استلمت **${dailyLimit}** صناديق مجانية.` }).catch(()=>{});
+                freeChests = dailyLimit;
+                totalChests = freeChests + paidChests;
+                
+                let checkFreeRes = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'free_gacha_chest'`, [user.id, guildId]);
+                if (checkFreeRes.rows[0]) {
+                    await safeExecute(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [freeChests, checkFreeRes.rows[0].id || checkFreeRes.rows[0].ID]);
+                } else {
+                    await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, freeChests]);
                 }
+                
+                await safeExecute(db, `UPDATE user_gacha_pity SET "last_free_claim" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [todaySaudi, user.id, guildId]);
+                pityData.last_free_claim = todaySaudi;
+
+                (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).send({ content: `🎁 <@${user.id}> **مكافأة يومية!** لقد تم تجديد صناديقك المجانية لليوم لتصبح **${dailyLimit}** صناديق.` }).catch(()=>{});
             }
 
             const getPullButtons = (totalBalance) => {
@@ -329,7 +365,6 @@ module.exports = {
                     } catch(e){}
                 }
                 
-                // استخدام مسافة مخفية للحماية من خطأ Empty Message إذا فشل توليد الصورة
                 const safeContent = files.length > 0 ? '' : '\u200B';
 
                 if (targetMsg) {
@@ -364,30 +399,26 @@ module.exports = {
                     if (isBuying) {
                         let deducted = await deductMora(client, db, user.id, guildId, cost);
                         if (!deducted) return null;
-                        
-                        if (userMora >= cost) {
-                            userMora -= cost;
-                        } else {
-                            let remainder = cost - userMora;
-                            userMora = 0;
-                            userBank -= remainder;
-                        }
                     } else {
                         let remaining = pullCount;
                         let consumeFree = Math.min(freeChests, remaining);
                         remaining -= consumeFree;
                         let consumePaid = Math.min(paidChests, remaining);
                         
+                        // 🔥 خصم الصناديق الفولاذي 🔥
                         if (consumeFree > 0) {
-                            await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'free_gacha_chest'`, [consumeFree, user.id, guildId]);
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER("itemID") = 'free_gacha_chest'`, [consumeFree, user.id, guildId]);
                         }
                         if (consumePaid > 0) {
-                            await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, `UPDATE user_inventory SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = 'gacha_chest'`, [consumePaid, user.id, guildId]);
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER("itemID") = 'gacha_chest'`, [consumePaid, user.id, guildId]);
                         }
                         
                         freeChests -= consumeFree;
                         paidChests -= consumePaid;
                         totalChests = freeChests + paidChests;
+                        
+                        // تنظيف الصناديق التي أصبحت صفر
+                        await safeExecute(db, `DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
                     }
 
                     const results = [];
@@ -420,21 +451,21 @@ module.exports = {
                     const updatePromises = [];
 
                     for (const skillId of skillsToAdd) {
-                        updatePromises.push(execSafe(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, `INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]));
+                        updatePromises.push(safeExecute(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]));
                     }
 
                     for (const [itemId, qty] of Object.entries(itemsToAdd)) {
                         updatePromises.push((async () => {
-                            let existingItemRes = await execSafe(db, `SELECT "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guildId, itemId]);
-                            if (!existingItemRes.error && existingItemRes.rows[0]) {
-                                await execSafe(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qty, existingItemRes.rows[0].id || existingItemRes.rows[0].ID]);
+                            let existingItemRes = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, [user.id, guildId, itemId]);
+                            if (existingItemRes.rows[0]) {
+                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, existingItemRes.rows[0].id || existingItemRes.rows[0].ID]);
                             } else {
-                                await execSafe(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]);
+                                await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]);
                             }
                         })());
                     }
 
-                    updatePromises.push(execSafe(db, `UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, `UPDATE user_gacha_pity SET epic_pity = $1, legendary_pity = $2 WHERE userid = $3 AND guildid = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]));
+                    updatePromises.push(safeExecute(db, `UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]));
 
                     await Promise.all(updatePromises);
 
@@ -517,7 +548,7 @@ module.exports = {
 
                     const pullsData = await executePulls(pullCount, isBuying, cost);
                     if (!pullsData) {
-                        await i.followUp({ content: "❌ فشل خصم الموارد!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                        await i.followUp({ content: "❌ فشل خصم الموارد! يرجى المحاولة لاحقاً.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                         isProcessing = false;
                         return;
                     }
@@ -530,7 +561,6 @@ module.exports = {
                         return;
                     }
 
-                    // عرض الانيميشن كصورة فقط بدون ايمبد
                     const prefix = pullCount > 1 ? 'ten_' : 'single_';
                     const meteorFileName = `${prefix}${bestResult.rarity}.png`;
                     const meteorUrl = `${R2_URL}/images/gacha/${meteorFileName}`;
