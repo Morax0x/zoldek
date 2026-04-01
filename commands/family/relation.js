@@ -1,5 +1,28 @@
 const { EmbedBuilder, Colors } = require("discord.js");
 
+// 🛡️ نظام استعلام فولاذي لحماية قاعدة البيانات 🛡️
+const safeQuery = async (db, qPg, params) => {
+    try { 
+        let res = await db.query(qPg, params); 
+        return { rows: Array.isArray(res) ? res : (res?.rows || []) };
+    } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"partnerID"/gi, "partnerid")
+            .replace(/"parentID"/gi, "parentid")
+            .replace(/"childID"/gi, "childid");
+
+        if (fallbackQuery !== qPg) {
+            try { 
+                let res2 = await db.query(fallbackQuery, params); 
+                return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) };
+            } catch(e2) { }
+        }
+        return { rows: [] };
+    }
+};
+
 module.exports = {
     name: 'relation',
     description: 'كشف صلة القرابة الدقيقة والمفصلة بينك وبين عضو آخر',
@@ -29,7 +52,7 @@ module.exports = {
 
         let familyConfig = null;
         try {
-            const configRes = await db.query(`SELECT "maleRole", "femaleRole" FROM family_config WHERE "guildID" = $1`, [guildId]);
+            const configRes = await safeQuery(db, `SELECT "maleRole", "femaleRole" FROM family_config WHERE "guildID" = $1`, [guildId]);
             familyConfig = configRes.rows[0];
         } catch(e) {}
         
@@ -66,23 +89,28 @@ module.exports = {
                 step_parent: isMale ? "زوج الأم" : (isFemale ? "زوجة الأب" : "زوج الوالد"),
                 step_child: isMale ? "(ابن الزوج/ة)" : (isFemale ? "ابنة الزوج/ة)" : "ربيب"),
                 step_sibling: isMale ? "أخ غير شقيق" : (isFemale ? "أخت غير شقيقة" : "أخ غير شقيق"),
+                co_wife: isFemale ? "ضـرة (شريكة زوج)" : "شريك",
             };
 
             return titles[type] || "قريب";
         };
 
+        // دوال جلب البيانات التي تدعم المصفوفات (للتعدد)
         const getParents = async (id) => {
-            const res = await db.query(`SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [id, guildId]);
+            const res = await safeQuery(db, `SELECT "parentID" FROM children WHERE "childID" = $1 AND "guildID" = $2`, [id, guildId]);
             return res.rows.map(r => r.parentID || r.parentid);
         };
         const getChildren = async (id) => {
-            const res = await db.query(`SELECT "childID" FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [id, guildId]);
+            const res = await safeQuery(db, `SELECT "childID" FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [id, guildId]);
             return res.rows.map(r => r.childID || r.childid);
         };
-        const getPartner = async (id) => {
-            const res = await db.query(`SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, [id, guildId]);
-            const m = res.rows[0];
-            return m ? (m.partnerID || m.partnerid) : null;
+        const getPartners = async (id) => {
+            const res1 = await safeQuery(db, `SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [id, guildId]);
+            const res2 = await safeQuery(db, `SELECT "userID" FROM marriages WHERE "partnerID" = $1 AND "guildID" = $2`, [id, guildId]);
+            const pSet = new Set();
+            res1.rows.forEach(r => { if(r.partnerID) pSet.add(r.partnerID); if(r.partnerid) pSet.add(r.partnerid); });
+            res2.rows.forEach(r => { if(r.userID) pSet.add(r.userID); if(r.userid) pSet.add(r.userid); });
+            return Array.from(pSet);
         };
 
         let relName = "غـربـاء 🚶‍♂️";
@@ -90,25 +118,30 @@ module.exports = {
         let relColor = Colors.Grey;
         let relationFound = false;
 
-        const partnerA = await getPartner(userA.id);
-        if (partnerA === userB.id) {
+        // جلب دوائر القرابة للشخص أ والشخص ب
+        const partnersA = await getPartners(userA.id);
+        const partnersB = await getPartners(userB.id);
+        const parentsA = await getParents(userA.id);
+        const parentsB = await getParents(userB.id);
+        const childrenA = await getChildren(userA.id);
+        const childrenB = await getChildren(userB.id);
+
+        // 1. فحص الشريك (الزوج / الزوجة)
+        if (partnersA.includes(userB.id)) {
             relName = getGenderedTitle(userBMember, 'spouse');
             relEmoji = "💍";
             relColor = Colors.LuminousVividPink;
             relationFound = true;
         }
 
+        // 2. فحص الوالدين والأبناء
         if (!relationFound) {
-            const parentsA = await getParents(userA.id);
-            const childrenA = await getChildren(userA.id);
-
             if (parentsA.includes(userB.id)) {
                 relName = getGenderedTitle(userBMember, 'parent');
                 relEmoji = "👑";
                 relColor = Colors.Gold;
                 relationFound = true;
-            }
-            else if (childrenA.includes(userB.id)) {
+            } else if (childrenA.includes(userB.id)) {
                 relName = getGenderedTitle(userBMember, 'child');
                 relEmoji = "🍼";
                 relColor = Colors.Blue;
@@ -116,11 +149,9 @@ module.exports = {
             }
         }
 
+        // 3. فحص الإخوة
         if (!relationFound) {
-            const parentsA = await getParents(userA.id);
-            const parentsB = await getParents(userB.id);
             const areSiblings = parentsA.some(pid => parentsB.includes(pid));
-            
             if (areSiblings) {
                 relName = getGenderedTitle(userBMember, 'sibling');
                 relEmoji = "🤝";
@@ -129,16 +160,14 @@ module.exports = {
             }
         }
 
+        // 4. فحص الأجداد والأحفاد
+        let grandParentsA = [];
+        let grandChildrenA = [];
         if (!relationFound) {
-            const parentsA = await getParents(userA.id);
-            const childrenA = await getChildren(userA.id);
-
-            let grandParentsA = [];
             for (const pid of parentsA) {
                 const gps = await getParents(pid);
                 grandParentsA.push(...gps);
             }
-            
             if (grandParentsA.includes(userB.id)) {
                 relName = getGenderedTitle(userBMember, 'grandparent');
                 relEmoji = "👴";
@@ -147,12 +176,10 @@ module.exports = {
             }
             
             if (!relationFound) {
-                let grandChildrenA = [];
                 for (const cid of childrenA) {
                     const gcs = await getChildren(cid);
                     grandChildrenA.push(...gcs);
                 }
-                
                 if (grandChildrenA.includes(userB.id)) {
                     relName = getGenderedTitle(userBMember, 'grandchild');
                     relEmoji = "🧸";
@@ -160,34 +187,34 @@ module.exports = {
                     relationFound = true;
                 }
             }
+        }
 
-            if (!relationFound) {
-                let greatGrandParentsA = [];
-                for (const gpid of grandParentsA) {
-                    const ggps = await getParents(gpid);
-                    greatGrandParentsA.push(...ggps);
-                }
-                if (greatGrandParentsA.includes(userB.id)) {
-                    relName = getGenderedTitle(userBMember, 'great_grandparent');
-                    relEmoji = "📜";
-                    relationFound = true;
-                }
+        // 5. فحص الجد الأكبر
+        if (!relationFound) {
+            let greatGrandParentsA = [];
+            for (const gpid of grandParentsA) {
+                const ggps = await getParents(gpid);
+                greatGrandParentsA.push(...ggps);
+            }
+            if (greatGrandParentsA.includes(userB.id)) {
+                relName = getGenderedTitle(userBMember, 'great_grandparent');
+                relEmoji = "📜";
+                relColor = Colors.DarkVividPink;
+                relationFound = true;
             }
         }
 
+        // 6. فحص الأعمام والأخوال وأبناء الأخ/الأخت
+        let mySiblings = [];
         if (!relationFound) {
-            const parentsA = await getParents(userA.id);
-            const parentsB = await getParents(userB.id);
-
             let unclesA = [];
             for (const pid of parentsA) {
-                const grandParents = await getParents(pid);
-                for (const gp of grandParents) {
+                const gps = await getParents(pid);
+                for (const gp of gps) {
                     const uncles = (await getChildren(gp)).filter(u => u !== pid);
                     unclesA.push(...uncles);
                 }
             }
-
             if (unclesA.includes(userB.id)) {
                 relName = getGenderedTitle(userBMember, 'uncle');
                 relEmoji = "🎩";
@@ -196,12 +223,10 @@ module.exports = {
             }
 
             if (!relationFound) {
-                let mySiblings = [];
                 for (const pid of parentsA) {
                     const sibs = (await getChildren(pid)).filter(s => s !== userA.id);
                     mySiblings.push(...sibs);
                 }
-
                 if (parentsB.some(pb => mySiblings.includes(pb))) {
                     relName = getGenderedTitle(userBMember, 'nephew');
                     relEmoji = "🐣";
@@ -209,31 +234,35 @@ module.exports = {
                     relationFound = true;
                 }
             }
+        }
 
-            if (!relationFound) {
-                let parentsASiblings = [];
-                for (const pa of parentsA) {
-                    const grandP = await getParents(pa);
-                    for (const gp of grandP) {
-                        const sibs = (await getChildren(gp)).filter(s => s !== pa);
-                        parentsASiblings.push(...sibs);
-                    }
+        // 7. فحص أبناء العم/الخال
+        if (!relationFound) {
+            let parentsASiblings = [];
+            for (const pa of parentsA) {
+                const gps = await getParents(pa);
+                for (const gp of gps) {
+                    const sibs = (await getChildren(gp)).filter(s => s !== pa);
+                    parentsASiblings.push(...sibs);
                 }
-
-                if (parentsB.some(pb => parentsASiblings.includes(pb))) {
-                    relName = getGenderedTitle(userBMember, 'cousin');
-                    relEmoji = "👥";
-                    relColor = Colors.Teal;
-                    relationFound = true;
-                }
+            }
+            if (parentsB.some(pb => parentsASiblings.includes(pb))) {
+                relName = getGenderedTitle(userBMember, 'cousin');
+                relEmoji = "👥";
+                relColor = Colors.Teal;
+                relationFound = true;
             }
         }
 
+        // 8. فحص الأصهار (أهل الزوج/الزوجة) - يدعم التعدد!
         if (!relationFound) {
-            const partnerA = await getPartner(userA.id);
-            const parentsPartnerA = partnerA ? await getParents(partnerA) : [];
-
-            if (partnerA && parentsPartnerA.includes(userB.id)) {
+            let partnersParents = [];
+            for (const partnerId of partnersA) {
+                const pp = await getParents(partnerId);
+                partnersParents.push(...pp);
+            }
+            
+            if (partnersParents.includes(userB.id)) {
                 relName = getGenderedTitle(userBMember, 'parent_in_law');
                 relEmoji = "🎎";
                 relColor = Colors.DarkOrange;
@@ -241,9 +270,12 @@ module.exports = {
             }
 
             if (!relationFound) {
-                const childrenA = await getChildren(userA.id);
-                const partnerB = await getPartner(userB.id);
-                if (partnerB && childrenA.includes(partnerB)) {
+                let childrenPartners = [];
+                for (const cid of childrenA) {
+                    const cp = await getPartners(cid);
+                    childrenPartners.push(...cp);
+                }
+                if (childrenPartners.includes(userB.id)) {
                     relName = getGenderedTitle(userBMember, 'child_in_law');
                     relEmoji = "🤝";
                     relColor = Colors.Yellow;
@@ -251,58 +283,70 @@ module.exports = {
                 }
             }
 
-            if (!relationFound && partnerA) {
-                const parentsPart = await getParents(partnerA);
-                let partnerSiblings = [];
-                for (const pp of parentsPart) {
-                    const sibs = (await getChildren(pp)).filter(s => s !== partnerA);
-                    partnerSiblings.push(...sibs);
+            if (!relationFound) {
+                let partnersSiblings = [];
+                for (const partnerId of partnersA) {
+                    const pp = await getParents(partnerId);
+                    for (const p of pp) {
+                        const sibs = (await getChildren(p)).filter(s => s !== partnerId);
+                        partnersSiblings.push(...sibs);
+                    }
                 }
-                if (partnerSiblings.includes(userB.id)) {
+                if (partnersSiblings.includes(userB.id)) {
                     relName = getGenderedTitle(userBMember, 'sibling_in_law');
                     relEmoji = "🎋";
+                    relColor = Colors.DarkGold;
                     relationFound = true;
                 }
             }
 
             if (!relationFound) {
-                const parentsA = await getParents(userA.id);
-                let mySiblings = [];
-                for (const p of parentsA) {
-                    const sibs = (await getChildren(p)).filter(s => s !== userA.id);
-                    mySiblings.push(...sibs);
-                }
-                const partnerB = await getPartner(userB.id);
-                if (partnerB && mySiblings.includes(partnerB)) {
+                if (partnersB.some(pb => mySiblings.includes(pb))) {
                     relName = getGenderedTitle(userBMember, 'sibling_in_law');
                     relEmoji = "🎋";
+                    relColor = Colors.DarkGold;
                     relationFound = true;
                 }
             }
         }
 
+        // 9. فحص علاقات التعدد: الضرة (تشترك في نفس الزوج)
         if (!relationFound) {
-            const parentsA = await getParents(userA.id);
+            const shareSamePartner = partnersA.some(p => partnersB.includes(p));
+            if (shareSamePartner) {
+                relName = getGenderedTitle(userBMember, 'co_wife');
+                relEmoji = "🎭";
+                relColor = Colors.LuminousVividPink;
+                relationFound = true;
+            }
+        }
+
+        // 10. فحص العلاقات غير الشقيقة (أبناء الشريك، زوج الوالد)
+        if (!relationFound) {
+            let parentsPartners = [];
             for (const pid of parentsA) {
-                const pPartner = await getPartner(pid);
-                if (pPartner === userB.id) {
-                    relName = getGenderedTitle(userBMember, 'step_parent');
-                    relEmoji = "🧣";
-                    relColor = Colors.Orange;
-                    relationFound = true;
-                    break;
-                }
+                const pPartners = await getPartners(pid);
+                parentsPartners.push(...pPartners.filter(p => !parentsA.includes(p)));
+            }
+
+            if (parentsPartners.includes(userB.id)) {
+                relName = getGenderedTitle(userBMember, 'step_parent');
+                relEmoji = "🧣";
+                relColor = Colors.Orange;
+                relationFound = true;
             }
 
             if (!relationFound) {
-                const partnerA = await getPartner(userA.id);
-                if (partnerA) {
-                    const partnerChildren = await getChildren(partnerA);
-                    if (partnerChildren.includes(userB.id)) {
-                        relName = getGenderedTitle(userBMember, 'step_child');
-                        relEmoji = "🐣";
-                        relationFound = true;
-                    }
+                let partnersChildren = [];
+                for (const partnerId of partnersA) {
+                    const pc = await getChildren(partnerId);
+                    partnersChildren.push(...pc.filter(c => !childrenA.includes(c)));
+                }
+                if (partnersChildren.includes(userB.id)) {
+                    relName = getGenderedTitle(userBMember, 'step_child');
+                    relEmoji = "🐥";
+                    relColor = Colors.Orange;
+                    relationFound = true;
                 }
             }
         }
