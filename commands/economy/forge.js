@@ -80,7 +80,6 @@ module.exports = {
         let replyObj;
 
         if (!currentRace) {
-            // ... (بقاء كود اختيار العرق الأول كما هو لكن بتوجيهات core.safeQuery)
             let allRaces = await core.safeQuery(db, `SELECT * FROM race_roles WHERE "guildID" = $1`, [guildId]);
             if (!allRaces || allRaces.rows.length === 0) {
                 return fakeInteraction.editReply({ content: "❌ الإدارة لم تقم بإعداد رتب الأعراق في هذا السيرفر بعد." }).catch(()=>{});
@@ -91,12 +90,16 @@ module.exports = {
                 .setDescription("اختر العِرق الذي يُجسّد جوهرك وهويتك ، فكل اختيار يرسم مصيرك القادم\n\n⚠️ **عند تحديد عِرقك، لا يمكنك تغييره لاحقًا — فاختَر بحكمة.**")
                 .setColor(require('discord.js').Colors.DarkPurple);
 
-            const options = allRaces.rows.slice(0, 25).map(r => ({
-                label: r.raceName || r.racename,
-                value: r.roleID || r.roleid,
-                description: `الانضمام إلى عرق ${r.raceName || r.racename}`,
-                emoji: '🎭'
-            }));
+            const options = allRaces.rows.slice(0, 25).map(r => {
+                const nameKey = Object.keys(r).find(k => k.toLowerCase() === 'racename');
+                const idKey = Object.keys(r).find(k => k.toLowerCase() === 'roleid');
+                return {
+                    label: r[nameKey],
+                    value: r[idKey],
+                    description: `الانضمام إلى عرق ${r[nameKey]}`,
+                    emoji: '🎭'
+                };
+            });
 
             const row = new require('discord.js').ActionRowBuilder().addComponents(
                 new require('discord.js').StringSelectMenuBuilder().setCustomId('forge_starter_race').setPlaceholder('اضغط هنا لاختيار عرقك...').addOptions(options)
@@ -119,7 +122,10 @@ module.exports = {
             replyObj = await interactionOrMessage.fetchReply().catch(()=>{});
         }
         
-        if (!replyObj || !replyObj.createMessageComponentCollector) return;
+        if (!replyObj || !replyObj.createMessageComponentCollector) {
+            console.error("⚠️ فشل في تهيئة المجمع (Collector). تأكد من صحة مسارات ملفات الصور (generators).");
+            return;
+        }
 
         const filter = i => i.user.id === user.id && i.customId.startsWith('forge_');
         const collector = replyObj.createMessageComponentCollector({ filter, time: 300000 });
@@ -131,10 +137,15 @@ module.exports = {
                 if (i.isStringSelectMenu() && i.customId === 'forge_starter_race') {
                     const roleId = i.values[0];
                     let raceRolesRes = await core.safeQuery(db, `SELECT * FROM race_roles WHERE "guildID" = $1`, [guildId]);
-                    const matched = raceRolesRes.rows.find(r => (r.roleID || r.roleid) === roleId);
+                    const matched = raceRolesRes.rows.find(r => {
+                        const idK = Object.keys(r).find(k => k.toLowerCase() === 'roleid');
+                        return r[idK] === roleId;
+                    });
+                    
                     if(!matched) return i.followUp({ content: "❌ خطأ في العثور على العرق المختار.", flags: [MessageFlags.Ephemeral] });
 
-                    const selectedRaceName = core.getStandardRaceName(matched.raceName || matched.racename);
+                    const nameK = Object.keys(matched).find(k => k.toLowerCase() === 'racename');
+                    const selectedRaceName = core.getStandardRaceName(matched[nameK]);
                     const targetRole = i.guild.roles.cache.get(roleId);
                     
                     const memberObj = i.guild.members.cache.get(user.id) || await i.guild.members.fetch(user.id).catch(()=>null);
@@ -178,7 +189,9 @@ module.exports = {
                     else if (i.customId === 'forge_execute_smelt_1') { await core.handleSmelting(i, user, guildId, db, smeltState, client, 1); smeltState = { item: null }; }
                     else if (i.customId.startsWith('forge_smelt_multi_')) await core.handleSmeltingMultiModal(i, user, guildId, db, smeltState, client);
                 }
-            } catch (innerError) {}
+            } catch (innerError) {
+                console.error("[Forge Button Error]", innerError);
+            }
         });
 
         collector.on('end', () => {
