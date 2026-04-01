@@ -1,7 +1,6 @@
 const { EmbedBuilder, Colors } = require('discord.js');
 const { getRandomImage } = require('../utils'); 
 const { EMOJI_MORA, EMOJI_XP, EMOJI_BUFF, EMOJI_NERF, WIN_IMAGES, LOSE_IMAGES } = require('../constants'); 
-const { safeUpdateRepAndChests } = require('./rewards');
 
 let updateGuildStat, addXPAndCheckLevel;
 try { 
@@ -14,33 +13,30 @@ try {
     } catch(err) {}
 }
 
+// 🛡️ نظام الاستعلام الفولاذي الشامل 🛡️
+const safeQuery = async (db, qPg, params) => {
+    try { 
+        let res = await db.query(qPg, params); 
+        return { rows: Array.isArray(res) ? res : (res?.rows || []) }; 
+    } catch(e) { 
+        let fallbackQuery = qPg.replace(/"userID"/gi, "userid").replace(/"guildID"/gi, "guildid").replace(/"itemID"/gi, "itemid").replace(/"quantity"/gi, "quantity").replace(/"mora"/gi, "mora").replace(/"bank"/gi, "bank").replace(/"rep_points"/gi, "rep_points").replace(/"user"/gi, "userid").replace(/"guild"/gi, "guildid").replace(/"id"/gi, "id");
+        if (fallbackQuery !== qPg) {
+            try { 
+                let res2 = await db.query(fallbackQuery, params); 
+                return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) }; 
+            } catch(e2) { }
+        }
+        return { rows: [] };
+    }
+};
+
 const safeExecute = async (db, qPg, params) => {
     try { await db.query(qPg, params); return true; } catch(e) { 
-        let fallbackQuery = qPg
-            .replace(/"userID"/gi, "userid")
-            .replace(/"guildID"/gi, "guildid")
-            .replace(/"itemID"/gi, "itemid")
-            .replace(/"quantity"/gi, "quantity")
-            .replace(/"mora"/gi, "mora")
-            .replace(/"bank"/gi, "bank")
-            .replace(/"user"/gi, "userid")
-            .replace(/"guild"/gi, "guildid");
+        let fallbackQuery = qPg.replace(/"userID"/gi, "userid").replace(/"guildID"/gi, "guildid").replace(/"itemID"/gi, "itemid").replace(/"quantity"/gi, "quantity").replace(/"mora"/gi, "mora").replace(/"bank"/gi, "bank").replace(/"rep_points"/gi, "rep_points").replace(/"user"/gi, "userid").replace(/"guild"/gi, "guildid").replace(/"id"/gi, "id");
         if (fallbackQuery !== qPg) {
             try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
         }
         return false;
-    }
-};
-
-const safeQuery = async (db, qPg, params) => {
-    try { let res = await db.query(qPg, params); return { rows: Array.isArray(res) ? res : (res?.rows || []) }; } 
-    catch(e) { 
-        let fallbackQuery = qPg.replace(/"userID"/gi, "userid").replace(/"guildID"/gi, "guildid").replace(/"itemID"/gi, "itemid").replace(/"quantity"/gi, "quantity").replace(/"mora"/gi, "mora").replace(/"bank"/gi, "bank").replace(/"user"/gi, "userid").replace(/"guild"/gi, "guildid");
-        if (fallbackQuery !== qPg) {
-            try { let res2 = await db.query(fallbackQuery, params); return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) }; } 
-            catch(e2) { }
-        }
-        return { rows: [] };
     }
 };
 
@@ -113,6 +109,7 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                     await addXPAndCheckLevel(client, member, sql, finalXp, finalMora, false);
                 } else {
                     await safeExecute(sql, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $3 WHERE "user" = $4 AND "guild" = $5`, [finalMora, finalXp, finalXp, p.id, guildId]);
+
                     if (client && typeof client.getLevel === 'function') {
                         let cache = await client.getLevel(p.id, guildId);
                         if (cache) {
@@ -149,22 +146,40 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
             }
         }
 
-        // 🔥 نظام الجوائز الفولاذي: الصناديق المجانية الدائمة 🔥
+        // 🔥 نظام الجوائز الفولاذي المنيع (السمعة والصناديق) يحسب ويوزع بدون فشل 🔥
         if (!p.repAndChestsClaimed && (sessionRep > 0 || sessionChests > 0)) {
-            await safeUpdateRepAndChests(sql, p.id, guildId, sessionRep, sessionChests);
             
-            if (sessionChests > 0) {
-                try {
-                    let checkTargetInvRes = await safeQuery(sql, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'gacha_chest'`, [p.id, guildId]);
-                    let targetRowId = null;
-                    if (checkTargetInvRes.rows && checkTargetInvRes.rows.length > 0) {
-                        targetRowId = checkTargetInvRes.rows[0].id || checkTargetInvRes.rows[0].ID;
-                        await safeExecute(sql, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [sessionChests, targetRowId]);
-                    } else {
-                        await safeExecute(sql, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, p.id, sessionChests]);
-                    }
-                } catch(e) { console.error("Error adding gacha chests", e); }
+            // 1. تحديث السمعة
+            if (sessionRep > 0) {
+                let repRes = await safeQuery(sql, `SELECT * FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [p.id, guildId]);
+                if (repRes.rows && repRes.rows.length > 0) {
+                    await safeExecute(sql, `UPDATE user_reputation SET "rep_points" = CAST(COALESCE("rep_points", '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3`, [sessionRep, p.id, guildId]);
+                } else {
+                    await safeExecute(sql, `INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3)`, [p.id, guildId, sessionRep]);
+                }
             }
+            
+            // 2. إضافة الصناديق (بمستشعر ذكي لـ ID)
+            if (sessionChests > 0) {
+                let invRes = await safeQuery(sql, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [p.id, guildId]);
+                let targetRow = null;
+                
+                if (invRes.rows) {
+                    targetRow = invRes.rows.find(r => {
+                        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                        return idKey && String(r[idKey]).toLowerCase().trim() === 'gacha_chest';
+                    });
+                }
+                
+                if (targetRow) {
+                    const rowIdKey = Object.keys(targetRow).find(k => k.toLowerCase() === 'id');
+                    const targetRowId = targetRow[rowIdKey];
+                    await safeExecute(sql, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [sessionChests, targetRowId]);
+                } else {
+                    await safeExecute(sql, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, p.id, sessionChests]);
+                }
+            }
+
             p.repAndChestsClaimed = true;
         }
 
