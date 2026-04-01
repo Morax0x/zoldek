@@ -124,11 +124,9 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
             }
         }
 
-        // 🔥 تم دمج الصناديق لتضاف رسمياً للغاتشا 🔥
         if (!p.repAndChestsClaimed && (sessionRep > 0 || sessionChests > 0)) {
             await safeUpdateRepAndChests(sql, p.id, guildId, sessionRep, sessionChests);
             
-            // 🎁 تم تغيير free_gacha_chest إلى gacha_chest لضمان عدم ضياع الصناديق مع التجديد اليومي
             if (sessionChests > 0) {
                 try {
                     let invRes = await sql.query(`SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = 'gacha_chest'`, [p.id, guildId]).catch(()=>({rows:[]}));
