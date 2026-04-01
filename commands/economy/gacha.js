@@ -7,7 +7,6 @@ try {
     generateGachaCard = null; generateGachaHub = null; generateGachaInventory = null;
 }
 
-const skillsConfig = require('../../json/skills-config.json');
 const upgradeMats = require('../../json/upgrade-materials.json');
 
 const PULL_PRICE = 1000;
@@ -69,14 +68,6 @@ if (upgradeMats && upgradeMats.skill_books) {
             const imgName = ID_TO_IMAGE[b.id] || `${b.id}.png`;
             LOOT_POOL[b.rarity].push({ ...b, type: 'book', category: cat.category, imgPath: `${R2_URL}/images/materials/${typeFolder}/${imgName}` });
         });
-    });
-}
-
-if (skillsConfig) {
-    skillsConfig.forEach(s => {
-        const isLegendary = s.id.startsWith('race_') || s.id === 'skill_gamble' || s.id === 'skill_dispel';
-        const rarity = isLegendary ? 'Legendary' : 'Epic';
-        LOOT_POOL[rarity].push({ ...s, type: 'skill', rarity: rarity, imgPath: null });
     });
 }
 
@@ -183,7 +174,7 @@ async function ensurePityTable(db) {
     `, []);
 }
 
-function performPull(pityData, userRace, ownedSkills) {
+function performPull(pityData, userRace) {
     pityData.epic_pity++;
     pityData.legendary_pity++;
 
@@ -205,7 +196,6 @@ function performPull(pityData, userRace, ownedSkills) {
 
     let pool = LOOT_POOL[rarity] && LOOT_POOL[rarity].length > 0 ? [...LOOT_POOL[rarity]] : [...LOOT_POOL['Common']];
 
-    pool = pool.filter(item => !(item.type === 'skill' && ownedSkills.includes(item.id)));
     if (pool.length === 0) pool = [...LOOT_POOL['Common']]; 
 
     if (userRace && (rarity === 'Epic' || rarity === 'Legendary')) {
@@ -287,7 +277,6 @@ module.exports = {
             let paidChests = 0;
             let totalChests = 0;
             let pityData = { epic_pity: 0, legendary_pity: 0, last_free_claim: '' };
-            let ownedSkills = [];
             let userRace = null;
             let activePageCollector = null;
 
@@ -304,9 +293,8 @@ module.exports = {
                     }
                 } catch(e) {}
 
-                const [lvlRes, skillRes, wepRes] = await Promise.all([
+                const [lvlRes, wepRes] = await Promise.all([
                     safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
-                    safeQuery(db, `SELECT "skillID", "skillid" FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]),
                     safeQuery(db, `SELECT "raceName", "racename" FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
                 ]);
 
@@ -319,7 +307,6 @@ module.exports = {
                 paidChests = chestCounts.paidChests;
                 totalChests = freeChests + paidChests;
                 
-                if (skillRes.rows) ownedSkills = skillRes.rows.map(r => r.skillID || r.skillid);
                 if (wepRes.rows[0]) userRace = wepRes.rows[0].raceName || wepRes.rows[0].racename;
             };
 
@@ -440,20 +427,16 @@ module.exports = {
                     let bestResult = null;
 
                     const itemsToAdd = {};
-                    const skillsToAdd = [];
 
                     for (let k = 0; k < pullCount; k++) {
-                        const { item, rarity } = performPull(pityData, userRace, ownedSkills);
+                        const { item, rarity } = performPull(pityData, userRace);
                         
                         if (rarityOrder[rarity] > highestRarityVal) {
                             highestRarityVal = rarityOrder[rarity];
                             bestResult = { item, rarity };
                         }
 
-                        if (item && item.type === 'skill') {
-                            ownedSkills.push(item.id);
-                            skillsToAdd.push(item.id);
-                        } else if (item) {
+                        if (item) {
                             if (!itemsToAdd[item.id]) itemsToAdd[item.id] = 0;
                             itemsToAdd[item.id]++;
                         }
@@ -462,10 +445,6 @@ module.exports = {
                     }
 
                     const updatePromises = [];
-
-                    for (const skillId of skillsToAdd) {
-                        updatePromises.push(safeExecute(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]));
-                    }
 
                     for (const [itemId, qty] of Object.entries(itemsToAdd)) {
                         updatePromises.push((async () => {
