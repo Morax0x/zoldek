@@ -45,7 +45,13 @@ const RACE_TRANSLATIONS = new Map([
     ['Spirit', 'روح'], ['Dwarf', 'قزم'], ['Ghoul', 'غول'], ['Hybrid', 'نصف وحش']
 ]);
 
-const RARITY_ORDER = { 'Legendary': 5, 'Epic': 4, 'Rare': 3, 'Uncommon': 2, 'Common': 1 };
+const RARITY_ORDER = {
+    'Legendary': 5,
+    'Epic': 4,
+    'Rare': 3,
+    'Uncommon': 2,
+    'Common': 1
+};
 
 let resolveItemInfoLocal;
 try {
@@ -109,6 +115,7 @@ function getWeaponDisplayDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     const base = weaponConfig.base_damage;
     const inc = weaponConfig.damage_increment;
+
     if (level <= 15) {
         return Math.floor(base + (inc * (level - 1)));
     } else {
@@ -177,7 +184,6 @@ async function calculateStrongestRank(db, guildID, targetUserID) {
     } catch (e) { return 1; }
 }
 
-// 🔥 دوال الفحص والخصم الفولاذية المطورة لدعم التجزؤ 🔥
 async function checkItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
     let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
@@ -191,9 +197,11 @@ async function checkItems(db, userId, guildId, itemsArray) {
 
     let userMap = {};
     res.rows.forEach(r => {
-        const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
-        const dbQty = Number(r.quantity || r.Quantity || 0); 
-        userMap[dbItemId] = (userMap[dbItemId] || 0) + dbQty;
+        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+        const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
+        const dbItemId = idKey ? String(r[idKey]).toLowerCase().trim() : '';
+        const dbQty = qtyKey ? Number(r[qtyKey]) : 0; 
+        if (dbItemId) userMap[dbItemId] = (userMap[dbItemId] || 0) + dbQty;
     });
 
     for (let reqId in requiredMap) {
@@ -215,24 +223,43 @@ async function deductItems(db, userId, guildId, itemsArray) {
     for (let reqId in requiredMap) {
         let remainingToDeduct = requiredMap[reqId];
         for (let r of res.rows) {
-            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+            const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+            const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
+            const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
+
+            const dbItemId = idKey ? String(r[idKey]).toLowerCase().trim() : '';
             if (dbItemId !== reqId) continue;
             if (remainingToDeduct <= 0) break;
 
-            const q = Number(r.quantity || r.Quantity || 0);
+            const q = qtyKey ? Number(r[qtyKey]) : 0;
             if (q <= 0) continue;
             
             const deduct = Math.min(q, remainingToDeduct);
-            const rowId = r.id || r.ID;
-            
-            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, rowId]);
+            const rowId = r[rowIdKey];
+            try { await db.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, rowId]); } 
+            catch(e) { await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE id = $2`, [deduct, rowId]).catch(()=>{}); }
             
             remainingToDeduct -= deduct;
-            r.quantity = q - deduct; 
+            r[qtyKey] = q - deduct; 
         }
     }
-    await safeExecute(db, `DELETE FROM user_inventory WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    try { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]); } 
+    catch(e) { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE(quantity, '0') AS INTEGER) <= 0 AND userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>{}); }
     return true;
+}
+
+async function checkMora(db, userId, guildId, amount) {
+    if (amount <= 0) return true;
+    let res = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+    if (!res || !res.rows || res.rows.length === 0) return false;
+
+    const row = res.rows[0];
+    const moraKey = Object.keys(row).find(k => k.toLowerCase() === 'mora');
+    const bankKey = Object.keys(row).find(k => k.toLowerCase() === 'bank');
+    
+    let mora = moraKey ? Number(row[moraKey]) : 0;
+    let bank = bankKey ? Number(row[bankKey]) : 0;
+    return (mora + bank) >= amount;
 }
 
 async function deductMora(db, userId, guildId, amount) {
@@ -240,8 +267,12 @@ async function deductMora(db, userId, guildId, amount) {
     let res = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
     if (!res || !res.rows || res.rows.length === 0) return false;
 
-    let mora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
-    let bank = Number(res.rows[0].bank || res.rows[0].Bank || 0);
+    const row = res.rows[0];
+    const moraKey = Object.keys(row).find(k => k.toLowerCase() === 'mora');
+    const bankKey = Object.keys(row).find(k => k.toLowerCase() === 'bank');
+
+    let mora = moraKey ? Number(row[moraKey]) : 0;
+    let bank = bankKey ? Number(row[bankKey]) : 0;
 
     if (mora + bank < amount) return false;
     if (mora >= amount) mora -= amount;
@@ -321,9 +352,12 @@ module.exports = {
                     // دمج الكميات بشكل صحيح قبل المعالجة
                     let aggregatedInv = new Map();
                     (invQuery?.rows || []).forEach(row => {
-                        const itemId = String(row.itemID || row.itemid || '').trim();
-                        const qty = Number(row.quantity || row.Quantity || 0);
-                        if (itemId !== 'gacha_chest' && itemId !== 'free_gacha_chest') {
+                        const idKey = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
+                        const qtyKey = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
+                        const itemId = idKey ? String(row[idKey]).toLowerCase().trim() : '';
+                        const qty = qtyKey ? Number(row[qtyKey]) : 0;
+                        
+                        if (itemId && itemId !== 'gacha_chest' && itemId !== 'free_gacha_chest') {
                             aggregatedInv.set(itemId, (aggregatedInv.get(itemId) || 0) + qty);
                         }
                     });
@@ -355,8 +389,10 @@ module.exports = {
                         let fishRes = await safeQuery(db, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, `SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2 LIMIT 1`, [targetUser.id, guildId]);
                         const fishingStats = fishRes?.rows?.[0];
                         if (fishingStats) {
-                            const cRod = fishingStats.currentRod || fishingStats.currentrod;
-                            const cBoat = fishingStats.currentBoat || fishingStats.currentboat;
+                            const rodKey = Object.keys(fishingStats).find(k => k.toLowerCase() === 'currentrod');
+                            const boatKey = Object.keys(fishingStats).find(k => k.toLowerCase() === 'currentboat');
+                            const cRod = rodKey ? fishingStats[rodKey] : null;
+                            const cBoat = boatKey ? fishingStats[boatKey] : null;
                             
                             if (cRod) tempItems.unshift({ id: 'current_rod', name: `سنارة ${cRod}`, emoji: '🎣', category: 'صيد', rarity: 'Rare', quantity: 1, imgPath: `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/${cRod.toLowerCase()}.png` });
                             if (cBoat) tempItems.unshift({ id: 'current_boat', name: `قارب ${cBoat}`, emoji: '🚤', category: 'صيد', rarity: 'Epic', quantity: 1, imgPath: `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/${cBoat.toLowerCase()}.png` });
@@ -376,7 +412,6 @@ module.exports = {
             };
 
             const renderView = async () => {
-                // 🔥 الفلتر الذكي: عدم تحميل معلومات البروفايل المعقدة إذا كان اللاعب يقلب في الشنطة فقط 🔥
                 if (currentView === 'profile') {
                     const [lvlRes, repRes, raceRes, wpnRes, streakRes] = await Promise.all([
                         safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]),
@@ -386,8 +421,22 @@ module.exports = {
                         safeQuery(db, `SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, `SELECT * FROM streaks WHERE guildid = $1 AND userid = $2`, [guildId, targetUser.id])
                     ]);
 
-                    const levelData = lvlRes?.rows?.[0] || { xp: 0, level: 1, mora: 0, bank: 0, totalXP: 0 };
-                    const totalMora = Number(levelData.mora || 0) + Number(levelData.bank || 0);
+                    const rowLvl = lvlRes?.rows?.[0] || {};
+                    const moraKey = Object.keys(rowLvl).find(k => k.toLowerCase() === 'mora');
+                    const bankKey = Object.keys(rowLvl).find(k => k.toLowerCase() === 'bank');
+                    const xpKey = Object.keys(rowLvl).find(k => k.toLowerCase() === 'xp');
+                    const levelKey = Object.keys(rowLvl).find(k => k.toLowerCase() === 'level');
+                    const totalXpKey = Object.keys(rowLvl).find(k => k.toLowerCase() === 'totalxp');
+
+                    const levelData = {
+                        xp: xpKey ? Number(rowLvl[xpKey]) : 0,
+                        level: levelKey ? Number(rowLvl[levelKey]) : 1,
+                        mora: moraKey ? Number(rowLvl[moraKey]) : 0,
+                        bank: bankKey ? Number(rowLvl[bankKey]) : 0,
+                        totalXP: totalXpKey ? Number(rowLvl[totalXpKey]) : 0
+                    };
+
+                    const totalMora = levelData.mora + levelData.bank;
                     const repPoints = repRes?.rows?.[0]?.rep_points || 0;
                     const rankInfo = getRepRankInfo(repPoints);
 
@@ -405,8 +454,8 @@ module.exports = {
                     if (targetUser.id !== TARGET_OWNER_ID) {
                         try {
                             const [lvlR, moraR, strkR] = await Promise.all([
-                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM levels WHERE "guild" = $1 AND "totalXP" > $2`, `SELECT COUNT(*) + 1 as rank FROM levels WHERE guildid = $1 AND totalxp > $2`, [guildId, levelData.totalXP || levelData.totalxp || 0]),
-                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM levels WHERE "guild" = $1 AND "mora" > $2`, `SELECT COUNT(*) + 1 as rank FROM levels WHERE guildid = $1 AND mora > $2`, [guildId, totalMora]),
+                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM levels WHERE "guild" = $1 AND "totalXP" > $2`, `SELECT COUNT(*) + 1 as rank FROM levels WHERE guildid = $1 AND totalxp > $2`, [guildId, levelData.totalXP]),
+                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM levels WHERE "guild" = $1 AND ("mora" + "bank") > $2`, `SELECT COUNT(*) + 1 as rank FROM levels WHERE guildid = $1 AND (mora + bank) > $2`, [guildId, totalMora]),
                                 safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM streaks WHERE "guildID" = $1 AND "streakCount" > $2`, `SELECT COUNT(*) + 1 as rank FROM streaks WHERE guildid = $1 AND streakcount > $2`, [guildId, streakData.streakCount || streakData.streakcount || 0])
                             ]);
                             ranks.level = (lvlR?.rows?.[0]?.rank || 1).toString();
@@ -418,7 +467,7 @@ module.exports = {
 
                     const profData = {
                         user: targetUser, displayName: cleanName, rankInfo, repPoints,
-                        level: levelData.level, currentXP: Number(levelData.xp), requiredXP: calculateRequiredXP(levelData.level),
+                        level: levelData.level, currentXP: levelData.xp, requiredXP: calculateRequiredXP(levelData.level),
                         mora: (targetUser.id === TARGET_OWNER_ID && authorUser.id !== TARGET_OWNER_ID) ? "???" : totalMora.toLocaleString(),
                         raceName: arabicRaceName, weaponName, weaponDmg: weaponDmg,
                         maxHp: PROFILE_BASE_HP + (levelData.level * PROFILE_HP_PER_LEVEL), streakCount: streakData.streakCount || streakData.streakcount || 0,
@@ -440,7 +489,8 @@ module.exports = {
                         getUserRace(targetMember, db).catch(()=>null),
                         getWeaponData(db, targetMember).catch(()=>null)
                     ]);
-                    const levelData = lvlRes?.rows?.[0] || { level: 1 };
+                    const levelKey = lvlRes.rows[0] ? Object.keys(lvlRes.rows[0]).find(k => k.toLowerCase() === 'level') : null;
+                    const levelData = { level: levelKey ? Number(lvlRes.rows[0][levelKey]) : 1 };
                     const raceNameRaw = raceRes?.raceName || null;
                     const arabicRaceName = RACE_TRANSLATIONS.get(raceNameRaw) || raceNameRaw || "بشري";
                     const weaponDmg = wpnRes ? getWeaponDisplayDamage(wpnRes, wpnRes.currentLevel) : 0;
@@ -449,12 +499,14 @@ module.exports = {
                     try {
                         const skillRes = await safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillLevel" > 0`, `SELECT * FROM user_skills WHERE userid = $1 AND guildid = $2 AND skilllevel > 0`, [targetUser.id, guildId]);
                         allSkills = (skillRes?.rows || []).map(s => {
-                            const conf = skillsConfig.find(sc => sc.id === (s.skillID || s.skillid));
+                            const sIdKey = Object.keys(s).find(k => k.toLowerCase() === 'skillid');
+                            const sLvlKey = Object.keys(s).find(k => k.toLowerCase() === 'skilllevel');
+                            const conf = skillsConfig.find(sc => sc.id === s[sIdKey]);
                             if (conf) {
-                                const realValue = getSkillDisplayValue(conf, s.skillLevel || s.skilllevel);
+                                const realValue = getSkillDisplayValue(conf, Number(s[sLvlKey]));
                                 const isPercent = conf.stat_type === '%' ? '%' : '';
                                 const updatedDescription = conf.description.replace(/[0-9]+%?/, `${realValue}${isPercent}`);
-                                return { id: conf.id, name: conf.name, level: s.skillLevel || s.skilllevel, description: updatedDescription };
+                                return { id: conf.id, name: conf.name, level: Number(s[sLvlKey]), description: updatedDescription };
                             }
                             return null;
                         }).filter(s => s !== null);
@@ -484,7 +536,12 @@ module.exports = {
                 if (currentView === 'inventory') {
                     if (invCategory === 'main') {
                         const lvlRes = await safeQuery(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]);
-                        const totalMora = Number(lvlRes?.rows?.[0]?.mora || 0) + Number(lvlRes?.rows?.[0]?.bank || 0);
+                        let totalMora = 0;
+                        if (lvlRes.rows[0]) {
+                            const moraKey = Object.keys(lvlRes.rows[0]).find(k => k.toLowerCase() === 'mora');
+                            const bankKey = Object.keys(lvlRes.rows[0]).find(k => k.toLowerCase() === 'bank');
+                            totalMora = (moraKey ? Number(lvlRes.rows[0][moraKey]) : 0) + (bankKey ? Number(lvlRes.rows[0][bankKey]) : 0);
+                        }
                         const displayMora = (targetUser.id === TARGET_OWNER_ID && authorUser.id !== TARGET_OWNER_ID) ? "???" : totalMora.toLocaleString();
                         const buffer = await generateMainHub(targetMember, db, displayMora);
                         
@@ -524,7 +581,6 @@ module.exports = {
                     let items = [];
                     let totalValue = 0;
 
-                    // 🔥 استخدام الكاش لتسريع الواجهة وعدم جلب البيانات من الداتا بيز إلا للضرورة 🔥
                     if (cachedCategory !== invCategory || !cachedItems) {
                         if (invCategory === 'market') {
                             let portfolio = [];
@@ -693,45 +749,69 @@ module.exports = {
                         if (isNaN(qty) || qty <= 0) return modalSubmit.reply({ content: '❌ كمية غير صالحة. (يجب أن تكون 1 أو أكثر)', flags: [MessageFlags.Ephemeral] });
                         if (isNaN(price) || price < 0) return modalSubmit.reply({ content: '❌ سعر غير صالح. (يجب أن يكون 0 أو أكثر)', flags: [MessageFlags.Ephemeral] });
 
-                        // 🔥 التعديل الجوهري: استخدام checkItems بدلاً من فحص سطر واحد للحقيبة لتفادي رسالة "ما عندك الكمية" 🔥
-                        const hasEnoughSenderItems = await checkItems(db, authorUser.id, guildId, [{ id: activeItemDetails.id, count: qty }]);
+                        // 🔥 أخذ نسخة احتياطية من العنصر في الذاكرة لتفادي فقدان البيانات أثناء انتظار القبول 🔥
+                        const tradeItem = { ...activeItemDetails };
+
+                        const hasEnoughSenderItems = await checkItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
                         if (!hasEnoughSenderItems) {
                             return modalSubmit.reply({ content: '❌ أنت لا تملك هذه الكمية في حقيبتك!', flags: [MessageFlags.Ephemeral] });
                         }
 
-                        let checkTargetInvRes = await safeQuery(db, `SELECT SUM(CAST(COALESCE("quantity", '0') AS INTEGER)) as totalqty FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, `SELECT SUM(CAST(COALESCE(quantity, '0') AS INTEGER)) as totalqty FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = LOWER($3)`, [targetID, guildId, activeItemDetails.id]);
-                        const targetCurrentQty = checkTargetInvRes.rows[0] ? Number(checkTargetInvRes.rows[0].totalqty) : 0;
+                        let checkTargetInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
+                        let targetCurrentQty = 0;
+                        if (checkTargetInvRes.rows) {
+                             const targetRow = checkTargetInvRes.rows.find(r => {
+                                 const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                                 return idKey && String(r[idKey]).toLowerCase().trim() === String(tradeItem.id).toLowerCase().trim();
+                             });
+                             if (targetRow) {
+                                 const qtyKey = Object.keys(targetRow).find(k => k.toLowerCase() === 'quantity');
+                                 targetCurrentQty = qtyKey ? Number(targetRow[qtyKey]) : 0;
+                             }
+                        }
+                        
                         if (targetCurrentQty + qty > MAX_INVENTORY_LIMIT) {
                             return modalSubmit.reply({ content: `❌ **لا يمكنك إرسال هذه الكمية!**\nالطرف الآخر سيصل للحد الأقصى (${MAX_INVENTORY_LIMIT}).\n> يمتلك حالياً: **${targetCurrentQty}**`, flags: [MessageFlags.Ephemeral] });
                         }
 
                         if (price === 0) {
                             await modalSubmit.deferReply();
-                            // تنفيذ نقل العناصر
-                            await deductItems(db, authorUser.id, guildId, [{ id: activeItemDetails.id, count: qty }]);
+                            await deductItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
                             
-                            const targetCheckResTradeFinal = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, `SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = LOWER($3)`, [targetID, guildId, activeItemDetails.id]);
-                            if (targetCheckResTradeFinal.rows[0]) {
-                                const targetRowIdTrade = targetCheckResTradeFinal.rows[0].id || targetCheckResTradeFinal.rows[0].ID;
-                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, targetRowIdTrade]);
+                            let finalTargetCheckRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
+                            let finalTargetRow = null;
+                            if (finalTargetCheckRes.rows) {
+                                finalTargetRow = finalTargetCheckRes.rows.find(r => {
+                                    const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                                    return idKey && String(r[idKey]).toLowerCase().trim() === String(tradeItem.id).toLowerCase().trim();
+                                });
+                            }
+                            
+                            if (finalTargetRow) {
+                                const targetRowIdKey = Object.keys(finalTargetRow).find(k => k.toLowerCase() === 'id');
+                                const targetRowId = finalTargetRow[targetRowIdKey];
+                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, targetRowId]);
                             } else {
-                                await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, targetID, activeItemDetails.id, qty]);
+                                await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, targetID, tradeItem.id, qty]);
                             }
 
-                            await modalSubmit.followUp({ content: `🎁 <@${authorUser.id}> أرسل **${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}** كهدية إلى <@${targetID}>!` });
+                            await modalSubmit.followUp({ content: `🎁 <@${authorUser.id}> أرسل **${qty}x ${tradeItem.emoji} ${tradeItem.name}** كهدية إلى <@${targetID}>!` });
                             
-                            cachedItems = null; // مسح الكاش لتحديث الشنطة
-                            activeItemDetails = null;
-                            await msg.edit(await renderView());
+                            cachedItems = null; 
+                            if (activeItemDetails && activeItemDetails.id === tradeItem.id) {
+                                activeItemDetails.quantity -= qty;
+                                if(activeItemDetails.quantity <= 0) activeItemDetails = null;
+                                await msg.edit(await renderView());
+                            }
                         } else {
-                            await modalSubmit.deferReply({ fetchReply: true }); // ضمان رجوع الرسالة لالتقاطها بالمجمع
+                            await modalSubmit.deferReply({ fetchReply: true }); 
                             const tradeId = Date.now().toString();
                             const tradeButtons = new ActionRowBuilder().addComponents(
                                 new ButtonBuilder().setCustomId(`trade_acc_${tradeId}`).setLabel('قبول وشراء ✅').setStyle(ButtonStyle.Success),
                                 new ButtonBuilder().setCustomId(`trade_dec_${tradeId}`).setLabel('رفض ❌').setStyle(ButtonStyle.Danger)
                             );
 
-                            const tradeMsgObj = await modalSubmit.followUp({ content: `⚖️ **عـقـد تـجـاري**\nمرحباً <@${targetID}>!\nيعرض عليك <@${authorUser.id}>:\n**استلام:** ${qty}x ${activeItemDetails.emoji} ${activeItemDetails.name}\n**دفع:** ${price.toLocaleString()} 🪙`, components: [tradeButtons], fetchReply: true });
+                            const tradeMsgObj = await modalSubmit.followUp({ content: `⚖️ **عـقـد تـجـاري**\nمرحباً <@${targetID}>!\nيعرض عليك <@${authorUser.id}>:\n**استلام:** ${qty}x ${tradeItem.emoji} ${tradeItem.name}\n**دفع:** ${price.toLocaleString()} 🪙`, components: [tradeButtons], fetchReply: true });
 
                             const tradeFilter = btn => btn.user.id === targetID && btn.customId.includes(tradeId);
                             const tradeCollector = tradeMsgObj.createMessageComponentCollector({ filter: tradeFilter, time: 60000 });
@@ -746,27 +826,33 @@ module.exports = {
                                 const canDeductMora = await checkMora(db, targetID, guildId, price);
                                 if (!canDeductMora) return btn.followUp({ content: '❌ المشتري لا يملك المورا الكافية!', flags: [MessageFlags.Ephemeral] });
 
-                                const hasEnoughItemsFinal = await checkItems(db, authorUser.id, guildId, [{ id: activeItemDetails.id, count: qty }]);
+                                const hasEnoughItemsFinal = await checkItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
                                 if (!hasEnoughItemsFinal) {
                                     tradeCollector.stop('failed');
                                     return tradeMsgObj.edit({ content: `❌ فشلت الصفقة: البائع لا يملك الكمية المطلوبة حالياً!`, components: [] });
                                 }
 
                                 try {
-                                    // خصم الموارد والأموال عبر الدوال الآمنة والمجربة
                                     await deductMora(db, targetID, guildId, price);
-                                    await deductItems(db, authorUser.id, guildId, [{ id: activeItemDetails.id, count: qty }]);
+                                    await deductItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
                                     
-                                    // إعطاء العناصر للمشتري
-                                    const targetCheckResTradeFinal = await safeQuery(db, `SELECT "id", "ID" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER("itemID") = LOWER($3)`, `SELECT id, ID FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(itemid) = LOWER($3)`, [targetID, guildId, activeItemDetails.id]);
-                                    if (targetCheckResTradeFinal.rows[0]) {
-                                        const targetRowIdTrade = targetCheckResTradeFinal.rows[0].id || targetCheckResTradeFinal.rows[0].ID;
-                                        await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, targetRowIdTrade]);
-                                    } else {
-                                        await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, targetID, activeItemDetails.id, qty]);
+                                    let targetCheckResTradeFinal = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
+                                    let finalTargetRowTrade = null;
+                                    if (targetCheckResTradeFinal.rows) {
+                                        finalTargetRowTrade = targetCheckResTradeFinal.rows.find(r => {
+                                            const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                                            return idKey && String(r[idKey]).toLowerCase().trim() === String(tradeItem.id).toLowerCase().trim();
+                                        });
                                     }
 
-                                    // إعطاء الفلوس للبائع
+                                    if (finalTargetRowTrade) {
+                                        const targetRowIdKey = Object.keys(finalTargetRowTrade).find(k => k.toLowerCase() === 'id');
+                                        const targetRowIdTrade = finalTargetRowTrade[targetRowIdKey];
+                                        await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, targetRowIdTrade]);
+                                    } else {
+                                        await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, targetID, tradeItem.id, qty]);
+                                    }
+
                                     await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [price, authorUser.id, guildId]);
                                     if (client.getLevel) {
                                         let sUser = await client.getLevel(authorUser.id, guildId);
@@ -774,11 +860,14 @@ module.exports = {
                                     }
 
                                     tradeCollector.stop('accepted');
-                                    await tradeMsgObj.edit({ content: `✅ **تمت الصفقة بنجاح!**\nاشترى <@${targetID}> ${qty}x ${activeItemDetails.name} مقابل ${price.toLocaleString()} 🪙 من <@${authorUser.id}>.`, components: [] });
+                                    await tradeMsgObj.edit({ content: `✅ **تمت الصفقة بنجاح!**\nاشترى <@${targetID}> ${qty}x ${tradeItem.name} مقابل ${price.toLocaleString()} 🪙 من <@${authorUser.id}>.`, components: [] });
 
-                                    cachedItems = null; // مسح الكاش للتحديث
-                                    activeItemDetails = null;
-                                    await msg.edit(await renderView());
+                                    cachedItems = null; 
+                                    if (activeItemDetails && activeItemDetails.id === tradeItem.id) {
+                                        activeItemDetails.quantity -= qty;
+                                        if(activeItemDetails.quantity <= 0) activeItemDetails = null;
+                                        await msg.edit(await renderView());
+                                    }
                                 } catch (e) {
                                     tradeCollector.stop('error');
                                     await tradeMsgObj.edit({ content: `❌ حدث خطأ فني أثناء الصفقة.`, components: [] });
@@ -834,10 +923,8 @@ module.exports = {
                     else if (moveType === 'u2') { selectedIndex = ((row - 2 + 3) % 3) * 5 + col; }
                     else if (moveType === 'ok') {
                         let items = [];
-                        // استخدم الكاش هنا بدل جلب البيانات مجدداً
                         if (cachedCategory !== invCategory || !cachedItems) {
                              if (invCategory === 'market') {
-                                // جلب بيانات السوق
                              } else {
                                 items = await getNormalInventoryItems(invCategory);
                              }
