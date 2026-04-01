@@ -98,17 +98,22 @@ const safeQuery = async (db, qPg, params) => {
     }
 };
 
+// 🔥 قراءة فولاذية للمورا 🔥
 async function checkMora(db, userId, guildId, amount) {
     if (amount <= 0) return true;
     let res = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
     if (!res || !res.rows || res.rows.length === 0) return false;
 
-    let mora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
-    let bank = Number(res.rows[0].bank || res.rows[0].Bank || 0);
+    const row = res.rows[0];
+    const moraKey = Object.keys(row).find(k => k.toLowerCase() === 'mora');
+    const bankKey = Object.keys(row).find(k => k.toLowerCase() === 'bank');
+    
+    let mora = moraKey ? Number(row[moraKey]) : 0;
+    let bank = bankKey ? Number(row[bankKey]) : 0;
     return (mora + bank) >= amount;
 }
 
-// 🔥 تم إصلاح قراءة الكمية هنا بشكل نهائي 🔥
+// 🔥 قراءة فولاذية للموارد يتجاهل حالة الأحرف نهائياً 🔥
 async function checkItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
     let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
@@ -122,9 +127,13 @@ async function checkItems(db, userId, guildId, itemsArray) {
 
     let userMap = {};
     res.rows.forEach(r => {
-        const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
-        const dbQty = Number(r.quantity || r.Quantity || 0); 
-        userMap[dbItemId] = (userMap[dbItemId] || 0) + dbQty;
+        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+        const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
+        
+        const dbItemId = idKey ? String(r[idKey]).toLowerCase().trim() : '';
+        const dbQty = qtyKey ? Number(r[qtyKey]) : 0; 
+        
+        if (dbItemId) userMap[dbItemId] = (userMap[dbItemId] || 0) + dbQty;
     });
 
     for (let reqId in requiredMap) {
@@ -138,8 +147,12 @@ async function deductMora(db, userId, guildId, amount) {
     let res = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
     if (!res || !res.rows || res.rows.length === 0) return false;
 
-    let mora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
-    let bank = Number(res.rows[0].bank || res.rows[0].Bank || 0);
+    const row = res.rows[0];
+    const moraKey = Object.keys(row).find(k => k.toLowerCase() === 'mora');
+    const bankKey = Object.keys(row).find(k => k.toLowerCase() === 'bank');
+
+    let mora = moraKey ? Number(row[moraKey]) : 0;
+    let bank = bankKey ? Number(row[bankKey]) : 0;
 
     if (mora + bank < amount) return false;
     if (mora >= amount) mora -= amount;
@@ -149,7 +162,7 @@ async function deductMora(db, userId, guildId, amount) {
     return true;
 }
 
-// 🔥 تم إصلاح قراءة الكمية هنا لضمان الخصم السليم 🔥
+// 🔥 خصم فولاذي للموارد يتجاهل حالة الأحرف 🔥
 async function deductItems(db, userId, guildId, itemsArray) {
     if (!itemsArray || itemsArray.length === 0) return true;
     let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
@@ -163,24 +176,28 @@ async function deductItems(db, userId, guildId, itemsArray) {
     for (let reqId in requiredMap) {
         let remainingToDeduct = requiredMap[reqId];
         for (let r of res.rows) {
-            const dbItemId = String(r.itemID || r.itemid || '').toLowerCase().trim();
+            const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+            const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
+            const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
+
+            const dbItemId = idKey ? String(r[idKey]).toLowerCase().trim() : '';
             if (dbItemId !== reqId) continue;
             if (remainingToDeduct <= 0) break;
 
-            const q = Number(r.quantity || r.Quantity || 0);
+            const q = qtyKey ? Number(r[qtyKey]) : 0;
             if (q <= 0) continue;
             
             const deduct = Math.min(q, remainingToDeduct);
-            const rowId = r.id || r.ID;
+            const rowId = r[rowIdKey];
             try { await db.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, rowId]); } 
             catch(e) { await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE id = $2`, [deduct, rowId]).catch(()=>{}); }
             
             remainingToDeduct -= deduct;
-            r.quantity = q - deduct; 
+            r[qtyKey] = q - deduct; 
         }
     }
-    try { await db.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]); } 
-    catch(e) { await db.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>{}); }
+    try { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]); } 
+    catch(e) { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE(quantity, '0') AS INTEGER) <= 0 AND userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>{}); }
     return true;
 }
 
@@ -207,6 +224,7 @@ function getWeaponDisplayDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     const base = weaponConfig.base_damage;
     const inc = weaponConfig.damage_increment;
+
     if (level <= 15) return Math.floor(base + (inc * (level - 1)));
     
     const damageAt15 = base + (inc * 14);
@@ -293,8 +311,13 @@ function getItemInfo(itemId) {
 function aggregateInventory(rows) {
     const map = {};
     for (const r of rows) {
-        const id = String(r.itemID || r.itemid || '').toLowerCase().trim(); 
-        const qty = Number(r.quantity || r.Quantity || 0); // 🔥 إصلاح الكمية للواجهة
+        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+        const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
+        
+        const id = idKey ? String(r[idKey]).toLowerCase().trim() : ''; 
+        const qty = qtyKey ? Number(r[qtyKey]) : 0;
+        
+        if (!id) continue;
         if (!map[id]) map[id] = 0;
         map[id] += qty;
     }
@@ -378,8 +401,10 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
         let userMatCount = 0;
         if (invRes?.rows) {
             invRes.rows.forEach(row => {
-                const dbItemId = String(row.itemID || row.itemid || '').toLowerCase().trim();
-                if (dbItemId === String(matId).toLowerCase().trim()) userMatCount += Number(row.quantity || row.Quantity || 0); // 🔥 إصلاح الكمية في الواجهة
+                const idKey = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
+                const qtyKey = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
+                const dbItemId = idKey ? String(row[idKey]).toLowerCase().trim() : '';
+                if (dbItemId === String(matId).toLowerCase().trim()) userMatCount += qtyKey ? Number(row[qtyKey]) : 0; 
             });
         }
         let matInfo = getItemInfo(matId);
@@ -511,8 +536,10 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
         let userMatCount = 0;
         if (invRes?.rows) {
             invRes.rows.forEach(row => {
-                const dbItemId = String(row.itemID || row.itemid || '').toLowerCase().trim();
-                if (dbItemId === String(itemId).toLowerCase().trim()) userMatCount += Number(row.quantity || row.Quantity || 0);
+                const idKey = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
+                const qtyKey = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
+                const dbItemId = idKey ? String(row[idKey]).toLowerCase().trim() : '';
+                if (dbItemId === String(itemId).toLowerCase().trim()) userMatCount += qtyKey ? Number(row[qtyKey]) : 0;
             });
         }
         let matInfo = getItemInfo(itemId);
