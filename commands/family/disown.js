@@ -5,6 +5,52 @@ const MORA_EMOJI = '<:mora:1435647151349698621>';
 const DISOWN_GIF = "https://media.tenor.com/images/3f3d3263013697669536067759367295/tenor.gif"; 
 const BOT_REJECT_IMAGE = "https://i.postimg.cc/0jQvvNNh/fort.jpg"; 
 
+// 🛡️ نظام معالجة استعلامات فولاذي وذكي للحماية من الانهيارات 🛡️
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { 
+        res = await db.query(qPg, params); 
+    } catch(e) { 
+        res = { rows: [] }; 
+    }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/gi, "userid")
+        .replace(/"guildID"/gi, "guildid")
+        .replace(/"parentID"/gi, "parentid")
+        .replace(/"childID"/gi, "childid")
+        .replace(/"partnerID"/gi, "partnerid");
+
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
+};
+
+const safeExecute = async (db, qPg, params) => {
+    try { await db.query(qPg, params); return true; } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"parentID"/gi, "parentid")
+            .replace(/"childID"/gi, "childid")
+            .replace(/"partnerID"/gi, "partnerid");
+
+        if (fallbackQuery !== qPg) {
+            try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
+        }
+        return false;
+    }
+};
+
 module.exports = {
     name: 'disown',
     description: 'التبرؤ من ابن وطرده من العائلة (يتطلب موافقة الشريك ودفع تعويض للابن)',
@@ -23,17 +69,14 @@ module.exports = {
         };
 
         if (args[0] === 'clean' || args[0] === 'تنظيف') {
-            let childrenRes;
-            try { childrenRes = await db.query(`SELECT "childID" FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [userId, guildId]); }
-            catch(e) { childrenRes = await db.query(`SELECT childid as "childID" FROM children WHERE parentid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
+            const childrenRes = await safeQuery(db, `SELECT "childID" FROM children WHERE "parentID" = $1 AND "guildID" = $2`, [userId, guildId]);
             
             let removed = 0;
             for (const row of childrenRes.rows) {
                 const cId = row.childID || row.childid;
                 const member = await message.guild.members.fetch(cId).catch(()=>null);
                 if (!member) {
-                    try { await db.query(`DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [cId, guildId]); }
-                    catch(e) { await db.query(`DELETE FROM children WHERE childid = $1 AND guildid = $2`, [cId, guildId]).catch(()=>{}); }
+                    await safeExecute(db, `DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [cId, guildId]);
                     removed++;
                 }
             }
@@ -59,24 +102,18 @@ module.exports = {
             return message.reply({ content: "❌ لا يمكنك التبرؤ من أسياد القلعة!", files: [BOT_REJECT_IMAGE] }).catch(()=>{});
         }
 
-        let isMyChildRes;
-        try { isMyChildRes = await db.query(`SELECT 1 FROM children WHERE "parentID" = $1 AND "childID" = $2 AND "guildID" = $3`, [userId, childMember.id, guildId]); }
-        catch(e) { isMyChildRes = await db.query(`SELECT 1 FROM children WHERE parentid = $1 AND childid = $2 AND guildid = $3`, [userId, childMember.id, guildId]).catch(()=>({rows:[]})); }
+        const isMyChildRes = await safeQuery(db, `SELECT 1 FROM children WHERE "parentID" = $1 AND "childID" = $2 AND "guildID" = $3`, [userId, childMember.id, guildId]);
         
         if (isMyChildRes.rows.length === 0) {
             return replyTemp(`🚫 **${childMember.displayName}** ليس مسجلاً كابن لك في السجلات.`);
         }
 
         let partnerId = null;
-        try {
-            let marriageDataRes;
-            try { marriageDataRes = await db.query(`SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
-            catch(e) { marriageDataRes = await db.query(`SELECT partnerid as "partnerID" FROM marriages WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
+        const marriageDataRes = await safeQuery(db, `SELECT "partnerID" FROM marriages WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
             
-            if (marriageDataRes.rows.length > 0) {
-                partnerId = marriageDataRes.rows[0].partnerID || marriageDataRes.rows[0].partnerid;
-            }
-        } catch(e) {}
+        if (marriageDataRes.rows.length > 0) {
+            partnerId = marriageDataRes.rows[0].partnerID || marriageDataRes.rows[0].partnerid;
+        }
         
         let partnerMember = partnerId ? await message.guild.members.fetch(partnerId).catch(() => null) : null;
 
@@ -89,7 +126,7 @@ module.exports = {
                 for (const pid of parentIds) {
                     const pData = await client.getLevel(pid, guildId);
                     if (!pData || (Number(pData.mora) || 0) < amountPerPerson) {
-                        await db.query('ROLLBACK');
+                        await db.query('ROLLBACK').catch(()=>{});
                         return interaction.update({ content: `❌ **فشلت العملية:** أحد الآباء لا يملك مورا كافية للتعويض!`, embeds: [], components: [] });
                     }
                     pData.mora = (Number(pData.mora) || 0) - amountPerPerson;
@@ -97,17 +134,14 @@ module.exports = {
                 }
 
                 let childData = await client.getLevel(childId, guildId);
-                if (!childData) childData = { user: childId, guild: guildId, xp: 0, level: 1, mora: 0 };
+                if (!childData) childData = { id: `${guildId}-${childId}`, user: childId, guild: guildId, xp: 0, level: 1, mora: 0 };
                 
                 const totalCompensation = amountPerPerson * parentIds.length; 
                 childData.mora = (Number(childData.mora) || 0) + totalCompensation;
                 await client.setLevel(childData);
 
-                try {
-                    await db.query(`DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [childId, guildId]);
-                } catch(e) {
-                    await db.query(`DELETE FROM children WHERE childid = $1 AND guildid = $2`, [childId, guildId]).catch(()=>{});
-                }
+                // طرد الطفل تماماً من العائلة بمسح جميع القيود التي تربطه بها
+                await safeExecute(db, `DELETE FROM children WHERE "childID" = $1 AND "guildID" = $2`, [childId, guildId]);
 
                 await db.query('COMMIT');
 
@@ -120,9 +154,9 @@ module.exports = {
                 await interaction.update({ content: null, embeds: [successEmbed], components: [] });
 
             } catch (error) {
-                await db.query('ROLLBACK');
+                await db.query('ROLLBACK').catch(()=>{});
                 console.error("Disown Error:", error);
-                return interaction.update({ content: `❌ خطأ في النظام.`, embeds: [], components: [] });
+                return interaction.update({ content: `❌ حدث خطأ في النظام أثناء العملية.`, embeds: [], components: [] }).catch(()=>{});
             }
         }
 
@@ -148,9 +182,16 @@ module.exports = {
                 if (i.customId === 'cancel') return i.update({ content: "✅ تم إلغاء قرار الطرد.", embeds: [], components: [] });
                 await performDisown(i, [userId, partnerId], childMember.id, feePerPerson);
             });
+            
+            collector.on('end', (collected, reason) => {
+                if (reason === 'time') {
+                    confirmMsg.edit({ content: `⏳ **انتهى الوقت!** الشريك لم يستجب، تم إلغاء الطلب.`, components: [], embeds: [] }).catch(()=>{});
+                }
+            });
+            
         } else {
             const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('solo_confirm').setLabel(`تأكيد الطرد دفع ${feePerPerson}`).setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('solo_confirm').setLabel(`تأكيد الطرد ودفع ${feePerPerson}`).setStyle(ButtonStyle.Danger),
                 new ButtonBuilder().setCustomId('solo_cancel').setLabel('تراجع').setStyle(ButtonStyle.Secondary)
             );
 
@@ -166,8 +207,14 @@ module.exports = {
             const collector = soloMsg.createMessageComponentCollector({ filter: i => i.user.id === userId, time: 60000, max: 1 });
 
             collector.on('collect', async i => {
-                if (i.customId === 'solo_cancel') return i.update({ content: "✅ تم التراجع.", embeds: [], components: [] });
+                if (i.customId === 'solo_cancel') return i.update({ content: "✅ تم التراجع عن الطرد.", embeds: [], components: [] });
                 await performDisown(i, [userId], childMember.id, feePerPerson);
+            });
+            
+            collector.on('end', (collected, reason) => {
+                if (reason === 'time') {
+                    soloMsg.edit({ content: `⏳ **انتهى الوقت!** تم إلغاء الطلب.`, components: [], embeds: [] }).catch(()=>{});
+                }
             });
         }
     }
