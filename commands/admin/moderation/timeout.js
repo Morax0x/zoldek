@@ -3,7 +3,7 @@ const { PermissionsBitField, EmbedBuilder, Colors } = require('discord.js');
 module.exports = {
     name: 'timeout',
     description: 'إسكات عضو (تلقائي 30 دقيقة إذا لم يحدد وقت)',
-    // 🔥 تم إضافة اختصار "اسكت"
+
     aliases: ['اوت', 'تايم', 'اسكات', 'انطم', 'اخرس', 'اسكت'],
     category: 'Admin',
     usage: 'timeout <@user> [time] [reason] أو بالرد على رسالته',
