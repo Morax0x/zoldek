@@ -12,7 +12,8 @@ const upgradeMats = require('../../json/upgrade-materials.json');
 const PULL_PRICE = 1000;
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
-const activeGachaUsers = new Set();
+// تحويل من Set إلى Map لحفظ بيانات الجلسة وإغلاق القديمة
+const activeGachaUsers = new Map();
 
 const FLAVOR_TEXTS = [
     "قدم المورا ودع النجوم ترسم لك مسارا جديدا",
@@ -21,7 +22,7 @@ const FLAVOR_TEXTS = [
     "مقابل المورا قد تبتسم لك الاقدار او تدير لك ظهرها جرب حظك",
     "اكسر قيود الزمن واستحضر القوة المنسية الى قبضتك",
     "خلف هذا الختم ترقد كنوز الامبراطورية افتحه واصنع مجدك",
-    "ايقظ التح التحف النادرة من سباتها الابدي المورا هي الثمن",
+    "ايقظ التحف النادرة من سباتها الابدي المورا هي الثمن",
     "طريق العظمة محفوف بالمخاطر والمكافات اكشف غنيمتك",
     "همسات الاقدار تناديك استخدم المورا لفك طلاسم الصندوق"
 ];
@@ -168,33 +169,28 @@ function performPull(pityData, userRace) {
     return { item, rarity };
 }
 
-// 🔥 نظام صيانة الصناديق الفولاذي الخالي من LOWER() 🔥
+// 🔥 نظام صيانة الصناديق الفولاذي المعدل لتجنب التعليق ومشاكل الحذف 🔥
 async function maintainChestInventory(db, userId, guildId) {
     const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
     
     let freeCount = 0;
     let paidCount = 0;
-    let idsToDelete = [];
     
     if (invRes.rows) {
         for (const row of invRes.rows) {
             const idKey = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
             const qtyKey = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
-            const rowIdKey = Object.keys(row).find(k => k.toLowerCase() === 'id');
             
             const id = idKey ? String(row[idKey]).toLowerCase().trim() : '';
             const qty = qtyKey ? Number(row[qtyKey]) : 0;
-            const rowId = rowIdKey ? row[rowIdKey] : null;
 
-            if (id === 'free_gacha_chest') { freeCount += qty; if(rowId) idsToDelete.push(rowId); }
-            if (id === 'gacha_chest') { paidCount += qty; if(rowId) idsToDelete.push(rowId); }
+            if (id === 'free_gacha_chest') freeCount += qty;
+            if (id === 'gacha_chest') paidCount += qty;
         }
     }
     
-    // مسح الأسطر القديمة بناءً على الـ ID الآمن
-    for (let delId of idsToDelete) {
-        await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [delId]);
-    }
+    // مسح الأسطر القديمة والوهمية بشكل آمن لدمجها بسطر واحد
+    await safeExecute(db, `DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND ("itemID" = 'free_gacha_chest' OR "itemID" = 'gacha_chest' OR "itemID" = 'FREE_GACHA_CHEST' OR "itemID" = 'GACHA_CHEST')`, [userId, guildId]);
     
     if (freeCount > 0) await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, userId, freeCount]);
     if (paidCount > 0) await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, userId, paidCount]);
@@ -218,21 +214,17 @@ module.exports = {
 
         const reply = async (payload) => isSlash ? interactionOrMessage.editReply(payload).catch(()=>{}) : interactionOrMessage.reply(payload).catch(()=>{});
 
+        // 🔥 نظام إغلاق الجلسة القديمة وفتح جديدة بشكل ذكي (حذف الرسالة القديمة إن وجدت) 🔥
         if (activeGachaUsers.has(user.id)) {
-            const msgPayload = { content: '⏳ **الرجاء إنهاء الصناديق الحالية أو انتظار فك القفل...**', flags: [MessageFlags.Ephemeral] };
-            if (isSlash) {
-                if(!interactionOrMessage.deferred && !interactionOrMessage.replied) await interactionOrMessage.reply(msgPayload).catch(()=>{});
-                else await interactionOrMessage.followUp(msgPayload).catch(()=>{});
-            } else {
-                await interactionOrMessage.reply(msgPayload).catch(()=>{});
-            }
-            return;
+            const oldSession = activeGachaUsers.get(user.id);
+            try {
+                if (oldSession.collector) oldSession.collector.stop('override');
+                if (oldSession.msg && oldSession.msg.deletable) await oldSession.msg.delete().catch(()=>{});
+            } catch(e) {}
         }
 
         if (isSlash) await interactionOrMessage.deferReply().catch(()=>{});
         if (!db) return reply({ content: "خطأ في قاعدة البيانات" });
-        
-        activeGachaUsers.add(user.id);
 
         let initialMsg;
         try {
@@ -306,20 +298,7 @@ module.exports = {
             const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
 
             if (dailyLimit > 0 && pityData.last_free_claim !== todaySaudi) {
-                // 🔥 التنظيف الذكي لصناديق البارحة 
-                const oldInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
-                let oldIds = [];
-                if (oldInvRes.rows) {
-                    oldInvRes.rows.forEach(r => {
-                        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
-                        const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
-                        if (idKey && String(r[idKey]).toLowerCase().trim() === 'free_gacha_chest' && rowIdKey) {
-                            oldIds.push(r[rowIdKey]);
-                        }
-                    });
-                }
-                for (let oid of oldIds) await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [oid]);
-
+                await safeExecute(db, `DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND ("itemID" = 'free_gacha_chest' OR "itemID" = 'FREE_GACHA_CHEST')`, [user.id, guildId]);
                 await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]);
                 
                 freeChests = dailyLimit;
@@ -424,26 +403,12 @@ module.exports = {
                         let remainingFree = Math.min(freeChests, pCount);
                         let remainingPaid = Math.min(paidChests, pCount - remainingFree);
                         
-                        // 🔥 خصم ذكي للصناديق الخالي من LOWER() 🔥
-                        let allInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
-                        let freeRow = null, paidRow = null;
-                        
-                        if (allInvRes.rows) {
-                            allInvRes.rows.forEach(r => {
-                                const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
-                                const val = idKey ? String(r[idKey]).toLowerCase().trim() : '';
-                                if (val === 'free_gacha_chest') freeRow = r;
-                                if (val === 'gacha_chest') paidRow = r;
-                            });
+                        // 🔥 خصم ذكي وسريع خالي من استعلامات الـ ID لتجنب التعليق نهائياً 🔥
+                        if (remainingFree > 0) {
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, [remainingFree, user.id, guildId]);
                         }
-                        
-                        if (remainingFree > 0 && freeRow) {
-                            const rIdK = Object.keys(freeRow).find(k => k.toLowerCase() === 'id');
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [remainingFree, freeRow[rIdK]]);
-                        }
-                        if (remainingPaid > 0 && paidRow) {
-                            const rIdK = Object.keys(paidRow).find(k => k.toLowerCase() === 'id');
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [remainingPaid, paidRow[rIdK]]);
+                        if (remainingPaid > 0) {
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, [remainingPaid, user.id, guildId]);
                         }
                         
                         freeChests -= remainingFree;
@@ -512,16 +477,18 @@ module.exports = {
             initialMsg = await reply(initialPayload).catch(()=>{});
             
             if (!initialMsg) {
-                activeGachaUsers.delete(user.id);
                 return;
             }
             
-            let isProcessing = false;
-
+            // تسجيل الجلسة لحذفها مستقبلا لو تكرر الأمر
             const channelCollector = (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).createMessageComponentCollector({
                 filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10', 'gacha_next', 'gacha_skip'].includes(i.customId),
                 time: 300000 
             });
+
+            activeGachaUsers.set(user.id, { msg: initialMsg, collector: channelCollector });
+            
+            let isProcessing = false;
 
             channelCollector.on('collect', async (i) => {
                 if (isProcessing) {
@@ -637,9 +604,11 @@ module.exports = {
                 }
             });
 
-            channelCollector.on('end', () => { 
-                activeGachaUsers.delete(user.id); 
-                if (initialMsg && initialMsg.editable) initialMsg.edit({ components: [] }).catch(() => {}); 
+            channelCollector.on('end', (collected, reason) => { 
+                if (reason !== 'override') {
+                    activeGachaUsers.delete(user.id); 
+                    if (initialMsg && initialMsg.editable) initialMsg.edit({ components: [] }).catch(() => {}); 
+                }
             });
 
         } catch (err) {
