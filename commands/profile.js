@@ -746,10 +746,10 @@ module.exports = {
                         const qty = parseInt(modalSubmit.fields.getTextInputValue('trade_qty').trim());
                         const price = parseInt(modalSubmit.fields.getTextInputValue('trade_price').trim());
 
-                        if (isNaN(qty) || qty <= 0) return modalSubmit.reply({ content: '❌ كمية غير صالحة. (يجب أن تكون 1 أو أكثر)', flags: [MessageFlags.Ephemeral] });
+                        if (isNaN(qty) || qty <= 0) return modalSubmit.reply({ content: '❌ كمية غير صالحة. (يجب أن يكون 1 أو أكثر)', flags: [MessageFlags.Ephemeral] });
                         if (isNaN(price) || price < 0) return modalSubmit.reply({ content: '❌ سعر غير صالح. (يجب أن يكون 0 أو أكثر)', flags: [MessageFlags.Ephemeral] });
 
-                        // 🔥 أخذ نسخة احتياطية من العنصر في الذاكرة لتفادي فقدان البيانات أثناء انتظار القبول 🔥
+                        // 🔥 أخذ نسخة احتياطية من العنصر 🔥
                         const tradeItem = { ...activeItemDetails };
 
                         const hasEnoughSenderItems = await checkItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
@@ -833,6 +833,7 @@ module.exports = {
                                 }
 
                                 try {
+                                    // 🔥 تعديل جوهري هنا: خصم من المشتري، خصم الأداة من البائع، وإضافة الأداة للمشتري 🔥
                                     await deductMora(db, targetID, guildId, price);
                                     await deductItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
                                     
@@ -845,11 +846,13 @@ module.exports = {
                                         });
                                     }
 
+                                    // ✅ الآن إضافة العنصر تكون بناءً على المعرف المستخرج وليس tradeItem.id للـ Market
                                     if (finalTargetRowTrade) {
                                         const targetRowIdKey = Object.keys(finalTargetRowTrade).find(k => k.toLowerCase() === 'id');
                                         const targetRowIdTrade = finalTargetRowTrade[targetRowIdKey];
                                         await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, targetRowIdTrade]);
                                     } else {
+                                        // استخدام id العنصر الصحيح المخزن في النسخة الاحتياطية tradeItem
                                         await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, targetID, tradeItem.id, qty]);
                                     }
 
