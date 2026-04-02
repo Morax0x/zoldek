@@ -1,6 +1,9 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const core = require('../../handlers/forge-core.js'); // 🔥 تم ضبط المسار ليكون فولاذي 100%
 
+// 🔥 تحويل من Set إلى Map لحفظ بيانات الجلسة وحذف القديمة 🔥
+const activeForgeUsers = new Map();
+
 module.exports = {
     data: new SlashCommandBuilder().setName('حدادة').setDescription('الدخول إلى المجمع الإمبراطوري لتطوير الأسلحة وصقل المهارات'),
     name: 'حدادة',
@@ -19,6 +22,15 @@ module.exports = {
         
         const guildId = interactionOrMessage.guild?.id || interactionOrMessage.guildId;
         const guild = interactionOrMessage.guild; 
+
+        // 🔥 نظام إغلاق الجلسة القديمة وفتح جديدة بشكل ذكي (حذف الرسالة القديمة إن وجدت) 🔥
+        if (activeForgeUsers.has(user.id)) {
+            const oldSession = activeForgeUsers.get(user.id);
+            try {
+                if (oldSession.collector) oldSession.collector.stop('override');
+                if (oldSession.msg && oldSession.msg.deletable) await oldSession.msg.delete().catch(()=>{});
+            } catch(e) {}
+        }
 
         let sentMsg = null;
         if (isSlash && !interactionOrMessage.preselectedItem) {
@@ -129,6 +141,9 @@ module.exports = {
 
         const filter = i => i.user.id === user.id && i.customId.startsWith('forge_');
         const collector = replyObj.createMessageComponentCollector({ filter, time: 300000 });
+        
+        // 🔥 تسجيل الجلسة في الخريطة للتحكم بها لاحقاً 🔥
+        activeForgeUsers.set(user.id, { msg: replyObj, collector: collector });
 
         collector.on('collect', async (i) => {
             try { if (!i.customId.startsWith('forge_smelt_multi_') && !i.deferred && !i.replied) await i.deferUpdate(); } catch(e) {}
@@ -194,12 +209,14 @@ module.exports = {
             }
         });
 
-        collector.on('end', () => {
-            try { 
-                const disabledRows = core.getMainMenuRows();
-                disabledRows.forEach(row => row.components.forEach(c => c.setDisabled(true))); 
-                replyObj.edit({ components: disabledRows }).catch(()=>{}); 
-            } catch(e) {}
+        collector.on('end', (collected, reason) => {
+            if (reason !== 'override') {
+                activeForgeUsers.delete(user.id);
+                try { 
+                    // 🔥 عند انتهاء الوقت، إزالة الأزرار بالكامل بدلاً من تعطيلها 🔥
+                    if (replyObj && replyObj.editable) replyObj.edit({ components: [] }).catch(()=>{}); 
+                } catch(e) {}
+            }
         });
     }
 };
