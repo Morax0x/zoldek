@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder, EmbedBuilder } = require('discord.js');
 
 let generateGachaCard, generateGachaHub, generateGachaInventory;
 try {
@@ -330,11 +330,19 @@ module.exports = {
 
                 const res = currentResults[idx];
                 let files = [];
+                let fallbackEmbeds = []; // 🔥 نظام طوارئ لتعويض الصورة لو فشل تحميلها 🔥
+
                 if (generateGachaCard && res.item) {
                     try {
                         const buffer = await generateGachaCard(res.item, res.rarity);
-                        if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_${idx}.png` }));
-                    } catch(e){}
+                        if (buffer) {
+                            files.push(new AttachmentBuilder(buffer, { name: `gacha_${idx}.png` }));
+                        } else {
+                            fallbackEmbeds.push(new EmbedBuilder().setTitle(`🎁 حصلت على: ${res.item.name || res.item.id}`).setDescription(`الندرة: **${res.rarity}**`).setColor(res.rarity === 'Legendary' ? '#F1C40F' : '#3498DB'));
+                        }
+                    } catch(e) {
+                        fallbackEmbeds.push(new EmbedBuilder().setTitle(`🎁 حصلت على: ${res.item.name || res.item.id}`).setDescription(`الندرة: **${res.rarity}**`).setColor(res.rarity === 'Legendary' ? '#F1C40F' : '#3498DB'));
+                    }
                 }
 
                 const row = new ActionRowBuilder();
@@ -349,7 +357,7 @@ module.exports = {
                         new ButtonBuilder().setCustomId('gacha_return_hub').setLabel('الرئيسية').setEmoji('↩️').setStyle(ButtonStyle.Success)
                     );
                 }
-                return { embeds: [], components: [row], files, content: files.length > 0 ? '' : '\u200B' };
+                return { embeds: fallbackEmbeds, components: [row], files, content: (files.length > 0 || fallbackEmbeds.length > 0) ? '' : '\u200B' };
             };
 
             const generateAndSendHub = async (targetMsg) => {
@@ -441,31 +449,26 @@ module.exports = {
                         if (item) resArr.push({ item, rarity });
                     }
 
-                    const updatePromises = [];
-
+                    // 🔥 تعديل: استخدام تنفيذ قاعدة البيانات بشكل متسلسل (Sequential) بدلاً من (Promise.all) لمنع تداخل قواعد البيانات (Database Lock) الذي كان يؤدي لضياع العناصر 🔥
                     for (const [itemId, qty] of Object.entries(itemsToAdd)) {
-                        updatePromises.push((async () => {
-                            let existingItemRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
-                            let existingRow = null;
-                            if (existingItemRes.rows) {
-                                existingRow = existingItemRes.rows.find(r => {
-                                    const idK = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
-                                    return idK && String(r[idK]).toLowerCase().trim() === itemId.toLowerCase();
-                                });
-                            }
-                            
-                            if (existingRow) {
-                                const rowIdK = Object.keys(existingRow).find(k => k.toLowerCase() === 'id');
-                                await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, existingRow[rowIdK]]);
-                            } else {
-                                await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]);
-                            }
-                        })());
+                        let existingItemRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+                        let existingRow = null;
+                        if (existingItemRes.rows) {
+                            existingRow = existingItemRes.rows.find(r => {
+                                const idK = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                                return idK && String(r[idK]).toLowerCase().trim() === itemId.toLowerCase();
+                            });
+                        }
+                        
+                        if (existingRow) {
+                            const rowIdK = Object.keys(existingRow).find(k => k.toLowerCase() === 'id');
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, existingRow[rowIdK]]);
+                        } else {
+                            await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]);
+                        }
                     }
 
-                    updatePromises.push(safeExecute(db, `UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]));
-
-                    await Promise.all(updatePromises);
+                    await safeExecute(db, `UPDATE user_gacha_pity SET "epic_pity" = $1, "legendary_pity" = $2 WHERE "userID" = $3 AND "guildID" = $4`, [pityData.epic_pity, pityData.legendary_pity, user.id, guildId]);
 
                     return { bestResult, resArr };
                 } catch (e) {
@@ -480,7 +483,6 @@ module.exports = {
                 return;
             }
             
-            // تسجيل الجلسة لحذفها مستقبلا لو تكرر الأمر
             const channelCollector = (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).createMessageComponentCollector({
                 filter: i => i.user.id === user.id && ['gacha_1', 'gacha_10', 'gacha_inventory', 'gacha_return_hub', 'open_chest_1', 'open_chest_10', 'gacha_next', 'gacha_skip'].includes(i.customId),
                 time: 300000 
@@ -576,26 +578,25 @@ module.exports = {
                     await initialMsg.edit({ files: meteorFiles, components: [], embeds: [], content: '' }).catch(()=>{});
                     await new Promise(r => setTimeout(r, 1000));
 
-                    if (currentPullCount > 10) {
-                        let files = [];
-                        if (generateGachaCard && bestResult.item) {
-                            try {
-                                const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
-                                if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_best.png` }));
-                            } catch(e){}
-                        }
-                        await initialMsg.edit({ embeds: [], files, components: [getReturnButton()], content: files.length > 0 ? '' : '\u200B' }).catch(()=>{});
-                    } else if (currentPullCount > 1) {
+                    // 🔥 نظام الطوارئ للمسار الواحد 🔥
+                    if (currentPullCount > 1) {
                         await initialMsg.edit(await getPagePayload(0)).catch(()=>{});
                     } else {
                         let files = [];
+                        let fallbackEmbeds = [];
                         if (generateGachaCard && bestResult.item) {
                             try {
                                 const buffer = await generateGachaCard(bestResult.item, bestResult.rarity);
-                                if (buffer) files.push(new AttachmentBuilder(buffer, { name: `gacha_0.png` }));
-                            } catch(e){}
+                                if (buffer) {
+                                    files.push(new AttachmentBuilder(buffer, { name: `gacha_0.png` }));
+                                } else {
+                                    fallbackEmbeds.push(new EmbedBuilder().setTitle(`🎁 حصلت على: ${bestResult.item.name || bestResult.item.id}`).setDescription(`الندرة: **${bestResult.rarity}**`).setColor(bestResult.rarity === 'Legendary' ? '#F1C40F' : '#3498DB'));
+                                }
+                            } catch(e){
+                                fallbackEmbeds.push(new EmbedBuilder().setTitle(`🎁 حصلت على: ${bestResult.item.name || bestResult.item.id}`).setDescription(`الندرة: **${bestResult.rarity}**`).setColor(bestResult.rarity === 'Legendary' ? '#F1C40F' : '#3498DB'));
+                            }
                         }
-                        await initialMsg.edit({ embeds: [], files, components: [getReturnButton()], content: files.length > 0 ? '' : '\u200B' }).catch(()=>{});
+                        await initialMsg.edit({ embeds: fallbackEmbeds, files, components: [getReturnButton()], content: (files.length > 0 || fallbackEmbeds.length > 0) ? '' : '\u200B' }).catch(()=>{});
                     }
 
                 } catch (e) {
