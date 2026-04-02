@@ -62,15 +62,14 @@ async function handlePlayerBattleInteraction(i, context) {
         return { ongoing: true };
     }
 
-    // 🔥🔥 إصلاح اقتحام الإمبراطور للدانجون 🔥🔥
     if (i.user.id === OWNER_ID && !players.find(p => p.id === OWNER_ID)) {
         const member = await i.guild.members.fetch(OWNER_ID).catch(() => null);
         if (member) {
             try {
                 let ownerPlayer = getRealPlayerData(member, sql, 'Leader'); 
-                if (ownerPlayer instanceof Promise) ownerPlayer = await ownerPlayer; // للتأكد إذا كانت الدالة غير متزامنة
+                if (ownerPlayer instanceof Promise) ownerPlayer = await ownerPlayer; 
                 
-                ownerPlayer.id = OWNER_ID; // 🔥 السر هنا! يجب تثبيت الـ ID
+                ownerPlayer.id = OWNER_ID; 
                 ownerPlayer.name = cleanName(ownerPlayer.name || member.displayName);
                 ownerPlayer.isDead = false;
                 if (!ownerPlayer.hp) ownerPlayer.hp = ownerPlayer.maxHp || 999999;
@@ -124,8 +123,46 @@ async function handlePlayerBattleInteraction(i, context) {
                      if (p.skills && p.skills[skillId]) { skillObj = { ...p.skills[skillId] }; if (skillObj.level > levelCap) skillObj.level = levelCap; }
                 }
 
+                let selectedTargetId = null;
+                if ((p.class === 'Priest' || p.isHybridPriest) && (skillId === 'class_special_skill' || skillId === 'hybrid_heal')) {
+                    const revivableDead = players.filter(m => m.isDead && !m.isPermDead);
+                    if (revivableDead.length > 0) {
+                        const targetOptions = revivableDead.map(deadPlayer => ({
+                            label: `إنعاش: ${deadPlayer.name}`,
+                            value: deadPlayer.id,
+                            description: `قابل للإنعاش - HP: 0/${deadPlayer.maxHp}`,
+                            emoji: '✨'
+                        }));
+
+                        targetOptions.push({
+                            label: 'تجاهل الموتى وشفاء الأحياء',
+                            value: 'heal_team_only',
+                            description: 'توزيع الشفاء على أعضاء الفريق الأحياء',
+                            emoji: '❤️'
+                        });
+
+                        const targetRow = new ActionRowBuilder().addComponents(
+                            new StringSelectMenuBuilder()
+                                .setCustomId('priest_target_select')
+                                .setPlaceholder('اختر من تريد إنعاشه...')
+                                .addOptions(targetOptions)
+                        );
+
+                        const targetMsg = await selection.followUp({ content: '✨ **توجد أرواح تنتظر الإنعاش، اختر هدفك:**', components: [targetRow], ephemeral: true });
+                        try {
+                            const targetInteraction = await targetMsg.awaitMessageComponent({ filter: subI => subI.user.id === i.user.id, time: 15000 });
+                            await targetInteraction.deferUpdate().catch(()=>{});
+                            selectedTargetId = targetInteraction.values[0];
+                        } catch (e) {
+                            await targetMsg.edit({ content: '⏰ انتهى وقت اختيار الهدف.', components: [] }).catch(()=>{});
+                            processingUsers.delete(i.user.id);
+                            return { ongoing: true };
+                        }
+                    }
+                }
+
                 const monsterHpBefore = monster.hp;
-                const res = handleSkillUsage(p, { ...skillObj, id: skillId }, monster, log, threadChannel, players);
+                const res = handleSkillUsage(p, { ...skillObj, id: skillId, targetId: selectedTargetId }, monster, log, threadChannel, players);
                 const dmgDealt = monsterHpBefore - monster.hp;
 
                 if (dmgDealt > 0) {
