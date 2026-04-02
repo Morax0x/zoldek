@@ -74,9 +74,11 @@ const safeExecute = async (db, qPg, params) => {
     }
 };
 
-async function getUserWeight(member, db) {
+// 🛠️ تم إصلاح مشكلة كراش الرتب (Partial Member) هنا
+async function getUserWeight(member, guildId, db) {
     if (!member || !db) return 1;
-    const userRoles = member.roles.cache.map(r => r.id);
+    // التأكد من جلب الرتب حتى لو كان العضو غير محمل بالكامل
+    const userRoles = member.roles?.cache ? member.roles.cache.map(r => r.id) : (Array.isArray(member.roles) ? member.roles : []);
     if (userRoles.length === 0) return 1;
 
     const placeholders = userRoles.map((_, i) => `$${i + 2}`).join(',');
@@ -86,7 +88,7 @@ async function getUserWeight(member, db) {
             SELECT MAX(weight) as maxweight
             FROM giveaway_weights
             WHERE "guildID" = $1 AND "roleID" IN (${placeholders})
-        `, [member.guild.id, ...userRoles]);
+        `, [guildId, ...userRoles]);
         
         return res.rows[0]?.maxweight || 1;
     } catch (e) {
@@ -97,6 +99,10 @@ async function getUserWeight(member, db) {
 async function startGiveaway(client, interaction, channel, duration, winnerCount, prize, xpReward, moraReward) {
     const db = client.sql; 
     if (!db) return;
+
+    // التأكد من وجود الجداول لتجنب فشل صامت
+    await db.query(`CREATE TABLE IF NOT EXISTS active_giveaways ("messageID" TEXT PRIMARY KEY, "guildID" TEXT, "channelID" TEXT, "prize" TEXT, "endsAt" BIGINT, "winnerCount" INTEGER, "xpReward" INTEGER, "moraReward" INTEGER, "isFinished" INTEGER DEFAULT 0)`).catch(()=>{});
+    await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER)`).catch(()=>{});
 
     const endsAt = Date.now() + duration;
     
@@ -136,12 +142,16 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     return message;
 }
 
+// 🛠️ تم إعادة بناء دالة المشاركة لإصلاح كراش الزر وتحديث الرقم بفعالية 🛠️
 async function handleGiveawayInteraction(client, interaction) {
     const db = client.sql; 
     if (!db) return;
 
     const messageID = interaction.message.id;
     const userID = interaction.user.id;
+
+    // حماية إضافية للجدول
+    await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER)`).catch(()=>{});
 
     const giveawayRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "messageID" = $1 AND "isFinished" = 0', [messageID]);
     const giveaway = giveawayRes.rows[0];
@@ -150,7 +160,7 @@ async function handleGiveawayInteraction(client, interaction) {
         return interaction.reply({ content: "❌ هذا القيف اواي منتهي أو غير موجود.", ephemeral: true });
     }
 
-    if (Date.now() > (giveaway.endsAt || giveaway.endsat)) {
+    if (Date.now() > Number(giveaway.endsAt || giveaway.endsat)) {
         return interaction.reply({ content: "⏰ لقد انتهى وقت المشاركة!", ephemeral: true });
     }
 
@@ -164,24 +174,29 @@ async function handleGiveawayInteraction(client, interaction) {
         const count = countRes.rows[0]?.count || 0;
 
         const embed = EmbedBuilder.from(interaction.message.embeds[0]);
-        const row = ActionRowBuilder.from(interaction.message.components[0]);
-        row.components[0].setLabel(`مشاركة (${count})`);
-        await interaction.message.edit({ embeds: [embed], components: [row] });
+        // ✅ الطريقة الصحيحة لتحديث الزر بدون كراش في DJS v14
+        const oldButton = interaction.message.components[0].components[0];
+        const newButton = ButtonBuilder.from(oldButton).setLabel(`مشاركة (${count})`);
+        const newRow = new ActionRowBuilder().addComponents(newButton);
+        
+        await interaction.message.edit({ embeds: [embed], components: [newRow] }).catch(()=>{});
 
         return interaction.reply({ content: "❌ تم إلغاء مشاركتك.", ephemeral: true });
     }
 
-    const weight = await getUserWeight(interaction.member, db);
+    const weight = await getUserWeight(interaction.member, interaction.guildId, db);
     await safeExecute(db, 'INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)', [messageID, userID, weight]);
 
     const countRes = await safeQuery(db, 'SELECT COUNT(*) as count FROM giveaway_entries WHERE "giveawayID" = $1', [messageID]);
     const count = countRes.rows[0]?.count || 1;
 
     const embed = EmbedBuilder.from(interaction.message.embeds[0]);
-    const row = ActionRowBuilder.from(interaction.message.components[0]);
-    row.components[0].setLabel(`مشاركة (${count})`);
+    // ✅ تحديث الزر بمساره السليم
+    const oldButton = interaction.message.components[0].components[0];
+    const newButton = ButtonBuilder.from(oldButton).setLabel(`مشاركة (${count})`);
+    const newRow = new ActionRowBuilder().addComponents(newButton);
     
-    await interaction.message.edit({ embeds: [embed], components: [row] });
+    await interaction.message.edit({ embeds: [embed], components: [newRow] }).catch(()=>{});
     
     return interaction.reply({ content: `✅ **تم تسجيل مشاركتك!** (عدد فرصك: ${weight})`, ephemeral: true });
 }
@@ -231,8 +246,8 @@ async function endGiveaway(client, messageID, force = false) {
             const disabledRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('g_ended').setLabel('انتهى').setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🏁')
             );
-            await originalMessage.edit({ embeds: [newEmbed], components: [disabledRow] });
-            await channel.send({ content: `⚠️ القيفاواي (${giveaway.prize}) انتهى ولم يشارك أحد.` });
+            await originalMessage.edit({ embeds: [newEmbed], components: [disabledRow] }).catch(()=>{});
+            await channel.send({ content: `⚠️ القيفاواي (${giveaway.prize}) انتهى ولم يشارك أحد.` }).catch(()=>{});
         }
         return; 
     }
@@ -266,7 +281,7 @@ async function endGiveaway(client, messageID, force = false) {
     const xpReward = Number(giveaway.xpReward || giveaway.xpreward || 0);
     const guildId = giveaway.guildID || giveaway.guildid;
 
-    // 🔥 التحديث الجذري هنا: توزيع الجوائز بالدالة المركزية الجديدة 🔥
+    // 🔥 توزيع الجوائز 🔥
     if (moraReward > 0 || xpReward > 0) {
         for (const winnerID of winnerIDs) {
             try {
@@ -274,10 +289,8 @@ async function endGiveaway(client, messageID, force = false) {
                 const member = await guild.members.fetch(winnerID).catch(() => null);
                 
                 if (member && addXPAndCheckLevel) {
-                    // نمرر false للـ isMessageEvent لكي لا يعطيه كرت تلفيل إذا رفع لفله بسبب الجائزة
                     await addXPAndCheckLevel(client, member, db, xpReward, moraReward, false);
                 } else {
-                    //Fallback in case member left
                     await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [moraReward, xpReward, winnerID, guildId]);
                 }
             } catch (err) { console.error(err); }
@@ -292,7 +305,7 @@ async function endGiveaway(client, messageID, force = false) {
     if (xpReward > 0) winDescription += `\n✬ اكس بي: **${xpReward}**`;
     
     announcementEmbed.setDescription(winDescription);
-    await channel.send({ content: winnerString, embeds: [announcementEmbed] });
+    await channel.send({ content: winnerString, embeds: [announcementEmbed] }).catch(()=>{});
 
     if (originalMessage) {
         const originalEmbed = originalMessage.embeds[0];
@@ -306,7 +319,7 @@ async function endGiveaway(client, messageID, force = false) {
         const disabledRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('g_ended').setLabel(`انتهى (${entries.length})`).setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🏁')
         );
-        await originalMessage.edit({ embeds: [newEmbed], components: [disabledRow] });
+        await originalMessage.edit({ embeds: [newEmbed], components: [disabledRow] }).catch(()=>{});
     }
 }
 
@@ -340,6 +353,10 @@ async function createRandomDropGiveaway(client, guild) {
     const db = client.sql; 
     if (!db) return false;
 
+    // حماية الجداول للتأكد أن الدروب لن يفشل في الحفظ
+    await db.query(`CREATE TABLE IF NOT EXISTS active_giveaways ("messageID" TEXT PRIMARY KEY, "guildID" TEXT, "channelID" TEXT, "prize" TEXT, "endsAt" BIGINT, "winnerCount" INTEGER, "xpReward" INTEGER, "moraReward" INTEGER, "isFinished" INTEGER DEFAULT 0)`).catch(()=>{});
+    await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER)`).catch(()=>{});
+
     const settingsRes = await safeQuery(db, 'SELECT * FROM settings WHERE "guild" = $1', [guild.id]);
     const settings = settingsRes.rows[0];
 
@@ -363,9 +380,7 @@ async function createRandomDropGiveaway(client, guild) {
         dropMessageContent: "✨ **قيفاواي مفاجئ ظهر!** ✨"
     };
 
-    // 🔥 زيادة المورا لتكون بين 500 و 3500 🔥
     const moraReward = Math.floor(Math.random() * 3001) + 500; 
-    // إبقاء الإكس بي بين 300 و 1500
     const xpReward = Math.floor(Math.random() * 1201) + 300;     
     
     const winnerCount = Math.floor(Math.random() * 3) + 1;        
@@ -394,7 +409,6 @@ async function createRandomDropGiveaway(client, guild) {
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            // يجب أن يكون CustomID موحد للدروبات والقيف اويات العادية عشان زر الاستماع يلقطها
             .setCustomId('g_enter') 
             .setLabel(settings.dropButtonLabel || settings.dropbuttonlabel || DEFAULTS.dropButtonLabel)
             .setStyle(ButtonStyle.Primary)
@@ -405,7 +419,9 @@ async function createRandomDropGiveaway(client, guild) {
         content: settings.dropMessageContent || settings.dropmessagecontent || DEFAULTS.dropMessageContent,
         embeds: [embed], 
         components: [row] 
-    });
+    }).catch(() => null);
+    
+    if (!message) return false;
 
     await safeExecute(db, `
         INSERT INTO active_giveaways ("messageID", "guildID", "channelID", "prize", "endsAt", "winnerCount", "xpReward", "moraReward", "isFinished") 
