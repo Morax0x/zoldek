@@ -262,7 +262,8 @@ async function checkMora(db, userId, guildId, amount) {
     return (mora + bank) >= amount;
 }
 
-async function deductMora(db, userId, guildId, amount) {
+// 🔥 تم إصلاح دالة الخصم وتمرير الـ client لتحديث ذاكرة الكاش الخاصة بالمشتري 🔥
+async function deductMora(client, db, userId, guildId, amount) {
     if (amount <= 0) return true;
     let res = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
     if (!res || !res.rows || res.rows.length === 0) return false;
@@ -275,10 +276,22 @@ async function deductMora(db, userId, guildId, amount) {
     let bank = bankKey ? Number(row[bankKey]) : 0;
 
     if (mora + bank < amount) return false;
+    
     if (mora >= amount) mora -= amount;
     else { let diff = amount - mora; mora = 0; bank -= diff; }
 
     await safeExecute(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [mora, bank, userId, guildId]);
+    
+    // ✅ تحديث ذاكرة التخزين المؤقت للبوت (الكاش) لتجنب الثغرة وظهور الفلوس الوهمية
+    if (client && typeof client.getLevel === 'function') {
+        let u = await client.getLevel(userId, guildId);
+        if (u) {
+            u.mora = String(mora);
+            u.bank = String(bank);
+            if (typeof client.setLevel === 'function') await client.setLevel(u);
+        }
+    }
+
     return true;
 }
 
@@ -833,8 +846,8 @@ module.exports = {
                                 }
 
                                 try {
-                                    // 🔥 تعديل جوهري هنا: خصم من المشتري، خصم الأداة من البائع، وإضافة الأداة للمشتري 🔥
-                                    await deductMora(db, targetID, guildId, price);
+                                    // 🔥 تعديل جوهري هنا: خصم من المشتري باستخدام الدالة المطورة، خصم الأداة من البائع، وإضافة الأداة للمشتري 🔥
+                                    await deductMora(client, db, targetID, guildId, price);
                                     await deductItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
                                     
                                     let targetCheckResTradeFinal = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
@@ -846,13 +859,11 @@ module.exports = {
                                         });
                                     }
 
-                                    // ✅ الآن إضافة العنصر تكون بناءً على المعرف المستخرج وليس tradeItem.id للـ Market
                                     if (finalTargetRowTrade) {
                                         const targetRowIdKey = Object.keys(finalTargetRowTrade).find(k => k.toLowerCase() === 'id');
                                         const targetRowIdTrade = finalTargetRowTrade[targetRowIdKey];
                                         await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, targetRowIdTrade]);
                                     } else {
-                                        // استخدام id العنصر الصحيح المخزن في النسخة الاحتياطية tradeItem
                                         await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, targetID, tradeItem.id, qty]);
                                     }
 
