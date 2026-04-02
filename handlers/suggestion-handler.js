@@ -79,7 +79,6 @@ async function handleNewSuggestion(message, client, db) {
             )
         `);
     } catch (e) {
-        // Fallback for lowercase columns
         try {
             await db.query(`
                 CREATE TABLE IF NOT EXISTS suggestions (
@@ -117,11 +116,14 @@ async function handleNewSuggestion(message, client, db) {
         )
         .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: message.guild.iconURL({ dynamic: true }) });
 
-    // 🔥 إصلاح تكرار الصورة: سحب رابط الصورة مباشرة ووضعه في الإيمبد فقط 🔥
+    // 🔥 حل مشكلة الصورة المعطلة وإخفائها من المرفقات الخارجية 🔥
+    let messageFiles = [];
     if (message.attachments.size > 0) {
         const attachment = message.attachments.first();
         if (attachment.contentType && attachment.contentType.startsWith('image/')) {
-            embed.setImage(attachment.url);
+            // نربط اسم الصورة مباشرة في الإيمبد، وهذا يخلي الديسكورد يخفي المرفق الخارجي تلقائياً
+            embed.setImage(`attachment://${attachment.name}`);
+            messageFiles.push(attachment);
         }
     }
 
@@ -132,8 +134,8 @@ async function handleNewSuggestion(message, client, db) {
     );
 
     try {
-        // 🔥 إرسال الإيمبد فقط بدون الـ files لمنع ظهور الصورة كمرفق خارجي 🔥
-        const suggestionMsg = await message.channel.send({ embeds: [embed], components: [row] });
+        // يتم إرسال الملف ليعمل مع الإيمبد (ولن يظهر كملف خارجي مزعج)
+        const suggestionMsg = await message.channel.send({ embeds: [embed], components: [row], files: messageFiles });
         message.delete().catch(() => {});
 
         try {
@@ -154,7 +156,7 @@ async function handleNewSuggestion(message, client, db) {
             reason: 'نقاش اقتراح جديد'
         });
 
-        // 🔥 تشغيل التنظيف التلقائي للثريدات القديمة (أكثر من 3 أيام) 🔥
+        // تشغيل التنظيف التلقائي للثريدات القديمة (أكثر من 3 أيام)
         cleanOldSuggestionThreads(message.channel);
 
     } catch (err) {
