@@ -142,7 +142,6 @@ module.exports = {
                 }
             }
 
-            // 🔥 جلب بيانات الترقية من جدول user_fishing إذا كانت موجودة لتصحيح التخلف عن مستويات levels 🔥
             let userFishingRes = await execSafe(sql, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2`, [user.id, guild.id]);
             let fishingData = userFishingRes.rows[0];
             
