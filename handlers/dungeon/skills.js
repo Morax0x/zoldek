@@ -109,13 +109,9 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
                 break;
 
              case 'Priest': 
-                const dead = players.filter(m => m.isDead); 
-                if (dead.length > 0) {
-                    const t = dead[0]; 
-                    if (t.isPermDead) {
-                        log.push(`💀 **${player.name}** حاول إنعاش **${t.name}** لكن الجثة تحللت!`);
-                        if(threadChannel) threadChannel.send(`⚠️ **${t.name}** جثته متحللة ولا يمكن إنعاشه!`).catch(()=>{});
-                    } else {
+                if (skill.targetId && skill.targetId !== 'heal_team_only') {
+                    const t = players.find(m => m.id === skill.targetId);
+                    if (t && !t.isPermDead) {
                         t.isDead = false; 
                         t.status = 'alive'; 
                         t.hp = Math.floor(t.maxHp * 0.2);
@@ -128,20 +124,22 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
                              }
                         }
                         applyDamageToPlayer(player, Math.floor(player.maxHp * 0.1)); 
-                        log.push(`✨ **${player.name}** أحيا **${t.name}**!`);
+                        log.push(`✨ **${player.name}** قرر إنعاش **${t.name}**!`);
                         if(threadChannel) threadChannel.send(`✨ **${player.name}** قام بإحياء **${t.name}** <@${t.id}>!`).catch(()=>{});
                         player.threat = (player.threat || 0) + 800;
                         if (skill.id === 'hybrid_heal') player.skillCooldowns['hybrid_heal'] = 7;
                         else player.special_cooldown = 7;
                     }
-                } else {
+                } 
+                else {
                     players.forEach(m => { if(!m.isDead && !m.isPermDead) m.hp = Math.min(m.maxHp, m.hp + Math.floor(m.maxHp * 0.4)); });
-                    log.push(`✨ **${player.name}** عالج الفريق!`);
+                    log.push(`✨ **${player.name}** نشر النور لعلاج الفريق!`);
                     const totalHealThreat = Math.floor((player.maxHp * 0.4) * players.filter(p=>!p.isDead).length / 2);
                     player.threat = (player.threat || 0) + totalHealThreat;
                     if (skill.id === 'hybrid_heal') player.skillCooldowns['hybrid_heal'] = 6;
                     else player.special_cooldown = 6;
                 }
+                
                 skillName = (skill.id === 'hybrid_heal') ? "النور المقدس (إرث)" : "النور المقدس";
                 break;
 
