@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder, EmbedBuilder } = require('discord.js');
 
-let generateGachaCard, generateGachaHub, generateGachaInventory;
+let generateGachaCard, generateGachaHub, generateGachaInventory, generateGachaSummary;
 try {
-    ({ generateGachaCard, generateGachaHub, generateGachaInventory } = require('../../generators/gacha-generator.js'));
+    ({ generateGachaCard, generateGachaHub, generateGachaInventory, generateGachaSummary } = require('../../generators/gacha-generator.js'));
 } catch (e) {
-    generateGachaCard = null; generateGachaHub = null; generateGachaInventory = null;
+    generateGachaCard = null; generateGachaHub = null; generateGachaInventory = null; generateGachaSummary = null;
 }
 
 const upgradeMats = require('../../json/upgrade-materials.json');
@@ -12,7 +12,6 @@ const upgradeMats = require('../../json/upgrade-materials.json');
 const PULL_PRICE = 1000;
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
-// تحويل من Set إلى Map لحفظ بيانات الجلسة وإغلاق القديمة
 const activeGachaUsers = new Map();
 
 const FLAVOR_TEXTS = [
@@ -27,13 +26,14 @@ const FLAVOR_TEXTS = [
     "همسات الاقدار تناديك استخدم المورا لفك طلاسم الصندوق"
 ];
 
+// 🔥 تم إصلاح اسم الجمرة الخامدة mat_demon_1 هنا 🔥
 const ID_TO_IMAGE = {
     'mat_dragon_1': 'dragon_ash.png', 'mat_dragon_2': 'dragon_scale.png', 'mat_dragon_3': 'dragon_claw.png', 'mat_dragon_4': 'dragon_heart.png', 'mat_dragon_5': 'dragon_core.png',
     'mat_human_1': 'human_iron.png', 'mat_human_2': 'human_steel.png', 'mat_human_3': 'human_meteor.png', 'mat_human_4': 'human_seal.png', 'mat_human_5': 'human_crown.png',
     'mat_elf_1': 'elf_branch.png', 'mat_elf_2': 'elf_bark.png', 'mat_elf_3': 'elf_flower.png', 'mat_elf_4': 'elf_crystal.png', 'mat_elf_5': 'elf_tear.png',
     'mat_darkelf_1': 'darkelf_obsidian.png', 'mat_darkelf_2': 'darkelf_glass.png', 'mat_darkelf_3': 'darkelf_crystal.png', 'mat_darkelf_4': 'darkelf_void.png', 'mat_darkelf_5': 'darkelf_ash.png',
     'mat_seraphim_1': 'seraphim_feathe.png', 'mat_seraphim_2': 'seraphim_halo.png', 'mat_seraphim_3': 'seraphim_crystal.png', 'mat_seraphim_4': 'seraphim_core.png', 'mat_seraphim_5': 'seraphim_chalice.png',
-    'demon_1': 'demon_ember.png', 'mat_demon_2': 'demon_horn.png', 'mat_demon_3': 'demon_crystal.png', 'mat_demon_4': 'demon_flame.png', 'mat_demon_5': 'demon_crown.png',
+    'mat_demon_1': 'demon_ember.png', 'mat_demon_2': 'demon_horn.png', 'mat_demon_3': 'demon_crystal.png', 'mat_demon_4': 'demon_flame.png', 'mat_demon_5': 'demon_crown.png',
     'mat_vampire_1': 'vampire_blood.png', 'mat_vampire_2': 'vampire_vial.png', 'mat_vampire_3': 'vampire_fang.png', 'mat_vampire_4': 'vampire_moon.png', 'mat_vampire_5': 'vampire_chalice.png',
     'mat_spirit_1': 'spirit_dust.png', 'mat_spirit_2': 'spirit_remnant.png', 'mat_spirit_3': 'spirit_crystal.png', 'mat_spirit_4': 'spirit_core.png', 'mat_spirit_5': 'spirit_pulse.png',
     'mat_hybrid_1': 'hybrid_claw.png', 'mat_hybrid_2': 'hybrid_fur.png', 'mat_hybrid_3': 'hybrid_bone.png', 'mat_hybrid_4': 'hybrid_crystal.png', 'mat_hybrid_5': 'hybrid_soul.png',
@@ -65,7 +65,6 @@ if (upgradeMats && upgradeMats.skill_books) {
     });
 }
 
-// 🛡️ نظام معالجة استعلامات فولاذي 🛡️
 const safeQuery = async (db, qPg, params) => {
     try { 
         let res = await db.query(qPg, params); 
@@ -169,7 +168,6 @@ function performPull(pityData, userRace) {
     return { item, rarity };
 }
 
-// 🔥 نظام صيانة الصناديق الفولاذي المعدل لتجنب التعليق ومشاكل الحذف 🔥
 async function maintainChestInventory(db, userId, guildId) {
     const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
     
@@ -189,7 +187,6 @@ async function maintainChestInventory(db, userId, guildId) {
         }
     }
     
-    // مسح الأسطر القديمة والوهمية بشكل آمن لدمجها بسطر واحد
     await safeExecute(db, `DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND ("itemID" = 'free_gacha_chest' OR "itemID" = 'gacha_chest' OR "itemID" = 'FREE_GACHA_CHEST' OR "itemID" = 'GACHA_CHEST')`, [userId, guildId]);
     
     if (freeCount > 0) await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, userId, freeCount]);
@@ -214,7 +211,6 @@ module.exports = {
 
         const reply = async (payload) => isSlash ? interactionOrMessage.editReply(payload).catch(()=>{}) : interactionOrMessage.reply(payload).catch(()=>{});
 
-        // 🔥 نظام إغلاق الجلسة القديمة وفتح جديدة بشكل ذكي (حذف الرسالة القديمة إن وجدت) 🔥
         if (activeGachaUsers.has(user.id)) {
             const oldSession = activeGachaUsers.get(user.id);
             try {
@@ -330,7 +326,7 @@ module.exports = {
 
                 const res = currentResults[idx];
                 let files = [];
-                let fallbackEmbeds = []; // 🔥 نظام طوارئ لتعويض الصورة لو فشل تحميلها 🔥
+                let fallbackEmbeds = [];
 
                 if (generateGachaCard && res.item) {
                     try {
@@ -411,7 +407,6 @@ module.exports = {
                         let remainingFree = Math.min(freeChests, pCount);
                         let remainingPaid = Math.min(paidChests, pCount - remainingFree);
                         
-                        // 🔥 خصم ذكي وسريع خالي من استعلامات الـ ID لتجنب التعليق نهائياً 🔥
                         if (remainingFree > 0) {
                             await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, [remainingFree, user.id, guildId]);
                         }
@@ -449,7 +444,6 @@ module.exports = {
                         if (item) resArr.push({ item, rarity });
                     }
 
-                    // 🔥 تعديل: استخدام تنفيذ قاعدة البيانات بشكل متسلسل (Sequential) بدلاً من (Promise.all) لمنع تداخل قواعد البيانات (Database Lock) الذي كان يؤدي لضياع العناصر 🔥
                     for (const [itemId, qty] of Object.entries(itemsToAdd)) {
                         let existingItemRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
                         let existingRow = null;
@@ -513,7 +507,21 @@ module.exports = {
                         return;
                     }
 
+                    // 🔥 تحديث زر تخطي لعرض الملخص مباشرة (gacha_skip) 🔥
                     if (i.customId === 'gacha_skip') {
+                        if (generateGachaSummary && currentResults.length > 1) {
+                            try {
+                                const summaryBuffer = await generateGachaSummary(user, currentResults);
+                                if (summaryBuffer) {
+                                    const attachment = new AttachmentBuilder(summaryBuffer, { name: 'gacha_summary.png' });
+                                    await initialMsg.edit({ embeds: [], files: [attachment], components: [getReturnButton()], content: '' }).catch(()=>{});
+                                    isProcessing = false;
+                                    return;
+                                }
+                            } catch(e) {}
+                        }
+                        
+                        // في حال فشل الملخص لأي سبب، يعرض آخر عنصر
                         currentImageIndex = currentPullCount - 1; 
                         await initialMsg.edit(await getPagePayload(currentImageIndex)).catch(()=>{});
                         isProcessing = false;
@@ -578,7 +586,6 @@ module.exports = {
                     await initialMsg.edit({ files: meteorFiles, components: [], embeds: [], content: '' }).catch(()=>{});
                     await new Promise(r => setTimeout(r, 1000));
 
-                    // 🔥 نظام الطوارئ للمسار الواحد 🔥
                     if (currentPullCount > 1) {
                         await initialMsg.edit(await getPagePayload(0)).catch(()=>{});
                     } else {
