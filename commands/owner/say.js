@@ -5,12 +5,12 @@ const EMPEROR_ID = "1145327691772481577";
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('قول')
-        .setDescription('خـاص بالامبراطور')
+        .setDescription('خـاص بالامبراطـور')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addStringOption(opt => opt.setName('text').setDescription('النص أو الرابط (تينور/فيديو) الذي تريد إرساله').setRequired(false))
         .addChannelOption(opt => opt.setName('channel').setDescription('القناة الهدف (اختياري)').setRequired(false))
         .addStringOption(opt => opt.setName('copy_url').setDescription('رابط أو آيدي رسالة لنسخها بالكامل (نص، إمبد، صور)').setRequired(false))
-        .addStringOption(opt => opt.setName('reply_to').setDescription('آيدي الرسالة التي تريد من البوت الرد عليها').setRequired(false))
+        .addStringOption(opt => opt.setName('reply_to').setDescription('رابط الرسالة (أو الآيدي) التي تريد من البوت الرد عليها').setRequired(false))
         .addStringOption(opt => opt.setName('json_embed').setDescription('كود JSON لإرسال إمبد مخصص').setRequired(false))
         .addAttachmentOption(opt => opt.setName('file').setDescription('إرفاق ملف أو صورة').setRequired(false)),
 
@@ -38,9 +38,10 @@ module.exports = {
             let targetChannel = isSlash ? interactionOrMessage.options.getChannel('channel') : interactionOrMessage.channel;
             let textContent = isSlash ? interactionOrMessage.options.getString('text') : null;
             let copySource = isSlash ? interactionOrMessage.options.getString('copy_url') : null;
-            let replyToId = isSlash ? interactionOrMessage.options.getString('reply_to') : null;
+            let replyToInput = isSlash ? interactionOrMessage.options.getString('reply_to') : null;
             let jsonEmbed = isSlash ? interactionOrMessage.options.getString('json_embed') : null;
             let attachmentOpt = isSlash ? interactionOrMessage.options.getAttachment('file') : null;
+            let replyToId = null;
 
             if (!isSlash) {
                 if (!args || args.length === 0) return;
@@ -58,6 +59,23 @@ module.exports = {
                 }
 
                 textContent = args.length > 0 ? args.join(' ') : null;
+            }
+
+            // 🧠 التوجيه الذكي للردود عبر الرابط (Smart Reply Routing)
+            if (replyToInput) {
+                const urlMatch = replyToInput.match(/channels\/(\d+)\/(\d+)\/(\d+)/);
+                if (urlMatch) {
+                    const sourceChannelId = urlMatch[2];
+                    replyToId = urlMatch[3]; // الآيدي الصافي للرسالة
+                    
+                    try {
+                        // إجبار البوت على التوجه لقناة الرسالة المطلوبة للرد عليها
+                        const foundChannel = await client.channels.fetch(sourceChannelId).catch(() => null);
+                        if (foundChannel) targetChannel = foundChannel; 
+                    } catch (e) {}
+                } else {
+                    replyToId = replyToInput; // إذا كان المكتوب آيدي فقط
+                }
             }
 
             if (!targetChannel) targetChannel = interactionOrMessage.channel;
