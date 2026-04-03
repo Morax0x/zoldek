@@ -6,7 +6,7 @@ const EMPEROR_ID = "1145327691772481577";
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('قول')
-        .setDescription('أداة الإمبراطور الخاصة للتحدث عبر البوت (مخفية)')
+        .setDescription('خــااص')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) // إخفاء مبدئي
         .addStringOption(opt => opt.setName('text').setDescription('النص الذي تريد من البوت قوله').setRequired(false))
         .addChannelOption(opt => opt.setName('channel').setDescription('القناة الهدف (اختياري)').setRequired(false))
