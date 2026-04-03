@@ -439,10 +439,10 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
                 .setCustomId(`forge_buy_weapon`)
                 .setLabel(`صناعة السلاح الأساسي (${LEARN_FEE} مورا)`)
                 .setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary)
-                .setDisabled(userMora < LEARN_FEE), // <-- تم إضافة التعطيل
+                .setDisabled(userMora < LEARN_FEE),
             getReturnRow().components[0]
         );
-        return await replyWithCanvas(i, user, 'weapon', { mora: userMora, title: `صناعة ${resolveText(weaponConfig.name)}`, currentLevel: 0, nextLevel: 1, currentStat: `0 DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, 1)} DMG`, reqMora: LEARN_FEE, detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم الصناعة', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }] }, [btnRow], false);
+        return await replyWithCanvas(i, user, 'weapon', { mora: userMora, title: `صناعة ${resolveText(weaponConfig.name)}`, currentLevel: 0, nextLevel: 1, currentStat: `0 DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, 1)} DMG`, reqMora: LEARN_FEE, detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم الصناعة', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }] }, [btnRow]);
     }
     
     if (currentLevel >= 30) return await replyWithCanvas(i, user, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: '✨ سلاحك وصل للحد الأقصى (Lv.30)!' }, [getReturnRow()]);
@@ -458,11 +458,11 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
             .setCustomId(`forge_upgrade_weapon`)
             .setLabel('تـطـويـر السـلاح')
             .setStyle(state.canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary)
-            .setDisabled(!state.canUpgrade), // <-- تم إضافة التعطيل هنا لمنع الاستجابة الخاطئة
+            .setDisabled(!state.canUpgrade),
         getReturnRow().components[0]
     );
     
-    return await replyWithCanvas(i, user, 'weapon', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel)} DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel + 1)} DMG`, reqMora: state.reqMora, detailedReqs: state.uiReqs }, [btnRow], []);
+    return await replyWithCanvas(i, user, 'weapon', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel)} DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel + 1)} DMG`, reqMora: state.reqMora, detailedReqs: state.uiReqs }, [btnRow]);
 }
 
 async function handleWeaponBuy(i, user, guildId, db) {
@@ -507,12 +507,12 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
     
     const weaponConfig = getSafeWeaponConfig(state.raceName);
     const nextLevel = currentLevel + 1;
-    await replyWithCanvas(i, user, 'success_weapon', { title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel: currentLevel, nextLevel: nextLevel, nextStat: `${getWeaponDisplayDamage(weaponConfig, nextLevel)} DMG` }, [getReturnRow()], []);
+    await replyWithCanvas(i, user, 'success_weapon', { title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel: currentLevel, nextLevel: nextLevel, nextStat: `${getWeaponDisplayDamage(weaponConfig, nextLevel)} DMG` }, [getReturnRow()]);
 }
 
 async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
     const raceName = await getUserRaceName(user, i.guild, db);
-    if (!raceName) return await replyWithCanvas(i, user, 'skill_home', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً!' }, [getReturnRow()], [], isInitial);
+    if (!raceName) return await replyWithCanvas(i, user, 'skill_home', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً!' }, [getReturnRow()], isInitial);
     
     const raceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
     const [userMoraRes, skillsRes] = await Promise.all([
@@ -532,7 +532,7 @@ async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
     });
 
     const skillSelectRow = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('forge_skill_select').setPlaceholder('اختر مهارة للتعلم أو الصقل...').addOptions(skillOptions.slice(0, 25)));
-    return await replyWithCanvas(i, user, 'skill_home', { mora: userMora, title: 'أكاديمية السحر' }, [skillSelectRow, getReturnRow()], [], isInitial);
+    return await replyWithCanvas(i, user, 'skill_home', { mora: userMora, title: 'أكاديمية السحر' }, [skillSelectRow, getReturnRow()], isInitial);
 }
 
 async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
@@ -555,13 +555,13 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
                 .setCustomId(`forge_learn_skill_${skillId}`)
                 .setLabel(`تعلم المهارة (${LEARN_FEE} مورا)`)
                 .setStyle(userMora >= LEARN_FEE ? ButtonStyle.Success : ButtonStyle.Secondary)
-                .setDisabled(userMora < LEARN_FEE), // <-- تم إضافة التعطيل
+                .setDisabled(userMora < LEARN_FEE),
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, user, 'skill', {
             mora: userMora, title: `تعلم ${resolveText(configSkill.name)}`, currentLevel: 0, nextLevel: 1, currentStat: `0${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, 1)}${statSymbol}`, reqMora: LEARN_FEE, 
             detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: userMora, name: 'رسوم التعلم', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
-        }, [btnRow], false);
+        }, [btnRow]);
     }
 
     if (currentLevel >= (configSkill.max_level || 30)) return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, hasError: true, errorMsg: '✨ المهارة وصلت للحد الأقصى!' }, [getReturnRow()]);
@@ -579,11 +579,11 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
             .setCustomId(`forge_upgrade_skill_${skillId}`)
             .setLabel('صقل المهارة 📜')
             .setStyle(state.canUpgrade ? ButtonStyle.Success : ButtonStyle.Secondary)
-            .setDisabled(!state.canUpgrade), // <-- تم إضافة التعطيل هنا
+            .setDisabled(!state.canUpgrade),
         getReturnRow().components[0]
     );
     
-    return await replyWithCanvas(i, user, 'skill', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getSkillDisplayValue(configSkill, currentLevel)}${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}`, reqMora: state.reqMora, detailedReqs: state.uiReqs }, [btnRow], []);
+    return await replyWithCanvas(i, user, 'skill', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getSkillDisplayValue(configSkill, currentLevel)}${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}`, reqMora: state.reqMora, detailedReqs: state.uiReqs }, [btnRow]);
 }
 
 async function handleSkillLearn(i, user, guildId, db, skillId) {
@@ -630,7 +630,7 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
     
     const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
     const statSymbol = configSkill.stat_type === '%' ? '%' : '';
-    await replyWithCanvas(i, user, 'success_skill', { title: `صقل ${resolveText(configSkill.name)}`, currentLevel: currentLevel, nextLevel: currentLevel + 1, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}` }, [getReturnRow()], []);
+    await replyWithCanvas(i, user, 'success_skill', { title: `صقل ${resolveText(configSkill.name)}`, currentLevel: currentLevel, nextLevel: currentLevel + 1, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}` }, [getReturnRow()]);
 }
 
 async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) {
@@ -655,7 +655,7 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
         return true;
     });
 
-    if (availableSacrifices.length === 0) return await replyWithCanvas(i, user, 'synthesis_home', { mora: userMora, title: 'فرن الدمج', hasError: true, errorMsg: 'لا تملك 4 عناصر متشابهة.' }, [getReturnRow()], [], isInitial);
+    if (availableSacrifices.length === 0) return await replyWithCanvas(i, user, 'synthesis_home', { mora: userMora, title: 'فرن الدمج', hasError: true, errorMsg: 'لا تملك 4 عناصر متشابهة.' }, [getReturnRow()], isInitial);
 
     let components = [];
     let payloadData = { mora: userMora, title: 'فرن الدمج', fee: SYNTHESIS_FEE };
@@ -696,25 +696,79 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
             const targetInfo = getItemInfo(state.targetItem);
             if(targetInfo) {
                 payloadData.targetMatName = targetInfo.name; payloadData.targetMatIcon = targetInfo.iconUrl;
-                components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('forge_execute_synth').setLabel(`دمــج`).setStyle(userMora >= SYNTHESIS_FEE ? ButtonStyle.Success : ButtonStyle.Secondary).setDisabled(userMora < SYNTHESIS_FEE)));
+                
+                const userQty = inventory.find(r => r.itemID === state.sacrificeItem)?.quantity || 0;
+                const maxSynth = Math.floor(userQty / 4);
+
+                const actionRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('forge_execute_synth')
+                        .setLabel(`دمــج`)
+                        .setStyle(userMora >= SYNTHESIS_FEE ? ButtonStyle.Success : ButtonStyle.Secondary)
+                        .setDisabled(userMora < SYNTHESIS_FEE)
+                );
+                
+                if (maxSynth > 1) {
+                    actionRow.addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`forge_synth_multi_${state.targetItem}`)
+                            .setLabel(`دمـج متعـدد`)
+                            .setStyle(userMora >= (SYNTHESIS_FEE * 2) ? ButtonStyle.Primary : ButtonStyle.Secondary)
+                    );
+                }
+                
+                components.push(actionRow);
             }
         }
     }
     components.push(getReturnRow());
-    return await replyWithCanvas(i, user, 'synthesis', payloadData, components, [], isInitial);
+    return await replyWithCanvas(i, user, 'synthesis', payloadData, components, isInitial);
 }
 
-async function handleSynthesis(i, user, guildId, db, state) {
+async function handleSynthesisMultiModal(i, user, guildId, db, state, client) {
+    const targetId = i.customId.replace('forge_synth_multi_', '');
+    state.targetItem = targetId;
+    const modal = new ModalBuilder().setCustomId(`modal_synth_${targetId}`).setTitle('فرن الدمج - دمج متعدد');
+    const input = new TextInputBuilder().setCustomId('synth_qty').setLabel('كم عنصر تبي تدمج؟').setStyle(TextInputStyle.Short).setRequired(true);
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+    await i.showModal(modal);
+    try {
+        const submit = await i.awaitModalSubmit({ time: 60000, filter: s => s.user.id === user.id });
+        const qtyToSynth = parseInt(submit.fields.getTextInputValue('synth_qty'));
+        if (isNaN(qtyToSynth) || qtyToSynth <= 0) return submit.reply({ content: '❌ رقم غير صالح.', flags: MessageFlags.Ephemeral });
+        await handleSynthesis(submit, user, guildId, db, state, qtyToSynth, true);
+    } catch(e) {}
+}
+
+async function handleSynthesis(i, user, guildId, db, state, qtyToSynth = 1, isModal = false) {
     if (!state.sacrificeItem || !state.targetItem) return;
+    if (isModal) await i.deferUpdate().catch(()=>{});
+
+    const totalFee = SYNTHESIS_FEE * qtyToSynth;
+    const hasMora = await checkMora(db, user.id, guildId, totalFee);
     
-    const hasMora = await checkMora(db, user.id, guildId, SYNTHESIS_FEE);
-    if (!hasMora) return await replyWithCanvas(i, user, 'synthesis_error', { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك المورا الكافية للدمج!` }, [getReturnRow()]);
+    // زر عودة مخصص بعد الدمج ليرجعك للقائمة الخاصة بالدمج (طلبك)
+    const synthReturnRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('forge_synthesis').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
+    );
 
-    const hasItems = await checkItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: 4 }]);
-    if (!hasItems) return await replyWithCanvas(i, user, 'synthesis_error', { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: 'لا تملك 4 عناصر متشابهة!' }, [getReturnRow()]);
+    if (!hasMora) {
+        const payload = { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك ${totalFee} مورا للدمج!` };
+        if (isModal) return await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'synthesis_error', payload, [synthReturnRow]);
+        else return await replyWithCanvas(i, user, 'synthesis_error', payload, [synthReturnRow]);
+    }
 
-    await deductMora(db, user.id, guildId, SYNTHESIS_FEE);
-    await deductItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: 4 }]);
+    const totalSacrifice = 4 * qtyToSynth;
+    const hasItems = await checkItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: totalSacrifice }]);
+    
+    if (!hasItems) {
+        const payload = { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك ${totalSacrifice} عناصر متشابهة!` };
+        if (isModal) return await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'synthesis_error', payload, [synthReturnRow]);
+        else return await replyWithCanvas(i, user, 'synthesis_error', payload, [synthReturnRow]);
+    }
+
+    await deductMora(db, user.id, guildId, totalFee);
+    await deductItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: totalSacrifice }]);
 
     const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
     let targetRow = null;
@@ -727,15 +781,22 @@ async function handleSynthesis(i, user, guildId, db, state) {
 
     if (targetRow) {
         const rowId = getSafeVal(targetRow, 'id', null);
-        try { await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + 1 WHERE "id" = $1`, [rowId]); } 
-        catch(e) { await db.query(`UPDATE user_inventory SET quantity = quantity + 1 WHERE id = $1`, [rowId]).catch(()=>{}); }
+        try { await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qtyToSynth, rowId]); } 
+        catch(e) { await db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qtyToSynth, rowId]).catch(()=>{}); }
     } else {
-        try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]); } 
-        catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, 1)`, [guildId, user.id, state.targetItem]).catch(()=>{}); }
+        try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, state.targetItem, qtyToSynth]); } 
+        catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, state.targetItem, qtyToSynth]).catch(()=>{}); }
     }
     
     const targetInfo = getItemInfo(state.targetItem);
-    await replyWithCanvas(i, user, 'success_synthesis', { title: 'فرن الدمج السحري', targetMatName: targetInfo.name, targetMatIcon: targetInfo.iconUrl, targetMatRarity: targetInfo.rarity }, [getReturnRow()]);
+    const payloadData = { title: 'فرن الدمج السحري', targetMatName: targetInfo.name, targetMatIcon: targetInfo.iconUrl, targetMatRarity: targetInfo.rarity, quantity: qtyToSynth };
+    
+    if (isModal) {
+        await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_synthesis', payloadData, [synthReturnRow]);
+        state.sacrificeItem = null; state.targetItem = null;
+    } else {
+        await replyWithCanvas(i, user, 'success_synthesis', payloadData, [synthReturnRow]);
+    }
 }
 
 async function buildSmeltingUI(i, user, guildId, db, state, isInitial = false) {
@@ -747,7 +808,7 @@ async function buildSmeltingUI(i, user, guildId, db, state, isInitial = false) {
     const inventory = aggregateInventory(invRes?.rows || []);
     const smeltableItems = inventory.filter(row => getItemInfo(row.itemID) !== null);
 
-    if (smeltableItems.length === 0) return await replyWithCanvas(i, user, 'smelting_home', { mora: userMora, title: 'محرقة التفكيك', hasError: true, errorMsg: 'لا تملك عناصر قابلة للصهر.' }, [getReturnRow()], [], isInitial);
+    if (smeltableItems.length === 0) return await replyWithCanvas(i, user, 'smelting_home', { mora: userMora, title: 'محرقة التفكيك', hasError: true, errorMsg: 'لا تملك عناصر قابلة للصهر.' }, [getReturnRow()], isInitial);
 
     let payloadData = { mora: userMora, title: 'محرقة التفكيك' };
     let components = [];
@@ -771,7 +832,7 @@ async function buildSmeltingUI(i, user, guildId, db, state, isInitial = false) {
         components.push(actionRow);
     }
     components.push(getReturnRow());
-    return await replyWithCanvas(i, user, 'smelting', payloadData, components, [], isInitial);
+    return await replyWithCanvas(i, user, 'smelting', payloadData, components, isInitial);
 }
 
 async function handleSmeltingMultiModal(i, user, guildId, db, state, client) {
@@ -812,9 +873,15 @@ async function handleSmelting(i, user, guildId, db, state, client, qtyToSmelt = 
         catch(e) { await db.query(`UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [xpReward, user.id, guildId]).catch(()=>{}); }
     }
         
-    const successData = { title: 'محرقة التفكيك', xpGain: xpReward };
-    if (isModal) { await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_smelting', successData, [getReturnRow()]); state.item = null; } 
-    else { await replyWithCanvas(i, user, 'success_smelting', successData, [getReturnRow()]); }
+    // 🔥 إصلاح انهيار الصورة عند الصهر 🔥
+    const successData = { title: 'محرقة التفكيك', xpGain: xpReward, sacMatName: itemInfo.name, reqMatIcon: itemInfo.iconUrl };
+    
+    if (isModal) { 
+        await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_smelting', successData, [getReturnRow()]); 
+        state.item = null; 
+    } else { 
+        await replyWithCanvas(i, user, 'success_smelting', successData, [getReturnRow()]); 
+    }
 }
 
 module.exports = {
@@ -834,6 +901,7 @@ module.exports = {
     handleSkillLearn,
     handleSkillUpgrade,
     handleSynthesis,
+    handleSynthesisMultiModal,
     handleSmeltingMultiModal,
     handleSmelting
 };
