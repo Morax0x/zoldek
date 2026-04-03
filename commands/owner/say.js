@@ -1,14 +1,13 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, AttachmentBuilder, MessageFlags } = require('discord.js');
 
-// 🔥 آيدي الإمبراطور الوحيد المسموح له باستخدام الأمر 🔥
 const EMPEROR_ID = "1145327691772481577";
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('قول')
-        .setDescription('خــااص')
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) // إخفاء مبدئي
-        .addStringOption(opt => opt.setName('text').setDescription('النص الذي تريد من البوت قوله').setRequired(false))
+        .setDescription('خـاص بالامبراطور')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addStringOption(opt => opt.setName('text').setDescription('النص أو الرابط (تينور/فيديو) الذي تريد إرساله').setRequired(false))
         .addChannelOption(opt => opt.setName('channel').setDescription('القناة الهدف (اختياري)').setRequired(false))
         .addStringOption(opt => opt.setName('copy_url').setDescription('رابط أو آيدي رسالة لنسخها بالكامل (نص، إمبد، صور)').setRequired(false))
         .addStringOption(opt => opt.setName('reply_to').setDescription('آيدي الرسالة التي تريد من البوت الرد عليها').setRequired(false))
@@ -23,14 +22,12 @@ module.exports = {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         const client = interactionOrMessage.client;
         
-        // 🛡️ حماية فولاذية: التحقق من أن المستخدم هو الإمبراطور فقط 🛡️
         const user = isSlash ? interactionOrMessage.user : interactionOrMessage.author;
         if (user.id !== EMPEROR_ID) {
             if (isSlash) return interactionOrMessage.reply({ content: "❌ هذا الأمر محرم على الرعية، مخصص للإمبراطور فقط.", flags: [MessageFlags.Ephemeral] });
-            return; // تجاهل صامت في حال كان أمراً نصياً
+            return;
         }
 
-        // وضع الشبح للأمر النصي (حذف رسالة الإمبراطور فوراً)
         if (!isSlash && interactionOrMessage.deletable) {
             interactionOrMessage.delete().catch(() => {});
         }
@@ -45,18 +42,15 @@ module.exports = {
             let jsonEmbed = isSlash ? interactionOrMessage.options.getString('json_embed') : null;
             let attachmentOpt = isSlash ? interactionOrMessage.options.getAttachment('file') : null;
 
-            // --- معالجة الأمر النصي (!قول) ---
             if (!isSlash) {
                 if (!args || args.length === 0) return;
                 
-                // التحقق إذا كان أول معامل هو منشن لقناة
                 const channelMention = interactionOrMessage.mentions.channels.first();
                 if (channelMention && args[0].includes(channelMention.id)) {
                     targetChannel = channelMention;
-                    args.shift(); // إزالة منشن القناة من النص
+                    args.shift();
                 }
 
-                // التحقق إذا كان النص يحتوي على رابط رسالة ديسكورد للنسخ
                 const linkMatch = args.find(a => a.includes('discord.com/channels/'));
                 if (linkMatch) {
                     copySource = linkMatch;
@@ -74,20 +68,50 @@ module.exports = {
                 files: []
             };
 
-            // 1. إضافة المرفقات إن وجدت
             if (attachmentOpt) {
                 payload.files.push(attachmentOpt.url);
             } else if (!isSlash && interactionOrMessage.attachments.size > 0) {
                 interactionOrMessage.attachments.forEach(att => payload.files.push(att.url));
             }
 
-            // 2. نظام النسخ الاستنساخي (Clone System) عبر الرابط أو الآيدي
+            if (textContent) {
+                const urlRegex = /(https?:\/\/[^\s]+)/g;
+                const urls = textContent.match(urlRegex);
+                
+                if (urls) {
+                    for (const url of urls) {
+                        let mediaUrl = null;
+                        const isTenor = url.includes('tenor.com/view/');
+
+                        if (isTenor) {
+                            try {
+                                const response = await fetch(url);
+                                const html = await response.text();
+                                const match = html.match(/<meta property="og:image" content="([^"]+)"/i);
+                                if (match) mediaUrl = match[1];
+                            } catch (err) {}
+                        } else if (url.match(/\.(gif|png|jpg|jpeg|webp|mp4|mov|webm)(\?.*)?$/i)) {
+                            mediaUrl = url;
+                        }
+
+                        if (mediaUrl) {
+                            const extMatch = mediaUrl.match(/\.(gif|png|jpg|jpeg|webp|mp4|mov|webm)/i);
+                            const ext = extMatch ? extMatch[1] : (isTenor ? 'gif' : 'png');
+                            
+                            payload.files.push(new AttachmentBuilder(mediaUrl, { name: `emperor_media.${ext}` }));
+                            
+                            textContent = textContent.replace(url, '').trim();
+                        }
+                    }
+                    payload.content = textContent === '' ? undefined : textContent;
+                }
+            }
+
             if (copySource) {
                 let msgToCopy = null;
                 const urlMatch = copySource.match(/channels\/(\d+)\/(\d+)\/(\d+)/);
                 
                 if (urlMatch) {
-                    // إذا كان رابط رسالة
                     const sourceGuildId = urlMatch[1];
                     const sourceChannelId = urlMatch[2];
                     const sourceMessageId = urlMatch[3];
@@ -100,14 +124,13 @@ module.exports = {
                         }
                     } catch (e) {}
                 } else {
-                    // إذا كان آيدي رسالة فقط، نبحث في نفس القناة
                     try {
                         msgToCopy = await targetChannel.messages.fetch(copySource).catch(()=>null);
                     } catch (e) {}
                 }
 
                 if (msgToCopy) {
-                    if (msgToCopy.content && !textContent) payload.content = msgToCopy.content;
+                    if (msgToCopy.content && !payload.content) payload.content = msgToCopy.content;
                     if (msgToCopy.embeds && msgToCopy.embeds.length > 0) payload.embeds = msgToCopy.embeds.map(e => EmbedBuilder.from(e));
                     if (msgToCopy.attachments && msgToCopy.attachments.size > 0) {
                         msgToCopy.attachments.forEach(att => payload.files.push(att.url));
@@ -117,7 +140,6 @@ module.exports = {
                 }
             }
 
-            // 3. نظام صانع الإمبد (JSON Embed)
             if (jsonEmbed) {
                 try {
                     const parsedData = JSON.parse(jsonEmbed);
@@ -128,27 +150,22 @@ module.exports = {
                 }
             }
 
-            // 4. نظام الرد (Reply)
             if (replyToId) {
                 payload.reply = { messageReference: replyToId, failIfNotExists: false };
             }
 
-            // التحقق النهائي قبل الإرسال
             if (!payload.content && payload.embeds.length === 0 && payload.files.length === 0) {
                 if (isSlash) return interactionOrMessage.editReply("❌ لا يوجد شيء لأرسله! يرجى توفير نص، رابط للنسخ، أو مرفق.");
                 return;
             }
 
-            // الإرسال الفعلي
             const sentMsg = await targetChannel.send(payload);
 
-            // تأكيد العملية للإمبراطور بصمت
             if (isSlash) {
                 await interactionOrMessage.editReply({ content: `✅ تم تنفيذ الأمر بنجاح في قناة <#${targetChannel.id}>.\n[رابط الرسالة](${sentMsg.url})` });
             }
 
         } catch (error) {
-            console.error("[Say Command Error]", error);
             if (isSlash) await interactionOrMessage.editReply("❌ حدث خطأ غير متوقع أثناء محاولة الإرسال.").catch(()=>{});
         }
     }
