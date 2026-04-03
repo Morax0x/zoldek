@@ -102,7 +102,6 @@ function drawAutoScaledText(ctx, text, x, y, maxWidth, maxFontSize, minFontSize 
     ctx.fillText(safeText, x, y);
 }
 
-// تم تطوير هذه الدالة لتتأقلم مع تصغير الأحجام عند وجود 3 أو 4 مواد
 function drawItemBox(ctx, x, y, size, img, rarity = 'Common', label = null, reqCount = null, userCount = null) {
     const color = RARITY_COLORS[rarity] || RARITY_COLORS['Common'];
     
@@ -192,7 +191,6 @@ async function generateForgeUI(userObj, view, data) {
         sparkColor = '#00AAFF'; accentColor = '#3498DB';
     }
 
-    // 🔥 تحميل ديناميكي للصور لتشمل جميع الموارد المطلوبة مهما كان عددها 🔥
     let reqMatImg1 = null, targetMatImg = null;
     let reqMatImages = [];
 
@@ -452,7 +450,6 @@ async function generateForgeUI(userObj, view, data) {
         ctx.textBaseline = 'alphabetic';
         const reqItemY = panelY + 200;
 
-        // 🔥 نظام الديناميكية الجديد لرسم جميع المواد بجانب بعضها 🔥
         if (data.detailedReqs && data.detailedReqs.length > 0) {
             const count = data.detailedReqs.length;
             let size, gap;
@@ -462,7 +459,6 @@ async function generateForgeUI(userObj, view, data) {
             else if (count === 3) { size = 110; gap = 30; }
             else { 
                 gap = 15;
-                // حساب الحجم تلقائياً بناءً على المساحة المتوفرة ليناسب 4 أو أكثر
                 size = Math.min(90, (460 - (gap * (count - 1))) / count); 
             }
 
@@ -475,7 +471,6 @@ async function generateForgeUI(userObj, view, data) {
                 
                 drawItemBox(ctx, startX, reqItemY, size, img, req.rarity || 'Rare', req.name, req.count, req.userCount);
 
-                // رسم علامة الزائد "+" بين المواد
                 if (i < count - 1) {
                     ctx.fillStyle = '#FFFFFF'; 
                     ctx.font = `bold ${Math.max(20, size/2.5)}px "Arial"`; 
@@ -485,7 +480,6 @@ async function generateForgeUI(userObj, view, data) {
                 startX += size + gap;
             }
         } else {
-             // بديل احتياطي (Fallback)
              if (data.reqMatName) {
                  drawItemBox(ctx, panelX + 715, reqItemY, 170, reqMatImg1, data.reqMatRarity || 'Rare', data.reqMatName, data.reqMatCount, data.userMatCount);
              }
