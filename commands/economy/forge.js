@@ -146,7 +146,12 @@ module.exports = {
         activeForgeUsers.set(user.id, { msg: replyObj, collector: collector });
 
         collector.on('collect', async (i) => {
-            try { if (!i.customId.startsWith('forge_smelt_multi_') && !i.deferred && !i.replied) await i.deferUpdate(); } catch(e) {}
+            // 🔥 حل المشكلة: استثناء زر المودال (دمج متعدد وصهر متعدد) من الـ deferUpdate عشان النافذة تطلع بدون خطأ 🔥
+            try { 
+                if (!i.customId.startsWith('forge_smelt_multi_') && !i.customId.startsWith('forge_synth_multi_') && !i.deferred && !i.replied) {
+                    await i.deferUpdate(); 
+                }
+            } catch(e) {}
 
             try {
                 if (i.isStringSelectMenu() && i.customId === 'forge_starter_race') {
@@ -203,6 +208,8 @@ module.exports = {
                     else if (i.customId === 'forge_execute_synth') { await core.handleSynthesis(i, user, guildId, db, synthesisState); synthesisState = { sacrificeItem: null, targetItem: null }; }
                     else if (i.customId === 'forge_execute_smelt_1') { await core.handleSmelting(i, user, guildId, db, smeltState, client, 1); smeltState = { item: null }; }
                     else if (i.customId.startsWith('forge_smelt_multi_')) await core.handleSmeltingMultiModal(i, user, guildId, db, smeltState, client);
+                    // 🔥 تم ربط زر الدمج المتعدد هنا ليعمل بنجاح 🔥
+                    else if (i.customId.startsWith('forge_synth_multi_')) await core.handleSynthesisMultiModal(i, user, guildId, db, synthesisState, client);
                 }
             } catch (innerError) {
                 console.error("[Forge Button Error]", innerError);
