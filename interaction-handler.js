@@ -155,7 +155,8 @@ module.exports = (client, db, antiRolesCache) => {
                     return;
                 }
 
-                if (id.startsWith('shop_cat_') || id.startsWith('farm_') || id.startsWith('buy_btn_farm|') || id.startsWith('sell_btn_farm|') || id.startsWith('nav_') || id.includes('feed_animal')) {
+                // 🔥 تم إضافة forge_ هنا لمنع التعارض وترك الأزرار تعمل في ملفها الأساسي 🔥
+                if (id.startsWith('shop_cat_') || id.startsWith('farm_') || id.startsWith('buy_btn_farm|') || id.startsWith('sell_btn_farm|') || id.startsWith('nav_') || id.includes('feed_animal') || id.startsWith('forge_')) {
                     return;
                 }
 
@@ -270,8 +271,9 @@ module.exports = (client, db, antiRolesCache) => {
 
             if (i.isModalSubmit()) {
                 
-                if (i.customId.startsWith('farm_buy_modal|') || i.customId.startsWith('farm_sell_modal|')) {
-                    if (handleFarmShopModal) {
+                // 🔥 تم استثناء موديل الدمج والصهر هنا لمنع ظهور Interaction Failed 🔥
+                if (i.customId.startsWith('farm_buy_modal|') || i.customId.startsWith('farm_sell_modal|') || i.customId.startsWith('modal_synth_') || i.customId.startsWith('modal_smelt_')) {
+                    if (handleFarmShopModal && (i.customId.startsWith('farm_buy') || i.customId.startsWith('farm_sell'))) {
                         await handleFarmShopModal(i, client, db);
                     }
                     return;
