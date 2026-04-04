@@ -398,28 +398,34 @@ function applySkillEffect(battleState, attackerId, skill) {
             return `😵 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** أربك خصمه بلعنة الجنون!`;
         }
 
+        // 🔥 التعديل الخرافي في الـ PvP لمهارة مصاص الدماء 🔥
         case 'Lifesteal_Overheal': { 
             const multi = getBalancedPvPMultiplier(1.45, skillLevel);
             const dmg = Math.floor(baseAtk * multi); 
             defender.hp -= dmg;
 
-            const bleedDmg = 50 + (skillLevel * 25);
-            defender.effects.burn = bleedDmg;
-            defender.effects.burn_turns = 2;
+            // نسبة 60% لتفعيل امتصاص الدم والنزيف وتوليد الدرع
+            if (Math.random() < 0.60) {
+                const bleedDmg = 30 + (skillLevel * 15); // خفضنا قوة النزيف قليلاً للـ PvP
+                defender.effects.burn = bleedDmg;
+                defender.effects.burn_turns = 2;
 
-            const healVal = Math.floor(dmg * 0.5);
-            const currentHp = attacker.hp || 0;
-            const maxHp = attacker.maxHp || 100;
-            const missingHp = maxHp - currentHp;
+                const healVal = Math.floor(dmg * 0.25); // العلاج 25% فقط بدل 50%
+                const currentHp = attacker.hp || 0;
+                const maxHp = attacker.maxHp || 100;
+                const missingHp = maxHp - currentHp;
 
-            if (healVal > missingHp) {
-                attacker.hp = maxHp;
-                const overflowShield = Math.floor((healVal - missingHp) * 0.5);
-                attacker.effects.shield += overflowShield;
-                return `🍷 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** نهش خصمه مسبباً نزيفاً (${bleedDmg}) وحول الفائض لدرع!`;
+                if (healVal > missingHp) {
+                    attacker.hp = maxHp;
+                    const overflowShield = Math.floor((healVal - missingHp) * 0.15); // الدرع 15% من الفائض بدل 50%
+                    attacker.effects.shield += overflowShield;
+                    return `🍷 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** نهش خصمه! (+درع ${overflowShield} | نزيف ${bleedDmg})`;
+                } else {
+                    attacker.hp += healVal;
+                    return `🍷 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** امتص ${healVal} HP وسبب نزيفاً (${bleedDmg})!`;
+                }
             } else {
-                attacker.hp += healVal;
-                return `🍷 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** امتص ${healVal} HP وسبب نزيفاً (${bleedDmg})!`;
+                return `🦇 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** وجه ضربة خاطفة (${dmg} ضرر) دون أن يتمكن من امتصاص الدم!`;
             }
         }
 
