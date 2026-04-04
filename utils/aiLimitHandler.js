@@ -5,7 +5,6 @@ function getTodayDate() {
     return new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Riyadh' });
 }
 
-// دالة حماية الداتابيز
 async function execSafe(db, qPg, qLite, params = []) {
     try {
         let res = await db.query(qPg, params);
@@ -39,7 +38,7 @@ module.exports = {
                 const limitData = allLimits.find(l => l.roleID === role.id);
                 if (limitData) {
                     const l = parseInt(limitData.limitCount);
-                    if (l > highestLimit) highestLimit = l; // يعطيه أعلى ليمت موجود برتبه
+                    if (l > highestLimit) highestLimit = l;
                 }
             });
         }
@@ -52,7 +51,6 @@ module.exports = {
         const guildId = member.guild.id;
         const today = getTodayDate();
 
-        // 1. تأكد من الجداول
         await execSafe(db, `CREATE TABLE IF NOT EXISTS ai_user_usage ("userID" TEXT PRIMARY KEY, "guildID" TEXT, "dailyUsage" INTEGER DEFAULT 0, "purchasedBalance" INTEGER DEFAULT 0, "lastResetDate" TEXT)`, `CREATE TABLE IF NOT EXISTS ai_user_usage (userid TEXT PRIMARY KEY, guildid TEXT, dailyusage INTEGER DEFAULT 0, purchasedbalance INTEGER DEFAULT 0, lastresetdate TEXT)`);
         
         let userUsageRes = await execSafe(db, 'SELECT * FROM ai_user_usage WHERE "userID" = $1', 'SELECT userid as "userID", dailyusage as "dailyUsage", purchasedbalance as "purchasedBalance", lastresetdate as "lastResetDate" FROM ai_user_usage WHERE userid = $1', [userId]);
