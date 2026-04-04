@@ -23,23 +23,58 @@ module.exports = {
                 const COST = 2500;
                 const REWARD_MESSAGES = 100;
 
-                const res = await db.query(`SELECT mora FROM levels WHERE "user" = $1 AND guild = $2`, [userID, guildID]);
-                let userMora = res.rows.length > 0 ? res.rows[0].mora : 0;
+                let uData = null;
+                if (interaction.client.getLevel) {
+                    uData = await interaction.client.getLevel(userID, guildID);
+                }
+                
+                let userMora = 0;
+                let userBank = 0;
 
-                if (userMora < COST) {
+                if (uData) {
+                    userMora = Number(uData.mora || 0);
+                    userBank = Number(uData.bank || 0);
+                } else {
+                    let res;
+                    try { res = await db.query(`SELECT mora, bank FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID]); }
+                    catch(e) { res = await db.query(`SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
+                    if (res && res.rows.length > 0) {
+                        userMora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
+                        userBank = Number(res.rows[0].bank || res.rows[0].Bank || 0);
+                    }
+                }
+
+                const totalBalance = userMora + userBank;
+
+                if (totalBalance < COST) {
                     return interaction.editReply({
-                        content: `🚫 **عذراً، رصيدك غير كافٍ!**\nتحتاج إلى **${COST}** مورا، وأنت تملك **${userMora}** فقط.`
+                        content: `🚫 **عذراً، رصيدك غير كافٍ!**\nتحتاج إلى **${COST}** مورا، وأنت تملك إجمالي **${totalBalance}** مورا فقط (كاش + بنك).`
                     });
                 }
 
-                await db.query(`UPDATE levels SET mora = mora - $1 WHERE "user" = $2 AND guild = $3`, [COST, userID, guildID]);
+                if (userMora >= COST) {
+                    userMora -= COST;
+                } else {
+                    let diff = COST - userMora;
+                    userMora = 0;
+                    userBank -= diff;
+                }
 
-                aiLimitHandler.addPurchasedBalance(userID, REWARD_MESSAGES);
+                if (uData && interaction.client.setLevel) {
+                    uData.mora = userMora;
+                    uData.bank = userBank;
+                    await interaction.client.setLevel(uData);
+                }
+
+                try { await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [userMora, userBank, userID, guildID]); }
+                catch(e) { await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [userMora, userBank, userID, guildID]).catch(()=>{}); }
+
+                await aiLimitHandler.addPurchasedBalance(userID, REWARD_MESSAGES, db);
 
                 const embed = new EmbedBuilder()
                     .setColor(0x00FF00)
                     .setTitle('✅ تمت عملية الشحن')
-                    .setDescription(`💎 **تم خصم ${COST} مورا.**\n🤖 **تمت إضافة ${REWARD_MESSAGES} رسالة لرصيد محادثتك.**\n\nاستمتع بوقتك!`)
+                    .setDescription(`💎 **تم خصم ${COST} مورا.**\n🤖 **تمت إضافة ${REWARD_MESSAGES} رسالة لرصيد محادثتك.**\n\nيمكنك الآن التحدث مع الذكاء الاصطناعي!`)
                     .setFooter({ text: interaction.guild.name, iconURL: interaction.guild.iconURL() });
 
                 await interaction.editReply({ embeds: [embed] });
@@ -49,26 +84,43 @@ module.exports = {
                 await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                 const COST = 1000;
-                const res = await db.query(`SELECT mora FROM levels WHERE "user" = $1 AND guild = $2`, [userID, guildID]);
-                let userMora = res.rows.length > 0 ? res.rows[0].mora : 0;
-
-                if (userMora < COST) {
-                    return interaction.editReply({
-                        content: `❌ **طفرت؟** ما معك **${COST}** مورا عشان تفتح الشات.`
-                    });
+                
+                let uData = null;
+                if (interaction.client.getLevel) uData = await interaction.client.getLevel(userID, guildID);
+                
+                let userMora = 0, userBank = 0;
+                if (uData) {
+                    userMora = Number(uData.mora || 0); userBank = Number(uData.bank || 0);
+                } else {
+                    let res;
+                    try { res = await db.query(`SELECT mora, bank FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID]); }
+                    catch(e) { res = await db.query(`SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [userID, guildID]).catch(()=>({rows:[]})); }
+                    if (res && res.rows.length > 0) {
+                        userMora = Number(res.rows[0].mora || 0); userBank = Number(res.rows[0].bank || 0);
+                    }
                 }
 
-                await db.query(`UPDATE levels SET mora = mora - $1 WHERE "user" = $2 AND guild = $3`, [COST, userID, guildID]);
+                if ((userMora + userBank) < COST) {
+                    return interaction.editReply({ content: `❌ **رصيدك غير كافٍ!** ما معك **${COST}** مورا عشان تفتح الشات.` });
+                }
+
+                if (userMora >= COST) userMora -= COST;
+                else { let diff = COST - userMora; userMora = 0; userBank -= diff; }
+
+                if (uData && interaction.client.setLevel) { uData.mora = userMora; uData.bank = userBank; await interaction.client.setLevel(uData); }
+                
+                try { await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [userMora, userBank, userID, guildID]); }
+                catch(e) { await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [userMora, userBank, userID, guildID]).catch(()=>{}); }
 
                 const modeButtons = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('ai_mode_select_sfw').setLabel('SFW (عادية)').setStyle(ButtonStyle.Success).setEmoji('🛡️'),
                     new ButtonBuilder().setCustomId('ai_mode_select_nsfw').setLabel('NSFW (منحرفة)').setStyle(ButtonStyle.Danger).setEmoji('🔥')
                 );
 
-                await interaction.editReply({ content: "✅ تم الدفع! اختر الوضع من الرسالة أدناه 👇" });
+                await interaction.editReply({ content: "✅ تم الدفع بنجاح! اختر الوضع من الرسالة أدناه 👇" });
 
                 await interaction.channel.send({
-                    content: `✅ **تم دفع ${COST} مورا من قبل ${interaction.user}!**\nالآن اختر شخصيتي لهذا اليوم (لمدة 24 ساعة):`,
+                    content: `✅ **تم دفع ${COST} مورا من قبل <@${interaction.user.id}>!**\nالآن اختر شخصيتي لهذا اليوم (لمدة 24 ساعة):`,
                     components: [modeButtons]
                 });
             }
