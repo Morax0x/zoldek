@@ -30,7 +30,6 @@ const RARITY_INFO = {
     'Legendary': { text: 'اسطوري', color: '#FFD700', stars: '★ ★ ★ ★ ★' }
 };
 
-// 🔥 قائمة ترجمة الأعراق إلى العربية 🔥
 const ARABIC_RACES = {
     'Dragon': 'التنانين',
     'Human': 'البشر',
@@ -77,7 +76,6 @@ function drawAutoScaledArabicText(ctx, text, x, y, maxWidth, maxFontSize, minFon
     ctx.fillText(text, x, y);
 }
 
-// 1. الشاشة الرئيسية (الصندوق)
 async function generateGachaHub(userObj, moraBalance, flavorText, chestCount = 0) {
     const width = 1200;
     const height = 675; 
@@ -217,7 +215,6 @@ async function generateGachaHub(userObj, moraBalance, flavorText, chestCount = 0
     return canvas.toBuffer('image/png');
 }
 
-// 2. شاشة المخزن
 async function generateGachaInventory(userObj, freeChests, paidChests) {
     const width = 1200;
     const height = 675; 
@@ -302,7 +299,14 @@ async function generateGachaInventory(userObj, freeChests, paidChests) {
     ctx.beginPath(); roundRect(ctx, freeX, startY, boxW, boxH, 20); ctx.fill();
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(46, 204, 113, 0.6)'; ctx.stroke(); 
 
-    if(chestImg) ctx.drawImage(chestImg, freeX + 50, startY + 20, 200, 200);
+    if(chestImg) {
+        const ratio = Math.min(200 / chestImg.width, 200 / chestImg.height);
+        const w = chestImg.width * ratio;
+        const h = chestImg.height * ratio;
+        const xOff = freeX + (boxW - w) / 2;
+        const yOff = startY + 20 + (200 - h) / 2;
+        ctx.drawImage(chestImg, xOff, yOff, w, h);
+    }
 
     ctx.fillStyle = '#2ECC71';
     ctx.font = 'bold 30px "Bein"';
@@ -316,7 +320,14 @@ async function generateGachaInventory(userObj, freeChests, paidChests) {
     ctx.beginPath(); roundRect(ctx, paidX, startY, boxW, boxH, 20); ctx.fill();
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(241, 196, 15, 0.6)'; ctx.stroke(); 
 
-    if(chestImg) ctx.drawImage(chestImg, paidX + 50, startY + 20, 200, 200);
+    if(chestImg) {
+        const ratio = Math.min(200 / chestImg.width, 200 / chestImg.height);
+        const w = chestImg.width * ratio;
+        const h = chestImg.height * ratio;
+        const xOff = paidX + (boxW - w) / 2;
+        const yOff = startY + 20 + (200 - h) / 2;
+        ctx.drawImage(chestImg, xOff, yOff, w, h);
+    }
 
     ctx.fillStyle = '#F1C40F';
     ctx.font = 'bold 30px "Bein"';
@@ -332,7 +343,6 @@ async function generateGachaInventory(userObj, freeChests, paidChests) {
     return canvas.toBuffer('image/png');
 }
 
-// 3. شاشة العنصر المستخرج الفردي
 async function generateGachaCard(item, rarity) {
     const width = 800;
     const height = 800;
@@ -427,7 +437,6 @@ async function generateGachaCard(item, rarity) {
     ctx.fillStyle = textGrad;
     ctx.fillText(item.name, width / 2, height - 100);
 
-    // 🔥 تخصيص أسماء الأنواع بشكل دقيق واحترافي 🔥
     let typeText = "أداة غامضة";
     if (item.type === 'material') {
         let rName = ARABIC_RACES[item.race] || item.race || '';
@@ -451,7 +460,6 @@ async function generateGachaCard(item, rarity) {
     return canvas.toBuffer('image/png');
 }
 
-// 🌟 4. الشاشة الجديدة: ملخص السحبات المتعددة (نسخة خالية من النصوص المزعجة) 🌟
 async function generateGachaSummary(userObj, resultsArr) {
     const width = 1920;
     const height = 1080;
@@ -468,18 +476,15 @@ async function generateGachaSummary(userObj, resultsArr) {
         }
     }
 
-    // 1. الخلفية الكونية المظلمة
     ctx.fillStyle = '#070A11';
     ctx.fillRect(0, 0, width, height);
 
-    // توهج مركزي عملاق
     const bgGlow = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 1400);
     bgGlow.addColorStop(0, highestRarityColor + '35'); 
     bgGlow.addColorStop(1, 'rgba(7, 10, 17, 1)');
     ctx.fillStyle = bgGlow;
     ctx.fillRect(0, 0, width, height);
 
-    // 2. أشعة الضوء (Light Beams)
     ctx.save();
     ctx.translate(width/2, height/2);
     ctx.rotate(-Math.PI / 4); 
@@ -495,7 +500,6 @@ async function generateGachaSummary(userObj, resultsArr) {
     }
     ctx.restore();
 
-    // 3. النجوم المتناثرة (Particles)
     ctx.fillStyle = '#FFFFFF';
     for(let i=0; i<180; i++) {
         let px = Math.random() * width;
@@ -506,7 +510,6 @@ async function generateGachaSummary(userObj, resultsArr) {
     }
     ctx.globalAlpha = 1.0;
 
-    // 4. إعدادات الشبكة (Grid) وتوسيطها الديناميكي الدقيق
     const cols = Math.min(5, resultsArr.length);
     const rows = Math.ceil(resultsArr.length / cols);
     const cardW = 280;   
@@ -515,16 +518,14 @@ async function generateGachaSummary(userObj, resultsArr) {
     const gapY = 50;     
 
     const totalGridH = (rows * cardH) + ((rows - 1) * gapY);
-    const startY = (height - totalGridH) / 2; // توسيط مباشر وحرفي للمنتصف
+    const startY = (height - totalGridH) / 2; 
 
-    // 🚀 التحميل الموازي السريع جداً 🚀
     const avatarUrl = userObj.displayAvatarURL({ extension: 'png', size: 256 });
     const [avatarImg, ...images] = await Promise.all([
         loadImage(avatarUrl).catch(() => null),
         ...resultsArr.map(r => getCachedImage(r.item.imgPath))
     ]);
 
-    // 5. رسم صورة البروفايل واسم اللاعب في الزاوية العلوية اليسرى بشكل راقي
     const avatarSize = 65;
     const ax = 50 + avatarSize / 2;
     const ay = 50 + avatarSize / 2;
@@ -545,7 +546,6 @@ async function generateGachaSummary(userObj, resultsArr) {
     ctx.font = 'bold 30px "Bein"';
     ctx.fillText(userObj.displayName || userObj.username, ax + avatarSize / 2 + 15, ay);
 
-    // 6. رسم كروت الغاتشا
     for (let i = 0; i < resultsArr.length; i++) {
         const res = resultsArr[i];
         const rInfo = RARITY_INFO[res.rarity] || RARITY_INFO['Common'];
@@ -561,13 +561,11 @@ async function generateGachaSummary(userObj, resultsArr) {
         const cx = startX + (col * (cardW + gapX));
         const cy = startY + (row * (cardH + gapY));
 
-        // -- زجاج الكرت (Base Glass) --
         ctx.save();
         ctx.beginPath(); roundRect(ctx, cx, cy, cardW, cardH, 20); ctx.clip();
         ctx.fillStyle = 'rgba(15, 20, 35, 0.85)';
         ctx.fillRect(cx, cy, cardW, cardH);
 
-        // -- التدرج الداخلي بلون الندرة --
         const cardGrad = ctx.createLinearGradient(cx, cy, cx, cy + cardH);
         cardGrad.addColorStop(0, `${rInfo.color}60`);
         cardGrad.addColorStop(0.4, 'rgba(15, 20, 35, 0.9)');
@@ -576,20 +574,17 @@ async function generateGachaSummary(userObj, resultsArr) {
         ctx.fillRect(cx, cy, cardW, cardH);
         ctx.restore();
 
-        // -- إطار الكرت المشع (Border) --
         ctx.beginPath(); roundRect(ctx, cx, cy, cardW, cardH, 20);
         ctx.lineWidth = 2.5;
         ctx.strokeStyle = `${rInfo.color}90`;
         ctx.stroke();
 
-        // -- الشريط العلوي الملون للندرة --
         ctx.save();
         ctx.beginPath(); roundRect(ctx, cx, cy, cardW, cardH, 20); ctx.clip();
         ctx.fillStyle = rInfo.color;
         ctx.fillRect(cx, cy, cardW, 12);
         ctx.restore();
 
-        // -- القاعدة المشعة خلف العنصر (Pedestal) --
         ctx.save();
         ctx.translate(cx + cardW/2, cy + 200);
         ctx.scale(1, 0.3); 
@@ -600,19 +595,19 @@ async function generateGachaSummary(userObj, resultsArr) {
         ctx.beginPath(); ctx.arc(0, 0, 150, 0, Math.PI*2); ctx.fill();
         ctx.restore();
 
-        // -- صورة العنصر --
         if (img) {
-            const imgSize = 160;
-            const imgX = cx + (cardW - imgSize) / 2;
-            const imgY = cy + 50;
+            const ratio = Math.min(160 / img.width, 160 / img.height);
+            const w = img.width * ratio;
+            const h = img.height * ratio;
+            const imgX = cx + (cardW - w) / 2;
+            const imgY = cy + 50 + (160 - h) / 2;
             
             ctx.shadowColor = rInfo.color;
             ctx.shadowBlur = 40;
-            ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
+            ctx.drawImage(img, imgX, imgY, w, h);
             ctx.shadowBlur = 0;
         }
 
-        // -- النجوم --
         ctx.textAlign = 'center';
         ctx.fillStyle = '#F1C40F';
         ctx.font = '32px Arial';
@@ -621,7 +616,6 @@ async function generateGachaSummary(userObj, resultsArr) {
         ctx.fillText(rInfo.stars, cx + cardW/2, cy + 260);
         ctx.shadowBlur = 0;
 
-        // -- فاصل زجاجي خفيف --
         const divGrad = ctx.createLinearGradient(cx + 30, 0, cx + cardW - 30, 0);
         divGrad.addColorStop(0, 'rgba(255,255,255,0)');
         divGrad.addColorStop(0.5, `${rInfo.color}80`);
@@ -629,11 +623,9 @@ async function generateGachaSummary(userObj, resultsArr) {
         ctx.fillStyle = divGrad;
         ctx.fillRect(cx + 30, cy + 290, cardW - 60, 2);
 
-        // -- اسم العنصر --
         ctx.fillStyle = '#FFFFFF';
         drawAutoScaledArabicText(ctx, res.item.name, cx + cardW/2, cy + 335, cardW - 40, 30, 14);
 
-        // -- نوع العنصر --
         let typeText = "أداة غامضة";
         if (res.item.type === 'material') {
             let rName = ARABIC_RACES[res.item.race] || res.item.race || '';
