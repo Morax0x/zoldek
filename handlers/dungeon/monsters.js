@@ -300,13 +300,31 @@ const MONSTER_SKILLS = {
             log.push(`⚔️ **فيرجل** قطع الزمان والمكان!`);
         }
     },
-    // 🔥 تم النيرف بنجاح لزعيمك المفضل 🔥
+    // 🔥 التعديل الأسطوري لمهارة دانتي: إضافة نظام التبريد (Cooldown) 🔥
     "دانتي صائد الشياطين": {
-        name: "Devil Trigger", emoji: "😈", chance: 0.20,
+        name: "Devil Trigger", emoji: "😈", chance: 0.25,
         execute: (monster, players, log) => {
-            const healAmount = Math.floor(monster.maxHp * 0.05); // 5% فقط علاج بدل 15%
+            if (monster.memory.danteCooldown === undefined) {
+                monster.memory.danteCooldown = 0;
+            }
+
+            // إذا حاول يستخدم المهارة وهي مقفلة، يضرب ضربة عادية قوية بدالها
+            if (monster.memory.danteCooldown > 0) {
+                monster.memory.danteCooldown--;
+                const target = getSmartTarget(players, monster);
+                if(target) { 
+                    applyDamageToPlayer(target, Math.floor(monster.atk * 1.3)); 
+                    log.push(`⚔️ **دانتي** اندفع وضرب **${target.name}** بسيف ريبيليون!`); 
+                }
+                return;
+            }
+
+            // تفعيل المهارة وتطبيق فترة الانتظار (Cooldown)
+            monster.memory.danteCooldown = 3; 
+
+            const healAmount = Math.floor(monster.maxHp * 0.05); 
             monster.hp = Math.min(monster.maxHp, monster.hp + healAmount);
-            monster.atk = Math.floor(monster.atk * 1.10); // 10% زيادة هجوم بدل 25%
+            monster.atk = Math.floor(monster.atk * 1.10); 
             log.push(`😈 **دانتي** فعل **Devil Trigger**! (استعاد ${healAmount} HP + زيادة طفيفة للهجوم)`);
         }
     },
