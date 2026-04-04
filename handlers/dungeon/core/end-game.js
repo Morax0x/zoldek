@@ -13,7 +13,6 @@ try {
     } catch(err) {}
 }
 
-// 🛡️ نظام معالجة استعلامات فولاذي لقراءة وتحديث البيانات
 const safeQuery = async (db, qPg, params) => {
     try { 
         let res = await db.query(qPg, params); 
@@ -131,22 +130,25 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         else if (p.retreatFloor) effectiveEndFloor = p.retreatFloor; 
         else if (p.isDead && p.deathFloor) effectiveEndFloor = p.deathFloor; 
 
+        // 🔥 نظام حساب السمعة والصناديق الجديد المرتبط بـ Session الحالي فقط 🔥
         let sessionRep = 0;
         let sessionChests = 0;
         let displayRep = 0;
         let displayChests = 0;
 
         for (let f = 1; f <= effectiveEndFloor; f++) {
-            if (repMilestones[f]) displayRep += repMilestones[f];
-            if (f % 10 === 0) displayChests++;
+            let rReward = repMilestones[f] || 0;
+            let cReward = rReward + (f === 5 || f === 10 ? 1 : 0);
+
+            displayRep += rReward;
+            displayChests += cReward;
 
             if (f >= sessionStartFloor) {
-                if (repMilestones[f]) sessionRep += repMilestones[f];
-                if (f % 10 === 0) sessionChests++;
+                sessionRep += rReward;
+                sessionChests += cReward;
             }
         }
 
-        // 🔥 نظام الجوائز الفولاذي המنيع: يقرأ داخلياً بدون LOWER في الـ SQL 🔥
         if (!p.repAndChestsClaimed && (sessionRep > 0 || sessionChests > 0)) {
             
             if (sessionRep > 0) {
