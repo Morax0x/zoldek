@@ -3,7 +3,6 @@ const { EMOJI_MORA, EMOJI_XP } = require('../constants');
 const { getBaseFloorMora, manageCampfires } = require('../utils');
 const { handleLeaderSuccession } = require('../core/battle-utils');
 
-// الملف اللي فيه الهاندلرز الوهمية لتجهيز الأرقام (تأكد من تعديل المسار إذا كان مختلف)
 const { snapshotLootAtFloor20, handleMemberRetreat } = require('../core/rewards'); 
 
 async function applyPostBattleUpdates(players, floor, threadChannel, totals) {
@@ -57,10 +56,13 @@ function calculateTotalLootForDisplay(currentFloor) {
     };
 
     let totalRep = 0;
-    let totalChests = Math.floor(currentFloor / 10);
+    let totalChests = 0;
 
     for (let f = 1; f <= currentFloor; f++) {
-        if (repMilestones[f]) totalRep += repMilestones[f];
+        let rReward = repMilestones[f] || 0;
+        let cReward = rReward + (f === 5 || f === 10 ? 1 : 0);
+        totalRep += rReward;
+        totalChests += cReward;
     }
     
     return { rep: totalRep, chests: totalChests };
@@ -183,7 +185,6 @@ async function handleRestMenu(context) {
                         const leavingPlayer = players[pIndex];
                         leavingPlayer.retreatFloor = floor;
                         
-                        // 🔥 هنا الإختلاف الجذري: نستلم الأرقام ونحط علامة بس ما ننفذ داتا بيز لأن ملف النهاية سيفعل ذلك! 🔥
                         const rewards = await handleMemberRetreat(leavingPlayer, floor, db, guild.id, threadChannel, startFloor);
                         retreatedPlayers.push(leavingPlayer);
                         players.splice(pIndex, 1); 
@@ -191,13 +192,19 @@ async function handleRestMenu(context) {
                         let extraMsg = "";
                         let pRepReward = 0; let pChests = 0;
                         const repM = { 20: 1, 30: 1, 35: 1, 40: 1, 45: 1, 50: 1, 55: 2, 60: 2, 65: 3, 70: 3, 75: 4, 80: 5, 85: 5, 90: 5, 95: 5, 100: 5 };
-                        for(let x = startFloor; x <= floor; x++) { if(repM[x]) pRepReward+=repM[x]; if(x%10===0) pChests++; }
+                        
+                        for(let x = startFloor; x <= floor; x++) { 
+                            let rReward = repM[x] || 0;
+                            let cReward = rReward + (x === 5 || x === 10 ? 1 : 0);
+                            pRepReward += rReward;
+                            pChests += cReward; 
+                        }
 
                         if (pRepReward > 0) extraMsg += ` و **${pRepReward}** 🌟 REP`;
                         if (pChests > 0) extraMsg += ` و **${pChests}** 🎁 Box`;
 
                         await i.reply({ content: `👋 **انسحبت!** غنائمك في الحفظ والصون وسوف تسجل في التقرير النهائي للدانجون!`, flags: [MessageFlags.Ephemeral] });
-                        await threadChannel.send(`💨 **${leavingPlayer.name}** انسحب بسلام وبانتظار التقرير النهائي!`).catch(()=>{});
+                        await threadChannel.send(`💨 **${leavingPlayer.name}** انسـحـب من ارض المعـركـة!`).catch(()=>{});
                         
                         if (players.length === 0) decCollector.stop('retreat');
                         if (leavingPlayer.class === 'Leader') handleLeaderSuccession(players, log);
