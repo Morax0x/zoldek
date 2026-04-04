@@ -136,21 +136,18 @@ async function getAllSkillData(db, member) {
 }
 
 async function getUserActiveSkill(db, userId, guildId) {
-    // نحتاج لجلب العرق هنا لتصفية المهارة العشوائية أثناء القتال أيضاً
-    const guildObj = await client.guilds.fetch(guildId).catch(() => null); // Note: client might not be defined globally here, assuming it's passed or available. If not, safe fallback applies.
+    const guildObj = await client.guilds.fetch(guildId).catch(() => null); 
     let currentRaceSkillId = null;
     
     const res = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
     const userSkills = res.rows;
     
     if (userSkills.length > 0) {
-        // تصفية مبدئية: جلب المهارات العامة فقط (المؤكدة أنها للجميع)
         let validSkills = userSkills.filter(s => {
             const sId = s.skillID || s.skillid;
             return !sId.startsWith('race_'); 
         });
 
-        // إذا لم يجد مهارة عامة، يحاول إيجاد أي مهارة. (يُفضل استخدام getAllSkillData لضمان الفلترة)
         if (validSkills.length === 0) validSkills = userSkills;
 
         const randomSkillData = validSkills[Math.floor(Math.random() * validSkills.length)];
@@ -381,13 +378,47 @@ function applySkillEffect(battleState, attackerId, skill) {
             return `👹 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** ضحى بدمه لتوجيه ضربة مدمرة (${dmg})!`;
         }
 
+        // 🔥 التعديل الخرافي في الـ PvP لمهارة الإلف (وابل السهام) 🔥
         case 'Stun_Vulnerable': {
-            const multi = getBalancedPvPMultiplier(1.1, skillLevel);
-            const dmg = Math.floor(baseAtk * multi);
-            defender.hp -= dmg;
-            defender.effects.stun = true; defender.effects.stun_turns = 1;
-            defender.effects.weaken = 0.5; defender.effects.weaken_turns = 2;
-            return `🍃 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** شل حركة الخصم وجعله هشاً!`;
+            const multi = getBalancedPvPMultiplier(0.7, skillLevel);
+            let finalDmg = Math.floor(baseAtk * multi);
+            
+            defender.effects.weaken = 0.3; 
+            defender.effects.weaken_turns = 2;
+            
+            let msgDetails = [];
+
+            // 1. السهم الخارق (Piercing) - فرصة 20%
+            if (Math.random() < 0.20) {
+                finalDmg = Math.floor(finalDmg * 1.5); 
+                msgDetails.push("💘 سهم خارق");
+            }
+
+            defender.hp -= finalDmg;
+
+            // 2. الشلل (Stun) - فرصة 50%
+            if (Math.random() < 0.50) {
+                defender.effects.stun = true; 
+                defender.effects.stun_turns = 1;
+                msgDetails.push("😵 شلل");
+            } else {
+                msgDetails.push("قاوم الشلل");
+            }
+
+            // 3. السهام المسمومة أو المربكة - فرصة 20%
+            if (Math.random() < 0.20) {
+                if (Math.random() < 0.5) {
+                    defender.effects.poison = 30 + (skillLevel * 15);
+                    defender.effects.poison_turns = 3;
+                    msgDetails.push("☠️ تسمم");
+                } else {
+                    defender.effects.confusion = true; 
+                    defender.effects.confusion_turns = 2;
+                    msgDetails.push("🌀 ارتباك");
+                }
+            }
+
+            return `🏹 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** أطلق وابل السهام بضرر (${finalDmg}) [${msgDetails.join(" | ")}]!`;
         }
 
         case 'Confusion': {
@@ -398,26 +429,24 @@ function applySkillEffect(battleState, attackerId, skill) {
             return `😵 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** أربك خصمه بلعنة الجنون!`;
         }
 
-        // 🔥 التعديل الخرافي في الـ PvP لمهارة مصاص الدماء 🔥
         case 'Lifesteal_Overheal': { 
             const multi = getBalancedPvPMultiplier(1.45, skillLevel);
             const dmg = Math.floor(baseAtk * multi); 
             defender.hp -= dmg;
 
-            // نسبة 60% لتفعيل امتصاص الدم والنزيف وتوليد الدرع
             if (Math.random() < 0.60) {
-                const bleedDmg = 30 + (skillLevel * 15); // خفضنا قوة النزيف قليلاً للـ PvP
+                const bleedDmg = 30 + (skillLevel * 15); 
                 defender.effects.burn = bleedDmg;
                 defender.effects.burn_turns = 2;
 
-                const healVal = Math.floor(dmg * 0.25); // العلاج 25% فقط بدل 50%
+                const healVal = Math.floor(dmg * 0.25); 
                 const currentHp = attacker.hp || 0;
                 const maxHp = attacker.maxHp || 100;
                 const missingHp = maxHp - currentHp;
 
                 if (healVal > missingHp) {
                     attacker.hp = maxHp;
-                    const overflowShield = Math.floor((healVal - missingHp) * 0.15); // الدرع 15% من الفائض بدل 50%
+                    const overflowShield = Math.floor((healVal - missingHp) * 0.15); 
                     attacker.effects.shield += overflowShield;
                     return `🍷 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** نهش خصمه! (+درع ${overflowShield} | نزيف ${bleedDmg})`;
                 } else {
