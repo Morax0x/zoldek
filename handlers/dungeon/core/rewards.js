@@ -31,7 +31,6 @@ const safeExecute = async (db, qPg, params) => {
     }
 };
 
-// 🔥 هذا التابع يضيف الجوائز فقط إذا اللاعب ما اخذها في شاشة النهاية 🔥
 async function safeUpdateRepAndChests(db, userId, guildId, repReward, earnedChests) {
     if (!db) return;
 
@@ -47,19 +46,16 @@ async function safeUpdateRepAndChests(db, userId, guildId, repReward, earnedChes
     }
 }
 
-// 🛑 تم إفراغ هذه الدالة من توزيع الداتا بيز لأن التقرير النهائي سيوزعها، هذه فقط تسجل الأرقام للتقارير! 🛑
 async function handleMemberRetreat(member, floor, db, guildId, thread, sessionStartFloor = 1) {
     const earnedMora = Math.floor(member.loot.mora || 0);
     const earnedXp = Math.floor(member.loot.xp || 0);
 
-    // تصفير الحقيبة المؤقتة للمنسحب لكي لا تضاعف الجوائز
     member.rewardsClaimed = false; 
     member.finalMora = earnedMora;
     member.finalXp = earnedXp;
     member.loot.mora = 0;
     member.loot.xp = 0;
     
-    // ستبقى العلامات (Flags) جاهزة لملف sendEndMessage ليوزعها بأمان وموثوقية
     member.pendingRetreatSave = true;
 
     return { mora: earnedMora, xp: earnedXp };
@@ -86,7 +82,7 @@ async function handleTeamWipe(players, currentFloor, db, guildId, client) {
         p.finalMora = finalMora;
         p.finalXp = finalXp;
         p.deathFloor = effectiveFloor; 
-        p.pendingWipeSave = true; // Signal to end-game to handle DB save safely
+        p.pendingWipeSave = true;
         results.push({ name: p.name, mora: finalMora, xp: finalXp, note: note });
     }
     return results;
@@ -101,7 +97,7 @@ async function handleLeaderRetreat(players, db, guildId, client) {
 
         p.finalMora = earnedMora;
         p.finalXp = earnedXp;
-        p.pendingRetreatSave = true; // Signal to end-game to handle DB save safely
+        p.pendingRetreatSave = true;
         results.push({ name: p.name, mora: earnedMora, xp: earnedXp });
     }
     return results;
