@@ -16,6 +16,10 @@ const { generateNotificationControlPanel } = require('./generators/notification-
 const { handleNewSuggestion, handleSuggestionButtons, handleSuggestionModals } = require('./handlers/suggestion-handler.js');
 
 const marketConfig = require('./json/market-items.json');
+
+const aiLimitHandler = require('./utils/aiLimitHandler.js');
+const aiConfig = require('./utils/aiConfig.js');
+
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 let handleFarmInteractions;
@@ -155,8 +159,83 @@ module.exports = (client, db, antiRolesCache) => {
                     return;
                 }
 
-                // 🔥 تم إضافة forge_ هنا لمنع التعارض وترك الأزرار تعمل في ملفها الأساسي 🔥
                 if (id.startsWith('shop_cat_') || id.startsWith('farm_') || id.startsWith('buy_btn_farm|') || id.startsWith('sell_btn_farm|') || id.startsWith('nav_') || id.includes('feed_animal') || id.startsWith('forge_')) {
+                    return;
+                }
+
+                if (id.startsWith('ai_')) {
+                    if (id === 'ai_topup_2500') {
+                        await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+                        const COST = 2500;
+                        const REWARD_MESSAGES = 100;
+                        let uData = null;
+                        if (client.getLevel) uData = await client.getLevel(i.user.id, i.guild.id);
+                        
+                        let userMora = 0, userBank = 0;
+                        if (uData) { userMora = Number(uData.mora || 0); userBank = Number(uData.bank || 0); }
+                        else {
+                            let res;
+                            try { res = await db.query(`SELECT mora, bank FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]); }
+                            catch(e) { res = await db.query(`SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})); }
+                            if (res && res.rows.length > 0) { userMora = Number(res.rows[0].mora || 0); userBank = Number(res.rows[0].bank || 0); }
+                        }
+
+                        const totalBalance = userMora + userBank;
+                        if (totalBalance < COST) return i.editReply({ content: `🚫 **عذراً، رصيدك غير كافٍ!**\nتحتاج إلى **${COST}** مورا، وأنت تملك إجمالي **${totalBalance}** مورا فقط (كاش + بنك).` });
+
+                        if (userMora >= COST) userMora -= COST;
+                        else { let diff = COST - userMora; userMora = 0; userBank -= diff; }
+
+                        if (uData && client.setLevel) { uData.mora = userMora; uData.bank = userBank; await client.setLevel(uData); }
+                        try { await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [userMora, userBank, i.user.id, i.guild.id]); }
+                        catch(e) { await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [userMora, userBank, i.user.id, i.guild.id]).catch(()=>{}); }
+
+                        await aiLimitHandler.addPurchasedBalance(i.user.id, REWARD_MESSAGES, db);
+
+                        const embed = new EmbedBuilder()
+                            .setColor(0x00FF00)
+                            .setTitle('✅ تمت عملية الشحن')
+                            .setDescription(`💎 **تم خصم ${COST} مورا.**\n🤖 **تمت إضافة ${REWARD_MESSAGES} رسالة لرصيد محادثتك.**\n\nيمكنك الآن التحدث مع الذكاء الاصطناعي!`)
+                            .setFooter({ text: i.guild.name, iconURL: i.guild.iconURL() });
+                        await i.editReply({ embeds: [embed] });
+                    }
+                    else if (id === 'ai_pay_category_1000') {
+                        await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+                        const COST = 1000;
+                        let uData = null;
+                        if (client.getLevel) uData = await client.getLevel(i.user.id, i.guild.id);
+                        
+                        let userMora = 0, userBank = 0;
+                        if (uData) { userMora = Number(uData.mora || 0); userBank = Number(uData.bank || 0); }
+                        else {
+                            let res;
+                            try { res = await db.query(`SELECT mora, bank FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]); }
+                            catch(e) { res = await db.query(`SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]})); }
+                            if (res && res.rows.length > 0) { userMora = Number(res.rows[0].mora || 0); userBank = Number(res.rows[0].bank || 0); }
+                        }
+
+                        if ((userMora + userBank) < COST) return i.editReply({ content: `❌ **رصيدك غير كافٍ!** ما معك **${COST}** مورا عشان تفتح الشات.` });
+
+                        if (userMora >= COST) userMora -= COST;
+                        else { let diff = COST - userMora; userMora = 0; userBank -= diff; }
+
+                        if (uData && client.setLevel) { uData.mora = userMora; uData.bank = userBank; await client.setLevel(uData); }
+                        try { await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [userMora, userBank, i.user.id, i.guild.id]); }
+                        catch(e) { await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [userMora, userBank, i.user.id, i.guild.id]).catch(()=>{}); }
+
+                        const modeButtons = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('ai_mode_select_sfw').setLabel('SFW (عادية)').setStyle(ButtonStyle.Success).setEmoji('🛡️'),
+                            new ButtonBuilder().setCustomId('ai_mode_select_nsfw').setLabel('NSFW (منحرفة)').setStyle(ButtonStyle.Danger).setEmoji('🔥')
+                        );
+                        await i.editReply({ content: "✅ تم الدفع بنجاح! اختر الوضع من الرسالة أدناه 👇" });
+                        await i.channel.send({ content: `✅ **تم دفع ${COST} مورا من قبل <@${i.user.id}>!**\nالآن اختر شخصيتي لهذا اليوم (لمدة 24 ساعة):`, components: [modeButtons] });
+                    }
+                    else if (id === 'ai_mode_select_sfw' || id === 'ai_mode_select_nsfw') {
+                        await i.deferUpdate();
+                        const mode = id.includes('nsfw') ? 'NSFW' : 'SFW';
+                        aiConfig.setPaidChannel(i.guild.id, i.channel.id, mode);
+                        await i.editReply({ content: `🔓 **تم تفعيل الشات بوضع ${mode}!**\nاستمتعوا لمدة 24 ساعة مع الإمبراطورة. ⏳`, components: [] });
+                    }
                     return;
                 }
 
@@ -271,7 +350,6 @@ module.exports = (client, db, antiRolesCache) => {
 
             if (i.isModalSubmit()) {
                 
-                // 🔥 تم استثناء موديل الدمج والصهر هنا لمنع ظهور Interaction Failed 🔥
                 if (i.customId.startsWith('farm_buy_modal|') || i.customId.startsWith('farm_sell_modal|') || i.customId.startsWith('modal_synth_') || i.customId.startsWith('modal_smelt_')) {
                     if (handleFarmShopModal && (i.customId.startsWith('farm_buy') || i.customId.startsWith('farm_sell'))) {
                         await handleFarmShopModal(i, client, db);
