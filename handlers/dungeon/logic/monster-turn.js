@@ -65,26 +65,37 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
     const activeLightning = monster.effects.find(e => e.type === 'lightning_weaken');
     const lightningVal = activeLightning ? activeLightning.val : 0;
 
+    // 🔥 1. فحص حالات السيطرة (CC) قبل الخصم من عداد الأدوار لضمان عملها 🔥
+    let skipTurn = false;
+    let skipReason = "";
+
     if (monster.frozen) { 
-        log.push(`❄️ **${monster.name}** متجمد، خسر دوره!`); 
+        skipTurn = true;
+        skipReason = `❄️ **${monster.name}** متجمد، خسر دوره!`;
         monster.frozen = false; 
-        monster.memory.comboStep = 0; 
-        try {
-            await battleMsg.edit({ embeds: [generateBattleEmbed(players, monster, floor, theme, log, [])], components: generateBattleRows() });
-        } catch(e){}
-        return true; 
+    } else if (monster.effects && monster.effects.some(e => (e.type || "").toLowerCase() === 'stun')) {
+        skipTurn = true;
+        skipReason = `😵 **${monster.name}** مشلول، لا يستطيع الحراك!`;
+    } else if (monster.effects && monster.effects.some(e => (e.type || "").toLowerCase() === 'confusion')) {
+        const conf = monster.effects.find(e => (e.type || "").toLowerCase() === 'confusion');
+        const confChance = conf.val === true ? 0.5 : (conf.val || 0.5);
+        if (Math.random() < confChance) {
+            const selfDmg = Math.floor(monster.atk * 0.5) || 1;
+            monster.hp = Math.max(0, monster.hp - selfDmg);
+            skipTurn = true;
+            skipReason = `🌀 **${monster.name}** في حالة فوضى وارتباك وضرب نفسه! (-${selfDmg})`;
+        }
     }
 
-    // 🔥 المحرك الفولاذي لمعالجة التأثيرات والنزيف 🔥
+    // 🔥 2. المحرك الفولاذي لمعالجة تأثيرات الضرر والنزيف 🔥
     if (monster.effects) {
         monster.effects = monster.effects.filter(e => {
             let dmgVal = 0;
             let effectName = "";
             let icon = "";
-            const safeType = (e.type || "").toLowerCase(); // حماية من حالة الأحرف
+            const safeType = (e.type || "").toLowerCase();
 
             if (safeType === 'burn' || safeType === 'poison' || safeType === 'bleed') {
-                // دعم جميع المسميات المحتملة للقوة لضمان عدم فشلها
                 let rawVal = e.val || e.damage || e.value || 0; 
                 
                 if (rawVal >= 1) {
@@ -108,12 +119,10 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
                 }
             }
             
-            // إصلاح مشكلة اختفاء اللعنة بسبب عدم وجود Turns
             if (e.turns !== undefined && e.turns !== null) {
                 e.turns--;
                 return e.turns > 0;
             } else {
-                // إذا لم يتم تحديد عدد أدوار للمهارة، اجعلها تؤثر لمرة واحدة فقط ثم تختفي
                 return false;
             }
         });
@@ -121,6 +130,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
 
     if (monster.hp <= 0) { monster.hp = 0; return false; }
 
+    // 🔥 3. هجوم المرافقين (Summons) 🔥
     players.forEach(p => {
         if (!p.isDead && !p.isPermDead && p.summon && p.summon.active) {
             const atkRatio = p.summon.atkRatio || 0.7;
@@ -148,11 +158,9 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
 
     if (monster.hp <= 0) { monster.hp = 0; return false; }
 
-    const confusion = monster.effects.find(e => (e.type || "").toLowerCase() === 'confusion');
-    if (confusion && Math.random() < (confusion.val || 0.5)) { // تأمين ضد القيم الفارغة
-        const selfDmg = Math.floor(monster.atk * 0.5) || 1;
-        monster.hp = Math.max(0, monster.hp - selfDmg);
-        log.push(`😵 **${monster.name}** في حالة فوضى وضرب نفسه! (-${selfDmg})`);
+    // 🔥 4. تطبيق تخطي الدور إذا كان الوحش مصاباً بالشلل أو الارتباك 🔥
+    if (skipTurn) {
+        log.push(skipReason);
         monster.memory.comboStep = 0;
         try {
             await battleMsg.edit({ embeds: [generateBattleEmbed(players, monster, floor, theme, log, [])], components: generateBattleRows() });
@@ -160,6 +168,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
         return true;
     }
 
+    // 🔥 5. منطق هجوم الوحش الطبيعي 🔥
     const alive = players.filter(p => !p.isDead && !p.isPermDead);
     if (alive.length === 0) return false;
 
