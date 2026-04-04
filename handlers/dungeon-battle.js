@@ -26,7 +26,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
     const client = threadChannel.client; 
       
     if (!db) {
-        return threadChannel.send("⚠️ **خطأ تقني:** قاعدة البيانات غير متصلة حالياً.").catch(() => {});
+        return threadChannel.send("⚠️ **خطأ تقني:** قاعدة البيانات غير متـصلة حالياً.").catch(() => {});
     }
     await ensureInventoryTable(db); 
 
