@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionsBitField, EmbedBuilder, Colors, ActionRowBuilder, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField, EmbedBuilder, Colors, ActionRowBuilder, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags, ButtonBuilder, ButtonStyle } = require('discord.js');
 const shopItems = require('../../json/shop-items.json');
 const farmAnimals = require('../../json/farm-animals.json');
 const seedsData = require('../../json/seeds.json');
@@ -178,58 +178,79 @@ module.exports = {
         const targetMember = await message.guild.members.fetch(targetUser.id).catch(() => null);
         if (!targetMember) return message.reply("❌ العضو غير موجود في السيرفر.");
 
-        await this.sendUserPanel(message, targetUser, targetMember, db, client);
+        // 🔥 التعديل: إرسال زر فقط لإخفاء القائمة 🔥
+        const embed = new EmbedBuilder()
+            .setTitle(`👑 بوابة تحكم الإمبراطور`)
+            .setColor(Colors.Gold)
+            .setDescription(`الهدف: **${targetUser.username}**\nانقر على الزر أدناه لفتح لوحة التحكم الخاصة بك بشكل سري.`);
+
+        const btnRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`admin_open_panel_${targetUser.id}`)
+                .setLabel('فتح لوحة التحكم السرية')
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji('👑')
+        );
+
+        const initMsg = await message.reply({ embeds: [embed], components: [btnRow] });
+
+        const filter = i => i.user.id === message.author.id && i.customId.startsWith('admin_open_panel_');
+        const collector = initMsg.createMessageComponentCollector({ filter, time: 300000 });
+
+        collector.on('collect', async i => {
+            await this.sendHiddenUserPanel(i, targetUser, targetMember, db, client, initMsg);
+        });
     },
 
-    async sendUserPanel(message, targetUser, targetMember, db, client) {
-        const embed = new EmbedBuilder()
-            .setTitle(`👑 لـوحـة الامبراطـور: ${targetUser.username}`)
-            .setThumbnail(targetUser.displayAvatarURL())
-            .setColor(Colors.Gold)
-            .setDescription("مـا امـرك سيـادة الامبراطـور؟");
-
+    // دالة جديدة لعرض القائمة بشكل مخفي (Ephemeral)
+    async sendHiddenUserPanel(interaction, targetUser, targetMember, db, client, initMsg) {
         const row = new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
-                .setCustomId(`admin_user_${targetUser.id}`)
-                .setPlaceholder('اختر الإجراء...')
+                .setCustomId(`admin_user_hidden_${targetUser.id}`)
+                .setPlaceholder('اختر الإجراء السري...')
                 .addOptions([
                     { label: '📋 فحص الحساب', value: 'check', description: 'عرض إحصائيات اللاعب' },
                     { label: '💰 إدارة المورا والخبرة', value: 'economy', emoji: '🪙' },
-                    { label: '🔄 تبديل ونقل حسابين', value: 'swap_accounts', description: 'نقل (اللفل، المورا، الستريك، الأسلحة) بين شخصين', emoji: '🔄' }, 
-                    { label: '🎭 تغيير العرق', value: 'change_race', description: 'تغيير العرق وتصحيح بيانات الأسلحة لمنع التعليق', emoji: '🎭' },
-                    { label: '👑 تعيين ملك يدوي', value: 'set_king', description: 'تتويج العضو ورفع نقاطه في اللوحة', emoji: '👑' },
-                    { label: '🗑️ إخلاء عرش ملك', value: 'empty_king', description: 'تصفير نقاط عرش معين وطرد الملك الحالي', emoji: '🗑️' },
-                    { label: '🌟 إدارة السمعة', value: 'reputation', description: 'إضافة/خصم/تحديد نقاط السمعة', emoji: '🌟' },
-                    { label: '🗳️ فرص التزكية', value: 'rep_chances', description: 'منح فرص تصويت (تزكية) إضافية لليوم', emoji: '🗳️' },
+                    { label: '🔄 تبديل ونقل حسابين', value: 'swap_accounts', description: 'نقل البيانات بين شخصين', emoji: '🔄' }, 
+                    { label: '🎭 تغيير العرق', value: 'change_race', description: 'تغيير العرق وتصحيح بيانات الأسلحة', emoji: '🎭' },
+                    { label: '👑 تعيين ملك يدوي', value: 'set_king', description: 'تتويج العضو', emoji: '👑' },
+                    { label: '🗑️ إخلاء عرش ملك', value: 'empty_king', description: 'طرد الملك الحالي', emoji: '🗑️' },
+                    { label: '🌟 إدارة السمعة', value: 'reputation', emoji: '🌟' },
+                    { label: '🗳️ فرص التزكية', value: 'rep_chances', emoji: '🗳️' },
                     { label: '🎟️ إدارة التذاكر', value: 'tickets', emoji: '🎟️' },
-                    { label: '⛺ منح خيمة (دانجون)', value: 'dungeon_tent', description: 'تحديد طابق الحفظ في الدانجون', emoji: '⛺' },
-                    { label: '🎒 إدارة العناصر', value: 'items', description: 'إعطاء/سحب (صناديق، أرتيفاكت، موارد، بذور...)', emoji: '🎒' },
-                    { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', description: 'تغيير لفل السلاح أو المهارة بدقة', emoji: '⚔️' },
-                    { label: '🗑️ تصفير الأسلحة والمهارات', value: 'reset_combat', description: 'مسح جميع مهارات وأسلحة اللاعب بالكامل', emoji: '🗑️' },
-                    { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', description: 'تغيير السنارة، القارب، أو موقع الشاطئ', emoji: '🎣' }, 
+                    { label: '⛺ منح خيمة (دانجون)', value: 'dungeon_tent', emoji: '⛺' },
+                    { label: '🎒 إدارة العناصر', value: 'items', emoji: '🎒' },
+                    { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', emoji: '⚔️' },
+                    { label: '🕵️ إدارة التعزيز المخفي', value: 'hidden_buff', description: 'تعديل لفل سلاح/مهارة في الخفاء!', emoji: '🕵️' }, // 🔥 الإضافة المطلوبة
+                    { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', emoji: '🎣' }, 
+                    { label: '🗑️ تصفير الأسلحة والمهارات', value: 'reset_combat', emoji: '🗑️' },
                     { label: '🛡️ إعطاء درع ميديا', value: 'media_shield', emoji: '🛡️' },
-                    { label: '⚠️ تصفير الحساب', value: 'reset', description: 'مسح جميع البيانات!', emoji: '⚠️' }
+                    { label: '⚠️ تصفير الحساب', value: 'reset', emoji: '⚠️' }
                 ])
         );
 
-        const panelMsg = await message.reply({ embeds: [embed], components: [row] });
-        const filter = i => i.user.id === message.author.id;
-        const collector = panelMsg.createMessageComponentCollector({ filter, time: 300000 });
+        // إرسال القائمة بشكل مخفي لا يراه إلا الأدمن
+        await interaction.reply({ content: `👑 **لوحة تحكم: ${targetUser.username}**`, components: [row], flags: [MessageFlags.Ephemeral] });
 
-        collector.on('collect', async interaction => {
-            const val = interaction.values[0];
-            const guildID = message.guild.id;
+        const filter = i => i.user.id === interaction.user.id;
+        // نستخدم القناة نفسها للتنصت لأن الرسالة ephemeral
+        const actionCollector = interaction.channel.createMessageComponentCollector({ filter, time: 300000 });
+
+        actionCollector.on('collect', async i => {
+            if (!i.customId.startsWith(`admin_user_hidden_${targetUser.id}`)) return;
+            const val = i.values[0];
+            const guildID = i.guild.id;
             const userID = targetUser.id;
 
             if (val === 'check') {
-                await this.checkUser(interaction, client, db, targetUser);
+                await this.checkUser(i, client, db, targetUser);
             } 
             else if (val === 'change_race') {
                 let raceRolesRes = await safeQuery(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [guildID]);
                 let allRaceRoles = raceRolesRes.rows || [];
 
                 if (allRaceRoles.length === 0) {
-                    return interaction.reply({ content: "❌ لا توجد أعراق مبرمجة في هذا السيرفر حالياً.", flags: [MessageFlags.Ephemeral] });
+                    return i.reply({ content: "❌ لا توجد أعراق مبرمجة في هذا السيرفر حالياً.", flags: [MessageFlags.Ephemeral] });
                 }
 
                 const options = allRaceRoles.slice(0, 25).map(r => ({
@@ -245,13 +266,13 @@ module.exports = {
                         .addOptions(options)
                 );
 
-                await interaction.update({ content: `🎭 **تغيير وتصحيح عرق ${targetUser}:**\nهذا الخيار سيغير رتبة اللاعب وينقل مستوى سلاحه ومهارته العرقية تلقائياً لمنع تعليق الحساب.\n\nالرجاء اختيار العرق الجديد:`, embeds: [], components: [raceMenu] });
+                await i.update({ content: `🎭 **تغيير وتصحيح عرق ${targetUser}:**\nهذا الخيار سيغير رتبة اللاعب وينقل مستوى سلاحه ومهارته العرقية تلقائياً لمنع تعليق الحساب.\n\nالرجاء اختيار العرق الجديد:`, embeds: [], components: [raceMenu] });
 
-                const raceCollector = panelMsg.createMessageComponentCollector({ filter: i => i.user.id === message.author.id && i.customId.startsWith('mod_race_'), time: 60000 });
+                const raceCollector = interaction.channel.createMessageComponentCollector({ filter: subI => subI.user.id === i.user.id && subI.customId.startsWith('mod_race_'), time: 60000 });
 
-                raceCollector.on('collect', async i => {
-                    await i.deferUpdate();
-                    const selectedRoleID = i.values[0];
+                raceCollector.on('collect', async subI => {
+                    await subI.deferUpdate();
+                    const selectedRoleID = subI.values[0];
                     const selectedRace = allRaceRoles.find(r => (r.roleID || r.roleid) === selectedRoleID);
                     const newRaceName = selectedRace.raceName || selectedRace.racename;
 
@@ -282,7 +303,7 @@ module.exports = {
                     await safeQuery(db, `INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, $4)`, [userID, guildID, newRaceSkillId, currentRaceSkillLevel]);
 
                     const summaryEmbed = await getGearSummaryEmbed(userID, guildID, db, targetUser);
-                    await i.editReply({ content: `✅ **تم تغيير وتصحيح عرق اللاعب إلى (${newRaceName}) بنجاح!**\nتم تحديث الرتبة، ونقل مستوى السلاح (Lv.${currentWeaponLevel}) والمهارة العرقية (Lv.${currentRaceSkillLevel}) بأمان لتجنب تعليق الحساب.`, embeds: [summaryEmbed], components: [] });
+                    await subI.editReply({ content: `✅ **تم تغيير وتصحيح عرق اللاعب إلى (${newRaceName}) بنجاح!**\nتم تحديث الرتبة، ونقل مستوى السلاح (Lv.${currentWeaponLevel}) والمهارة العرقية (Lv.${currentRaceSkillLevel}) بأمان لتجنب تعليق الحساب.`, embeds: [summaryEmbed], components: [] });
                     raceCollector.stop();
                 });
             }
@@ -293,10 +314,10 @@ module.exports = {
                 const actionInput = new TextInputBuilder().setCustomId('eco_action').setLabel('الإجراء (اضافة / خصم / تحديد)').setStyle(TextInputStyle.Short).setRequired(true);
                 const amountInput = new TextInputBuilder().setCustomId('eco_amount').setLabel('الكمية (أرقام فقط)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(actionInput), new ActionRowBuilder().addComponents(amountInput));
-                await interaction.showModal(modal);
+                await i.showModal(modal);
 
                 try {
-                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
                     await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                     const type = normalize(modalSubmit.fields.getTextInputValue('eco_type'));
@@ -316,7 +337,59 @@ module.exports = {
 
                     await client.setLevel(ud);
                     await modalSubmit.editReply({ content: `✅ تم تعديل اقتصاد ${targetUser} بنجاح.` });
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
+            }
+            // 🔥 نظام التعزيز المخفي (الإضافة الذكية) 🔥
+            else if (val === 'hidden_buff') {
+                const modalId = `mod_hidden_${Date.now()}`;
+                const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة التعزيز المخفي');
+                const typeInput = new TextInputBuilder().setCustomId('hb_type').setLabel('النوع (سلاح أم مهارة؟)').setStyle(TextInputStyle.Short).setRequired(true);
+                const nameInput = new TextInputBuilder().setCustomId('hb_name').setLabel('اسم المهارة (اتركه فارغاً إذا كان سلاح)').setStyle(TextInputStyle.Short).setRequired(false);
+                const levelInput = new TextInputBuilder().setCustomId('hb_level').setLabel('اللفل المخفي (اكتب 0 لإزالة التعزيز)').setStyle(TextInputStyle.Short).setRequired(true);
+                
+                modal.addComponents(new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(nameInput), new ActionRowBuilder().addComponents(levelInput));
+                await i.showModal(modal);
+
+                try {
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
+                    await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+                    const type = normalize(modalSubmit.fields.getTextInputValue('hb_type'));
+                    const name = modalSubmit.fields.getTextInputValue('hb_name');
+                    const level = parseInt(modalSubmit.fields.getTextInputValue('hb_level'));
+
+                    if (isNaN(level) || level < 0) return modalSubmit.editReply("❌ يرجى إدخال رقم لفل صحيح.");
+
+                    let buffType = '';
+                    let successMsg = '';
+
+                    if (type.includes('سلاح')) {
+                        buffType = 'hidden_weapon';
+                        successMsg = level === 0 ? `✅ تم إزالة التعزيز المخفي لسلاح ${targetUser}.` : `✅ تم تفعيل تعزيز مخفي لسلاح ${targetUser} ليصبح **Lv.${level}** بالقتال.`;
+                    } else if (type.includes('مهار')) {
+                        if (!name) return modalSubmit.editReply("❌ يرجى كتابة اسم المهارة للبحث عنها.");
+                        const searchName = normalize(name);
+                        const foundSkill = skillsConfig.find(s => normalize(s.name).includes(searchName) || s.id.toLowerCase().includes(searchName));
+                        if (!foundSkill) return modalSubmit.editReply(`❌ لم أجد مهارة باسم: ${name}`);
+                        
+                        buffType = `hidden_skill_${foundSkill.id}`;
+                        successMsg = level === 0 ? `✅ تم إزالة التعزيز المخفي لمهارة (${foundSkill.name}).` : `✅ تم تفعيل تعزيز مخفي لمهارة (${foundSkill.name}) لتصبح **Lv.${level}** بالقتال.`;
+                    } else {
+                        return modalSubmit.editReply("❌ نوع غير معروف. يرجى كتابة (سلاح) أو (مهارة).");
+                    }
+
+                    const expireTime = Date.now() + (365 * 24 * 60 * 60 * 1000); // مدة سنة
+                    
+                    if (level === 0) {
+                        await safeQuery(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = $3`, [userID, guildID, buffType]);
+                    } else {
+                        await safeQuery(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = $3`, [userID, guildID, buffType]);
+                        await safeQuery(db, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildID, userID, 0, expireTime, buffType, level]);
+                    }
+
+                    await modalSubmit.editReply({ content: successMsg });
+
+                } catch(e) {}
             }
             else if (val === 'swap_accounts') {
                 const modalId = `mod_swap_${Date.now()}`;
@@ -324,10 +397,10 @@ module.exports = {
                 const id1Input = new TextInputBuilder().setCustomId('swap_id1').setLabel('آيدي الحساب الأول').setStyle(TextInputStyle.Short).setRequired(true);
                 const id2Input = new TextInputBuilder().setCustomId('swap_id2').setLabel('آيدي الحساب الثاني (سيتبادل معه)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(id1Input), new ActionRowBuilder().addComponents(id2Input));
-                await interaction.showModal(modal);
+                await i.showModal(modal);
 
                 try {
-                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
                     await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                     const id1 = modalSubmit.fields.getTextInputValue('swap_id1').trim();
@@ -337,7 +410,6 @@ module.exports = {
 
                     const ud1 = await client.getLevel(id1, guildID);
                     const ud2 = await client.getLevel(id2, guildID);
-
                     const tempId = `TEMP_${Date.now()}`;
 
                     const swapAnyColumn = async (tableName, targetCol, gCol = 'guildID', idColFormat = null) => {
@@ -359,7 +431,6 @@ module.exports = {
                     };
 
                     await db.query('BEGIN');
-                    
                     await swapAnyColumn('levels', 'user', 'guild', 1);
                     await swapAnyColumn('user_inventory', 'userID');
                     await swapAnyColumn('user_portfolio', 'userID');
@@ -370,17 +441,14 @@ module.exports = {
                     await swapAnyColumn('user_weapons', 'userID');
                     await swapAnyColumn('user_skills', 'userID');
                     await swapAnyColumn('dungeon_stats', 'userID');
-                    
                     await swapAnyColumn('streaks', 'userID', 'guildID', 1);
                     await swapAnyColumn('media_streaks', 'userID', 'guildID', 1);
-                    
                     await swapAnyColumn('user_buffs', 'userID');
                     await swapAnyColumn('user_loans', 'userID');
                     await swapAnyColumn('marriages', 'userID');
                     await swapAnyColumn('marriages', 'partnerID');
                     await swapAnyColumn('children', 'parentID');
                     await swapAnyColumn('children', 'childID');
-
                     await db.query('COMMIT');
                     
                     if (client.levelCache) {
@@ -392,12 +460,10 @@ module.exports = {
                         if (ud2) await client.setLevel({ ...ud2, user: id1, id: `${guildID}-${id1}` });
                     }
 
-                    await modalSubmit.editReply({ content: `✅ **تم نقل وتبديل البيانات بنجاح!**\nتم تبديل جميع البيانات **(المورا، اللفل، الإكس بي، الستريك، المزرعة، العائلة، وغيرها)** بين <@${id1}> و <@${id2}> بصمت.` });
-
+                    await modalSubmit.editReply({ content: `✅ **تم نقل وتبديل البيانات بنجاح!**` });
                 } catch(e) { 
                     await db.query('ROLLBACK').catch(()=>{});
-                    if (e.code !== 'InteractionCollectorError') console.error(e); 
-                    await interaction.followUp({content: "❌ حدث خطأ أثناء التبديل.", flags: [MessageFlags.Ephemeral]}).catch(()=>{});
+                    await i.followUp({content: "❌ حدث خطأ.", flags: [MessageFlags.Ephemeral]}).catch(()=>{});
                 }
             }
             else if (val === 'set_king' || val === 'empty_king') {
@@ -418,13 +484,13 @@ module.exports = {
                         ])
                 );
                 
-                await interaction.update({ content: isEmpting ? `🗑️ **اختر العرش الذي تريد إخلائه بالكامل:**` : `👑 **اختر اللقب الذي تريد إعطاءه لـ ${targetUser}:**`, embeds: [], components: [kingMenu] });
+                await i.update({ content: isEmpting ? `🗑️ **اختر العرش الذي تريد إخلائه بالكامل:**` : `👑 **اختر اللقب الذي تريد إعطاءه لـ ${targetUser}:**`, embeds: [], components: [kingMenu] });
 
-                const kingCollector = panelMsg.createMessageComponentCollector({ filter: i => i.user.id === message.author.id && i.customId.startsWith('mod_king_'), time: 60000 });
+                const kingCollector = i.channel.createMessageComponentCollector({ filter: subI => subI.user.id === i.user.id && subI.customId.startsWith('mod_king_'), time: 60000 });
                 
-                kingCollector.on('collect', async i => {
-                    await i.deferUpdate();
-                    let selectedRoleColumn = i.values[0];
+                kingCollector.on('collect', async subI => {
+                    await subI.deferUpdate();
+                    let selectedRoleColumn = subI.values[0];
                     
                     let settingsRes = await safeQuery(db, `SELECT "${selectedRoleColumn}" FROM settings WHERE "guild" = $1`, [guildID]);
                     let roleId = settingsRes.rows[0] ? (settingsRes.rows[0][selectedRoleColumn] || settingsRes.rows[0][selectedRoleColumn.toLowerCase()]) : null;
@@ -434,10 +500,10 @@ module.exports = {
                         roleId = settingsRes.rows[0] ? (settingsRes.rows[0]['roleVoiceKing'] || settingsRes.rows[0]['rolevoiceking']) : null;
                     }
 
-                    if (!roleId) return await i.editReply({ content: `❌ لم يتم إعداد رتبة لهذا الملك في إعدادات السيرفر.`, components: [] });
+                    if (!roleId) return await subI.editReply({ content: `❌ لم يتم إعداد رتبة لهذا الملك في إعدادات السيرفر.`, components: [] });
 
-                    const targetRole = message.guild.roles.cache.get(roleId);
-                    if (!targetRole) return await i.editReply({ content: `❌ الرتبة المطلوبة غير موجودة في السيرفر.`, components: [] });
+                    const targetRole = i.guild.roles.cache.get(roleId);
+                    if (!targetRole) return await subI.editReply({ content: `❌ الرتبة المطلوبة غير موجودة في السيرفر.`, components: [] });
 
                     const todayStr = getTodayDateString();
                     const statName = kingStatsMap[selectedRoleColumn] || kingStatsMap['roleVoice'];
@@ -453,7 +519,7 @@ module.exports = {
                             await safeQuery(db, `UPDATE kings_board_tracker SET "${statName}" = 0 WHERE "guildID" = $1 AND "date" = $2`, [guildID, todayStr]);
                         }
 
-                        await i.editReply({ content: `🗑️ **تم إخلاء عرش (${targetRole.name}) وتصفير جميع نقاطه لليوم بنجاح!**`, components: [] });
+                        await subI.editReply({ content: `🗑️ **تم إخلاء عرش (${targetRole.name}) وتصفير جميع نقاطه لليوم بنجاح!**`, components: [] });
                     } else {
                         let currentMax = 0;
                         if (selectedRoleColumn === 'roleCasinoKing') {
@@ -484,7 +550,7 @@ module.exports = {
                             await targetMember.roles.add(targetRole).catch(() => {});
                         }
 
-                        await i.editReply({ content: `👑 **تم تتويج ${targetUser} بلقب (${targetRole.name}) لليوم!**\nسيتم سحب الرتبة وتصفير المنافسة غداً لبدء سباق جديد.`, components: [] });
+                        await subI.editReply({ content: `👑 **تم تتويج ${targetUser} بلقب (${targetRole.name}) لليوم!**\nسيتم سحب الرتبة وتصفير المنافسة غداً لبدء سباق جديد.`, components: [] });
                     }
                     kingCollector.stop();
                 });
@@ -495,10 +561,10 @@ module.exports = {
                 const actionInput = new TextInputBuilder().setCustomId('rep_action').setLabel('الإجراء (اضافة / خصم / تحديد)').setStyle(TextInputStyle.Short).setRequired(true);
                 const amountInput = new TextInputBuilder().setCustomId('rep_amount').setLabel('النقاط (أرقام فقط)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(actionInput), new ActionRowBuilder().addComponents(amountInput));
-                await interaction.showModal(modal);
+                await i.showModal(modal);
 
                 try {
-                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
                     await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                     const action = normalize(modalSubmit.fields.getTextInputValue('rep_action'));
@@ -520,17 +586,17 @@ module.exports = {
                     `, [userID, guildID, newPoints]);
 
                     await modalSubmit.editReply({ content: `✅ تم ضبط سمعة ${targetUser} لتصبح **${newPoints}** 🌟` });
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
             }
             else if (val === 'rep_chances') {
                 const modalId = `mod_repchan_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('منح فرص تزكية');
                 const amountInput = new TextInputBuilder().setCustomId('repchan_amount').setLabel('عدد الفرص الإضافية (أرقام فقط)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(amountInput));
-                await interaction.showModal(modal);
+                await i.showModal(modal);
 
                 try {
-                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
                     await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                     const amount = parseInt(modalSubmit.fields.getTextInputValue('repchan_amount'));
@@ -546,17 +612,17 @@ module.exports = {
                     `, [userID, guildID, todayDateStr, -amount, amount]);
 
                     await modalSubmit.editReply({ content: `✅ تم منح **${amount}** فرصة تزكية إضافية لـ ${targetUser} بنجاح! يمكنه استخدامها الآن. 🗳️` });
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
             }
             else if (val === 'tickets') {
                 const modalId = `mod_tkt_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة تذاكر الدانجون');
                 const amountInput = new TextInputBuilder().setCustomId('tkt_amount').setLabel('الكمية للإضافة').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(amountInput));
-                await interaction.showModal(modal);
+                await i.showModal(modal);
 
                 try {
-                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
                     await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                     const amount = parseInt(modalSubmit.fields.getTextInputValue('tkt_amount'));
@@ -570,17 +636,17 @@ module.exports = {
                     `, [guildID, userID, amount, todayStr]); 
                     
                     await modalSubmit.editReply({ content: `✅ تم إضافة **${amount}** 🎟️ تذاكر لـ ${targetUser}.` });
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
             }
             else if (val === 'dungeon_tent') {
                 const modalId = `mod_tent_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إعداد طابق الدانجون (الخيمة)');
                 const floorInput = new TextInputBuilder().setCustomId('tent_floor').setLabel('رقم الطابق المراد حفظه كـ (Checkpoint)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(floorInput));
-                await interaction.showModal(modal);
+                await i.showModal(modal);
 
                 try {
-                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
                     await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                     const floor = parseInt(modalSubmit.fields.getTextInputValue('tent_floor'));
@@ -589,16 +655,16 @@ module.exports = {
                     await safeQuery(db, `INSERT INTO levels ("user", "guild", "xp", "totalXP", "level", "mora", "max_dungeon_floor") VALUES ($1, $2, 0, 0, 1, 0, $3) ON CONFLICT ("user", "guild") DO UPDATE SET "max_dungeon_floor" = $3`, [userID, guildID, floor]);
 
                     await modalSubmit.editReply({ content: `✅ تم نصب خيمة الحفظ لـ ${targetUser} في **الطابق ${floor}** من الدانجون ⛺.` });
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
             }
             else if (val === 'reset_combat') {
-                await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+                await i.deferReply({ flags: [MessageFlags.Ephemeral] });
                 
                 await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
                 await safeQuery(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
                 
                 const summaryEmbed = await getGearSummaryEmbed(userID, guildID, db, targetUser);
-                await interaction.editReply({ content: `🗑️ ✅ تم تصفير جميع الأسلحة والمهارات القتالية لـ ${targetUser} بنجاح!`, embeds: [summaryEmbed] });
+                await i.editReply({ content: `🗑️ ✅ تم تصفير جميع الأسلحة والمهارات القتالية لـ ${targetUser} بنجاح!`, embeds: [summaryEmbed] });
             }
             else if (val === 'combat_gear') {
                 const modalId = `mod_gear_${Date.now()}`;
@@ -607,10 +673,10 @@ module.exports = {
                 const nameInput = new TextInputBuilder().setCustomId('gear_name').setLabel('اسم المهارة (أو اسم العرق لتعديل السلاح)').setStyle(TextInputStyle.Short).setRequired(false);
                 const levelInput = new TextInputBuilder().setCustomId('gear_level').setLabel('المستوى الجديد (أرقام فقط - 0 للحذف)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(nameInput), new ActionRowBuilder().addComponents(levelInput));
-                await interaction.showModal(modal);
+                await i.showModal(modal);
 
                 try {
-                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
                     await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                     const type = normalize(modalSubmit.fields.getTextInputValue('gear_type'));
@@ -670,7 +736,7 @@ module.exports = {
                     const summaryEmbed = await getGearSummaryEmbed(userID, guildID, db, targetUser);
                     await modalSubmit.editReply({ content: successMessage, embeds: [summaryEmbed] });
 
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
             }
             else if (val === 'fishing_gear') {
                 const modalId = `mod_fish_${Date.now()}`;
@@ -678,10 +744,10 @@ module.exports = {
                 const typeInput = new TextInputBuilder().setCustomId('fish_type').setLabel('النوع (سنارة / قارب / مكان)').setStyle(TextInputStyle.Short).setRequired(true);
                 const valInput = new TextInputBuilder().setCustomId('fish_val').setLabel('الرقم / اسم المكان (مثال: beach, deep)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(valInput));
-                await interaction.showModal(modal);
+                await i.showModal(modal);
 
                 try {
-                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
                     await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                     const type = normalize(modalSubmit.fields.getTextInputValue('fish_type'));
@@ -713,7 +779,7 @@ module.exports = {
                     const summaryEmbed = await getGearSummaryEmbed(userID, guildID, db, targetUser);
                     await modalSubmit.editReply({ content: successMessage, embeds: [summaryEmbed] });
 
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
             }
             else if (val === 'items') {
                 const modalId = `mod_item_${Date.now()}`;
@@ -722,10 +788,10 @@ module.exports = {
                 const nameInput = new TextInputBuilder().setCustomId('itm_name').setLabel('اسم العنصر أو الكود الدقيق').setStyle(TextInputStyle.Short).setRequired(true);
                 const qtyInput = new TextInputBuilder().setCustomId('itm_qty').setLabel('الكمية (أرقام فقط)').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(actionInput), new ActionRowBuilder().addComponents(nameInput), new ActionRowBuilder().addComponents(qtyInput));
-                await interaction.showModal(modal);
+                await i.showModal(modal);
 
                 try {
-                    const modalSubmit = await interaction.awaitModalSubmit({ filter: i => i.customId === modalId && i.user.id === message.author.id, time: 120000 });
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
                     await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
 
                     const action = normalize(modalSubmit.fields.getTextInputValue('itm_action'));
@@ -813,13 +879,13 @@ module.exports = {
                         }
                         await modalSubmit.editReply({ content: `✅ تم سحب **${qty}** × **${item.name}** من ${targetUser}.` });
                     }
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
             }
             else if (val === 'media_shield') {
-                await this.giveMediaShield(interaction, client, db, targetUser);
+                await this.giveMediaShield(i, client, db, targetUser);
             }
             else if (val === 'reset') {
-                await this.resetUser(interaction, client, db, targetUser);
+                await this.resetUser(i, client, db, targetUser);
             }
         });
     },
@@ -900,7 +966,7 @@ module.exports = {
                     await safeQuery(db, `UPDATE settings SET "marketStatus" = $1 WHERE "guild" = $2`, [statusKey, message.guild.id]);
 
                     await modalSubmit.editReply({ content: `✅ تم ضبط حالة السوق على: **${statusKey}**` });
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
             }
             else if (val === 'price') {
                 const modalId = `mod_mrkt_price_${Date.now()}`;
@@ -929,7 +995,7 @@ module.exports = {
                     await safeQuery(db, `UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2 WHERE "id" = $3`, [price, changePercent, item.id]);
 
                     await modalSubmit.editReply({ content: `✅ تم ضبط سعر **${item.name}** إلى **${price}**` });
-                } catch(e) { if (e.code !== 'InteractionCollectorError') console.error(e); }
+                } catch(e) {}
             }
             else if (val === 'reset_market') {
                 await interaction.reply({ content: "☢️ سيتم تنفيذ تصفير السوق يدوياً، يرجى كتابة `-ادمن تصفير-السوق` للتأكيد.", flags: [MessageFlags.Ephemeral] });
