@@ -84,10 +84,10 @@ async function handleRestMenu(context) {
     let restDesc = `✶ نجحتـم في تصفية الطابق الـ: **${floor}**\n✶ تم استعادة صحة المغامرين بنسبة **%30**\n\n**✶ الغنـائـم المتراكمة لرحلتكم:**\n✬ Mora: **${totalAccumulatedCoins.toLocaleString()}** ${EMOJI_MORA}\n✬ XP: **${totalAccumulatedXP.toLocaleString()}** ${EMOJI_XP}`;
     
     if (totalDisplayLoot.rep > 0) {
-        restDesc += `\n🌟 REP: **${totalDisplayLoot.rep}**`;
+        restDesc += `\n✬ REP: **${totalDisplayLoot.rep}** 🌟`;
     }
     if (totalDisplayLoot.chests > 0) {
-        restDesc += `\n🎁 Box: **${totalDisplayLoot.chests}**`;
+        restDesc += `\n✬ Box: **${totalDisplayLoot.chests}** 🎁`;
     }
 
     const restRow = new ActionRowBuilder().addComponents(
