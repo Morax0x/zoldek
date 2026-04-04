@@ -257,27 +257,55 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
     return isPercentage ? Number(finalValue.toFixed(1)) : Math.floor(finalValue);
 }
 
+// 🔥 التعديل الجذري والأسطوري لتسهيل حياة المبتدئين 🔥
 function getUpgradeRequirements(currentLevel, isSkill = false) {
     if (currentLevel >= 30 || currentLevel === 0) return null;
     let reqs = [], moraCost = 0;
     const currentTier = Math.floor((currentLevel - 1) / 5); 
     const primaryTier = Math.min(currentTier, 4);
 
-    moraCost = currentLevel * 800 * (primaryTier + 1);
+    // 1. نظام المورا المتدرج
+    if (currentLevel < 5) {
+        moraCost = currentLevel * 300; 
+    } else if (currentLevel < 10) {
+        moraCost = currentLevel * 600; 
+    } else {
+        moraCost = currentLevel * 800 * (primaryTier + 1); 
+    }
 
-    if (primaryTier === 0) reqs.push({ tier: 0, count: currentLevel + 2 }); 
-    else {
-        const prevTier = primaryTier - 1;
-        reqs.push({ tier: prevTier, count: Math.floor(currentLevel * 0.8) + 3 });
-        reqs.push({ tier: primaryTier, count: Math.floor(currentLevel * 0.5) + 2 });
+    // 2. نظام الموارد المتدرج
+    if (currentLevel < 5) {
+        // المستويات 1 إلى 5: مورا فقط، بدون أي موارد أو كتب!
+        // reqs يبقى فارغاً
+    } else if (currentLevel >= 5 && currentLevel < 10) {
+        // المستويات 6 إلى 10: يطلب من 1 إلى 3 حبات من نفس النوع فقط!
+        let count = 1;
+        if (currentLevel >= 7) count = 2;
+        if (currentLevel >= 9) count = 3;
+        
+        reqs.push({ tier: primaryTier, count: count });
+    } else {
+        // النظام القديم الصعب للمستويات 11 فما فوق (يطلب نوعين بكميات أكبر)
+        if (primaryTier === 0) {
+            reqs.push({ tier: 0, count: currentLevel + 2 }); 
+        } else {
+            const prevTier = primaryTier - 1;
+            reqs.push({ tier: prevTier, count: Math.floor(currentLevel * 0.8) + 3 });
+            reqs.push({ tier: primaryTier, count: Math.floor(currentLevel * 0.5) + 2 });
+        }
     }
 
     let finalReqs = [];
     for (let r of reqs) {
-        if (!isSkill) finalReqs.push({ type: 'material', tier: r.tier, count: r.count });
-        else {
+        if (!isSkill) {
+            finalReqs.push({ type: 'material', tier: r.tier, count: r.count });
+        } else {
             finalReqs.push({ type: 'book', tier: r.tier, count: r.count });
-            finalReqs.push({ type: 'material', tier: r.tier, count: Math.max(1, Math.floor(r.count * 0.5)) });
+            
+            // إعفاء تام من الموارد للمهارات حتى مستوى 10!
+            if (currentLevel >= 10) {
+                finalReqs.push({ type: 'material', tier: r.tier, count: Math.max(1, Math.floor(r.count * 0.5)) });
+            }
         }
     }
     return { moraCost, materials: finalReqs };
@@ -337,7 +365,6 @@ const getReturnRow = () => new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('forge_return_main').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
 );
 
-// 🔥 محرك الحالة الموحد: تم إصلاح دمج المتطلبات لمنع أي تعارض 🔥
 async function getUpgradeState(db, userId, guildId, currentLevel, isSkill, skillId, roleRaceName, wData) {
     const dbRaceName = getSafeVal(wData, 'racename', null);
     const raceName = dbRaceName ? (getStandardRaceName(dbRaceName) || roleRaceName) : roleRaceName;
@@ -353,7 +380,6 @@ async function getUpgradeState(db, userId, guildId, currentLevel, isSkill, skill
         bookCat = getSafeBookCat(categoryName);
     }
 
-    // إصلاح: تجميع المواد لتجنب التكرار في الحسابات
     let reqMap = {};
     reqs.materials.forEach(r => {
         let itemId = isSkill ? (r.type === 'book' ? bookCat.books[r.tier]?.id : raceMats.materials[r.tier]?.id) : raceMats.materials[r.tier]?.id;
@@ -747,7 +773,6 @@ async function handleSynthesis(i, user, guildId, db, state, qtyToSynth = 1, isMo
     const totalFee = SYNTHESIS_FEE * qtyToSynth;
     const hasMora = await checkMora(db, user.id, guildId, totalFee);
     
-    // زر عودة مخصص بعد الدمج ليرجعك للقائمة الخاصة بالدمج (طلبك)
     const synthReturnRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('forge_synthesis').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
     );
@@ -873,7 +898,6 @@ async function handleSmelting(i, user, guildId, db, state, client, qtyToSmelt = 
         catch(e) { await db.query(`UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [xpReward, user.id, guildId]).catch(()=>{}); }
     }
         
-    // 🔥 إصلاح انهيار الصورة عند الصهر 🔥
     const successData = { title: 'محرقة التفكيك', xpGain: xpReward, sacMatName: itemInfo.name, reqMatIcon: itemInfo.iconUrl };
     
     if (isModal) { 
