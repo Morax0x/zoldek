@@ -277,26 +277,33 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
             break;
         }
 
+        // 🔥 التعديل الخرافي لمهارة مصاص الدماء 🔥
         case 'Lifesteal_Overheal': {
             result.damage = Math.floor(skillPower * 1.15);
             
-            const bleedDmg = Math.floor(result.damage * 0.2); 
-            const finalBleed = Math.max(50, bleedDmg);
-            result.effectsApplied.push({ type: 'burn', val: finalBleed, turns: 2 });
+            // 🎲 نسبة 60% لتفعيل امتصاص الدم والنزيف 🎲
+            if (Math.random() < 0.60) {
+                const bleedDmg = Math.floor(result.damage * 0.15); // تم تخفيض النزيف إلى 15% من الضرر
+                const finalBleed = Math.max(30, bleedDmg);
+                result.effectsApplied.push({ type: 'burn', val: finalBleed, turns: 2 });
 
-            const potentialHeal = Math.floor(result.damage * 0.5); 
-            const currentHp = attacker.hp || 0;
-            const maxHp = attacker.maxHp || 100;
-            const missingHp = maxHp - currentHp;
+                const potentialHeal = Math.floor(result.damage * 0.25); // تم تخفيض الهيل إلى 25% من الضرر
+                const currentHp = attacker.hp || 0;
+                const maxHp = attacker.maxHp || 100;
+                const missingHp = maxHp - currentHp;
 
-            if (potentialHeal > missingHp) {
-                result.heal = missingHp;
-                const overflow = potentialHeal - missingHp;
-                result.shield = Math.floor(overflow * 0.5); 
-                result.log = `🩸 **${getName(attacker)}** مزق جسد الخصم وسبب نزيفاً! (شفاء +${result.heal} | درع +${result.shield})`;
+                if (potentialHeal > missingHp) {
+                    result.heal = missingHp;
+                    const overflow = potentialHeal - missingHp;
+                    result.shield = Math.floor(overflow * 0.15); // تم تخفيض الدرع الفائض إلى 15% فقط
+                    result.log = `🩸 **${getName(attacker)}** مزق جسد الخصم! (شفاء +${result.heal} | درع +${result.shield} | نزيف)`;
+                } else {
+                    result.heal = potentialHeal;
+                    result.log = `🩸 **${getName(attacker)}** نهش الخصم! (+${potentialHeal} HP | نزيف)`;
+                }
             } else {
-                result.heal = potentialHeal;
-                result.log = `🩸 **${getName(attacker)}** نهش الخصم وسبب نزيفاً! (+${potentialHeal} HP)`;
+                // في حال فشل الحظ (40%)، ضرر مباشر فقط بدون هيل أو درع أو نزيف
+                result.log = `🦇 **${getName(attacker)}** ضرب الخصم بشراسة، لكنه فشل في امتصاص دمه! (${result.damage} ضرر فقط)`;
             }
             break;
         }
