@@ -26,7 +26,6 @@ const FLAVOR_TEXTS = [
     "همسات الاقدار تناديك استخدم المورا لفك طلاسم الصندوق"
 ];
 
-// 🔥 تم إصلاح اسم الجمرة الخامدة mat_demon_1 هنا 🔥
 const ID_TO_IMAGE = {
     'mat_dragon_1': 'dragon_ash.png', 'mat_dragon_2': 'dragon_scale.png', 'mat_dragon_3': 'dragon_claw.png', 'mat_dragon_4': 'dragon_heart.png', 'mat_dragon_5': 'dragon_core.png',
     'mat_human_1': 'human_iron.png', 'mat_human_2': 'human_steel.png', 'mat_human_3': 'human_meteor.png', 'mat_human_4': 'human_seal.png', 'mat_human_5': 'human_crown.png',
@@ -173,21 +172,25 @@ async function maintainChestInventory(db, userId, guildId) {
     
     let freeCount = 0;
     let paidCount = 0;
+    let idsToDelete = [];
     
     if (invRes.rows) {
         for (const row of invRes.rows) {
             const idKey = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
             const qtyKey = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
+            const rowIdKey = Object.keys(row).find(k => k.toLowerCase() === 'id');
             
             const id = idKey ? String(row[idKey]).toLowerCase().trim() : '';
             const qty = qtyKey ? Number(row[qtyKey]) : 0;
 
-            if (id === 'free_gacha_chest') freeCount += qty;
-            if (id === 'gacha_chest') paidCount += qty;
+            if (id === 'free_gacha_chest') { freeCount += qty; if (rowIdKey) idsToDelete.push(row[rowIdKey]); }
+            if (id === 'gacha_chest') { paidCount += qty; if (rowIdKey) idsToDelete.push(row[rowIdKey]); }
         }
     }
     
-    await safeExecute(db, `DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND ("itemID" = 'free_gacha_chest' OR "itemID" = 'gacha_chest' OR "itemID" = 'FREE_GACHA_CHEST' OR "itemID" = 'GACHA_CHEST')`, [userId, guildId]);
+    for (const delId of idsToDelete) {
+        await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [delId]);
+    }
     
     if (freeCount > 0) await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, userId, freeCount]);
     if (paidCount > 0) await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, userId, paidCount]);
@@ -294,7 +297,19 @@ module.exports = {
             const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
 
             if (dailyLimit > 0 && pityData.last_free_claim !== todaySaudi) {
-                await safeExecute(db, `DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND ("itemID" = 'free_gacha_chest' OR "itemID" = 'FREE_GACHA_CHEST')`, [user.id, guildId]);
+                const oldInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+                let oldIds = [];
+                if (oldInvRes.rows) {
+                    oldInvRes.rows.forEach(r => {
+                        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                        const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
+                        if (idKey && String(r[idKey]).toLowerCase().trim() === 'free_gacha_chest' && rowIdKey) {
+                            oldIds.push(r[rowIdKey]);
+                        }
+                    });
+                }
+                for (let oid of oldIds) await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [oid]);
+
                 await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]);
                 
                 freeChests = dailyLimit;
@@ -407,11 +422,26 @@ module.exports = {
                         let remainingFree = Math.min(freeChests, pCount);
                         let remainingPaid = Math.min(paidChests, pCount - remainingFree);
                         
-                        if (remainingFree > 0) {
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'free_gacha_chest'`, [remainingFree, user.id, guildId]);
+                        let allInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+                        let freeRowId = null, paidRowId = null;
+                        
+                        if (allInvRes.rows) {
+                            allInvRes.rows.forEach(r => {
+                                const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                                const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
+                                if (idKey && rowIdKey) {
+                                    const val = String(r[idKey]).toLowerCase().trim();
+                                    if (val === 'free_gacha_chest') freeRowId = r[rowIdKey];
+                                    if (val === 'gacha_chest') paidRowId = r[rowIdKey];
+                                }
+                            });
                         }
-                        if (remainingPaid > 0) {
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = 'gacha_chest'`, [remainingPaid, user.id, guildId]);
+                        
+                        if (remainingFree > 0 && freeRowId) {
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [remainingFree, freeRowId]);
+                        }
+                        if (remainingPaid > 0 && paidRowId) {
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [remainingPaid, paidRowId]);
                         }
                         
                         freeChests -= remainingFree;
@@ -444,6 +474,7 @@ module.exports = {
                         if (item) resArr.push({ item, rarity });
                     }
 
+                    // 🔥 حل الاصطدام بالتسلسل الآمن لضمان إضافة الأغراض 100% 🔥
                     for (const [itemId, qty] of Object.entries(itemsToAdd)) {
                         let existingItemRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
                         let existingRow = null;
@@ -507,7 +538,6 @@ module.exports = {
                         return;
                     }
 
-                    // 🔥 تحديث زر تخطي لعرض الملخص مباشرة (gacha_skip) 🔥
                     if (i.customId === 'gacha_skip') {
                         if (generateGachaSummary && currentResults.length > 1) {
                             try {
@@ -521,7 +551,6 @@ module.exports = {
                             } catch(e) {}
                         }
                         
-                        // في حال فشل الملخص لأي سبب، يعرض آخر عنصر
                         currentImageIndex = currentPullCount - 1; 
                         await initialMsg.edit(await getPagePayload(currentImageIndex)).catch(()=>{});
                         isProcessing = false;
