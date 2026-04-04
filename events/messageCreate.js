@@ -6,8 +6,6 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 const { askMorax } = require('../handlers/ai-handler');
 const aiConfig = require('../utils/aiConfig'); 
 const aiLimitHandler = require('../utils/aiLimitHandler');
-
-// 🔥 تصحيح مسار استدعاء الملوك إلى الملف الجديد 🔥
 const { updateGuildStat } = require('../handlers/kings-stats-handler.js');
 
 let addXPAndCheckLevel;
@@ -390,26 +388,18 @@ module.exports = {
                     try {
                         const usageStatus = await aiLimitHandler.checkUserUsage(message.member, db);
                         if (usageStatus && usageStatus.canChat === false) {
-                            const daily = Number(usageStatus.dailyUsage) || 0;
-                            const limit = Number(usageStatus.roleLimit) || 0;
-                            const bal = Number(usageStatus.purchasedBalance) || 0;
-                            
-                            if (limit === 0 && bal === 0 && daily < 10) {
-                                canChat = true; 
-                            } else {
-                                canChat = false; 
-                            }
+                            canChat = false; 
                         }
-                    } catch(e) {
-                        console.error("[Limit Handler Error]:", e);
-                    }
+                    } catch(e) {}
                 }
 
                 if (!canChat) {
                     if (paymentCooldowns.has(message.author.id)) return; 
                     paymentCooldowns.add(message.author.id);
-                    setTimeout(() => paymentCooldowns.delete(message.author.id), 5 * 60 * 1000);
-                    const payButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ai_topup_2500').setLabel('ادفـع 2500 مورا').setEmoji(client.EMOJI_MORA || '💰').setStyle(ButtonStyle.Success));
+                    setTimeout(() => paymentCooldowns.delete(message.author.id), 10 * 60 * 1000); 
+                    const payButton = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('ai_topup_2500').setLabel('ادفـع 2500 مورا (100 رسالة)').setEmoji(client.EMOJI_MORA || '💰').setStyle(ButtonStyle.Success)
+                    );
                     return message.reply({ content: `✶ نـفـد وقـتي معـك ... \n✶ ان اردت استكمال محادثتنا ارفع مستواك او ادفـع مـورا لتجديد رصيـد محادثتنـا`, components: [payButton] }).catch(()=>{});
                 }
 
@@ -460,17 +450,7 @@ module.exports = {
                     if (isTrackedUser) {
                         try {
                             await aiLimitHandler.incrementUsage(message.member, db);
-                        } catch(e1) {
-                            try {
-                                await aiLimitHandler.incrementUsage(message.author.id, message.guild.id, db);
-                            } catch(e2) {
-                                try {
-                                    await aiLimitHandler.incrementUsage(message.author.id, db);
-                                } catch(e3) {
-                                    console.error("[AI Usage Increment ERROR]:", e3);
-                                }
-                            }
-                        }
+                        } catch(e1) {}
                     }
 
                     const safeReplyMsg = reply.replace(/@everyone/g, '@\u200beveryone').replace(/@here/g, '@\u200bhere');
@@ -485,9 +465,7 @@ module.exports = {
                         await safeReply(message, { content: safeReplyMsg, allowedMentions: replyOptions });
                     }
 
-                } catch (err) {
-                    console.error("[AI Chat Error]:", err);
-                }
+                } catch (err) {}
                 return; 
             }
         }
@@ -694,29 +672,25 @@ module.exports = {
 
         } catch (err) {}
 
-        // 🔥 نظام السماح لأوامر الاقتصاد في الكازينو بدون بريفكس 🔥
         if (settings && (((settings.casinoChannelID || settings.casinochannelid) && message.channel.id === (settings.casinoChannelID || settings.casinochannelid)) || ((settings.casinoChannelID2 || settings.casinochannelid2) && message.channel.id === (settings.casinoChannelID2 || settings.casinochannelid2)))) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            // نبحث في الأوامر سواء باسمها الأساسي أو بأسماءها البديلة (Aliases)
             const command = client.commands.find(cmd => 
                 (cmd.name && cmd.name.toLowerCase() === commandName) || 
                 (cmd.aliases && cmd.aliases.includes(commandName))
             );
 
-            // لو الأمر موجود وتصنيفه Economy، أو RPG (لأن الصناديق/gacha مصنفة RPG)
             if (command && (command.category === "Economy" || command.category === "RPG")) {
                 if (!(await checkPermissions(message, command))) return;
                 try {
-                    args.prefix = ""; // وهمي عشان يشتغل بدون مشاكل
+                    args.prefix = "";
                     await command.execute(message, args); 
                 } catch (error) { console.error(error); }
                 return;
             }
         }
 
-        // 🔥 نظام الأوامر المعتاد (بالبريفكس) 🔥
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
