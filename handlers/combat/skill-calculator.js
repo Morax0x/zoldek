@@ -167,15 +167,39 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
                 }
             }
             else if (skill.stat_type === 'Stun_Vulnerable') { 
-                result.damage = Math.floor(skillPower * 0.7); 
+                let finalDmg = Math.floor(skillPower * 0.7); 
                 result.effectsApplied.push({ type: 'weaken', val: 0.3, turns: 2 });
                 
-                let stunMsg = " (قاوم الشلل)";
+                let msgDetails = [];
+
+                // 🎯 1. السهم الخارق (Piercing) - فرصة 20%
+                if (Math.random() < 0.20) {
+                    finalDmg = Math.floor(finalDmg * 1.5); 
+                    msgDetails.push("💘 سهم خارق");
+                }
+
+                result.damage = finalDmg;
+
+                // ⚡ 2. الشلل (Stun) - فرصة 50%
                 if (Math.random() < 0.50) {
                     result.effectsApplied.push({ type: 'stun', val: true, turns: 1 });
-                    stunMsg = " 😵 وتم شل حركته!";
+                    msgDetails.push("😵 شلل");
+                } else {
+                    msgDetails.push("قاوم الشلل");
                 }
-                result.log = `🏹 **${getName(attacker)}** أطلق وابل السهام بضرر (${result.damage})${stunMsg}!`;
+
+                // ☠️ 3. السهام المسمومة أو المربكة - فرصة 20%
+                if (Math.random() < 0.20) {
+                    if (Math.random() < 0.5) {
+                        result.effectsApplied.push({ type: 'poison', val: Math.floor(skillPower * 0.3), turns: 3 });
+                        msgDetails.push("☠️ تسمم");
+                    } else {
+                        result.effectsApplied.push({ type: 'confusion', val: 0.5, turns: 2 });
+                        msgDetails.push("🌀 ارتباك");
+                    }
+                }
+
+                result.log = `🏹 **${getName(attacker)}** أطلق وابل السهام بضرر (${result.damage}) [${msgDetails.join(" | ")}]!`;
             }
             else if (skill.stat_type === 'Confusion') { 
                 result.damage = Math.floor(skillPower * 0.85);
@@ -277,17 +301,15 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
             break;
         }
 
-        // 🔥 التعديل الخرافي لمهارة مصاص الدماء 🔥
         case 'Lifesteal_Overheal': {
             result.damage = Math.floor(skillPower * 1.15);
             
-            // 🎲 نسبة 60% لتفعيل امتصاص الدم والنزيف 🎲
             if (Math.random() < 0.60) {
-                const bleedDmg = Math.floor(result.damage * 0.15); // تم تخفيض النزيف إلى 15% من الضرر
+                const bleedDmg = Math.floor(result.damage * 0.15); 
                 const finalBleed = Math.max(30, bleedDmg);
                 result.effectsApplied.push({ type: 'burn', val: finalBleed, turns: 2 });
 
-                const potentialHeal = Math.floor(result.damage * 0.25); // تم تخفيض الهيل إلى 25% من الضرر
+                const potentialHeal = Math.floor(result.damage * 0.25); 
                 const currentHp = attacker.hp || 0;
                 const maxHp = attacker.maxHp || 100;
                 const missingHp = maxHp - currentHp;
@@ -295,14 +317,13 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
                 if (potentialHeal > missingHp) {
                     result.heal = missingHp;
                     const overflow = potentialHeal - missingHp;
-                    result.shield = Math.floor(overflow * 0.15); // تم تخفيض الدرع الفائض إلى 15% فقط
+                    result.shield = Math.floor(overflow * 0.15); 
                     result.log = `🩸 **${getName(attacker)}** مزق جسد الخصم! (شفاء +${result.heal} | درع +${result.shield} | نزيف)`;
                 } else {
                     result.heal = potentialHeal;
                     result.log = `🩸 **${getName(attacker)}** نهش الخصم! (+${potentialHeal} HP | نزيف)`;
                 }
             } else {
-                // في حال فشل الحظ (40%)، ضرر مباشر فقط بدون هيل أو درع أو نزيف
                 result.log = `🦇 **${getName(attacker)}** ضرب الخصم بشراسة، لكنه فشل في امتصاص دمه! (${result.damage} ضرر فقط)`;
             }
             break;
