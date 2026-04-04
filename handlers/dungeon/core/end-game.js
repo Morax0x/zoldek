@@ -189,8 +189,8 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         
         let statusEmoji = p.isDead ? `💀 ${p.deathFloor ? `(مات في ${p.deathFloor})` : ""}` : p.retreatFloor ? `🏃‍♂️ (انسحب في ${p.retreatFloor})` : status === 'camp' ? "⛺ (مخيم)" : "✅";
         
-        let repString = displayRep > 0 ? ` | 🌟 سمعة: **${displayRep}**` : "";
-        let chestString = displayChests > 0 ? ` | 🎁 صناديق: **${displayChests}**` : "";
+        let repString = displayRep > 0 ? ` | ✬ REP: **${displayRep}** 🌟` : "";
+        let chestString = displayChests > 0 ? ` | ✬ BOX: **${displayChests}** 🎁` : "";
         
         lootString += `✬ <@${p.id}> ${statusEmoji}: ${finalMora.toLocaleString()} ${EMOJI_MORA} | ${finalXp.toLocaleString()} XP${repString}${chestString}\n`;
     }
