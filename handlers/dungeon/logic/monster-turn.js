@@ -75,32 +75,47 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
         return true; 
     }
 
+    // 🔥 المحرك الفولاذي لمعالجة التأثيرات والنزيف 🔥
     if (monster.effects) {
         monster.effects = monster.effects.filter(e => {
             let dmgVal = 0;
             let effectName = "";
             let icon = "";
+            const safeType = (e.type || "").toLowerCase(); // حماية من حالة الأحرف
 
-            if (e.type === 'burn' || e.type === 'poison' || e.type === 'bleed') {
-                let rawVal = e.val || 0;
+            if (safeType === 'burn' || safeType === 'poison' || safeType === 'bleed') {
+                // دعم جميع المسميات المحتملة للقوة لضمان عدم فشلها
+                let rawVal = e.val || e.damage || e.value || 0; 
+                
                 if (rawVal >= 1) {
                     dmgVal = Math.floor(rawVal);
                 } else if (rawVal > 0 && rawVal < 1) {
                     dmgVal = Math.floor(monster.maxHp * rawVal);
                 }
+                
                 dmgVal = applyLocalCap(dmgVal, damageCap);
-                monster.hp = Math.max(0, monster.hp - dmgVal);
+                
+                if (dmgVal > 0) {
+                    monster.hp = Math.max(0, monster.hp - dmgVal);
 
-                if (e.type === 'burn') { effectName = "يحترق"; icon = "🔥"; }
-                if (e.type === 'poison') { effectName = "يتألم من السم"; icon = "☠️"; }
-                if (e.type === 'bleed') { effectName = "ينزف بشدة"; icon = "🩸"; }
+                    if (safeType === 'burn') { effectName = "يحترق"; icon = "🔥"; }
+                    if (safeType === 'poison') { effectName = "يتألم من السم"; icon = "☠️"; }
+                    if (safeType === 'bleed') { effectName = "ينزف بشدة"; icon = "🩸"; }
 
-                let msg = `${icon} **${monster.name}** ${effectName}! (-${dmgVal})`;
-                if (dmgVal === damageCap) msg += " (مختوم)";
-                log.push(msg);
+                    let msg = `${icon} **${monster.name}** ${effectName}! (-${dmgVal})`;
+                    if (dmgVal === damageCap) msg += " (مختوم)";
+                    log.push(msg);
+                }
             }
-            if (e.turns) e.turns--;
-            return e.turns > 0;
+            
+            // إصلاح مشكلة اختفاء اللعنة بسبب عدم وجود Turns
+            if (e.turns !== undefined && e.turns !== null) {
+                e.turns--;
+                return e.turns > 0;
+            } else {
+                // إذا لم يتم تحديد عدد أدوار للمهارة، اجعلها تؤثر لمرة واحدة فقط ثم تختفي
+                return false;
+            }
         });
     }
 
@@ -133,8 +148,8 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
 
     if (monster.hp <= 0) { monster.hp = 0; return false; }
 
-    const confusion = monster.effects.find(e => e.type === 'confusion');
-    if (confusion && Math.random() < confusion.val) {
+    const confusion = monster.effects.find(e => (e.type || "").toLowerCase() === 'confusion');
+    if (confusion && Math.random() < (confusion.val || 0.5)) { // تأمين ضد القيم الفارغة
         const selfDmg = Math.floor(monster.atk * 0.5) || 1;
         monster.hp = Math.max(0, monster.hp - selfDmg);
         log.push(`😵 **${monster.name}** في حالة فوضى وضرب نفسه! (-${selfDmg})`);
