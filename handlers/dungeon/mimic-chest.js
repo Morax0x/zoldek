@@ -48,6 +48,12 @@ async function triggerMimicChest(thread, players) {
 
             openedPlayers.add(player.id);
 
+            // 🛡️ حماية وتهيئة المتغيرات لمنع الكراش (Crash Prevention) 🛡️
+            if (!player.effects) player.effects = [];
+            if (!player.loot) player.loot = { mora: 0, xp: 0 };
+            if (isNaN(player.shield)) player.shield = 0;
+            if (isNaN(player.critRate)) player.critRate = 0.1;
+
             const roll = Math.random() * 100;
             let resultMsg = "";
 
@@ -63,7 +69,7 @@ async function triggerMimicChest(thread, players) {
 
             } else if (roll < 35) { 
                 const shieldVal = Math.floor(Math.random() * (250 - 50 + 1)) + 50;
-                player.shield = (player.shield || 0) + shieldVal;
+                player.shield += shieldVal;
                 player.shieldPersistent = true;
                 player.shieldFloorsCount = 0;
                 resultMsg = `🛡️ **${player.name}** عثر على درع سحري متهالك! (+${shieldVal} درع)`;
@@ -76,7 +82,7 @@ async function triggerMimicChest(thread, players) {
             } else if (roll < 48) { 
                 const healAmount = Math.floor(player.maxHp * 0.40);
                 if (player.hp >= player.maxHp * 0.9) {
-                    player.shield = (player.shield || 0) + healAmount;
+                    player.shield += healAmount;
                     resultMsg = `🛡️ **${player.name}** وجد جرعة شفاء وهو بكامل عافيته، فتحولت الطاقة السحرية إلى **${healAmount}** درع!`;
                 } else {
                     player.hp = Math.min(player.maxHp, player.hp + healAmount);
@@ -84,22 +90,35 @@ async function triggerMimicChest(thread, players) {
                 }
 
             } else if (roll < 55) { 
-                player.effects.push({ type: 'atk_buff', val: 0.2, turns: 5 });
+                // منع تكرار البف بشكل لا نهائي (Stacking fix)
+                const existingBuff = player.effects.find(e => e.type === 'atk_buff');
+                if (existingBuff) {
+                    existingBuff.turns = 5;
+                    existingBuff.val = Math.max(existingBuff.val, 0.2);
+                } else {
+                    player.effects.push({ type: 'atk_buff', val: 0.2, turns: 5 });
+                }
                 resultMsg = `💪 **${player.name}** حصل على بركة القوة! (+20% هجوم لـ 5 جولات) ${EMOJI_BUFF}`;
 
             } else if (roll < 60) {
-                player.critRate = (player.critRate || 0.2) + 0.2; 
+                player.critRate = Math.min(1.0, player.critRate + 0.2); 
                 resultMsg = `🎯 **${player.name}** وجد نظارة القناص! (زادت نسبة الضربة الحرجة)`;
 
             } else if (roll < 70) {
                 const potionRoll = Math.random();
                 if (potionRoll < 0.5) {
-                    player.maxHp *= 2;
-                    player.hp = player.maxHp;
-                    player.effects.push({ type: 'titan', floors: 3 });
-                    resultMsg = `🍷 **${player.name}** وجد **جرعة العملاق** وشربها فوراً! (تضاعفت الصحة لـ 3 طوابق)`;
+                    if (!player.effects.some(e => e.type === 'titan')) {
+                        player.maxHp *= 2;
+                        player.hp = player.maxHp;
+                        player.effects.push({ type: 'titan', floors: 3 });
+                        resultMsg = `🍷 **${player.name}** وجد **جرعة العملاق** وشربها فوراً! (تضاعفت الصحة لـ 3 طوابق)`;
+                    } else {
+                        player.hp = player.maxHp; // إذا كان عملاقاً سلفاً، اشفِه فقط لمنع ثغرة الـ HP اللانهائي
+                        resultMsg = `🍷 **${player.name}** وجد جرعة العملاق لكنه عملاق بالفعل! (تم استعادة الصحة بالكامل)`;
+                    }
                 } else {
-                    player.effects.push({ type: 'rebound_active', val: 0.3, turns: 3 });
+                    // 🔥 التصحيح الأهم: تغيير الاسم إلى reflect ليتعرف عليها المحرك 🔥
+                    player.effects.push({ type: 'reflect', val: 0.3, turns: 3 });
                     resultMsg = `🌵 **${player.name}** وجد **جرعة الأشواك** وشربها! (يعكس 30% ضرر لـ 3 جولات)`;
                 }
 
@@ -109,7 +128,7 @@ async function triggerMimicChest(thread, players) {
                 resultMsg = `👹 **${player.name}** الصنـدوق كـان ميميـك! قام بعضـه وسبب **${dmg}** ضرر!`;
 
             } else if (roll < 83) { 
-                player.effects.push({ type: 'stun', val: true, turns: 1 });
+                player.effects.push({ type: 'stun', val: 1, turns: 1 }); // توحيد القيم لتجنب الأعطال الحسابية
                 resultMsg = `❄️ **${player.name}** فتح فخاً جليدياً! (تجميد للدور القادم)`;
 
             } else if (roll < 88) { 
@@ -119,8 +138,8 @@ async function triggerMimicChest(thread, players) {
 
             } else if (roll < 93) { 
                 const stealAmount = Math.floor(Math.random() * (200 - 50 + 1)) + 50;
-                const actualSteal = Math.min(player.loot.mora, stealAmount);
-                player.loot.mora -= actualSteal;
+                const actualSteal = Math.min(player.loot.mora || 0, stealAmount);
+                player.loot.mora = Math.max(0, (player.loot.mora || 0) - actualSteal);
                 
                 if (actualSteal > 0) {
                     resultMsg = `👺 **${player.name}** ظهر عفريت وسرق منه **${actualSteal}** مورا وهرب!`;
@@ -134,7 +153,7 @@ async function triggerMimicChest(thread, players) {
 
             } else { 
                 const pityShield = Math.floor(Math.random() * 50) + 10;
-                player.shield = (player.shield || 0) + pityShield;
+                player.shield += pityShield;
                 resultMsg = `💨 **${player.name}** الصندوق كان فارغاً... لكنه وجد قطعة خشبية استخدمها كدرع (+${pityShield} درع).`;
             }
 
