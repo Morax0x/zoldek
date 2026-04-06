@@ -19,13 +19,13 @@ function getWeaponRawDamage(weaponConfig, level) {
     } else {
         // من مستوى 16 إلى 30: توحيد إجباري للجميع! (كل الأعراق تتساوى هنا)
         const damageAt15 = base + (inc * 14); // نحسب ضرر السلاح عند لفل 15 كبداية
-        const targetDamageAt30 = 800; // في لفل 30 الجميع 800
+        const targetDamageAt30 = 1000; // 🔥 تم رفع الكاب الأقصى إلى 1000 بناءً على أمر الإمبراطور 🔥
         const levelsRemaining = 15; 
         const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining; // زيادة متدرجة وذكية
         
         let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
         
-        // كاب أقصى للضمان ألا يتجاوز 800 في حال وصل لفل 30
+        // كاب أقصى لضمان ألا يتجاوز 1000 في حال وصل لفل 30 أو أعلى
         if (level >= 30) return targetDamageAt30;
         
         return Math.floor(finalDamage);
