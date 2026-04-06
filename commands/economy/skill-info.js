@@ -17,13 +17,13 @@ const SKILL_TIPS = new Map([
     ['skill_gamble', 'للمخاطرين فقط! قد تسبب ضرراً هائلاً، أو ضرراً ضعيفاً جداً. تعتمد على الحظ.'],
     ['race_dragon_skill', 'هجوم ناري قوي يسبب ضرراً حقيقياً يتجاهل أي درع لدى الخصم.'],
     ['race_human_skill', 'مهارة دفاعية وهجومية. تمنحك درعاً وتعزيزاً للضرر في نفس الوقت.'],
-    ['race_seraphim_skill', 'هجوم يسرق الحياة. يسبب ضرراً للخصم ويعالجك بنسبة 10% من صحتك الكاملة.'],
+    ['race_seraphim_skill', 'هجوم يسرق الحياة. يسبب ضرراً للخصم ويعالجك بنسبة كبيرة من صحتك الكاملة.'],
     ['race_demon_skill', 'هجوم انتحاري. يسبب ضرراً هائلاً للخصم، لكنه يخصم 10% من صحتك الحالية.'],
     ['race_elf_skill', 'هجوم سريع يضرب مرتين متتاليتين، مسبباً ضرراً مزدوجاً في دور واحد.'],
     ['race_dark_elf_skill', 'يسبب ضرراً فورياً ويضع أقوى سم في اللعبة على الخصم.'],
     ['race_vampire_skill', 'هجوم يسرق الحياة بناءً على الضرر المُسبب. كلما كان هجومك أقوى، زاد شفاؤك.'],
     ['race_hybrid_skill', 'مهارة متقلبة. تمنحك تأثير عشوائي (درع، أو تعزيز، أو شفاء).'],
-    ['race_spirit_skill', 'يسمح لهجومك القادم باختراق أي درع يمتلكه الخصم.'],
+    ['race_spirit_skill', 'هجوم طيفي عشوائي قد يشل الخصم أو يسرق قوته أو يجعلك تعكس الضرر.'],
     ['race_dwarf_skill', 'يمنحك درعاً قوياً جداً يقلل الضرر بنسبة كبيرة، لكنه يستهلك دورك (لا يمكنك الهجوم).'],
     ['race_ghoul_skill', 'هجوم متوسط يلحق ضرراً بالخصم ويقوم بإضعافه في نفس الوقت.']
 ]);
@@ -49,7 +49,7 @@ function getSkillImageURL(skillId) {
     return null;
 }
 
-// 🔥 دالة الحسبة الموحدة للمهارات (Hard Sync) 🔥
+// 🔥 دالة الحسبة الموحدة للمهارات المطابقة للمحرك القتالي 🔥
 function getSkillDisplayValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -61,7 +61,7 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
         return Math.floor(base + (inc * (level - 1)));
     } else {
         const valueAt15 = base + (inc * 14);
-        const targetValueAt30 = isPercentage ? 50 : 200; 
+        const targetValueAt30 = isPercentage ? 70 : 200; 
         const levelsRemaining = 15;
         const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
         let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
@@ -146,11 +146,22 @@ module.exports = {
         const tip = SKILL_TIPS.get(skill.id) || "لا توجد نصيحة خاصة لهذه المهارة.";
         const isRaceSkill = skill.id.startsWith('race_');
 
-        // حساب القيم الجديدة الموحدة (1, 15, 30)
-        const statSymbol = skill.stat_type === '%' ? '%' : '';
-        const valAt1 = getSkillDisplayValue(skill, 1);
-        const valAt15 = getSkillDisplayValue(skill, 15);
-        const valAt30 = getSkillDisplayValue(skill, 30);
+        // حساب القيم الموحدة بناءً على النظام الجديد
+        const isPercentage = skill.stat_type === '%' || skill.id.includes('heal') || skill.id.includes('shield');
+        const statSymbol = isPercentage ? '%' : '';
+        
+        let valAt1 = getSkillDisplayValue(skill, 1);
+        let valAt15 = getSkillDisplayValue(skill, 15);
+        let valAt30 = getSkillDisplayValue(skill, 30);
+        
+        // توضيح للضرر الفعلي للمهارات الهجومية (الـ 200 تنضرب في 5 في القتال)
+        let dmgNote = "";
+        if (!isPercentage) {
+            valAt1 = valAt1 * 5;
+            valAt15 = valAt15 * 5;
+            valAt30 = valAt30 * 5;
+            dmgNote = "\n*(الأرقام تمثل الضرر الأساسي للمهارة قبل حساب تأثيرات الأسلحة والسمعة)*";
+        }
         
         const skillImage = getSkillImageURL(skill.id);
 
@@ -160,7 +171,7 @@ module.exports = {
             `✶ **القوة عند الصحوة (Lv.30):** \`${valAt30}${statSymbol}\``,
             `✶ **نوع المهارة:** \`${isRaceSkill ? 'عرقية (حصرية)' : 'عامة (متاحة للكل)'}\``,
             `✶ **أقصى مستوى:** \`Lv. ${skill.max_level || 30}\``
-        ].join('\n');
+        ].join('\n') + dmgNote;
 
         const embed = new EmbedBuilder()
             .setTitle(`${skill.emoji || '✨'} ${skill.name} ${isRaceSkill ? '(خاص بالعرق)' : ''}`)
