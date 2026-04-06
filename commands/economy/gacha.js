@@ -568,8 +568,6 @@ module.exports = {
                     await fetchUserData();
                     
                     let isBuying = i.customId.startsWith('gacha_');
-                    
-                    // 🔥 تعديل قراءة عدد السحبات بناءً على الأزرار الجديدة 🔥
                     currentPullCount = (i.customId === 'gacha_10' || i.customId === 'open_chest_10') ? 10 : 1;
                     
                     let cost = 0;
@@ -635,7 +633,6 @@ module.exports = {
                             }
                         }
                         
-                        // 🔥 إضافة هذا السطر عشان نحدث الكاش ونعرض العدد المتبقي بشكل صحيح 🔥
                         await fetchUserData(); 
                         
                         await initialMsg.edit({ embeds: fallbackEmbeds, files, components: [getReturnButton()], content: (files.length > 0 || fallbackEmbeds.length > 0) ? '' : '\u200B' }).catch(()=>{});
