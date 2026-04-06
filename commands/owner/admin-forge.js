@@ -1,4 +1,4 @@
-const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, Colors, AttachmentBuilder, MessageFlags } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, Colors, AttachmentBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const weaponsConfig = require('../../json/weapons-config.json');
 const skillsConfig = require('../../json/skills-config.json');
 const upgradeMats = require('../../json/upgrade-materials.json');
@@ -89,7 +89,6 @@ const safeQuery = async (db, qPg, params) => {
     }
 };
 
-// 🔥 هنا السحر: الفحوصات دائماً ترجع true للإمبراطور، والخصومات لا تفعل شيئاً 🔥
 async function checkMora() { return true; }
 async function checkItems() { return true; }
 async function deductMora() { return true; }
@@ -122,7 +121,7 @@ function getWeaponDisplayDamage(weaponConfig, level) {
     if (level <= 15) return Math.floor(base + (inc * (level - 1)));
     else {
         const damageAt15 = base + (inc * 14);
-        const targetDamageAt30 = 800;
+        const targetDamageAt30 = 1000;
         const dynamicIncrement = (targetDamageAt30 - damageAt15) / 15;
         if (level >= 30) return targetDamageAt30;
         return Math.floor(damageAt15 + (dynamicIncrement * (level - 15)));
@@ -139,7 +138,7 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
     if (level <= 15) return Math.floor(base + (inc * (level - 1)));
     else {
         const valueAt15 = base + (inc * 14);
-        const targetValueAt30 = isPercentage ? 50 : 200; 
+        const targetValueAt30 = isPercentage ? 70 : 200; 
         const dynamicIncrement = (targetValueAt30 - valueAt15) / 15;
         if (level >= 30) return targetValueAt30;
         return Math.floor(valueAt15 + (dynamicIncrement * (level - 15)));
@@ -176,8 +175,8 @@ function getUpgradeRequirements(currentLevel, isSkill = false) {
 
 const getMainMenuRows = () => [
     new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('admin_forge_weapon').setLabel('تطوير السلاح (مجاني)').setStyle(ButtonStyle.Danger).setEmoji('⚒️'),
-        new ButtonBuilder().setCustomId('admin_forge_skill_menu').setLabel('تطوير المهارات (مجاني)').setStyle(ButtonStyle.Primary).setEmoji('🔮')
+        new ButtonBuilder().setCustomId('admin_forge_weapon').setLabel('تطوير السلاح').setStyle(ButtonStyle.Danger).setEmoji('⚒️'),
+        new ButtonBuilder().setCustomId('admin_forge_skill_menu').setLabel('تطوير المهارات').setStyle(ButtonStyle.Primary).setEmoji('🔮')
     )
 ];
 
@@ -197,11 +196,9 @@ async function replyWithCanvas(i, targetUser, view, data, components) {
                 if (i.deferred || i.replied) {
                     returnMessage = await i.editReply({ content: null, embeds: [], components, files: [attachment] }).catch(()=>{});
                 } else if (typeof i.reply === 'function') {
-                    // استخدمنا withResponse للامتثال لتحديثات ديسكورد الجديدة بدلاً من fetchReply
                     returnMessage = await i.reply({ content: null, embeds: [], components, files: [attachment], withResponse: true }).catch(()=>{});
                 }
                 
-                // إذا لم يتم جلب الرسالة، نكتفي بالتفاعل فقط لمنع تحطم الكود
                 return returnMessage ? (returnMessage.resource?.message || returnMessage) : i; 
             }
         }
@@ -212,7 +209,7 @@ async function replyWithCanvas(i, targetUser, view, data, components) {
 async function buildMainUI(i, targetUser, guildId, db) {
     let userDataRes = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [targetUser.id, guildId]);
     const userMora = Number(userDataRes?.rows?.[0]?.mora || userDataRes?.rows?.[0]?.Mora || 0) + Number(userDataRes?.rows?.[0]?.bank || userDataRes?.rows?.[0]?.Bank || 0);
-    return await replyWithCanvas(i, targetUser, 'main', { mora: userMora, title: '🔧 حدادة الإمبراطور (مسؤول)' }, getMainMenuRows());
+    return await replyWithCanvas(i, targetUser, 'main', { mora: userMora, title: 'المجمع الإمبراطوري للتطوير' }, getMainMenuRows());
 }
 
 module.exports = {
@@ -221,7 +218,6 @@ module.exports = {
     description: 'أمر الإمبراطور لتطوير عتاد ومهارات اللاعبين مجاناً (للأونر فقط - بريفكس)',
     category: 'Owner',
     
-    // تم التعديل لمنع خطأ TypeError: Cannot read properties of undefined (reading 'users')
     async execute(message, args) {
         if (message.author.id !== OWNER_ID) return;
         
@@ -229,7 +225,6 @@ module.exports = {
         const db = client.sql;
         const guildId = message.guild.id; 
 
-        // قراءة المنشن بأمان
         const targetUser = message.mentions.users.first() || client.users.cache.get(args[0]);
         if (!targetUser || targetUser.bot) {
             return message.reply({ content: "❌ الرجاء منشن لاعب صحيح (أو وضع الآيدي حقه)." });
@@ -259,10 +254,8 @@ module.exports = {
 
         let replyObj = await buildMainUI(fakeInteraction, targetUser, guildId, db);
 
-        // الحماية من الـ TypeError إذا لم يرجع الرسالة الصحيحة
         if (!replyObj || !replyObj.createMessageComponentCollector) return;
 
-        // 🔥 الكولكتر يستجيب فقط للأونر 🔥
         const filter = i => i.user.id === message.author.id && i.customId.startsWith('admin_forge_');
         const collector = replyObj.createMessageComponentCollector({ filter, time: 300000 });
 
@@ -314,32 +307,27 @@ async function buildWeaponForgeUI(i, targetUser, guildId, db) {
 
     if (currentLevel === 0) {
         const btnRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`admin_forge_buy_weapon`).setLabel(`صناعة السلاح الأساسي (مجاني للأونر)`).setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`admin_forge_buy_weapon`).setLabel(`صناعة السلاح الأساسي`).setStyle(ButtonStyle.Success),
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, targetUser, 'weapon', {
-            mora: userMora, title: `صناعة ${resolveText(weaponConfig.name)} (مسؤول)`,
+            mora: userMora, title: `صناعة ${resolveText(weaponConfig.name)}`,
             currentLevel: 0, nextLevel: 1, currentStat: `0 DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, 1)} DMG`, reqMora: 0, 
-            detailedReqs: [{ id: 'mora_fee', count: 0, userCount: 99999, name: 'تطوير مسؤول مجاني', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }] 
+            detailedReqs: [{ id: 'royal_blessing', count: 0, userCount: 1, name: 'مباركة الإمبراطور المطلقة', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }] 
         }, [btnRow]);
     }
     
-    if (currentLevel >= 30) return await replyWithCanvas(i, targetUser, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: '✨ سلاح اللاعب وصل للحد الأقصى (Lv.30)!' }, [getReturnRow()]);
+    if (currentLevel >= 30) return await replyWithCanvas(i, targetUser, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: '✨ السلاح وصل للحد الأقصى (Lv.30)!' }, [getReturnRow()]);
 
-    const reqs = getUpgradeRequirements(currentLevel, false);
-    
-    // متطلبات وهمية ممتلئة للـ UI فقط
-    const detailedReqs = reqs.materials.map(r => {
-        return { id: r.tier, count: 0, userCount: 9999, name: 'موارد الأونر اللانهائية', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' };
-    });
+    const detailedReqs = [{ id: 'royal_blessing', count: 0, userCount: 1, name: 'مباركة الإمبراطور المطلقة', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }];
 
     const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`admin_forge_upgrade_weapon`).setLabel('تـطـويـر السـلاح (مجاني)').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`admin_forge_upgrade_weapon`).setLabel('تـطـويـر السـلاح').setStyle(ButtonStyle.Success),
         getReturnRow().components[0]
     );
     
     return await replyWithCanvas(i, targetUser, 'weapon', {
-        mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)} (مسؤول)`,
+        mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`,
         currentLevel, nextLevel: currentLevel + 1, currentStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel)} DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel + 1)} DMG`, reqMora: 0, detailedReqs: detailedReqs 
     }, [btnRow]);
 }
@@ -393,8 +381,8 @@ async function buildAcademyMenuUI(i, targetUser, guildId, db) {
         return { label: resolveText(sc.name).substring(0, 100), value: sc.id.substring(0, 100), description: `Lv.${lvl}`.substring(0, 100) };
     });
 
-    const skillSelectRow = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('admin_forge_skill_select').setPlaceholder('اختر مهارة لترقيتها للاعب...').addOptions(skillOptions.slice(0, 25)));
-    return await replyWithCanvas(i, targetUser, 'skill_home', { mora: userMora, title: 'أكاديمية السحر (مسؤول)' }, [skillSelectRow, getReturnRow()]);
+    const skillSelectRow = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('admin_forge_skill_select').setPlaceholder('اختر مهارة لترقيتها...').addOptions(skillOptions.slice(0, 25)));
+    return await replyWithCanvas(i, targetUser, 'skill_home', { mora: userMora, title: 'أكاديمية السحر' }, [skillSelectRow, getReturnRow()]);
 }
 
 async function buildSkillUpgradeUI(i, targetUser, guildId, db, skillId) {
@@ -410,31 +398,27 @@ async function buildSkillUpgradeUI(i, targetUser, guildId, db, skillId) {
     
     if (currentLevel === 0) {
         const btnRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`admin_forge_learn_skill_${skillId}`).setLabel(`تعلم المهارة (مجاني للأونر)`).setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`admin_forge_learn_skill_${skillId}`).setLabel(`تعلم المهارة`).setStyle(ButtonStyle.Success),
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, targetUser, 'skill', {
-            mora: userMora, title: `تعلم ${resolveText(configSkill.name)} (مسؤول)`,
+            mora: userMora, title: `تعلم ${resolveText(configSkill.name)}`,
             currentLevel: 0, nextLevel: 1, currentStat: `0${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, 1)}${statSymbol}`, reqMora: 0, 
-            detailedReqs: [{ id: 'mora_fee', count: 0, userCount: 9999, name: 'تعلم مسؤول', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
+            detailedReqs: [{ id: 'royal_blessing', count: 0, userCount: 1, name: 'مباركة الإمبراطور المطلقة', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
         }, [btnRow]);
     }
 
-    if (currentLevel >= (configSkill.max_level || 30)) return await replyWithCanvas(i, targetUser, 'skill_error', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, hasError: true, errorMsg: '✨ المهارة وصلت للحد الأقصى عند اللاعب!' }, [getReturnRow()]);
+    if (currentLevel >= (configSkill.max_level || 30)) return await replyWithCanvas(i, targetUser, 'skill_error', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, hasError: true, errorMsg: '✨ المهارة وصلت للحد الأقصى!' }, [getReturnRow()]);
 
-    const reqs = getUpgradeRequirements(currentLevel, true);
-    
-    const detailedReqs = reqs.materials.map(r => {
-        return { id: r.tier, count: 0, userCount: 9999, name: 'موارد الأونر اللانهائية', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' };
-    });
+    const detailedReqs = [{ id: 'royal_blessing', count: 0, userCount: 1, name: 'مباركة الإمبراطور المطلقة', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }];
 
     const btnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`admin_forge_upgrade_skill_${skillId}`).setLabel('صقل المهارة 📜 (مجاني)').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`admin_forge_upgrade_skill_${skillId}`).setLabel('صقل المهارة 📜').setStyle(ButtonStyle.Success),
         getReturnRow().components[0]
     );
     
     return await replyWithCanvas(i, targetUser, 'skill', {
-        mora: userMora, title: `صقل ${resolveText(configSkill.name)} (مسؤول)`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getSkillDisplayValue(configSkill, currentLevel)}${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}`, reqMora: 0, detailedReqs: detailedReqs
+        mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getSkillDisplayValue(configSkill, currentLevel)}${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}`, reqMora: 0, detailedReqs: detailedReqs
     }, [btnRow]);
 }
 
