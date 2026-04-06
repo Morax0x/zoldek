@@ -63,7 +63,6 @@ try {
     };
 }
 
-// 🛡️ نظام معالجة الاستعلامات الفولاذي 🛡️
 const safeQuery = async (db, qPg, qLite, params) => {
     try { return await db.query(qPg, params); } 
     catch(e) { return await db.query(qLite, params).catch(()=>({rows:[]})); }
@@ -120,7 +119,7 @@ function getWeaponDisplayDamage(weaponConfig, level) {
         return Math.floor(base + (inc * (level - 1)));
     } else {
         const damageAt15 = base + (inc * 14);
-        const targetDamageAt30 = 800;
+        const targetDamageAt30 = 1000;
         const levelsRemaining = 15; 
         if (damageAt15 >= targetDamageAt30) return Math.floor(base + (inc * (level - 1)));
         const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
@@ -142,7 +141,7 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
         finalValue = base + (inc * (level - 1));
     } else {
         const valueAt15 = base + (inc * 14);
-        const targetValueAt30 = isPercentage ? 50 : 200; 
+        const targetValueAt30 = isPercentage ? 70 : 200; 
         const levelsRemaining = 15;
         if (valueAt15 >= targetValueAt30) finalValue = base + (inc * (level - 1));
         else {
@@ -262,7 +261,6 @@ async function checkMora(db, userId, guildId, amount) {
     return (mora + bank) >= amount;
 }
 
-// 🔥 تم إصلاح دالة الخصم وتمرير الـ client لتحديث ذاكرة الكاش الخاصة بالمشتري 🔥
 async function deductMora(client, db, userId, guildId, amount) {
     if (amount <= 0) return true;
     let res = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
@@ -282,7 +280,6 @@ async function deductMora(client, db, userId, guildId, amount) {
 
     await safeExecute(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [mora, bank, userId, guildId]);
     
-    // ✅ تحديث ذاكرة التخزين المؤقت للبوت (الكاش) لتجنب الثغرة وظهور الفلوس الوهمية
     if (client && typeof client.getLevel === 'function') {
         let u = await client.getLevel(userId, guildId);
         if (u) {
@@ -338,7 +335,6 @@ module.exports = {
             let selectedIndex = 0; 
             let activeItemDetails = null; 
 
-            // ⚡ نظام الكاش الذكي لتسريع التنقل بين العناصر ⚡
             let cachedItems = null;
             let cachedCategory = null;
 
@@ -362,7 +358,6 @@ module.exports = {
                 try {
                     const invQuery = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetUser.id, guildId]);
                     
-                    // دمج الكميات بشكل صحيح قبل المعالجة
                     let aggregatedInv = new Map();
                     (invQuery?.rows || []).forEach(row => {
                         const idKey = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
@@ -420,7 +415,7 @@ module.exports = {
                         return rankB - rankA;
                     });
 
-                } catch(e) { console.error(e); }
+                } catch(e) {}
                 return fetchedItems;
             };
 
@@ -518,7 +513,11 @@ module.exports = {
                             if (conf) {
                                 const realValue = getSkillDisplayValue(conf, Number(s[sLvlKey]));
                                 const isPercent = conf.stat_type === '%' ? '%' : '';
-                                const updatedDescription = conf.description.replace(/[0-9]+%?/, `${realValue}${isPercent}`);
+                                
+                                let trueDamageFix = realValue;
+                                if (!isPercent) trueDamageFix = realValue * 5; 
+                                
+                                const updatedDescription = conf.description.replace(/[0-9]+%?/, `${trueDamageFix}${isPercent}`);
                                 return { id: conf.id, name: conf.name, level: Number(s[sLvlKey]), description: updatedDescription };
                             }
                             return null;
@@ -762,7 +761,6 @@ module.exports = {
                         if (isNaN(qty) || qty <= 0) return modalSubmit.reply({ content: '❌ كمية غير صالحة. (يجب أن يكون 1 أو أكثر)', flags: [MessageFlags.Ephemeral] });
                         if (isNaN(price) || price < 0) return modalSubmit.reply({ content: '❌ سعر غير صالح. (يجب أن يكون 0 أو أكثر)', flags: [MessageFlags.Ephemeral] });
 
-                        // 🔥 أخذ نسخة احتياطية من العنصر 🔥
                         const tradeItem = { ...activeItemDetails };
 
                         const hasEnoughSenderItems = await checkItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
@@ -846,8 +844,8 @@ module.exports = {
                                 }
 
                                 try {
-                                    // 🔥 تعديل جوهري هنا: خصم من المشتري باستخدام الدالة المطورة، خصم الأداة من البائع، وإضافة الأداة للمشتري 🔥
-                                    await deductMora(client, db, targetID, guildId, price);
+                                    const deductMoraFunc = require('../handlers/shop_system/utils.js').deductMora;
+                                    await deductMoraFunc(client, db, targetID, guildId, price);
                                     await deductItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
                                     
                                     let targetCheckResTradeFinal = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
