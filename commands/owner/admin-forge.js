@@ -1,4 +1,4 @@
-const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, Colors, AttachmentBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, Colors, AttachmentBuilder, MessageFlags } = require('discord.js');
 const weaponsConfig = require('../../json/weapons-config.json');
 const skillsConfig = require('../../json/skills-config.json');
 const upgradeMats = require('../../json/upgrade-materials.json');
@@ -12,6 +12,7 @@ try {
 
 const R2_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 const OWNER_ID = '1145327691772481577';
+const LEARN_FEE = 250;
 
 const ID_TO_IMAGE = {
     'mat_dragon_1': 'dragon_ash.png', 'mat_dragon_2': 'dragon_scale.png', 'mat_dragon_3': 'dragon_claw.png', 'mat_dragon_4': 'dragon_heart.png', 'mat_dragon_5': 'dragon_core.png',
@@ -60,10 +61,46 @@ function getSafeWeaponConfig(raceName) {
     return weaponsConfig.find(w => w.race.toLowerCase() === raceName.toLowerCase()) || weaponsConfig[0];
 }
 
+function getSafeRaceMats(raceName) {
+    if (!raceName || !upgradeMats || !upgradeMats.weapon_materials || upgradeMats.weapon_materials.length === 0) return { materials: [] };
+    return upgradeMats.weapon_materials.find(m => m.race.toLowerCase() === raceName.toLowerCase()) || upgradeMats.weapon_materials[0];
+}
+
+function getSafeBookCat(categoryName) {
+    if (!categoryName || !upgradeMats || !upgradeMats.skill_books || upgradeMats.skill_books.length === 0) return { books: [] };
+    return upgradeMats.skill_books.find(c => c.category.toLowerCase() === categoryName.toLowerCase()) || upgradeMats.skill_books[0];
+}
+
 function resolveText(val) {
     if (val == null) return '';
     if (typeof val === 'object') return val.ar || val.en || val.name || JSON.stringify(val);
     return String(val);
+}
+
+function getItemInfo(itemId) {
+    if(!itemId) return null;
+    const lowerId = itemId.toLowerCase();
+    if (upgradeMats.weapon_materials) {
+        for (const r of upgradeMats.weapon_materials) {
+            const mat = r.materials.find(m => m.id.toLowerCase() === lowerId);
+            if (mat) {
+                const raceFolder = r.race.toLowerCase().replace(' ', '_');
+                const imgName = ID_TO_IMAGE[mat.id] || `${mat.id}.png`;
+                return { ...mat, type: 'material', race: r.race, name: resolveText(mat.name), iconUrl: `${R2_URL}/images/materials/${raceFolder}/${imgName}`, rarity: mat.rarity };
+            }
+        }
+    }
+    if (upgradeMats.skill_books) {
+        for (const c of upgradeMats.skill_books) {
+            const book = c.books.find(b => b.id.toLowerCase() === lowerId);
+            if (book) {
+                const typeFolder = c.category === 'General_Skills' ? 'general' : 'race';
+                const imgName = ID_TO_IMAGE[book.id] || `${book.id}.png`;
+                return { ...book, type: 'book', name: resolveText(book.name), iconUrl: `${R2_URL}/images/materials/${typeFolder}/${imgName}`, rarity: book.rarity };
+            }
+        }
+    }
+    return null;
 }
 
 const safeQuery = async (db, qPg, params) => {
@@ -89,6 +126,7 @@ const safeQuery = async (db, qPg, params) => {
     }
 };
 
+// 🔥 هنا السحر: الفحوصات دائماً ترجع true للإمبراطور، والخصومات لا تفعل شيئاً 🔥
 async function checkMora() { return true; }
 async function checkItems() { return true; }
 async function deductMora() { return true; }
@@ -113,6 +151,7 @@ async function getUserRaceName(user, guild, db) {
     return null;
 }
 
+// 🔥 تم تطبيق كاب الـ 1000 ضرر للأسلحة 🔥
 function getWeaponDisplayDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     const base = weaponConfig.base_damage;
@@ -128,6 +167,7 @@ function getWeaponDisplayDamage(weaponConfig, level) {
     }
 }
 
+// 🔥 تم تطبيق كاب الـ 70% والـ 200 للمهارات 🔥
 function getSkillDisplayValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -151,14 +191,24 @@ function getUpgradeRequirements(currentLevel, isSkill = false) {
     const currentTier = Math.floor((currentLevel - 1) / 5); 
     const primaryTier = Math.min(currentTier, 4);
 
-    moraCost = currentLevel * 800 * (primaryTier + 1);
+    if (currentLevel < 5) moraCost = currentLevel * 300; 
+    else if (currentLevel < 10) moraCost = currentLevel * 600; 
+    else moraCost = currentLevel * 800 * (primaryTier + 1); 
 
-    if (primaryTier === 0) {
-        reqs.push({ tier: 0, count: currentLevel + 2 }); 
+    if (currentLevel < 5) {
+    } else if (currentLevel >= 5 && currentLevel < 10) {
+        let count = 1;
+        if (currentLevel >= 7) count = 2;
+        if (currentLevel >= 9) count = 3;
+        reqs.push({ tier: primaryTier, count: count });
     } else {
-        const prevTier = primaryTier - 1;
-        reqs.push({ tier: prevTier, count: Math.floor(currentLevel * 0.8) + 3 });
-        reqs.push({ tier: primaryTier, count: Math.floor(currentLevel * 0.5) + 2 });
+        if (primaryTier === 0) {
+            reqs.push({ tier: 0, count: currentLevel + 2 }); 
+        } else {
+            const prevTier = primaryTier - 1;
+            reqs.push({ tier: prevTier, count: Math.floor(currentLevel * 0.8) + 3 });
+            reqs.push({ tier: primaryTier, count: Math.floor(currentLevel * 0.5) + 2 });
+        }
     }
 
     let finalReqs = [];
@@ -167,16 +217,19 @@ function getUpgradeRequirements(currentLevel, isSkill = false) {
             finalReqs.push({ type: 'material', tier: r.tier, count: r.count });
         } else {
             finalReqs.push({ type: 'book', tier: r.tier, count: r.count });
-            finalReqs.push({ type: 'material', tier: r.tier, count: Math.max(1, Math.floor(r.count * 0.5)) });
+            if (currentLevel >= 10) {
+                finalReqs.push({ type: 'material', tier: r.tier, count: Math.max(1, Math.floor(r.count * 0.5)) });
+            }
         }
     }
     return { moraCost, materials: finalReqs };
 }
 
+// 🔥 الواجهة العادية بدون (مجاني) 🔥
 const getMainMenuRows = () => [
     new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('admin_forge_weapon').setLabel('تطوير السلاح').setStyle(ButtonStyle.Danger).setEmoji('⚒️'),
-        new ButtonBuilder().setCustomId('admin_forge_skill_menu').setLabel('تطوير المهارات').setStyle(ButtonStyle.Primary).setEmoji('🔮')
+        new ButtonBuilder().setCustomId('admin_forge_weapon').setLabel('الحـدادة').setStyle(ButtonStyle.Secondary).setEmoji('⚒️'),
+        new ButtonBuilder().setCustomId('admin_forge_skill_menu').setLabel('الاكادمـيـة').setStyle(ButtonStyle.Primary).setEmoji('🔮')
     )
 ];
 
@@ -209,13 +262,14 @@ async function replyWithCanvas(i, targetUser, view, data, components) {
 async function buildMainUI(i, targetUser, guildId, db) {
     let userDataRes = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [targetUser.id, guildId]);
     const userMora = Number(userDataRes?.rows?.[0]?.mora || userDataRes?.rows?.[0]?.Mora || 0) + Number(userDataRes?.rows?.[0]?.bank || userDataRes?.rows?.[0]?.Bank || 0);
+    // واجهة طبيعية لللاعب
     return await replyWithCanvas(i, targetUser, 'main', { mora: userMora, title: 'المجمع الإمبراطوري للتطوير' }, getMainMenuRows());
 }
 
 module.exports = {
     name: 'af',
     aliases: ['adminforge', 'حا', 'حدادة-ادمن'],
-    description: 'أمر الإمبراطور لتطوير عتاد ومهارات اللاعبين مجاناً (للأونر فقط - بريفكس)',
+    description: 'أمر الإمبراطور لتطوير عتاد ومهارات اللاعبين بصمت (للأونر فقط - بريفكس)',
     category: 'Owner',
     
     async execute(message, args) {
@@ -307,19 +361,31 @@ async function buildWeaponForgeUI(i, targetUser, guildId, db) {
 
     if (currentLevel === 0) {
         const btnRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`admin_forge_buy_weapon`).setLabel(`صناعة السلاح الأساسي`).setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`admin_forge_buy_weapon`).setLabel(`صناعة السلاح الأساسي (${LEARN_FEE} مورا)`).setStyle(ButtonStyle.Success),
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, targetUser, 'weapon', {
             mora: userMora, title: `صناعة ${resolveText(weaponConfig.name)}`,
-            currentLevel: 0, nextLevel: 1, currentStat: `0 DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, 1)} DMG`, reqMora: 0, 
-            detailedReqs: [{ id: 'royal_blessing', count: 0, userCount: 1, name: 'مباركة الإمبراطور المطلقة', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }] 
+            currentLevel: 0, nextLevel: 1, currentStat: `0 DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, 1)} DMG`, reqMora: LEARN_FEE, 
+            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: LEARN_FEE, name: 'رسوم الصناعة', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }] 
         }, [btnRow]);
     }
     
-    if (currentLevel >= 30) return await replyWithCanvas(i, targetUser, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: '✨ السلاح وصل للحد الأقصى (Lv.30)!' }, [getReturnRow()]);
+    if (currentLevel >= 30) return await replyWithCanvas(i, targetUser, 'weapon_error', { mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`, hasError: true, errorMsg: '✨ سلاحك وصل للحد الأقصى (Lv.30)!' }, [getReturnRow()]);
 
-    const detailedReqs = [{ id: 'royal_blessing', count: 0, userCount: 1, name: 'مباركة الإمبراطور المطلقة', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }];
+    // 🔥 الخدعة البصرية: نجلب الموارد المطلوبة ونجعل quantity = req (كأن اللاعب يمتلكها) 🔥
+    const reqs = getUpgradeRequirements(currentLevel, false);
+    const raceMats = getSafeRaceMats(raceName);
+    let detailedReqs = [];
+    let requiredMora = reqs ? reqs.moraCost : 0;
+    
+    if (reqs && reqs.materials) {
+        detailedReqs = reqs.materials.map(r => {
+            let itemId = raceMats.materials[r.tier]?.id;
+            let matInfo = getItemInfo(itemId);
+            return { id: itemId, count: r.count, userCount: r.count, name: matInfo?.name || "مجهول", rarity: matInfo?.rarity || "Common", iconUrl: matInfo?.iconUrl };
+        });
+    }
 
     const btnRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`admin_forge_upgrade_weapon`).setLabel('تـطـويـر السـلاح').setStyle(ButtonStyle.Success),
@@ -328,7 +394,7 @@ async function buildWeaponForgeUI(i, targetUser, guildId, db) {
     
     return await replyWithCanvas(i, targetUser, 'weapon', {
         mora: userMora, title: `تطوير ${resolveText(weaponConfig.name)}`,
-        currentLevel, nextLevel: currentLevel + 1, currentStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel)} DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel + 1)} DMG`, reqMora: 0, detailedReqs: detailedReqs 
+        currentLevel, nextLevel: currentLevel + 1, currentStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel)} DMG`, nextStat: `${getWeaponDisplayDamage(weaponConfig, currentLevel + 1)} DMG`, reqMora: requiredMora, detailedReqs: detailedReqs 
     }, [btnRow]);
 }
 
@@ -381,11 +447,13 @@ async function buildAcademyMenuUI(i, targetUser, guildId, db) {
         return { label: resolveText(sc.name).substring(0, 100), value: sc.id.substring(0, 100), description: `Lv.${lvl}`.substring(0, 100) };
     });
 
-    const skillSelectRow = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('admin_forge_skill_select').setPlaceholder('اختر مهارة لترقيتها...').addOptions(skillOptions.slice(0, 25)));
+    const skillSelectRow = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('admin_forge_skill_select').setPlaceholder('اختر مهارة للتعلم أو الصقل...').addOptions(skillOptions.slice(0, 25)));
     return await replyWithCanvas(i, targetUser, 'skill_home', { mora: userMora, title: 'أكاديمية السحر' }, [skillSelectRow, getReturnRow()]);
 }
 
 async function buildSkillUpgradeUI(i, targetUser, guildId, db, skillId) {
+    const roleRaceName = await getUserRaceName(targetUser, i.guild, db);
+    
     const [userMoraRes, skillRes] = await Promise.all([
         safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [targetUser.id, guildId]),
         safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [targetUser.id, guildId, skillId])
@@ -398,19 +466,34 @@ async function buildSkillUpgradeUI(i, targetUser, guildId, db, skillId) {
     
     if (currentLevel === 0) {
         const btnRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`admin_forge_learn_skill_${skillId}`).setLabel(`تعلم المهارة`).setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`admin_forge_learn_skill_${skillId}`).setLabel(`تعلم المهارة (${LEARN_FEE} مورا)`).setStyle(ButtonStyle.Success),
             getReturnRow().components[0]
         );
         return await replyWithCanvas(i, targetUser, 'skill', {
             mora: userMora, title: `تعلم ${resolveText(configSkill.name)}`,
-            currentLevel: 0, nextLevel: 1, currentStat: `0${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, 1)}${statSymbol}`, reqMora: 0, 
-            detailedReqs: [{ id: 'royal_blessing', count: 0, userCount: 1, name: 'مباركة الإمبراطور المطلقة', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
+            currentLevel: 0, nextLevel: 1, currentStat: `0${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, 1)}${statSymbol}`, reqMora: LEARN_FEE, 
+            detailedReqs: [{ id: 'mora_fee', count: LEARN_FEE, userCount: LEARN_FEE, name: 'رسوم التعلم', rarity: 'Common', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }]
         }, [btnRow]);
     }
 
     if (currentLevel >= (configSkill.max_level || 30)) return await replyWithCanvas(i, targetUser, 'skill_error', { mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, hasError: true, errorMsg: '✨ المهارة وصلت للحد الأقصى!' }, [getReturnRow()]);
 
-    const detailedReqs = [{ id: 'royal_blessing', count: 0, userCount: 1, name: 'مباركة الإمبراطور المطلقة', rarity: 'Legendary', iconUrl: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/mora.png' }];
+    // 🔥 الخدعة البصرية للمهارات 🔥
+    const reqs = getUpgradeRequirements(currentLevel, true);
+    const categoryName = skillId.startsWith('race_') ? 'Race_Skills' : 'General_Skills';
+    const bookCat = getSafeBookCat(categoryName);
+    const raceMats = getSafeRaceMats(roleRaceName);
+
+    let detailedReqs = [];
+    let requiredMora = reqs ? reqs.moraCost : 0;
+
+    if (reqs && reqs.materials) {
+        detailedReqs = reqs.materials.map(r => {
+            let itemId = r.type === 'book' ? bookCat.books[r.tier]?.id : raceMats.materials[r.tier]?.id;
+            let matInfo = getItemInfo(itemId);
+            return { id: itemId, count: r.count, userCount: r.count, name: matInfo?.name || "مجهول", rarity: matInfo?.rarity || "Common", iconUrl: matInfo?.iconUrl };
+        });
+    }
 
     const btnRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`admin_forge_upgrade_skill_${skillId}`).setLabel('صقل المهارة 📜').setStyle(ButtonStyle.Success),
@@ -418,7 +501,7 @@ async function buildSkillUpgradeUI(i, targetUser, guildId, db, skillId) {
     );
     
     return await replyWithCanvas(i, targetUser, 'skill', {
-        mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getSkillDisplayValue(configSkill, currentLevel)}${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}`, reqMora: 0, detailedReqs: detailedReqs
+        mora: userMora, title: `صقل ${resolveText(configSkill.name)}`, currentLevel, nextLevel: currentLevel + 1, currentStat: `${getSkillDisplayValue(configSkill, currentLevel)}${statSymbol}`, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}`, reqMora: requiredMora, detailedReqs: detailedReqs
     }, [btnRow]);
 }
 
