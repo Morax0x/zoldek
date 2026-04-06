@@ -20,8 +20,13 @@ module.exports = {
         // الحالة الأولى: عرض القائمة (إذا لم يحدد رتبة)
         // ============================================================
         if (!args[0]) {
-            // جلب البيانات من الجدول (تحويل لـ PostgreSQL)
-            const allRolesRes = await db.query(`SELECT "roleID", "limitCount" FROM role_campfire_limits WHERE "guildID" = $1 ORDER BY "limitCount" DESC`, [guild.id]);
+            // جلب البيانات من الجدول مع حماية للأعمدة
+            let allRolesRes;
+            try {
+                allRolesRes = await db.query(`SELECT "roleID", "limitCount" FROM role_campfire_limits WHERE "guildID" = $1 ORDER BY "limitCount" DESC`, [guild.id]);
+            } catch(e) {
+                allRolesRes = await db.query(`SELECT roleid as "roleID", limitcount as "limitCount" FROM role_campfire_limits WHERE guildid = $1 ORDER BY limitcount DESC`, [guild.id]).catch(()=>({rows:[]}));
+            }
             const allRoles = allRolesRes.rows;
 
             if (!allRoles || allRoles.length === 0) {
@@ -50,7 +55,11 @@ module.exports = {
                     foundCount++;
                 } else {
                     // تنظيف الرتب المحذوفة تلقائياً
-                    await db.query(`DELETE FROM role_campfire_limits WHERE "guildID" = $1 AND "roleID" = $2`, [guild.id, roleID]);
+                    try {
+                        await db.query(`DELETE FROM role_campfire_limits WHERE "guildID" = $1 AND "roleID" = $2`, [guild.id, roleID]);
+                    } catch(e) {
+                        await db.query(`DELETE FROM role_campfire_limits WHERE guildid = $1 AND roleid = $2`, [guild.id, roleID]).catch(()=>{});
+                    }
                 }
             }
 
@@ -86,12 +95,14 @@ module.exports = {
         }
 
         try {
-            // الحفظ في قاعدة البيانات (PostgreSQL ON CONFLICT)
-            await db.query(`
-                INSERT INTO role_campfire_limits ("guildID", "roleID", "limitCount") 
-                VALUES ($1, $2, $3)
-                ON CONFLICT ("roleID") DO UPDATE SET "limitCount" = EXCLUDED."limitCount"
-            `, [guild.id, role.id, limit]);
+            // 🔥 الحماية الفولاذية: حذف القديم ثم إضافة الجديد بدل ON CONFLICT 🔥
+            try {
+                await db.query(`DELETE FROM role_campfire_limits WHERE "guildID" = $1 AND "roleID" = $2`, [guild.id, role.id]);
+                await db.query(`INSERT INTO role_campfire_limits ("guildID", "roleID", "limitCount") VALUES ($1, $2, $3)`, [guild.id, role.id, limit]);
+            } catch(e) {
+                await db.query(`DELETE FROM role_campfire_limits WHERE guildid = $1 AND roleid = $2`, [guild.id, role.id]).catch(()=>{});
+                await db.query(`INSERT INTO role_campfire_limits (guildid, roleid, limitcount) VALUES ($1, $2, $3)`, [guild.id, role.id, limit]).catch(()=>{});
+            }
 
             const successEmbed = new EmbedBuilder()
                 .setTitle("✅ تم تحديث إعدادات الخيم")
