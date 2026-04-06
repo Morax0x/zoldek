@@ -150,8 +150,20 @@ module.exports = {
 
             const currentRod = rodsConfig.find(r => r.level === activeRodLevel) || rodsConfig[0];
             const currentBoat = boatsConfig.find(b => b.level === activeBoatLevel) || boatsConfig[0];
-            const locationId = userData.currentLocation || userData.currentlocation || 'beach';
-            const currentLocation = locationsConfig.find(l => l.id === locationId) || locationsConfig[0];
+            
+            // 🔥 التعديل السحري: استنتاج المكان تلقائياً من القارب مع حماية السنارة 🔥
+            let targetLocationIndex = locationsConfig.findIndex(l => l.id === currentBoat.location_id);
+            if (targetLocationIndex === -1) targetLocationIndex = 0;
+            
+            let activeLocation = locationsConfig[targetLocationIndex];
+            
+            while (activeLocation && currentRod.level < activeLocation.min_rod && targetLocationIndex > 0) {
+                targetLocationIndex--;
+                activeLocation = locationsConfig[targetLocationIndex];
+            }
+            
+            const locationId = activeLocation.id;
+            const currentLocation = activeLocation;
 
             let repLuckBonus = 0;
             let repRankText = "";
