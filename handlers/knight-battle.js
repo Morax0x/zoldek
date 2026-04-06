@@ -73,6 +73,28 @@ function buildEffectsString(effects) {
     return arr.length > 0 ? arr.join(' | ') : 'لا يوجد';
 }
 
+function calculateSkillRawValue(skillConfig, currentLevel) {
+    if (!skillConfig) return 0;
+    const level = Math.max(1, currentLevel || 1);
+    
+    const base = skillConfig.base_value;
+    const inc = skillConfig.value_increment;
+    const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
+
+    if (level <= 15) {
+        return Math.floor(base + (inc * (level - 1)));
+    } else {
+        const valueAt15 = base + (inc * 14);
+        const targetValueAt30 = isPercentage ? 70 : 200; 
+        const levelsRemaining = 15;
+        const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
+        
+        let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
+        if (level >= 30) return targetValueAt30;
+        return Math.floor(finalValue);
+    }
+}
+
 async function getUserRace(member, db) {
     if (!member || !member.guild) return null;
     let allRaceRoles = [];
@@ -102,9 +124,35 @@ async function getWeaponData(db, member) {
         const res = await db.query(`SELECT * FROM user_weapons WHERE userid = $1 AND guildid = $2 AND racename = $3`, [member.id, member.guild.id, userRace.racename]).catch(()=>({rows:[]}));
         userWeapon = res.rows[0];
     }
-    const weaponLevel = userWeapon ? (userWeapon.weaponLevel || userWeapon.weaponlevel) : 0;
+    let weaponLevel = userWeapon ? Number(userWeapon.weaponLevel || userWeapon.weaponlevel) : 0;
     if (!weaponLevel || weaponLevel <= 0) return null;
-    const damage = weaponConfig.base_damage + (weaponConfig.damage_increment * (weaponLevel - 1));
+
+    try {
+        let buffRes = await db.query(`SELECT "multiplier" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'hidden_weapon'`, [member.id, member.guild.id]);
+        if (buffRes.rows.length === 0) {
+            buffRes = await db.query(`SELECT multiplier FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'hidden_weapon'`, [member.id, member.guild.id]).catch(()=>({rows:[]}));
+        }
+        if (buffRes.rows.length > 0) {
+            const hiddenLevel = Number(buffRes.rows[0].multiplier || buffRes.rows[0].Multiplier);
+            if (hiddenLevel > 0) weaponLevel = hiddenLevel; 
+        }
+    } catch(e) {}
+
+    const base = weaponConfig.base_damage;
+    const inc = weaponConfig.damage_increment;
+    let damage = 15;
+
+    if (weaponLevel <= 15) {
+        damage = Math.floor(base + (inc * (weaponLevel - 1)));
+    } else {
+        const damageAt15 = base + (inc * 14);
+        const targetDamageAt30 = 1000;
+        const levelsRemaining = 15; 
+        const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
+        let finalDamage = damageAt15 + (dynamicIncrement * (weaponLevel - 15));
+        damage = weaponLevel >= 30 ? targetDamageAt30 : Math.floor(finalDamage);
+    }
+
     return { ...weaponConfig, currentDamage: damage, currentLevel: weaponLevel };
 }
 
@@ -121,15 +169,27 @@ async function getAllSkillData(db, member) {
     }
       
     if (userSkillsData) {
-        userSkillsData.forEach(userSkill => {
+        for (const userSkill of userSkillsData) {
             const skillId = userSkill.skillID || userSkill.skillid;
-            const skillLvl = userSkill.skillLevel || userSkill.skilllevel;
+            let skillLvl = Number(userSkill.skillLevel || userSkill.skilllevel);
             const skillConfig = skillsConfig.find(s => s.id === skillId);
+            
             if (skillConfig && skillLvl > 0) {
-                const effectValue = skillConfig.base_value + (skillConfig.value_increment * (skillLvl - 1));
+                try {
+                    let sBuffRes = await db.query(`SELECT "multiplier" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = $3`, [member.id, member.guild.id, `hidden_skill_${skillId}`]);
+                    if (sBuffRes.rows.length === 0) {
+                        sBuffRes = await db.query(`SELECT multiplier FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = $3`, [member.id, member.guild.id, `hidden_skill_${skillId}`]).catch(()=>({rows:[]}));
+                    }
+                    if (sBuffRes.rows.length > 0) {
+                        const hiddenSkillLevel = Number(sBuffRes.rows[0].multiplier || sBuffRes.rows[0].Multiplier);
+                        if (hiddenSkillLevel > 0) skillLvl = hiddenSkillLevel; 
+                    }
+                } catch(e) {}
+
+                const effectValue = calculateSkillRawValue(skillConfig, skillLvl);
                 skillsOutput[skillConfig.id] = { ...skillConfig, currentLevel: skillLvl, effectValue: effectValue };
             }
-        });
+        }
     }
 
     if (userRace) {
@@ -308,7 +368,7 @@ function applySkillEffect(battleState, attackerId, skill) {
             attacker.effects.stun = false; attacker.effects.stun_turns = 0;
             attacker.effects.confusion = false; attacker.effects.confusion_turns = 0;
             attacker.effects.blind = 0; attacker.effects.blind_turns = 0;
-            const shieldVal = Math.floor(attacker.maxHp * 0.25);
+            const shieldVal = Math.floor(attacker.maxHp * (effectValue / 100));
             attacker.effects.shield += shieldVal;
             attacker.effects.buff = 0.2; attacker.effects.buff_turns = 2;
             attacker.effects.shield_source = skill.id; 
@@ -320,7 +380,7 @@ function applySkillEffect(battleState, attackerId, skill) {
             const extraDmg = Math.floor(baseAtk * missingHpPercent * 2);
             const dmg = Math.floor(baseAtk * 1.2) + extraDmg;
             defender.hp -= dmg;
-            const healVal = Math.floor(attacker.maxHp * 0.15);
+            const healVal = Math.floor(attacker.maxHp * (effectValue / 100));
             attacker.hp = Math.min(attacker.maxHp, attacker.hp + healVal);
             return `⚖️ **${attacker.isMonster ? attacker.name : attacker.member.displayName}** عاقب خصمه بضرر متصاعد (${dmg}) وشفى نفسه!`;
         }
@@ -352,7 +412,7 @@ function applySkillEffect(battleState, attackerId, skill) {
             defender.effects.burn = bleedDmg; 
             defender.effects.burn_turns = 2;
 
-            const healVal = Math.floor(dmg * 0.5);
+            const healVal = Math.floor(dmg * (effectValue / 100));
             const missingHp = attacker.maxHp - attacker.hp;
             if (healVal > missingHp) {
                 attacker.hp = attacker.maxHp;
@@ -385,7 +445,7 @@ function applySkillEffect(battleState, attackerId, skill) {
             return `👻 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** ضرب واختفى (مراوغة تامة)!`;
         }
         case 'Reflect_Tank': {
-            attacker.effects.shield += Math.floor(attacker.maxHp * 0.2);
+            attacker.effects.shield += Math.floor(attacker.maxHp * (effectValue / 100));
             attacker.effects.rebound_active = 0.4; attacker.effects.rebound_turns = 2;
             attacker.effects.shield_source = skill.id;
             attacker.effects.shield_cd_duration = cooldownDuration;
@@ -708,7 +768,6 @@ async function startGuardBattle(interaction, client, db, robberMember, amountToS
         const guildId = interaction.guild.id;
         const historyId = `${userId}-${guildId}`;
 
-        // 🔥 تحديث لاستخدام lastDate مع D كابيتال ليتوافق مع قاعدة البيانات 
         await db.query(`CREATE TABLE IF NOT EXISTS knight_history ("id" TEXT PRIMARY KEY, "count" INTEGER, "lastDate" BIGINT)`).catch(()=>{});
 
         const historyRes = await db.query(`SELECT * FROM knight_history WHERE "id" = $1`, [historyId]);
@@ -716,7 +775,6 @@ async function startGuardBattle(interaction, client, db, robberMember, amountToS
         let encounterCount = 1; 
 
         if (history) {
-            // فحص تاريخ آخر مواجهة
             const dbLastDate = Number(history.lastDate || history.lastdate) || 0;
             if (dbLastDate === todayInt) {
                 encounterCount = Number(history.count) + 1; 
@@ -840,7 +898,6 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                 await db.query(`UPDATE levels SET mora = $1 WHERE userid = $2 AND guildid = $3`, [pMora, player.member.id, battleState.message.guild.id]).catch(()=>{});
             }
             
-            // 🔥 إضافة تحديث الذاكرة العشوائية (Cache) 🔥
             if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
                 let cache = await client.getLevel(player.member.id, battleState.message.guild.id);
                 if (cache) {
@@ -921,7 +978,6 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                 await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [pMora, pBank, player.member.id, battleState.message.guild.id]).catch(()=>{});
             }
             
-            // 🔥 إضافة تحديث الذاكرة العشوائية (Cache) في حالة الخسارة أيضاً 🔥
             if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
                 let cache = await client.getLevel(player.member.id, battleState.message.guild.id);
                 if (cache) {
