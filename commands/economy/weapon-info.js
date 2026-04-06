@@ -48,7 +48,7 @@ function getWeaponImageURL(raceName) {
     return null;
 }
 
-// 🔥 دالة الحسبة الموحدة للسلاح (Hard Sync) 🔥
+// 🔥 دالة الحسبة الموحدة للسلاح متطابقة مع محرك القتال 🔥
 function calculateDisplayedDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     const base = weaponConfig.base_damage;
@@ -58,7 +58,7 @@ function calculateDisplayedDamage(weaponConfig, level) {
         return Math.floor(base + (inc * (level - 1)));
     } else {
         const damageAt15 = base + (inc * 14);
-        const targetDamageAt30 = 800;
+        const targetDamageAt30 = 1000; 
         const levelsRemaining = 15; 
         const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
         let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
@@ -234,7 +234,7 @@ module.exports = {
                 .setColor(Colors.Blue)
                 .addFields(
                     { name: "✶ المواصفات الأساسية", value: description },
-                    { name: "✥ نظام الصحوة الإجباري", value: `ابتداءً من المستوى 16، سيتم توحيد قوة جميع الأسلحة لتصل إلى **800 ضرر** في المستوى 30، لضمان توازن المعارك النهائية.` }
+                    { name: "✥ نظام الصحوة الإجباري", value: `ابتداءً من المستوى 16، سيتم توحيد قوة جميع الأسلحة لتصل إلى **1000 ضرر** في المستوى 30، لضمان توازن المعارك النهائية.` }
                 );
 
             if (weaponImage) {
