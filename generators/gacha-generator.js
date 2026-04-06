@@ -24,7 +24,7 @@ async function getCachedImage(imageUrl) {
 
 const RARITY_INFO = {
     'Common': { text: 'عادي', color: '#A0AAB5', stars: '★' },
-    'Uncommon': { text: 'غير شائع', color: '#2ECC71', stars: '★ ★' },
+    'Uncommon': { text: 'شائع', color: '#2ECC71', stars: '★ ★' },
     'Rare': { text: 'نادر', color: '#3498DB', stars: '★ ★ ★' },
     'Epic': { text: 'ملحمي', color: '#C77DFF', stars: '★ ★ ★ ★' },
     'Legendary': { text: 'اسطوري', color: '#FFD700', stars: '★ ★ ★ ★ ★' }
@@ -34,12 +34,12 @@ const ARABIC_RACES = {
     'Dragon': 'التنانين',
     'Human': 'البشر',
     'Elf': 'الإلف',
-    'Dark Elf': 'الإلف المظلم',
+    'Dark Elf': 'إلف الظلام',
     'Seraphim': 'السيرافيم',
     'Demon': 'الشياطين',
     'Vampire': 'مصاصي الدماء',
     'Spirit': 'الأرواح',
-    'Hybrid': 'الهجناء',
+    'Hybrid': 'انصاف الوحوش',
     'Dwarf': 'الأقزام',
     'Ghoul': 'الغيلان'
 };
@@ -285,7 +285,7 @@ async function generateGachaInventory(userObj, freeChests, paidChests) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#E0E0E0';
     ctx.font = 'bold 45px "Bein"';
-    ctx.fillText('مخزن الصناديق السحرية', width/2, headerH + 60);
+    ctx.fillText('مخزن الصناديق', width/2, headerH + 60);
 
     const boxW = 300;
     const boxH = 350;
