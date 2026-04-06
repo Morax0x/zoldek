@@ -27,6 +27,7 @@ const MAX_FARM_LIMIT = 1000;
 
 const activeShopUsers = new Set();
 
+// 🔥 فضح الأخطاء في الكونسل لسهولة التتبع 🔥
 async function execSafe(db, queryPg, queryLite, params = []) {
     try {
         let res = await db.query(queryPg, params);
@@ -36,6 +37,11 @@ async function execSafe(db, queryPg, queryLite, params = []) {
             let res2 = await db.query(queryLite, params);
             return res2 || { rows: [] };
         } catch (err2) {
+            console.error(`\n[❌ DB Error] Shop System:`);
+            console.error(`- Pg Error: ${err1.message}`);
+            console.error(`- Lite Error: ${err2.message}`);
+            console.error(`- Query: ${queryPg}`);
+            console.error(`- Params:`, params, `\n`);
             return { rows: [], error: true };
         }
     }
@@ -86,6 +92,7 @@ async function deductMora(client, db, userId, guildId, amount) {
         );
         return !r1.error;
     } catch(e) {
+        console.error("[❌ Deduct Mora Error]:", e);
         return false;
     }
 }
@@ -310,16 +317,15 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
 
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
     let bal = await getUserBal(db, interaction.user.id, interaction.guild.id);
+    const totalWealth = bal.mora + bal.bank;
 
     const errorReply = async (msgContent) => {
         if (interaction.deferred || interaction.replied) return await interaction.followUp({ content: msgContent, flags: MessageFlags.Ephemeral }); 
         else return await interaction.reply({ content: msgContent, flags: MessageFlags.Ephemeral });
     };
 
-    if (bal.mora < finalPrice) {
-        let errorMsg = `❌ **عذراً، لا تملك مورا كافية!**\nالمطلوب بالكاش: **${finalPrice.toLocaleString()}** ${EMOJI_MORA}`;
-        if (bal.bank >= finalPrice) errorMsg += `\n\n💡 **تلميح:** فلوسك بالبنك تكفي، اسحبها وجرب ثانية.`;
-        return await errorReply(errorMsg);
+    if (totalWealth < finalPrice) {
+        return await errorReply(`❌ **عذراً، رصيدك (كاش + بنك) لا يكفي!**\nالمطلوب: **${finalPrice.toLocaleString()}** ${EMOJI_MORA}`);
     }
 
     if (callbackType === 'item') {
@@ -414,7 +420,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     }
                 }
             }
-            // 🔥 إصلاح تخزين وشراء العامل (Farm Worker) 🔥
+            // 🔥 تصحيح أخطاء شراء العامل (Farm Worker) 🔥
             else if (itemData.id === 'farm_worker_3d') {
                 const duration = 3 * 24 * 60 * 60 * 1000;
                 let r = await execSafe(db, `SELECT "expiresAt", "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `SELECT expiresat, id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]);
@@ -428,7 +434,12 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     let r2 = await execSafe(db, `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`, `UPDATE user_buffs SET expiresat = $1 WHERE id = $2`, [newExpiresAt, workerId]);
                     if(r2.error) success = false;
                 } else {
-                    let r2 = await execSafe(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "expiresAt") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_buffs (userid, guildid, bufftype, expiresat) VALUES ($1, $2, $3, $4)`, [interaction.user.id, interaction.guild.id, 'farm_worker', newExpiresAt]);
+                    // تصحيح القيم، وإضافة 0 بدلاً من الأعمدة الناقصة عشان الداتابيز ما تعطي Error
+                    let r2 = await execSafe(db, 
+                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "expiresAt", "multiplier", "buffPercent") VALUES ($1, $2, $3, $4, 0, 0)`, 
+                        `INSERT INTO user_buffs (userid, guildid, bufftype, expiresat, multiplier, buffpercent) VALUES ($1, $2, $3, $4, 0, 0)`, 
+                        [interaction.user.id, interaction.guild.id, 'farm_worker', newExpiresAt]
+                    );
                     if(r2.error) success = false;
                 }
             }
@@ -478,6 +489,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         }
 
     } catch (e) {
+        console.error("🔥 [Shop System Error] processFinalPurchase:", e);
         success = false;
     }
 
@@ -499,10 +511,8 @@ async function _handleRodUpgrade(i, client, db) {
 
     if (!nextRod) return i.followUp({ content: '❌ وصلت للحد الأقصى للسنارة!', flags: MessageFlags.Ephemeral });
 
-    if (bal.mora < nextRod.price) {
-        let msg = `❌ رصيدك الكاش ما يكفي! تحتاج **${nextRod.price.toLocaleString()}** مورا.`;
-        if (bal.bank >= nextRod.price) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها وجرب ثانية.`;
-        return i.followUp({ content: msg, flags: MessageFlags.Ephemeral });
+    if ((bal.mora + bal.bank) < nextRod.price) {
+        return i.followUp({ content: `❌ رصيدك (كاش + بنك) لا يكفي! تحتاج **${nextRod.price.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral });
     }
 
     let deducted = await deductMora(client, db, i.user.id, i.guild.id, nextRod.price);
@@ -558,10 +568,8 @@ async function _handleBoatUpgrade(i, client, db) {
 
     if (!nextBoat) return i.followUp({ content: '❌ وصلت للحد الأقصى للقارب!', flags: MessageFlags.Ephemeral });
 
-    if (bal.mora < nextBoat.price) {
-        let msg = `❌ رصيدك الكاش ما يكفي! تحتاج **${nextBoat.price.toLocaleString()}** مورا.`;
-        if (bal.bank >= nextBoat.price) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها وجرب ثانية.`;
-        return i.followUp({ content: msg, flags: MessageFlags.Ephemeral });
+    if ((bal.mora + bal.bank) < nextBoat.price) {
+        return i.followUp({ content: `❌ رصيدك (كاش + بنك) لا يكفي! تحتاج **${nextBoat.price.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral });
     }
 
     let deducted = await deductMora(client, db, i.user.id, i.guild.id, nextBoat.price);
@@ -661,10 +669,8 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
 
         if (NON_DISCOUNTABLE.includes(item.id) || item.id.startsWith('xp_buff_')) {
              let bal = await getUserBal(db, userId, guildId);
-             if (bal.mora < item.price) {
-                 let msg = `❌ رصيدك غير كافي!`;
-                 if (bal.bank >= item.price) msg += `\n💡 لديك في البنك **${bal.bank.toLocaleString()}** مورا، اسحب منها.`;
-                 return await i.editReply({ content: msg });
+             if ((bal.mora + bal.bank) < item.price) {
+                 return await i.editReply({ content: `❌ رصيدك (كاش + بنك) ما يكفي. تحتاج **${item.price.toLocaleString()}** مورا.` });
              }
              await processFinalPurchase(i, item, 1, item.price, 0, 'none', client, db, 'item');
              return;
@@ -673,6 +679,7 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
         await handlePurchaseWithCoupons(i, item, 1, item.price, client, db, 'item');
 
     } catch (error) { 
+        console.error("[Shop System Error] handleShopInteractions:", error);
         if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); 
         else await i.reply({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); 
     }
@@ -686,10 +693,8 @@ async function _handleBaitBuy(i, client, db, baitId) {
     const cost = Math.round(bait.price / 5) * 5; 
     let bal = await getUserBal(db, i.user.id, i.guild.id);
 
-    if (bal.mora < cost) {
-        let msg = `❌ رصيدك الكاش ما يكفي! تحتاج **${cost.toLocaleString()}** مورا.`;
-        if (bal.bank >= cost) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها.`;
-        return i.editReply(msg);
+    if ((bal.mora + bal.bank) < cost) {
+        return i.editReply(`❌ رصيدك (كاش + بنك) لا يكفي! تحتاج **${cost.toLocaleString()}** مورا.`);
     }
     
     let deducted = await deductMora(client, db, i.user.id, i.guild.id, cost);
@@ -726,10 +731,8 @@ async function _handleReplaceGuard(i, client, db) {
         }
 
         let bal = await getUserBal(db, userId, guildId);
-        if (bal.mora < item.price) {
-            let msg = `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`;
-            if (bal.bank >= item.price) msg += `\n💡 لديك في البنك **${bal.bank.toLocaleString()}** مورا.`;
-            return await i.followUp({ content: msg, flags: MessageFlags.Ephemeral });
+        if ((bal.mora + bal.bank) < item.price) {
+            return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
         }
         
         let deducted = await deductMora(client, db, userId, guildId, item.price);
@@ -779,10 +782,8 @@ async function _handleReplaceBuffButton(i, client, db) {
         
         let bal = await getUserBal(db, userId, guildId);
         
-        if (bal.mora < item.price) {
-            let msg = `❌ رصيدك الكاش ما يكفي! تحتاج **${item.price.toLocaleString()}** مورا.`;
-            if (bal.bank >= item.price) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها.`;
-            return await i.followUp({ content: msg, flags: MessageFlags.Ephemeral });
+        if ((bal.mora + bal.bank) < item.price) {
+            return await i.followUp({ content: `❌ رصيدك (كاش + بنك) ما يكفي! تحتاج **${item.price.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral });
         }
         
         let deducted = await deductMora(client, db, userId, guildId, item.price);
@@ -950,14 +951,14 @@ async function handleShopModal(i, client, db) {
             const amountString = i.fields.getTextInputValue('xp_amount_input').trim().toLowerCase();
             let amountToBuy = 0;
             
-            if (amountString === 'all') amountToBuy = Math.floor(bal.mora / CUSTOM_XP_RATE);
+            if (amountString === 'all') amountToBuy = Math.floor((bal.mora + bal.bank) / CUSTOM_XP_RATE);
             else amountToBuy = parseInt(amountString.replace(/,/g, ''));
             
             if (isNaN(amountToBuy) || amountToBuy <= 0) return await i.editReply({ content: '❌ يرجى إدخال رقم صحيح أو كتابة All.' });
             
             const totalCost = amountToBuy * CUSTOM_XP_RATE;
             
-            if (bal.mora < totalCost) {
+            if ((bal.mora + bal.bank) < totalCost) {
                 let msg = `❌ رصيدك الكاش ما يكفي. تحتاج **${totalCost.toLocaleString()}** مورا.`;
                 if (bal.bank >= totalCost) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها أولاً.`;
                 return await i.editReply({ content: msg });
