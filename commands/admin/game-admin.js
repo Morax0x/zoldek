@@ -349,15 +349,18 @@ module.exports = {
                 const role = isSlash ? interactionOrMessage.options.getRole('role') : interactionOrMessage.mentions.roles.first();
                 const percent = isSlash ? interactionOrMessage.options.getInteger('percent') : parseInt(args[1]);
                 
-                if (!role || isNaN(percent)) return reply("يرجى إدخال الرتبة والنسبة المئوية.");
+                if (!role || isNaN(percent)) return reply("❌ يرجى إدخال الرتبة والنسبة المئوية.");
 
+                // 🔥 الحماية الفولاذية: نحذف القديم لو موجود ثم نضيف الجديد بدل ON CONFLICT اللي تسوي مشاكل 🔥
                 if (percent === 0) {
-                    await db.query(`DELETE FROM role_mora_buffs WHERE "roleID" = $1`, [role.id]);
-                    return reply(`Mora buff/debuff for ${role} has been removed.`);
+                    await db.query(`DELETE FROM role_mora_buffs WHERE "roleID" = $1 AND "guildID" = $2`, [role.id, guild.id]).catch(()=>{});
+                    return reply(`✅ تم إزالة تعزيز المورا لرتبة ${role}.`);
                 } else {
-                    await db.query(`INSERT INTO role_mora_buffs ("guildID", "roleID", "buffPercent") VALUES ($1, $2, $3) ON CONFLICT ("roleID") DO UPDATE SET "buffPercent" = EXCLUDED."buffPercent"`, [guild.id, role.id, percent]);
-                    const actionWord = percent > 0 ? "buff" : "debuff";
-                    return reply(`Mora ${actionWord} for ${role} has been set to **${percent}%**.`);
+                    await db.query(`DELETE FROM role_mora_buffs WHERE "roleID" = $1 AND "guildID" = $2`, [role.id, guild.id]).catch(()=>{});
+                    await db.query(`INSERT INTO role_mora_buffs ("guildID", "roleID", "buffPercent") VALUES ($1, $2, $3)`, [guild.id, role.id, percent]).catch(()=>{});
+                    
+                    const actionWord = percent > 0 ? "تعزيز (Buff)" : "إضعاف (Debuff)";
+                    return reply(`✅ تم تعيين ${actionWord} المورا لرتبة ${role} لتصبح **${percent}%**.`);
                 }
             }
 
@@ -421,11 +424,12 @@ module.exports = {
                     if (!stat) return reply("❌ **نوع الميزة غير صحيح!** الأنواع: هجوم، صحة، دفاع، درع، شفاء، كريت");
                     if (!percent || isNaN(percent) || percent < 1 || percent > 100) return reply("❌ **النسبة غير صحيحة!**");
 
-                    // 🔥 الإضافة الجديدة: تطبيق الميزة على "الكل" 🔥
+                    // 🔥 الإضافة الجديدة وحماية ON CONFLICT 🔥
                     if (inputDungeon === 'الكل' || inputDungeon === 'all') {
                         const allDungeons = Object.keys(dungeonConfig.themes);
                         for (const dKey of allDungeons) {
-                            await db.query(`INSERT INTO race_dungeon_buffs ("guildID", "roleID", "dungeonKey", "statType", "buffValue") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("guildID", "roleID", "dungeonKey") DO UPDATE SET "statType" = EXCLUDED."statType", "buffValue" = EXCLUDED."buffValue"`, [guild.id, role.id, dKey, stat, percent]);
+                            await db.query(`DELETE FROM race_dungeon_buffs WHERE "guildID" = $1 AND "roleID" = $2 AND "dungeonKey" = $3`, [guild.id, role.id, dKey]).catch(()=>{});
+                            await db.query(`INSERT INTO race_dungeon_buffs ("guildID", "roleID", "dungeonKey", "statType", "buffValue") VALUES ($1, $2, $3, $4, $5)`, [guild.id, role.id, dKey, stat, percent]).catch(()=>{});
                         }
                         
                         const embed = new EmbedBuilder().setTitle("✅ تم تفعيل ميزة العرق الشاملة").setColor(Colors.Gold).setDescription(`تم تخصيص الميزة لحاملي رتبة ${role} في **جـمـيـع الدانـجـونـات** 🌍!`)
@@ -440,7 +444,8 @@ module.exports = {
                         return reply(`❌ **اسم الدانجون غير صحيح!** المتاح: ${valid}، أو اكتب "الكل" لجميع الدانجونات.`);
                     }
 
-                    await db.query(`INSERT INTO race_dungeon_buffs ("guildID", "roleID", "dungeonKey", "statType", "buffValue") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("guildID", "roleID", "dungeonKey") DO UPDATE SET "statType" = EXCLUDED."statType", "buffValue" = EXCLUDED."buffValue"`, [guild.id, role.id, dungeonKey, stat, percent]);
+                    await db.query(`DELETE FROM race_dungeon_buffs WHERE "guildID" = $1 AND "roleID" = $2 AND "dungeonKey" = $3`, [guild.id, role.id, dungeonKey]).catch(()=>{});
+                    await db.query(`INSERT INTO race_dungeon_buffs ("guildID", "roleID", "dungeonKey", "statType", "buffValue") VALUES ($1, $2, $3, $4, $5)`, [guild.id, role.id, dungeonKey, stat, percent]).catch(()=>{});
                     
                     const dungeonName = dungeonConfig.themes[dungeonKey]?.name || dungeonKey;
                     const embed = new EmbedBuilder().setTitle("✅ تم تفعيل ميزة العرق").setColor(Colors.Gold).setDescription(`تم تخصيص ميزة خاصة لحاملي رتبة ${role}`)
