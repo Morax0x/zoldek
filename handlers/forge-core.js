@@ -126,7 +126,6 @@ async function checkMora(client, db, userId, guildId, amount) {
         }
     }
 
-    // إذا فشل الكاش، يقرأ من الداتابيز
     let res = await safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
     if (!res || !res.rows || res.rows.length === 0) return false;
 
@@ -189,14 +188,12 @@ async function deductMora(client, db, userId, guildId, amount) {
         bank -= diff; 
     }
 
-    // تحديث الكاش
     if (userData && client.setLevel) {
         userData.mora = mora;
         userData.bank = bank;
         await client.setLevel(userData);
     }
 
-    // تحديث الداتابيز
     await safeQuery(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [mora, bank, userId, guildId]);
     return true;
 }
@@ -481,7 +478,6 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
 
     const wData = weaponRes?.rows?.[0];
     
-    // سحب المورا الحية
     let userMora = 0;
     if (i.client && i.client.getLevel) {
         const uData = await i.client.getLevel(user.id, guildId);
@@ -583,7 +579,6 @@ async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
     const raceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
     const skillsRes = await safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
 
-    // سحب المورا الحية
     let userMora = 0;
     if (i.client && i.client.getLevel) {
         const uData = await i.client.getLevel(user.id, guildId);
@@ -615,7 +610,6 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
         safeQuery(db, `SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
     ]);
 
-    // سحب المورا الحية
     let userMora = 0;
     if (i.client && i.client.getLevel) {
         const uData = await i.client.getLevel(user.id, guildId);
@@ -719,7 +713,6 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
         safeQuery(db, `SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
     ]);
 
-    // سحب المورا الحية
     let userMora = 0;
     if (i.client && i.client.getLevel) {
         const uData = await i.client.getLevel(user.id, guildId);
@@ -813,6 +806,7 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
     return await replyWithCanvas(i, user, 'synthesis', payloadData, components, isInitial);
 }
 
+// 🔥 هنا إصلاح الأقواس في דالة الـ Smelting/Synthesis 🔥
 async function handleSynthesisMultiModal(i, user, guildId, db, state, client) {
     const targetId = i.customId.replace('forge_synth_multi_', '');
     state.targetItem = targetId;
@@ -889,7 +883,6 @@ async function handleSynthesis(i, user, guildId, db, state, qtyToSynth = 1, isMo
 async function buildSmeltingUI(i, user, guildId, db, state, isInitial = false) {
     const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
     
-    // سحب المورا الحية
     let userMora = 0;
     if (i.client && i.client.getLevel) {
         const uData = await i.client.getLevel(user.id, guildId);
