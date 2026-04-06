@@ -17,9 +17,11 @@ const skillsConfig = require('../json/skills-config.json');
 let marketConfig = [];
 try { marketConfig = require('../json/market-items.json'); } catch(e) {}
 
+// 🔥 تم تعديل هذا الجزء ليكون fishingConf متاحاً في باقي الكود لجلب الصور 🔥
 let validBaitIDs = ['worm', 'cricket', 'shrimp', 'squid', 'magic'];
+let fishingConf = {};
 try {
-    const fishingConf = require('../json/fishing-config.json');
+    fishingConf = require('../json/fishing-config.json');
     if (fishingConf.baits) validBaitIDs = fishingConf.baits.map(b => b.id);
 } catch(e) {}
 
@@ -402,8 +404,17 @@ module.exports = {
                             const cRod = rodKey ? fishingStats[rodKey] : null;
                             const cBoat = boatKey ? fishingStats[boatKey] : null;
                             
-                            if (cRod) tempItems.unshift({ id: 'current_rod', name: `سنارة ${cRod}`, emoji: '🎣', category: 'صيد', rarity: 'Rare', quantity: 1, imgPath: `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/${cRod.toLowerCase()}.png` });
-                            if (cBoat) tempItems.unshift({ id: 'current_boat', name: `قارب ${cBoat}`, emoji: '🚤', category: 'صيد', rarity: 'Epic', quantity: 1, imgPath: `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/${cBoat.toLowerCase()}.png` });
+                            // 🔥 التعديل: سحب صورة السنارة والقارب الذكية هنا بدلاً من الاسم المباشر 🔥
+                            if (cRod) {
+                                const rodData = (fishingConf.rods || []).find(r => r.name === cRod);
+                                const rodImg = rodData ? rodData.image : `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_1.png`;
+                                tempItems.unshift({ id: 'current_rod', name: `سنارة ${cRod}`, emoji: '🎣', category: 'صيد', rarity: 'Rare', quantity: 1, imgPath: rodImg });
+                            }
+                            if (cBoat) {
+                                const boatData = (fishingConf.boats || []).find(b => b.name === cBoat);
+                                const boatImg = boatData ? boatData.image : `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/ships/boat_1.png`;
+                                tempItems.unshift({ id: 'current_boat', name: `قارب ${cBoat}`, emoji: '🚤', category: 'صيد', rarity: 'Epic', quantity: 1, imgPath: boatImg });
+                            }
                         }
                     }
                     
@@ -844,8 +855,7 @@ module.exports = {
                                 }
 
                                 try {
-                                    const deductMoraFunc = require('../handlers/shop_system/utils.js').deductMora;
-                                    await deductMoraFunc(client, db, targetID, guildId, price);
+                                    await deductMora(client, db, targetID, guildId, price);
                                     await deductItems(db, authorUser.id, guildId, [{ id: tradeItem.id, count: qty }]);
                                     
                                     let targetCheckResTradeFinal = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [targetID, guildId]);
