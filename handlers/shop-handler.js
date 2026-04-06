@@ -43,21 +43,51 @@ async function execSafe(db, queryPg, queryLite, params = []) {
 
 async function deductMora(client, db, userId, guildId, amount) {
     try {
+        let dbMora = 0, dbBank = 0;
+        let u = null;
+        
         if (client && typeof client.getLevel === 'function') {
-            let u = await client.getLevel(userId, guildId);
-            if (u) {
-                u.mora = Number(u.mora || u.Mora || 0) - amount;
-                if (typeof client.setLevel === 'function') await client.setLevel(u);
+            u = await client.getLevel(userId, guildId);
+        }
+
+        if (u) {
+            dbMora = Number(u.mora || u.Mora || 0);
+            dbBank = Number(u.bank || u.Bank || 0);
+        } else {
+            let res = await execSafe(db, 
+                `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, 
+                `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, 
+                [userId, guildId]
+            );
+            if (res.rows && res.rows[0]) {
+                dbMora = Number(res.rows[0].mora || res.rows[0].Mora || 0);
+                dbBank = Number(res.rows[0].bank || res.rows[0].Bank || 0);
             }
         }
-    } catch(e) {}
 
-    let r1 = await execSafe(db, 
-        `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, 
-        `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, 
-        [amount, userId, guildId]
-    );
-    return !r1.error;
+        if (dbMora >= amount) {
+            dbMora -= amount;
+        } else {
+            let diff = amount - dbMora;
+            dbMora = 0;
+            dbBank -= diff;
+        }
+
+        if (u && typeof client.setLevel === 'function') {
+            u.mora = dbMora;
+            u.bank = dbBank;
+            await client.setLevel(u);
+        }
+
+        let r1 = await execSafe(db, 
+            `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, 
+            `UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, 
+            [dbMora, dbBank, userId, guildId]
+        );
+        return !r1.error;
+    } catch(e) {
+        return false;
+    }
 }
 
 async function refundMora(client, db, userId, guildId, amount) {
@@ -280,16 +310,15 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
 
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
     let bal = await getUserBal(db, interaction.user.id, interaction.guild.id);
+    const totalWealth = bal.mora + bal.bank;
 
     const errorReply = async (msgContent) => {
         if (interaction.deferred || interaction.replied) return await interaction.followUp({ content: msgContent, flags: MessageFlags.Ephemeral }); 
         else return await interaction.reply({ content: msgContent, flags: MessageFlags.Ephemeral });
     };
 
-    if (bal.mora < finalPrice) {
-        let errorMsg = `❌ **عذراً، لا تملك مورا كافية!**\nالمطلوب بالكاش: **${finalPrice.toLocaleString()}** ${EMOJI_MORA}`;
-        if (bal.bank >= finalPrice) errorMsg += `\n\n💡 **تلميح:** فلوسك بالبنك تكفي، اسحبها وجرب ثانية.`;
-        return await errorReply(errorMsg);
+    if (totalWealth < finalPrice) {
+        return await errorReply(`❌ **عذراً، رصيدك (كاش + بنك) لا يكفي!**\nالمطلوب: **${finalPrice.toLocaleString()}** ${EMOJI_MORA}`);
     }
 
     if (callbackType === 'item') {
@@ -323,7 +352,6 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 let r = await execSafe(db, `UPDATE levels SET "hasGuard" = LEAST(COALESCE("hasGuard", 0) + 3, 6), "guardExpires" = 0 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET hasguard = LEAST(COALESCE(hasguard, 0) + 3, 6), guardexpires = 0 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
                 if(r.error) success = false;
                 else {
-                    // 🔥 تحديث الحارس الشخصي في الذاكرة المؤقتة (عشان يشتغل مع السرقة فوراً) 🔥
                     try {
                         if (client && typeof client.getLevel === 'function') {
                             let u = await client.getLevel(interaction.user.id, interaction.guild.id);
@@ -387,15 +415,14 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             }
             else if (itemData.id === 'farm_worker_3d') {
                 const duration = 3 * 24 * 60 * 60 * 1000;
-                let r = await execSafe(db, `SELECT "expiresAt", "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `SELECT expiresat, id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]);
+                let r = await execSafe(db, `SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `SELECT expiresat FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]);
                 const existingWorker = r.rows[0];
                 let newExpiresAt = Date.now() + duration;
                 
                 if (existingWorker) {
                     const expMs = Number(existingWorker.expiresAt || existingWorker.expiresat);
                     if (expMs > Date.now()) newExpiresAt = expMs + duration;
-                    const workerId = existingWorker.id || existingWorker.ID;
-                    let r2 = await execSafe(db, `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`, `UPDATE user_buffs SET expiresat = $1 WHERE id = $2`, [newExpiresAt, workerId]);
+                    let r2 = await execSafe(db, `UPDATE user_buffs SET "expiresAt" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "buffType" = 'farm_worker'`, `UPDATE user_buffs SET expiresat = $1 WHERE userid = $2 AND guildid = $3 AND bufftype = 'farm_worker'`, [newExpiresAt, interaction.user.id, interaction.guild.id]);
                     if(r2.error) success = false;
                 } else {
                     let r2 = await execSafe(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'farm_worker', 0, newExpiresAt, 0]);
@@ -469,10 +496,8 @@ async function _handleRodUpgrade(i, client, db) {
 
     if (!nextRod) return i.followUp({ content: '❌ وصلت للحد الأقصى للسنارة!', flags: MessageFlags.Ephemeral });
 
-    if (bal.mora < nextRod.price) {
-        let msg = `❌ رصيدك الكاش ما يكفي! تحتاج **${nextRod.price.toLocaleString()}** مورا.`;
-        if (bal.bank >= nextRod.price) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها وجرب ثانية.`;
-        return i.followUp({ content: msg, flags: MessageFlags.Ephemeral });
+    if ((bal.mora + bal.bank) < nextRod.price) {
+        return i.followUp({ content: `❌ رصيدك (كاش + بنك) لا يكفي! تحتاج **${nextRod.price.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral });
     }
 
     let deducted = await deductMora(client, db, i.user.id, i.guild.id, nextRod.price);
@@ -528,10 +553,8 @@ async function _handleBoatUpgrade(i, client, db) {
 
     if (!nextBoat) return i.followUp({ content: '❌ وصلت للحد الأقصى للقارب!', flags: MessageFlags.Ephemeral });
 
-    if (bal.mora < nextBoat.price) {
-        let msg = `❌ رصيدك الكاش ما يكفي! تحتاج **${nextBoat.price.toLocaleString()}** مورا.`;
-        if (bal.bank >= nextBoat.price) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها وجرب ثانية.`;
-        return i.followUp({ content: msg, flags: MessageFlags.Ephemeral });
+    if ((bal.mora + bal.bank) < nextBoat.price) {
+        return i.followUp({ content: `❌ رصيدك (كاش + بنك) لا يكفي! تحتاج **${nextBoat.price.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral });
     }
 
     let deducted = await deductMora(client, db, i.user.id, i.guild.id, nextBoat.price);
@@ -567,7 +590,7 @@ async function _handleBoatUpgrade(i, client, db) {
         refreshEmbed.addFields({ name: "التطوير", value: "الحد الأقصى", inline: true });
         refreshRow.addComponents(new ButtonBuilder().setCustomId('max_boat').setLabel('MAX').setStyle(ButtonStyle.Secondary).setDisabled(true));
     } else {
-        refreshEmbed.addFields({ name: "القادم", value: futureBoatData.name, inline: true }, { name: "السعر", value: `${futureBoatData.price.toLocaleString()}`, inline: true }, { name: "يفتح", value: futureBoatData.location_id, inline: false });
+        refreshEmbed.addFields({ name: "القادم", value: futureBoatData.name, inline: true }, { name: "السعر", value: `${futureBoatData.price.toLocaleString()}`, inline: true }, { name: "يفتح", value: nextBoat.location_id, inline: false });
         refreshRow.addComponents(new ButtonBuilder().setCustomId('upgrade_boat').setLabel('شراء').setStyle(ButtonStyle.Success).setEmoji('🚤'));
     }
     
@@ -631,10 +654,8 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
 
         if (NON_DISCOUNTABLE.includes(item.id) || item.id.startsWith('xp_buff_')) {
              let bal = await getUserBal(db, userId, guildId);
-             if (bal.mora < item.price) {
-                 let msg = `❌ رصيدك غير كافي!`;
-                 if (bal.bank >= item.price) msg += `\n💡 لديك في البنك **${bal.bank.toLocaleString()}** مورا، اسحب منها.`;
-                 return await i.editReply({ content: msg });
+             if ((bal.mora + bal.bank) < item.price) {
+                 return await i.editReply({ content: `❌ رصيدك (كاش + بنك) ما يكفي. تحتاج **${item.price.toLocaleString()}** مورا.` });
              }
              await processFinalPurchase(i, item, 1, item.price, 0, 'none', client, db, 'item');
              return;
@@ -656,10 +677,8 @@ async function _handleBaitBuy(i, client, db, baitId) {
     const cost = Math.round(bait.price / 5) * 5; 
     let bal = await getUserBal(db, i.user.id, i.guild.id);
 
-    if (bal.mora < cost) {
-        let msg = `❌ رصيدك الكاش ما يكفي! تحتاج **${cost.toLocaleString()}** مورا.`;
-        if (bal.bank >= cost) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها.`;
-        return i.editReply(msg);
+    if ((bal.mora + bal.bank) < cost) {
+        return i.editReply(`❌ رصيدك (كاش + بنك) لا يكفي! تحتاج **${cost.toLocaleString()}** مورا.`);
     }
     
     let deducted = await deductMora(client, db, i.user.id, i.guild.id, cost);
@@ -696,10 +715,8 @@ async function _handleReplaceGuard(i, client, db) {
         }
 
         let bal = await getUserBal(db, userId, guildId);
-        if (bal.mora < item.price) {
-            let msg = `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`;
-            if (bal.bank >= item.price) msg += `\n💡 لديك في البنك **${bal.bank.toLocaleString()}** مورا.`;
-            return await i.followUp({ content: msg, flags: MessageFlags.Ephemeral });
+        if ((bal.mora + bal.bank) < item.price) {
+            return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
         }
         
         let deducted = await deductMora(client, db, userId, guildId, item.price);
@@ -714,7 +731,6 @@ async function _handleReplaceGuard(i, client, db) {
             await refundMora(client, db, userId, guildId, item.price);
             return await i.followUp({ content: `❌ حدث خطأ داخلي أثناء تحديث الحارس الشخصي، تم استرجاع أموالك.`, flags: MessageFlags.Ephemeral });
         } else {
-            // 🔥 تحديث الحارس في الذاكرة المؤقتة (عشان يمسك الحرامية فوراً) 🔥
             try {
                 if (client && typeof client.getLevel === 'function') {
                     let u = await client.getLevel(userId, guildId);
@@ -750,10 +766,8 @@ async function _handleReplaceBuffButton(i, client, db) {
         
         let bal = await getUserBal(db, userId, guildId);
         
-        if (bal.mora < item.price) {
-            let msg = `❌ رصيدك الكاش ما يكفي! تحتاج **${item.price.toLocaleString()}** مورا.`;
-            if (bal.bank >= item.price) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها.`;
-            return await i.followUp({ content: msg, flags: MessageFlags.Ephemeral });
+        if ((bal.mora + bal.bank) < item.price) {
+            return await i.followUp({ content: `❌ رصيدك (كاش + بنك) ما يكفي! تحتاج **${item.price.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral });
         }
         
         let deducted = await deductMora(client, db, userId, guildId, item.price);
@@ -921,17 +935,15 @@ async function handleShopModal(i, client, db) {
             const amountString = i.fields.getTextInputValue('xp_amount_input').trim().toLowerCase();
             let amountToBuy = 0;
             
-            if (amountString === 'all') amountToBuy = Math.floor(bal.mora / CUSTOM_XP_RATE);
+            if (amountString === 'all') amountToBuy = Math.floor((bal.mora + bal.bank) / CUSTOM_XP_RATE);
             else amountToBuy = parseInt(amountString.replace(/,/g, ''));
             
             if (isNaN(amountToBuy) || amountToBuy <= 0) return await i.editReply({ content: '❌ يرجى إدخال رقم صحيح أو كتابة All.' });
             
             const totalCost = amountToBuy * CUSTOM_XP_RATE;
             
-            if (bal.mora < totalCost) {
-                let msg = `❌ رصيدك الكاش ما يكفي. تحتاج **${totalCost.toLocaleString()}** مورا.`;
-                if (bal.bank >= totalCost) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها أولاً.`;
-                return await i.editReply({ content: msg });
+            if ((bal.mora + bal.bank) < totalCost) {
+                return await i.editReply({ content: `❌ رصيدك (كاش + بنك) ما يكفي. تحتاج **${totalCost.toLocaleString()}** مورا.` });
             }
             
             if (addXPAndCheckLevel) {
