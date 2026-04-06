@@ -6,7 +6,6 @@ try {
     ({ updateGuildStat } = require('./guild-board-handler.js'));
 } catch (e) {}
 
-// 🔥 استيراد الدالة السحرية لإضافة الـ XP بصمت 🔥
 let addXPAndCheckLevel;
 try {
     ({ addXPAndCheckLevel } = require('./handler-utils.js'));
@@ -59,6 +58,28 @@ async function getUserRace(member, db) {
     return allRaceRoles.find(r => userRoleIDs.includes(r.roleID || r.roleid)) || null;
 }
 
+function calculateSkillRawValue(skillConfig, currentLevel) {
+    if (!skillConfig) return 0;
+    const level = Math.max(1, currentLevel || 1);
+    
+    const base = skillConfig.base_value;
+    const inc = skillConfig.value_increment;
+    const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
+
+    if (level <= 15) {
+        return Math.floor(base + (inc * (level - 1)));
+    } else {
+        const valueAt15 = base + (inc * 14);
+        const targetValueAt30 = isPercentage ? 70 : 200; 
+        const levelsRemaining = 15;
+        const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
+        
+        let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
+        if (level >= 30) return targetValueAt30;
+        return Math.floor(finalValue);
+    }
+}
+
 async function getWeaponData(db, member) {
     const userRace = await getUserRace(member, db);
     if (!userRace) return null;
@@ -70,17 +91,30 @@ async function getWeaponData(db, member) {
     let userWeapon = res.rows[0];
     if (!userWeapon || Number(userWeapon.weaponLevel || userWeapon.weaponlevel) <= 0) return null;
     
-    // 🔥 الحساب المتوازن للسلاح كما في weapon-calculator 🔥
-    const level = Number(userWeapon.weaponLevel || userWeapon.weaponlevel);
+    let level = Number(userWeapon.weaponLevel || userWeapon.weaponlevel);
     const base = weaponConfig.base_damage;
     const inc = weaponConfig.damage_increment;
     let damage = 15;
+
+    try {
+        let buffRes = await db.query(`SELECT "multiplier" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'hidden_weapon'`, [member.id, member.guild.id]);
+        if (buffRes.rows.length === 0) {
+            buffRes = await db.query(`SELECT multiplier FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'hidden_weapon'`, [member.id, member.guild.id]).catch(()=>({rows:[]}));
+        }
+        
+        if (buffRes.rows.length > 0) {
+            const hiddenLevel = Number(buffRes.rows[0].multiplier || buffRes.rows[0].Multiplier);
+            if (hiddenLevel > 0) {
+                level = hiddenLevel; 
+            }
+        }
+    } catch(e) {}
 
     if (level <= 15) {
         damage = Math.floor(base + (inc * (level - 1)));
     } else {
         const damageAt15 = base + (inc * 14);
-        const targetDamageAt30 = 800;
+        const targetDamageAt30 = 1000;
         const levelsRemaining = 15; 
         const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
         let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
@@ -90,16 +124,13 @@ async function getWeaponData(db, member) {
     return { ...weaponConfig, currentDamage: damage, currentLevel: level };
 }
 
-// 🔥 نظام التصفية المنيع للمهارات 🔥
 async function getAllSkillData(db, member) {
     const userRace = await getUserRace(member, db);
     const skillsOutput = {};
     
-    // إحضار مهارات المستخدم من الداتا بيز
     const res = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [member.id, member.guild.id]);
     const userSkillsData = res.rows;
        
-    // تعريف الـ ID الخاص بمهارة العرق الحالي فقط
     let currentRaceSkillId = null;
     if (userRace) {
         const raceName = userRace.raceName || userRace.racename;
@@ -107,24 +138,34 @@ async function getAllSkillData(db, member) {
     }
 
     if (userSkillsData) {
-        userSkillsData.forEach(userSkill => {
+        for (const userSkill of userSkillsData) {
             const skillId = userSkill.skillID || userSkill.skillid;
             const skillConfig = skillsConfig.find(s => s.id === skillId);
-            const skillLvl = Number(userSkill.skillLevel || userSkill.skilllevel);
+            let skillLvl = Number(userSkill.skillLevel || userSkill.skilllevel);
             
             if (skillConfig && skillLvl > 0) {
-                // فلترة: إذا كانت مهارة عرقية (تبدأ بـ race_) يجب أن تطابق عرق اللاعب الحالي تماماً!
                 if (skillId.startsWith('race_') && skillId !== currentRaceSkillId) {
-                    return; // تجاهل مهارات الأعراق الأخرى
+                    continue; 
                 }
+
+                try {
+                    let sBuffRes = await db.query(`SELECT "multiplier" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = $3`, [member.id, member.guild.id, `hidden_skill_${skillId}`]);
+                    if (sBuffRes.rows.length === 0) {
+                        sBuffRes = await db.query(`SELECT multiplier FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = $3`, [member.id, member.guild.id, `hidden_skill_${skillId}`]).catch(()=>({rows:[]}));
+                    }
+                    
+                    if (sBuffRes.rows.length > 0) {
+                        const hiddenSkillLevel = Number(sBuffRes.rows[0].multiplier || sBuffRes.rows[0].Multiplier);
+                        if (hiddenSkillLevel > 0) skillLvl = hiddenSkillLevel; 
+                    }
+                } catch(e) {}
                 
-                const effectValue = skillConfig.base_value + (skillConfig.value_increment * (skillLvl - 1));
+                const effectValue = calculateSkillRawValue(skillConfig, skillLvl);
                 skillsOutput[skillConfig.id] = { ...skillConfig, currentLevel: skillLvl, effectValue: effectValue };
             }
-        });
+        }
     }
 
-    // إضافة مهارة العرق الأساسية (لفل 1) إذا كان لديه عرق ولم يتعلمها أو يطورها بعد
     if (currentRaceSkillId) {
         const raceSkillConfig = skillsConfig.find(s => s.id === currentRaceSkillId);
         if (raceSkillConfig && !skillsOutput[currentRaceSkillId]) {
@@ -136,9 +177,6 @@ async function getAllSkillData(db, member) {
 }
 
 async function getUserActiveSkill(db, userId, guildId) {
-    const guildObj = await client.guilds.fetch(guildId).catch(() => null); 
-    let currentRaceSkillId = null;
-    
     const res = await db.query(`SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
     const userSkills = res.rows;
     
@@ -154,7 +192,7 @@ async function getUserActiveSkill(db, userId, guildId) {
         const skillConfig = skillsConfig.find(s => s.id === (randomSkillData.skillID || randomSkillData.skillid));
         if (skillConfig) {
             const level = Number(randomSkillData.skillLevel || randomSkillData.skilllevel);
-            const power = skillConfig.base_value + (skillConfig.value_increment * (level - 1));
+            const power = calculateSkillRawValue(skillConfig, level);
             return { name: skillConfig.name, level: level, damage: power };
         }
     }
@@ -252,7 +290,6 @@ function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0
     return { embeds: [embed], components: [mainButtons] };
 }
 
-// 🔥 دالة لحساب مضاعف المهارة بناءً على الصحوة المتأخرة للـ PvP 🔥
 function getBalancedPvPMultiplier(baseMultiplier, currentLevel) {
     if (currentLevel <= 15) return baseMultiplier;
     
@@ -342,9 +379,7 @@ function applySkillEffect(battleState, attackerId, skill) {
             attacker.effects.confusion = false; attacker.effects.confusion_turns = 0;
             attacker.effects.blind = 0; attacker.effects.blind_turns = 0;
             
-            let shieldPercent = 0.25;
-            if(skillLevel > 15) shieldPercent += ((0.35 - 0.25) / 15) * (skillLevel - 15);
-            if(skillLevel >= 30) shieldPercent = 0.35;
+            const shieldPercent = effectValue / 100;
             
             const shieldVal = Math.floor(attacker.maxHp * shieldPercent);
             attacker.effects.shield += shieldVal;
@@ -360,9 +395,7 @@ function applySkillEffect(battleState, attackerId, skill) {
             const dmg = Math.floor(baseAtk * multi) + extraDmg;
             defender.hp -= dmg;
             
-            let healPercent = 0.15;
-            if(skillLevel > 15) healPercent += ((0.25 - 0.15) / 15) * (skillLevel - 15);
-            if(skillLevel >= 30) healPercent = 0.25;
+            const healPercent = effectValue / 100;
             
             const healVal = Math.floor(attacker.maxHp * healPercent);
             attacker.hp = Math.min(attacker.maxHp, attacker.hp + healVal);
@@ -378,7 +411,6 @@ function applySkillEffect(battleState, attackerId, skill) {
             return `👹 **${attacker.isMonster ? attacker.name : attacker.member.displayName}** ضحى بدمه لتوجيه ضربة مدمرة (${dmg})!`;
         }
 
-        // 🔥 التعديل الخرافي في الـ PvP لمهارة الإلف (وابل السهام) 🔥
         case 'Stun_Vulnerable': {
             const multi = getBalancedPvPMultiplier(0.7, skillLevel);
             let finalDmg = Math.floor(baseAtk * multi);
@@ -388,7 +420,6 @@ function applySkillEffect(battleState, attackerId, skill) {
             
             let msgDetails = [];
 
-            // 1. السهم الخارق (Piercing) - فرصة 20%
             if (Math.random() < 0.20) {
                 finalDmg = Math.floor(finalDmg * 1.5); 
                 msgDetails.push("💘 سهم خارق");
@@ -396,7 +427,6 @@ function applySkillEffect(battleState, attackerId, skill) {
 
             defender.hp -= finalDmg;
 
-            // 2. الشلل (Stun) - فرصة 50%
             if (Math.random() < 0.50) {
                 defender.effects.stun = true; 
                 defender.effects.stun_turns = 1;
@@ -405,7 +435,6 @@ function applySkillEffect(battleState, attackerId, skill) {
                 msgDetails.push("قاوم الشلل");
             }
 
-            // 3. السهام المسمومة أو المربكة - فرصة 20%
             if (Math.random() < 0.20) {
                 if (Math.random() < 0.5) {
                     defender.effects.poison = 30 + (skillLevel * 15);
@@ -487,9 +516,7 @@ function applySkillEffect(battleState, attackerId, skill) {
         }
 
         case 'Reflect_Tank': {
-            let shieldPercent = 0.2;
-            if(skillLevel > 15) shieldPercent += ((0.3 - 0.2) / 15) * (skillLevel - 15);
-            if(skillLevel >= 30) shieldPercent = 0.3;
+            const shieldPercent = effectValue / 100;
             
             attacker.effects.shield += Math.floor(attacker.maxHp * shieldPercent);
             attacker.effects.rebound_active = 0.4; attacker.effects.rebound_turns = 2;
