@@ -216,8 +216,8 @@ function buildEffectsString(effects) {
     if (effects.burn > 0) arr.push(`🔥 (${effects.burn})`);
     if (effects.stun) arr.push(`⚡ (مشلول)`);
     if (effects.confusion) arr.push(`😵 (مرتبك)`);
-    if (effects.rebound_active > 0) arr.push(`🔄 (${Math.round(effects.rebound_active * 100)}%)`);
     if (effects.evasion > 0) arr.push(`👻 (مراوغة)`);
+    if (effects.rebound_active > 0) arr.push(`🔄 (${Math.round(effects.rebound_active * 100)}%)`);
     if (effects.blind > 0) arr.push(`🌫️ (أعمى)`);
     return arr.length > 0 ? arr.join(' | ') : 'لا يوجد';
 }
@@ -379,7 +379,9 @@ function applySkillEffect(battleState, attackerId, skill) {
             attacker.effects.confusion = false; attacker.effects.confusion_turns = 0;
             attacker.effects.blind = 0; attacker.effects.blind_turns = 0;
             
-            const shieldPercent = effectValue / 100;
+            let shieldPercent = 0.25;
+            if(skillLevel > 15) shieldPercent += ((0.35 - 0.25) / 15) * (skillLevel - 15);
+            if(skillLevel >= 30) shieldPercent = 0.35;
             
             const shieldVal = Math.floor(attacker.maxHp * shieldPercent);
             attacker.effects.shield += shieldVal;
@@ -395,7 +397,9 @@ function applySkillEffect(battleState, attackerId, skill) {
             const dmg = Math.floor(baseAtk * multi) + extraDmg;
             defender.hp -= dmg;
             
-            const healPercent = effectValue / 100;
+            let healPercent = 0.15;
+            if(skillLevel > 15) healPercent += ((0.25 - 0.15) / 15) * (skillLevel - 15);
+            if(skillLevel >= 30) healPercent = 0.25;
             
             const healVal = Math.floor(attacker.maxHp * healPercent);
             attacker.hp = Math.min(attacker.maxHp, attacker.hp + healVal);
@@ -516,7 +520,9 @@ function applySkillEffect(battleState, attackerId, skill) {
         }
 
         case 'Reflect_Tank': {
-            const shieldPercent = effectValue / 100;
+            let shieldPercent = 0.2;
+            if(skillLevel > 15) shieldPercent += ((0.3 - 0.2) / 15) * (skillLevel - 15);
+            if(skillLevel >= 30) shieldPercent = 0.3;
             
             attacker.effects.shield += Math.floor(attacker.maxHp * shieldPercent);
             attacker.effects.rebound_active = 0.4; attacker.effects.rebound_turns = 2;
@@ -724,115 +730,167 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
     const BUFF_DURATION_MS = 15 * 60 * 1000;
     const expireTime = Date.now() + BUFF_DURATION_MS;
 
-    if (battleState.isPvE) {
-        if (winnerId !== "monster") {
-            const monster = battleState.monsterData;
-            const rewardMora = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
-            const rewardXP = Math.floor(Math.random() * (300 - 50 + 1)) + 50;
+    try {
+        if (battleState.isPvE) {
+            if (winnerId !== "monster") {
+                const monster = battleState.monsterData;
+                const rewardMora = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
+                const rewardXP = Math.floor(Math.random() * (300 - 50 + 1)) + 50;
 
-            const client = battleState.message.client;
-            
-            if (addXPAndCheckLevel) {
-                await addXPAndCheckLevel(client, winner.member, db, rewardXP, rewardMora, false).catch(()=>{});
+                const client = battleState.message.client;
+                
+                if (addXPAndCheckLevel) {
+                    await addXPAndCheckLevel(client, winner.member, db, rewardXP, rewardMora, false).catch(()=>{});
+                } else {
+                    try {
+                        const userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [winner.member.id, battleState.message.guild.id]);
+                        let userData = userDataRes.rows[0];
+                        if(userData) {
+                            userData.mora = Number(userData.mora) + rewardMora;
+                            userData.xp = Number(userData.xp) + rewardXP;
+                            await db.query(`UPDATE levels SET "mora" = $1, "xp" = $2 WHERE "user" = $3 AND "guild" = $4`, [userData.mora, userData.xp, winner.member.id, battleState.message.guild.id]);
+                        }
+                    } catch(e) {
+                        const userDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [winner.member.id, battleState.message.guild.id]).catch(()=>({rows:[]}));
+                        let userData = userDataRes.rows[0];
+                        if(userData) {
+                            userData.mora = Number(userData.mora) + rewardMora;
+                            userData.xp = Number(userData.xp) + rewardXP;
+                            await db.query(`UPDATE levels SET mora = $1, xp = $2 WHERE userid = $3 AND guildid = $4`, [userData.mora, userData.xp, winner.member.id, battleState.message.guild.id]).catch(()=>{});
+                        }
+                    }
+                }
+
+                try {
+                    await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'xp', 0.15]);
+                    await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'mora', 0.15]);
+                } catch(e) {
+                    await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'xp', 0.15]).catch(()=>{});
+                    await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'mora', 0.15]).catch(()=>{});
+                }
+
+                const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
+                embed.setColor(Colors.Gold).setThumbnail(winner.member.displayAvatarURL()).setImage(randomWinImage)
+                    .setTitle(`🏆 قهرت ${monster.name}!`)
+                    .setDescription(`💰 **الغنيمة:** ${rewardMora} ${EMOJI_MORA}\n✨ **خبرة:** ${rewardXP} XP\n✦ حصلت على تعزيز +15% لمدة 15د`);
             } else {
-                const userDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [winner.member.id, battleState.message.guild.id]);
-                let userData = userDataRes.rows[0];
-                if(userData) {
-                    userData.mora = Number(userData.mora) + rewardMora;
-                    userData.xp = Number(userData.xp) + rewardXP;
-                    await db.query(`UPDATE levels SET "mora" = $1, "xp" = $2 WHERE "user" = $3 AND "guild" = $4`, [userData.mora, userData.xp, winner.member.id, battleState.message.guild.id]);
+                try {
+                    await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loser.member.id, -15, expireTime, 'mora', -0.15]);
+                } catch(e) {
+                    await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loser.member.id, -15, expireTime, 'mora', -0.15]).catch(()=>{});
+                }
+                const randomLoseImage = LOSE_IMAGES[Math.floor(Math.random() * LOSE_IMAGES.length)];
+                embed.setColor(Colors.DarkRed).setImage(randomLoseImage)
+                    .setTitle(`💀 هزمك ${battleState.monsterData.name}...`)
+                    .setDescription(`✦ حصلت على إضعاف -15% مورا واكس بي لمدة 15د`);
+            }
+        } else {
+            let finalWinnings = battleState.totalPot;
+            let kingText = "";
+            let casinoTaxText = "";
+
+            let settings = {};
+            try {
+                const settingsRes = await db.query(`SELECT "rolePvPKing", "roleCasinoKing" FROM settings WHERE "guild" = $1`, [battleState.message.guild.id]);
+                settings = settingsRes.rows[0] || {};
+            } catch(e) {
+                const settingsRes = await db.query(`SELECT rolepvpking, rolecasinoking FROM settings WHERE guild = $1`, [battleState.message.guild.id]).catch(()=>({rows:[]}));
+                settings = settingsRes.rows[0] || {};
+            }
+
+            let winnerData, loserData;
+            try {
+                const winnerDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [winnerId, battleState.message.guild.id]);
+                winnerData = winnerDataRes.rows[0] || { user: winnerId, guild: battleState.message.guild.id, mora: 0, bank: 0 };
+                
+                const loserDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [loserId, battleState.message.guild.id]);
+                loserData = loserDataRes.rows[0] || { user: loserId, guild: battleState.message.guild.id, mora: 0, bank: 0 };
+            } catch(e) {
+                const winnerDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [winnerId, battleState.message.guild.id]).catch(()=>({rows:[]}));
+                winnerData = winnerDataRes.rows[0] || { user: winnerId, guild: battleState.message.guild.id, mora: 0, bank: 0 };
+                
+                const loserDataRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [loserId, battleState.message.guild.id]).catch(()=>({rows:[]}));
+                loserData = loserDataRes.rows[0] || { user: loserId, guild: battleState.message.guild.id, mora: 0, bank: 0 };
+            }
+
+            if (settings && (settings.rolePvPKing || settings.rolepvpking) && winner.member.roles.cache.has(settings.rolePvPKing || settings.rolepvpking)) {
+                const stealAmount = Math.floor(battleState.bet * 0.10);
+                
+                loserData.mora = Number(loserData.mora);
+                loserData.bank = Number(loserData.bank);
+
+                if (loserData.mora >= stealAmount) {
+                    loserData.mora -= stealAmount;
+                } else if (loserData.bank >= stealAmount) {
+                    loserData.bank -= stealAmount;
+                } else {
+                    loserData.mora = 0; 
+                }
+                
+                finalWinnings += stealAmount;
+                kingText = `\n👑 جلالة ملك النزاع نهب **${stealAmount}** إضافية من ثروة الخصم!`;
+                try { await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [loserData.mora, loserData.bank, loserId, battleState.message.guild.id]); }
+                catch(e) { await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [loserData.mora, loserData.bank, loserId, battleState.message.guild.id]).catch(()=>{}); }
+            }
+
+            if (settings && (settings.roleCasinoKing || settings.rolecasinoking) && !winner.member.roles.cache.has(settings.roleCasinoKing || settings.rolecasinoking)) {
+                const kingMembers = battleState.message.guild.roles.cache.get(settings.roleCasinoKing || settings.rolecasinoking)?.members;
+                if (kingMembers && kingMembers.size > 0) {
+                    const king = kingMembers.first();
+                    const casinoTax = Math.floor(finalWinnings * 0.01);
+                    if (casinoTax > 0) {
+                        finalWinnings -= casinoTax;
+                        casinoTaxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
+                        try { await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, battleState.message.guild.id]); }
+                        catch(e) { await db.query(`UPDATE levels SET bank = bank + $1 WHERE userid = $2 AND guildid = $3`, [casinoTax, king.id, battleState.message.guild.id]).catch(()=>{}); }
+                    }
                 }
             }
 
-            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'xp', 0.15]);
-            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winner.member.id, 15, expireTime, 'mora', 0.15]);
+            winnerData.mora = Number(winnerData.mora) + finalWinnings;
+            try { await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [winnerData.mora, winnerId, battleState.message.guild.id]); }
+            catch(e) { await db.query(`UPDATE levels SET mora = $1 WHERE userid = $2 AND guildid = $3`, [winnerData.mora, winnerId, battleState.message.guild.id]).catch(()=>{}); }
+
+            if (updateGuildStat) {
+                try { updateGuildStat(battleState.message.client, battleState.message.guild.id, winnerId, 'pvp_wins', 1); } catch(e) {}
+            }
+
+            try {
+                await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'mora', 0.15]);
+                await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'xp', 0.15]);
+            } catch(e) {
+                await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'mora', 0.15]).catch(()=>{});
+                await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'xp', 0.15]).catch(()=>{});
+            }
+
+            const loserExpiresAt = Date.now() + (15 * 60 * 1000);
+            try {
+                await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, -15, loserExpiresAt, 'mora', -0.15]);
+                await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, 0, loserExpiresAt, 'pvp_wounded', 0]);
+            } catch(e) {
+                await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, -15, loserExpiresAt, 'mora', -0.15]).catch(()=>{});
+                await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, 0, loserExpiresAt, 'pvp_wounded', 0]).catch(()=>{});
+            }
 
             const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
-            embed.setColor(Colors.Gold).setThumbnail(winner.member.displayAvatarURL()).setImage(randomWinImage)
-                .setTitle(`🏆 قهرت ${monster.name}!`)
-                .setDescription(`💰 **الغنيمة:** ${rewardMora} ${EMOJI_MORA}\n✨ **خبرة:** ${rewardXP} XP\n✦ حصلت على تعزيز +15% لمدة 15د`);
-        } else {
-            await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loser.member.id, -15, expireTime, 'mora', -0.15]);
-            const randomLoseImage = LOSE_IMAGES[Math.floor(Math.random() * LOSE_IMAGES.length)];
-            embed.setColor(Colors.DarkRed).setImage(randomLoseImage)
-                .setTitle(`💀 هزمك ${battleState.monsterData.name}...`)
-                .setDescription(`✦ حصلت على إضعاف -15% مورا واكس بي لمدة 15د`);
-        }
-    } else {
-        let finalWinnings = battleState.totalPot;
-        let kingText = "";
-        let casinoTaxText = "";
-
-        const settingsRes = await db.query(`SELECT "rolePvPKing", "roleCasinoKing" FROM settings WHERE "guild" = $1`, [battleState.message.guild.id]);
-        const settings = settingsRes.rows[0] || {};
-
-        const winnerDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [winnerId, battleState.message.guild.id]);
-        let winnerData = winnerDataRes.rows[0] || { user: winnerId, guild: battleState.message.guild.id, mora: 0, bank: 0 };
-        
-        const loserDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [loserId, battleState.message.guild.id]);
-        let loserData = loserDataRes.rows[0] || { user: loserId, guild: battleState.message.guild.id, mora: 0, bank: 0 };
-
-        if (settings && (settings.rolePvPKing || settings.rolepvpking) && winner.member.roles.cache.has(settings.rolePvPKing || settings.rolepvpking)) {
-            const stealAmount = Math.floor(battleState.bet * 0.10);
             
-            loserData.mora = Number(loserData.mora);
-            loserData.bank = Number(loserData.bank);
-
-            if (loserData.mora >= stealAmount) {
-                loserData.mora -= stealAmount;
-            } else if (loserData.bank >= stealAmount) {
-                loserData.bank -= stealAmount;
-            } else {
-                loserData.mora = 0; 
-            }
-            
-            finalWinnings += stealAmount;
-            kingText = `\n👑 جلالة ملك النزاع نهب **${stealAmount}** إضافية من ثروة الخصم!`;
-            await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [loserData.mora, loserData.bank, loserId, battleState.message.guild.id]);
+            embed.setColor('Random')
+                .setThumbnail(winner.member.displayAvatarURL())
+                .setImage(randomWinImage)
+                .setTitle(`★ الـفـائـز هـو ${cleanDisplayName(winner.member.user.displayName)}`)
+                .setDescription(
+                    `✶ مبـلغ الرهـان: ${battleState.totalPot.toLocaleString()} ${EMOJI_MORA}\n` +
+                    `✶ إجمالـي الربح: ${finalWinnings.toLocaleString()} ${EMOJI_MORA}${kingText}${casinoTaxText}\n\n` +
+                    `✶ الـفائـز: ${winner.member} حصل علـى تعزيـز 15% مورا واكس بي لـ 15د <a:buff:1438796257522094081>\n\n` +
+                    `✶ الـخـاسـر: ${loser.member} اصبح جريح وبطور الشفـاء اصابته لعـنة -15% مورا واكس بي لـ 15د <a:Nerf:1438795685280612423>`
+                );
         }
-
-        if (settings && (settings.roleCasinoKing || settings.rolecasinoking) && !winner.member.roles.cache.has(settings.roleCasinoKing || settings.rolecasinoking)) {
-            const kingMembers = battleState.message.guild.roles.cache.get(settings.roleCasinoKing || settings.rolecasinoking)?.members;
-            if (kingMembers && kingMembers.size > 0) {
-                const king = kingMembers.first();
-                const casinoTax = Math.floor(finalWinnings * 0.01);
-                if (casinoTax > 0) {
-                    finalWinnings -= casinoTax;
-                    casinoTaxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
-                    await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, battleState.message.guild.id]);
-                }
-            }
-        }
-
-        winnerData.mora = Number(winnerData.mora) + finalWinnings;
-        await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [winnerData.mora, winnerId, battleState.message.guild.id]);
-
-        if (updateGuildStat) {
-            updateGuildStat(battleState.message.client, battleState.message.guild.id, winnerId, 'pvp_wins', 1);
-        }
-
-        await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'mora', 0.15]);
-        await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'xp', 0.15]);
-
-        const loserExpiresAt = Date.now() + (15 * 60 * 1000);
-        await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, -15, loserExpiresAt, 'mora', -0.15]);
-        await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, loserId, 0, loserExpiresAt, 'pvp_wounded', 0]);
-
-        const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
-        
-        embed.setColor('Random')
-            .setThumbnail(winner.member.displayAvatarURL())
-            .setImage(randomWinImage)
-            .setTitle(`★ الـفـائـز هـو ${cleanDisplayName(winner.member.user.displayName)}`)
-            .setDescription(
-                `✶ مبـلغ الرهـان: ${battleState.totalPot.toLocaleString()} ${EMOJI_MORA}\n` +
-                `✶ إجمالـي الربح: ${finalWinnings.toLocaleString()} ${EMOJI_MORA}${kingText}${casinoTaxText}\n\n` +
-                `✶ الـفائـز: ${winner.member} حصل علـى تعزيـز 15% مورا واكس بي لـ 15د <a:buff:1438796257522094081>\n\n` +
-                `✶ الـخـاسـر: ${loser.member} اصبح جريح وبطور الشفـاء اصابته لعـنة -15% مورا واكس بي لـ 15د <a:Nerf:1438795685280612423>`
-            );
+    } catch (dbError) {
+        console.error("Database error in endBattle:", dbError);
+        embed.setColor(Colors.Orange).setTitle("⚠️ انتهت المعركة بسلام").setDescription("حدث خطأ في حفظ بعض البيانات (البوفات/المورا)، لكن النتيجة احتسبت.");
     }
 
-    await battleState.message.channel.send({ embeds: [embed] });
+    await battleState.message.channel.send({ embeds: [embed] }).catch(console.error);
 }
 
 function applyPersistentEffects(battleState, attackerId) {
