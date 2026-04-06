@@ -474,7 +474,6 @@ module.exports = {
                         if (item) resArr.push({ item, rarity });
                     }
 
-                    // 🔥 حل الاصطدام بالتسلسل الآمن لضمان إضافة الأغراض 100% 🔥
                     for (const [itemId, qty] of Object.entries(itemsToAdd)) {
                         let existingItemRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
                         let existingRow = null;
@@ -569,7 +568,10 @@ module.exports = {
                     await fetchUserData();
                     
                     let isBuying = i.customId.startsWith('gacha_');
+                    
+                    // 🔥 تعديل قراءة عدد السحبات بناءً على الأزرار الجديدة 🔥
                     currentPullCount = (i.customId === 'gacha_10' || i.customId === 'open_chest_10') ? 10 : 1;
+                    
                     let cost = 0;
                     let totalBal = userMora + userBank; 
 
@@ -632,6 +634,10 @@ module.exports = {
                                 fallbackEmbeds.push(new EmbedBuilder().setTitle(`🎁 حصلت على: ${bestResult.item.name || bestResult.item.id}`).setDescription(`الندرة: **${bestResult.rarity}**`).setColor(bestResult.rarity === 'Legendary' ? '#F1C40F' : '#3498DB'));
                             }
                         }
+                        
+                        // 🔥 إضافة هذا السطر عشان نحدث الكاش ونعرض العدد المتبقي بشكل صحيح 🔥
+                        await fetchUserData(); 
+                        
                         await initialMsg.edit({ embeds: fallbackEmbeds, files, components: [getReturnButton()], content: (files.length > 0 || fallbackEmbeds.length > 0) ? '' : '\u200B' }).catch(()=>{});
                     }
 
