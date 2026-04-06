@@ -452,7 +452,7 @@ module.exports = {
                     }
 
                     const resArr = [];
-                    let highestRarityVal = 0;
+                    let highestRarityVal = -1;
                     const rarityOrder = { Common: 0, Uncommon: 1, Rare: 2, Epic: 3, Legendary: 4 };
                     let bestResult = null;
 
@@ -461,7 +461,7 @@ module.exports = {
                     for (let k = 0; k < pCount; k++) {
                         const { item, rarity } = performPull(pityData, userRace);
                         
-                        if (rarityOrder[rarity] > highestRarityVal) {
+                        if (bestResult === null || rarityOrder[rarity] > highestRarityVal) {
                             highestRarityVal = rarityOrder[rarity];
                             bestResult = { item, rarity };
                         }
