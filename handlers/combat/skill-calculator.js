@@ -2,7 +2,6 @@ const { cleanDisplayName } = require('../dungeon/utils');
 
 const GLOBAL_SKILL_MULTIPLIER = 5.0;
 
-// 🔥 دالة التوحيد الإجباري (الصحوة من لفل 16) لمهارات الدانجون 🔥
 function calculateSkillRawValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -12,12 +11,10 @@ function calculateSkillRawValue(skillConfig, currentLevel) {
     const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
 
     if (level <= 15) {
-        // من 1 إلى 15: قوة العرق الطبيعية والتفاوت
         return Math.floor(base + (inc * (level - 1)));
     } else {
-        // من 16 إلى 30: توحيد إجباري للمهارات لجميع اللاعبين!
         const valueAt15 = base + (inc * 14);
-        const targetValueAt30 = isPercentage ? 50 : 200; 
+        const targetValueAt30 = isPercentage ? 70 : 200; 
         const levelsRemaining = 15;
         const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
         
@@ -172,7 +169,6 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
                 
                 let msgDetails = [];
 
-                // 🎯 1. السهم الخارق (Piercing) - فرصة 20%
                 if (Math.random() < 0.20) {
                     finalDmg = Math.floor(finalDmg * 1.5); 
                     msgDetails.push("💘 سهم خارق");
@@ -180,7 +176,6 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
 
                 result.damage = finalDmg;
 
-                // ⚡ 2. الشلل (Stun) - فرصة 50%
                 if (Math.random() < 0.50) {
                     result.effectsApplied.push({ type: 'stun', val: true, turns: 1 });
                     msgDetails.push("😵 شلل");
@@ -188,7 +183,6 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
                     msgDetails.push("قاوم الشلل");
                 }
 
-                // ☠️ 3. السهام المسمومة أو المربكة - فرصة 20%
                 if (Math.random() < 0.20) {
                     if (Math.random() < 0.5) {
                         result.effectsApplied.push({ type: 'poison', val: Math.floor(skillPower * 0.3), turns: 3 });
