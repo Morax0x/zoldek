@@ -87,7 +87,7 @@ module.exports = {
                 .addStringOption(opt => opt.setName('action').setDescription('الإجراء').setRequired(true)
                     .addChoices({name: 'عرض القائمة', value: 'list'}, {name: 'تعيين ميزة', value: 'set'}))
                 .addRoleOption(opt => opt.setName('role').setDescription('الرتبة').setRequired(false))
-                .addStringOption(opt => opt.setName('dungeon').setDescription('معرف الدانجون').setRequired(false))
+                .addStringOption(opt => opt.setName('dungeon').setDescription('معرف الدانجون (اكتب "الكل" للجميع)').setRequired(false))
                 .addStringOption(opt => opt.setName('stat').setDescription('النوع').setRequired(false)
                     .addChoices({name: 'هجوم', value: 'atk'}, {name: 'صحة', value: 'hp'}, {name: 'دفاع', value: 'def'}, {name: 'درع', value: 'shield'}, {name: 'شفاء', value: 'lifesteal'}, {name: 'كريت', value: 'crit'}))
                 .addIntegerOption(opt => opt.setName('percent').setDescription('النسبة').setRequired(false)))
@@ -416,16 +416,29 @@ module.exports = {
                 if (action === 'set') {
                     if (!role) return reply("❌ **طريقة الاستخدام:** يرجى تحديد الرتبة.");
                     
-                    const dungeonKey = Object.keys(dungeonConfig.themes).find(key => key === inputDungeon || dungeonConfig.themes[key].name.toLowerCase().includes(inputDungeon));
-                    if (!dungeonKey) {
-                        const valid = Object.keys(dungeonConfig.themes).map(k => dungeonConfig.themes[k].name).join('، ');
-                        return reply(`❌ **اسم الدانجون غير صحيح!** المتاح: ${valid}`);
-                    }
-
                     const statMap = { 'هجوم': 'atk', 'atk': 'atk', 'attack': 'atk', 'قوة': 'atk', 'اتش_بي': 'hp', 'hp': 'hp', 'صحة': 'hp', 'health': 'hp', 'حيوية': 'hp', 'دفاع': 'def', 'def': 'def', 'defense': 'def', 'صلابة': 'def', 'درع': 'shield', 'shield': 'shield', 'شفاء': 'lifesteal', 'lifesteal': 'lifesteal', 'امتصاص': 'lifesteal', 'كريت': 'crit', 'crit': 'crit', 'مهارة': 'crit', 'حرجة': 'crit' };
                     const stat = statMap[inputStat];
                     if (!stat) return reply("❌ **نوع الميزة غير صحيح!** الأنواع: هجوم، صحة، دفاع، درع، شفاء، كريت");
                     if (!percent || isNaN(percent) || percent < 1 || percent > 100) return reply("❌ **النسبة غير صحيحة!**");
+
+                    // 🔥 الإضافة الجديدة: تطبيق الميزة على "الكل" 🔥
+                    if (inputDungeon === 'الكل' || inputDungeon === 'all') {
+                        const allDungeons = Object.keys(dungeonConfig.themes);
+                        for (const dKey of allDungeons) {
+                            await db.query(`INSERT INTO race_dungeon_buffs ("guildID", "roleID", "dungeonKey", "statType", "buffValue") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("guildID", "roleID", "dungeonKey") DO UPDATE SET "statType" = EXCLUDED."statType", "buffValue" = EXCLUDED."buffValue"`, [guild.id, role.id, dKey, stat, percent]);
+                        }
+                        
+                        const embed = new EmbedBuilder().setTitle("✅ تم تفعيل ميزة العرق الشاملة").setColor(Colors.Gold).setDescription(`تم تخصيص الميزة لحاملي رتبة ${role} في **جـمـيـع الدانـجـونـات** 🌍!`)
+                            .addFields({ name: '📈 الميزة (Stat)', value: `${getStatIcon(stat)} ${stat.toUpperCase()} +${percent}%`, inline: true })
+                            .setFooter({ text: "نظام تعزيز الأعراق - EMorax" }).setTimestamp();
+                        return reply({ embeds: [embed] });
+                    }
+
+                    const dungeonKey = Object.keys(dungeonConfig.themes).find(key => key === inputDungeon || dungeonConfig.themes[key].name.toLowerCase().includes(inputDungeon));
+                    if (!dungeonKey) {
+                        const valid = Object.keys(dungeonConfig.themes).map(k => dungeonConfig.themes[k].name).join('، ');
+                        return reply(`❌ **اسم الدانجون غير صحيح!** المتاح: ${valid}، أو اكتب "الكل" لجميع الدانجونات.`);
+                    }
 
                     await db.query(`INSERT INTO race_dungeon_buffs ("guildID", "roleID", "dungeonKey", "statType", "buffValue") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("guildID", "roleID", "dungeonKey") DO UPDATE SET "statType" = EXCLUDED."statType", "buffValue" = EXCLUDED."buffValue"`, [guild.id, role.id, dungeonKey, stat, percent]);
                     
