@@ -744,7 +744,6 @@ async function _handleReplaceGuard(i, client, db) {
             await refundMora(client, db, userId, guildId, item.price);
             return await i.followUp({ content: `❌ حدث خطأ داخلي أثناء تحديث الحارس الشخصي، تم استرجاع أموالك.`, flags: MessageFlags.Ephemeral });
         } else {
-            // 🔥 تحديث الحارس في الذاكرة المؤقتة (عشان يمسك الحرامية فوراً) 🔥
             try {
                 if (client && typeof client.getLevel === 'function') {
                     let u = await client.getLevel(userId, guildId);
