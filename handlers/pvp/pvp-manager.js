@@ -66,7 +66,8 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
 
     const now = Date.now();
     const cWoundRes = await db.query(`SELECT 1 FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded' AND "expiresAt" > $3`, [challengerMember.id, i.guild.id, now]).catch(()=>({rows:[]}));
-    const oWoundRes = await db.query(`SELECT 1 FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded' AND "expiresAt" > $3`, [opponentMember.id, i.guild.id, now]).catch(()=>({rows:[]}));
+    // ✅ لا نفحص الجرح للبوت (isBotMatch) لأنه لا يمتلك بيانات قاعدة بيانات
+    const oWoundRes = isBotMatch ? { rows: [] } : await db.query(`SELECT 1 FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded' AND "expiresAt" > $3`, [opponentMember.id, i.guild.id, now]).catch(()=>({rows:[]}));
 
     let cHp = cWoundRes.rows.length > 0 ? Math.floor(cMaxHp * 0.5) : cMaxHp;
     let oHp = oWoundRes.rows.length > 0 ? Math.floor(oMaxHp * 0.5) : oMaxHp;
@@ -96,7 +97,13 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
             });
         }
     } catch (e) {
-        await i.channel.send({ content: "❌ فشل إنشاء ساحة المعركة." });
+        console.error('[PvP] Thread creation failed:', e);
+        // ✅ استرداد الرهان لكلا اللاعبين عند فشل إنشاء الثريد
+        await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [bet, challengerMember.id, i.guild.id]).catch(() => {});
+        if (!isBotMatch) {
+            await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [bet, opponentMember.id, i.guild.id]).catch(() => {});
+        }
+        await i.channel.send({ content: "❌ فشل إنشاء ساحة المعركة. تم استرداد الرهان تلقائياً." }).catch(() => {});
         return;
     }
 
@@ -257,11 +264,13 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
 
 async function endBattle(battleState, winnerId, db, reason = "win", buffCalculator = null) {
     if (!battleState.message) return;
+    // ✅ منع تنفيذ endBattle أكثر من مرة للمعركة نفسها
+    if (battleState.status === 'ended') return;
 
     battleState.status = 'ended';
     if(battleState.timeoutTimer) clearTimeout(battleState.timeoutTimer);
     if(battleState.bettingTimer) clearTimeout(battleState.bettingTimer);
-    
+
     if (!battleState.isPvE && battleState.bettingPool) {
         battleState.bettingPool.isOpen = false;
         await updateSpectatorEmbed(battleState);
@@ -270,9 +279,15 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
     const { embeds: finalEmbeds, files: finalFiles } = await buildBattleEmbed(battleState);
     await battleState.message.edit({ embeds: finalEmbeds, components: [], files: finalFiles }).catch(() => {});
 
+    // ✅ حذف من الـ map باستخدام ID الثريد مباشرة (ليس channel.id الذي قد يختلف)
     const channelId = battleState.message.channel.id;
     activePvpBattles.delete(channelId);
     activePveBattles.delete(channelId);
+    // حذف إضافي بـ thread.id لضمان التنظيف الكامل
+    if (battleState.thread && battleState.thread.id !== channelId) {
+        activePvpBattles.delete(battleState.thread.id);
+        activePveBattles.delete(battleState.thread.id);
+    }
 
     const winner = battleState.players.get(winnerId);
     const loserId = Array.from(battleState.players.keys()).find(id => id !== winnerId);
