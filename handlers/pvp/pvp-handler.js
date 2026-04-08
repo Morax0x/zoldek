@@ -220,7 +220,11 @@ async function handlePvpBetModal(i, client, db) {
     const finalBet = amount - lateTax;
     if (finalBet <= 0) return i.editReply({ content: "❌ المبلغ قليل جداً لتغطية رسوم الدخول المتأخر (2%)." });
 
-    await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [amount, i.user.id, i.guild.id]).catch(() => {});
+    // ✅ GREATEST لمنع الرصيد السالب + RETURNING لتحديث الكاش فوراً ومنع الكتابة المؤجلة من إرجاع القيمة القديمة
+    const betDeductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, i.user.id, i.guild.id]).catch(()=>({rows:[]}));
+    if (client?.updateLevelField && betDeductRes.rows[0]) {
+        client.updateLevelField(i.user.id, i.guild.id, { mora: Number(betDeductRes.rows[0].mora) });
+    }
 
     const p1Id = Array.from(battleState.players.keys())[0];
     const p2Id = Array.from(battleState.players.keys())[1];
