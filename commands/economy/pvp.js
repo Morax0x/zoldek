@@ -1,27 +1,19 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, SlashCommandBuilder } = require("discord.js");
-const { activePvpChallenges, getUserRace, getWeaponData, cleanDisplayName } = require('../../handlers/pvp-core.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, SlashCommandBuilder, AttachmentBuilder } = require("discord.js");
+
+// 🔥 استدعاء الدوال من المركز الجديد للـ PvP 🔥
+const { activePvpChallenges, EMOJI_MORA } = require('../../handlers/pvp/pvp-state.js');
+const { cleanDisplayName } = require('../../handlers/pvp/pvp-utils.js');
+const { getUserRace, getWeaponData } = require('../../handlers/pvp/pvp-data.js');
+const { generatePvPChallengeImage } = require('../../generators/pvp-summary-generator.js'); 
 
 let updateGuildStat;
 try {
     ({ updateGuildStat } = require('../../handlers/guild-board-handler.js'));
 } catch (e) {}
 
-const EMOJI_MORA = '<:mora:1435647151349698621>';
 const PVP_COOLDOWN_MS = 5 * 60 * 1000;
 const MAX_LOAN_BET = 500; 
-
-const CHALLENGE_IMAGES = [
-    'https://i.postimg.cc/5NX6dF4R/download-2.gif',
-    'https://i.postimg.cc/5NWNGKRR/download-3.gif',
-    'https://i.postimg.cc/xTPYZfH6/download-4.gif',
-    'https://i.postimg.cc/vBwNM9wf/download-6.gif',
-    'https://i.postimg.cc/wTrFgJhJ/Okita-Sougo.gif',
-    'https://i.postimg.cc/5NXq70ZV/Shiki-Ryougi.gif',
-    'https://i.postimg.cc/0QNJzXv1/Anime-Anger-GIF-Anime-Anger-ANGRY-Descobrir-e-Compartilhar-GIFs.gif',
-    'https://i.postimg.cc/3xCynQrf/download-7.gif',
-    'https://i.postimg.cc/Sxq7Ghbg/download-8.gif',
-    'https://i.postimg.cc/htHCbxvn/Tsubaki-Who-is-coming-Servamp.gif'
-];
+const TARGET_OWNER_ID = "1145327691772481577"; 
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -98,8 +90,12 @@ module.exports = {
             return replyError("متـوحـد انـت؟ تتحدى نفسـك؟ <a:MugiStronk:1438795606872166462>");
         }
 
-        if (opponent.user.bot) {
+        const isBotChallenge = opponent.id === client.user.id;
+        if (opponent.user.bot && !isBotChallenge) {
             return replyError("ما تقدر تتحدى بـوت يا متـخـلف <a:MugiStronk:1438795606872166462>");
+        }
+        if (isBotChallenge && challenger.id !== TARGET_OWNER_ID) {
+            return replyError("❌ لا يتجرأ على تحدي الزعيم إلا الإمبراطور نفسه!");
         }
 
         if (bet > MAX_LOAN_BET) {
@@ -110,11 +106,13 @@ module.exports = {
             }
         }
 
-        if (bet > MAX_LOAN_BET) {
-            const opponentLoanRes = await sql.query(`SELECT "remainingAmount" FROM user_loans WHERE "userID" = $1 AND "guildID" = $2`, [opponent.id, guild.id]);
-            const opponentLoan = opponentLoanRes.rows[0];
-            if (opponentLoan && Number(opponentLoan.remainingAmount || opponentLoan.remainingamount) > 0) {
-                return replyError(`❌ الخصم ${opponent.displayName} عليه قرض ولا يمكنه المراهنة بأكثر من **${MAX_LOAN_BET}** ${EMOJI_MORA}.`);
+        if (!isBotChallenge) {
+            if (bet > MAX_LOAN_BET) {
+                const opponentLoanRes = await sql.query(`SELECT "remainingAmount" FROM user_loans WHERE "userID" = $1 AND "guildID" = $2`, [opponent.id, guild.id]);
+                const opponentLoan = opponentLoanRes.rows[0];
+                if (opponentLoan && Number(opponentLoan.remainingAmount || opponentLoan.remainingamount) > 0) {
+                    return replyError(`❌ الخصم ${opponent.displayName} عليه قرض ولا يمكنه المراهنة بأكثر من **${MAX_LOAN_BET}** ${EMOJI_MORA}.`);
+                }
             }
         }
 
@@ -123,9 +121,14 @@ module.exports = {
             challengerData = { ...client.defaultData, user: challenger.id, guild: guild.id };
         }
 
-        let opponentData = await client.getLevel(opponent.id, guild.id);
-        if (!opponentData) {
-            opponentData = { ...client.defaultData, user: opponent.id, guild: guild.id };
+        let opponentData;
+        if (!isBotChallenge) {
+            opponentData = await client.getLevel(opponent.id, guild.id);
+            if (!opponentData) {
+                opponentData = { ...client.defaultData, user: opponent.id, guild: guild.id };
+            }
+        } else {
+            opponentData = { mora: 999999999 }; 
         }
 
         const now = Date.now();
@@ -135,14 +138,13 @@ module.exports = {
 
         if (woundedDebuff) {
             const woundTimeLeft = Math.ceil((Number(woundedDebuff.expiresAt || woundedDebuff.expiresat) - now) / 60000);
-            return replyError(`❌ | أنت جريح حالياً! 🤕\nيمـكنـك تلقـي التحديـات ولكن لا يمـكـنـك ارسالـهـا ستشفـى بالكـامل بعـد **${woundTimeLeft}**دقيقـة`);
+            return replyError(`❌ | أنت جريح حالياً! 🤕\nيمـكنـك تلقـي التحديـات ولكن لا يمـكـنـك ارسالـهـا ستشفـى بالكـامل بعـد **${woundTimeLeft}** دقيقـة`);
         }
 
         const timeLeft = (Number(challengerData.lastPVP || challengerData.lastpvp) || 0) + PVP_COOLDOWN_MS - now;
         const executorId = isSlash ? interaction.user.id : message.author.id;
 
-        // استثناء لمالك البوت من الكولداون
-        if (timeLeft > 0 && executorId !== "1145327691772481577") {
+        if (timeLeft > 0 && executorId !== TARGET_OWNER_ID) {
             const minutes = Math.floor(timeLeft / 60000);
             const seconds = Math.floor((timeLeft % 60000) / 1000);
             return replyError(`🕐 لقد قمت بقتال مؤخراً. يرجى الانتظار **${minutes} دقيقة و ${seconds} ثانية**.`);
@@ -151,11 +153,10 @@ module.exports = {
         if (Number(challengerData.mora) < bet) {
             return replyError(`ليس لديك **${bet.toLocaleString()}** ${EMOJI_MORA} في رصيدك (الكاش) لهذا الرهان!`);
         }
-        if (Number(opponentData.mora) < bet) {
+        if (!isBotChallenge && Number(opponentData.mora) < bet) {
             return replyError(`خصمك ${opponent.displayName} لا يملك **${bet.toLocaleString()}** ${EMOJI_MORA} في رصيده (الكاش).`);
         }
 
-        // 🔥 هـنـا كـان الـخـلـل! تم تصحيح ترتيب المتغيرات للمتدخل challenger
         const challengerRace = await getUserRace(challenger, sql); 
         const challengerWeapon = await getWeaponData(sql, challenger);
 
@@ -166,26 +167,42 @@ module.exports = {
         challengerData.lastPVP = Date.now();
         await client.setLevel(challengerData);
 
-        activePvpChallenges.add(channel.id);
+        if (isBotChallenge) {
+            // 🔥 مسح إمبد القبول كما طلبت وتمريره مباشرة 🔥
+            const coreManager = require('../../handlers/pvp/pvp-manager.js');
+            return await coreManager.startPvpBattle(isSlash ? interaction : message, client, sql, challenger, opponent, bet, true);
+        }
 
+        activePvpChallenges.add(channel.id);
         const totalPot = bet * 2;
 
-        const challengerName = cleanDisplayName(challenger.user.displayName || challenger.user.username);
-        const opponentName = cleanDisplayName(opponent.user.displayName || opponent.user.username);
+        const opponentRaceObj = await getUserRace(opponent, sql);
+        
+        const challengerInfo = {
+            name: cleanDisplayName(challenger.displayName || challenger.user.username),
+            avatar: challenger.displayAvatarURL({ extension: 'png', size: 256, forceStatic: true }),
+            level: challengerData.level || 1,
+            race: challengerRace ? (challengerRace.raceName || challengerRace.racename) : 'Human'
+        };
 
-        const randomChallengeImage = CHALLENGE_IMAGES[Math.floor(Math.random() * CHALLENGE_IMAGES.length)];
+        const opponentInfo = {
+            name: cleanDisplayName(opponent.displayName || opponent.user.username),
+            avatar: opponent.displayAvatarURL({ extension: 'png', size: 256, forceStatic: true }),
+            level: opponentData.level || 1,
+            race: opponentRaceObj ? (opponentRaceObj.raceName || opponentRaceObj.racename) : 'Human'
+        };
 
-        const embed = new EmbedBuilder()
-            .setTitle('⚔️ تحـدي قـتـال ⚔️')
-            .setColor(Colors.Orange)
-            .setDescription(
-                `**${challengerName}** يتحدى **${opponentName}** في قتال 1 ضد 1!\n\n` +
-                `✬**الــرهان:** **${bet.toLocaleString()}** ${EMOJI_MORA}\n` +
-                `✬**الجائزة الكبرى:** **${totalPot.toLocaleString()}** ${EMOJI_MORA}\n\n` +
-                `✬ ${opponent}، لديك 60 ثانية لقبول التحدي.`
-            )
-            .setImage(randomChallengeImage)
-            .setThumbnail(challenger.displayAvatarURL());
+        if (!isSlash) await channel.sendTyping();
+
+        let files = [];
+        try {
+            const imageBuffer = await generatePvPChallengeImage(challengerInfo, opponentInfo, bet, totalPot, 'pending');
+            if (imageBuffer) {
+                files.push(new AttachmentBuilder(imageBuffer, { name: 'challenge.png' }));
+            }
+        } catch (err) {
+            console.error(err);
+        }
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -200,23 +217,31 @@ module.exports = {
                 .setEmoji('🛡️')
         );
 
-        const challengeMsg = await sendChallenge({ content: `${opponent}`, embeds: [embed], components: [row] });
+        const payload = {
+            content: `<@${opponent.id}>`, // 🔥 النص المطلوب فقط: منشن الخصم 🔥
+            files: files,
+            embeds: [],
+            components: files.length > 0 ? [row] : []
+        };
+
+        const challengeMsg = await sendChallenge(payload);
 
         setTimeout(async () => {
             if (activePvpChallenges.has(channel.id)) {
                 activePvpChallenges.delete(channel.id);
 
-                const editPayload = {
-                    content: 'انـتهـى الـوقـت لم يقـبل التحدي',
-                    embeds: [],
-                    components: []
-                };
-
-                if (isSlash) {
-                    interaction.editReply(editPayload).catch(() => {});
-                } else {
-                    challengeMsg.edit(editPayload).catch(() => {});
-                }
+                // 🔥 رسم تحديث للصورة عند التايم أوت 🔥
+                try {
+                    const timeoutBuffer = await generatePvPChallengeImage(challengerInfo, opponentInfo, bet, totalPot, 'timeout');
+                    if (timeoutBuffer) {
+                        const timeoutAttach = new AttachmentBuilder(timeoutBuffer, { name: 'challenge_timeout.png' });
+                        if (isSlash) {
+                            await interaction.editReply({ content: `<@${opponent.id}>`, files: [timeoutAttach], components: [], embeds: [] }).catch(()=>{});
+                        } else {
+                            await challengeMsg.edit({ content: `<@${opponent.id}>`, files: [timeoutAttach], components: [], embeds: [] }).catch(()=>{});
+                        }
+                    }
+                } catch(e){}
 
                 challengerData.lastPVP = 0;
                 await client.setLevel(challengerData);
