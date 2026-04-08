@@ -13,10 +13,10 @@ const db = new Pool({
     connectionString: connectionString,
     // فعلنا الـ SSL عشان الرابط الخارجي يشتغل بأعلى حماية وبدون أخطاء
     ssl: { rejectUnauthorized: false },
-    max: 50, 
-    idleTimeoutMillis: 30000, 
-    connectionTimeoutMillis: 2000, 
-    maxUses: 7500 
+    max: 50,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000, // ✅ زيادة من 2000 إلى 5000ms لتجنب الأخطاء تحت الضغط
+    maxUses: 7500
 });
 
 db.on('error', (err, client) => {

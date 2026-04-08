@@ -228,6 +228,12 @@ process.on('SIGINT', () => shutdownGracefully('SIGINT'));
 process.on('SIGTERM', () => shutdownGracefully('SIGTERM'));
 
 // منع انهيار البوت من الأخطاء غير المتوقعة
-process.on('unhandledRejection', error => {
-    console.error('Unhandled promise rejection:', error);
+process.on('unhandledRejection', (error, promise) => {
+    console.error('[UnhandledRejection] at:', promise, 'error:', error);
+});
+
+// ✅ منع انهيار البوت من الأخطاء المتزامنة غير المعالجة (السبب الرئيسي للفصل)
+process.on('uncaughtException', (error) => {
+    console.error('[UncaughtException] البوت تلقى خطأً غير متوقعاً:', error);
+    // لا نوقف البوت — فقط نسجل الخطأ ونكمل
 });

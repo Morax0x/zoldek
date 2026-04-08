@@ -322,6 +322,13 @@ function applyPersistentEffects(battleState, attackerId) {
 
     const attackerName = attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member?.displayName || attacker.member?.user?.username);
 
+    // ✅ فحص الشلل والارتباك قبل تخفيض العدادات حتى تعمل لعدد الجولات الصحيح
+    if (attacker.effects.stun) {
+        logEntries.push(`⚡ **${attackerName}** مشلول ولا يستطيع الحركة!`);
+        skipTurn = true;
+    }
+
+    // تخفيض عدادات التأثيرات بعد الفحص
     const effectsList = ['buff', 'weaken', 'rebound_active', 'stun', 'confusion', 'evasion', 'blind'];
     effectsList.forEach(eff => {
         if (attacker.effects[eff + '_turns'] > 0) {
@@ -345,11 +352,6 @@ function applyPersistentEffects(battleState, attackerId) {
         logEntries.push(`🔥 **${attackerName}** يحترق (-${attacker.effects.burn})!`);
         attacker.effects.burn_turns--;
         if (attacker.effects.burn_turns <= 0) attacker.effects.burn = 0;
-    }
-
-    if (attacker.effects.stun) {
-        logEntries.push(`⚡ **${attackerName}** مشلول ولا يستطيع الحركة!`);
-        skipTurn = true;
     }
 
     return { logEntries, skipTurn };

@@ -221,7 +221,7 @@ module.exports = {
             content: `<@${opponent.id}>`, // 🔥 النص المطلوب فقط: منشن الخصم 🔥
             files: files,
             embeds: [],
-            components: files.length > 0 ? [row] : []
+            components: [row] // ✅ الأزرار تظهر دائماً بغض النظر عن نجاح توليد الصورة
         };
 
         const challengeMsg = await sendChallenge(payload);
