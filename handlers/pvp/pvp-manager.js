@@ -27,15 +27,17 @@ function calculateCP(player) {
 async function startPvpBattle(i, client, db, challengerMember, opponentMember, bet, isBotMatch = false) {
     const getLevelResChallenger = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [challengerMember.id, i.guild.id]);
     let challengerData = getLevelResChallenger.rows[0] || { user: challengerMember.id, guild: i.guild.id, level: 0, mora: 0, bank: 0 };
-    
-    challengerData.mora = Number(challengerData.mora) - bet; 
-    await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [challengerData.mora, challengerMember.id, i.guild.id]);
+
+    // ✅ خصم نسبي آمن (GREATEST يمنع الرصيد السالب) + تحديث الكاش فوراً لمنع الكتابة المؤجلة من إرجاع القيمة القديمة
+    const newChalMora = Math.max(0, Number(challengerData.mora) - bet);
+    await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3`, [bet, challengerMember.id, i.guild.id]);
+    if (client.updateLevelField) client.updateLevelField(challengerMember.id, i.guild.id, { mora: newChalMora });
 
     let oMaxHp = 0; let raceNameO = 'Human'; let weaponOpponent = null; let skillsOpponent = {};
     let opponentLevel = 0;
 
     if (isBotMatch) {
-        oMaxHp = 5000; 
+        oMaxHp = 5000;
         opponentLevel = 100;
         raceNameO = 'Dragon';
         weaponOpponent = { name: "سلاح الزعيم", currentDamage: 850, currentLevel: 30, raceName: "Dragon" };
@@ -48,8 +50,10 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
     } else {
         const getLevelResOpponent = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [opponentMember.id, i.guild.id]);
         let opponentData = getLevelResOpponent.rows[0] || { user: opponentMember.id, guild: i.guild.id, level: 0, mora: 0, bank: 0 };
-        opponentData.mora = Number(opponentData.mora) - bet;
-        await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [opponentData.mora, opponentMember.id, i.guild.id]);
+        // ✅ نفس الإصلاح للخصم
+        const newOppMora = Math.max(0, Number(opponentData.mora) - bet);
+        await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3`, [bet, opponentMember.id, i.guild.id]);
+        if (client.updateLevelField) client.updateLevelField(opponentMember.id, i.guild.id, { mora: newOppMora });
         opponentLevel = Number(opponentData.level);
         oMaxHp = BASE_HP + (opponentLevel * HP_PER_LEVEL);
         weaponOpponent = await getWeaponData(db, opponentMember);
@@ -358,14 +362,25 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
 
     let finalWinnings = battleState.totalPot;
     const pool = battleState.bettingPool;
+    // ✅ مرجع للكلايونت عبر الرسالة لتحديث الكاش بعد كل عملية مورا
+    const discordClient = battleState.message?.client;
 
     if (cancelRewards) {
-        if (!winner.isBot) await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [battleState.bet, winnerId, guildId]).catch(()=>{});
-        if (!loser.isBot) await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [battleState.bet, loserId, guildId]).catch(()=>{});
-        
+        // ✅ RETURNING "mora" للحصول على القيمة الجديدة وتحديث الكاش فوراً
+        if (!winner.isBot) {
+            const wRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [battleState.bet, winnerId, guildId]).catch(()=>({rows:[]}));
+            if (discordClient?.updateLevelField && wRes.rows[0]) discordClient.updateLevelField(winnerId, guildId, { mora: Number(wRes.rows[0].mora) });
+        }
+        if (!loser.isBot) {
+            const lRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [battleState.bet, loserId, guildId]).catch(()=>({rows:[]}));
+            if (discordClient?.updateLevelField && lRes.rows[0]) discordClient.updateLevelField(loserId, guildId, { mora: Number(lRes.rows[0].mora) });
+        }
+
+        // استرداد الرهانات للمتفرجين
         if (pool && pool.bets.size > 0) {
             for (const [uid, betObj] of pool.bets.entries()) {
-                await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [betObj.amount, uid, guildId]).catch(()=>{});
+                const bRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [betObj.amount, uid, guildId]).catch(()=>({rows:[]}));
+                if (discordClient?.updateLevelField && bRes.rows[0]) discordClient.updateLevelField(uid, guildId, { mora: Number(bRes.rows[0].mora) });
             }
         }
         finalWinnings = 0;
@@ -375,7 +390,11 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
 
         if (rankPoint && !winner.isBot && settings.rolePvPKing && winner.member.roles.cache.has(settings.rolePvPKing)) {
             const stealAmount = Math.floor(battleState.bet * 0.10);
-            if (!loser.isBot) await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3`, [stealAmount, loserId, guildId]).catch(()=>{});
+            if (!loser.isBot) {
+                // ✅ تحديث الكاش بعد سرقة الملك
+                const stealRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [stealAmount, loserId, guildId]).catch(()=>({rows:[]}));
+                if (discordClient?.updateLevelField && stealRes.rows[0]) discordClient.updateLevelField(loserId, guildId, { mora: Number(stealRes.rows[0].mora) });
+            }
             finalWinnings += stealAmount;
         }
 
@@ -391,9 +410,11 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
         }
 
         if (!winner.isBot) {
-            await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [finalWinnings, winnerId, guildId]).catch(()=>{});
-            if (rankPoint && updateGuildStat) updateGuildStat(battleState.message.client, guildId, winnerId, 'pvp_wins', 1);
-            
+            // ✅ RETURNING "mora" لتحديث كاش الفائز بعد إضافة الجائزة
+            const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [finalWinnings, winnerId, guildId]).catch(()=>({rows:[]}));
+            if (discordClient?.updateLevelField && winRes.rows[0]) discordClient.updateLevelField(winnerId, guildId, { mora: Number(winRes.rows[0].mora) });
+            if (rankPoint && updateGuildStat) updateGuildStat(discordClient, guildId, winnerId, 'pvp_wins', 1);
+
             if (chestReward > 0) {
                 const invCheck = await db.query(`SELECT "quantity", "id" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [winnerId, guildId, 'gacha_chest']).catch(()=>({rows:[]}));
                 if (invCheck.rows && invCheck.rows.length > 0) {
@@ -411,7 +432,7 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
 
         if (pool && pool.bets.size > 0) {
             const totalPot = pool.totalP1 + pool.totalP2;
-            const empireTax = Math.floor(totalPot * 0.05); 
+            const empireTax = Math.floor(totalPot * 0.05);
             const netPot = totalPot - empireTax;
             let totalWinnerBet = 0;
 
@@ -423,7 +444,9 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
                 if (betObj.targetId === winnerId) {
                     const share = betObj.amount / totalWinnerBet;
                     const payout = Math.floor(netPot * share);
-                    await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [payout, uid, guildId]).catch(()=>{});
+                    // ✅ تحديث كاش كل فائز في المراهنات
+                    const betPayRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [payout, uid, guildId]).catch(()=>({rows:[]}));
+                    if (discordClient?.updateLevelField && betPayRes.rows[0]) discordClient.updateLevelField(uid, guildId, { mora: Number(betPayRes.rows[0].mora) });
                 }
             }
         }

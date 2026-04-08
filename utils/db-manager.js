@@ -190,9 +190,24 @@ module.exports = (client, db) => {
         const userId = data.user || data.userid;
         const guildId = data.guild || data.guildid;
         const cacheKey = `${userId}-${guildId}`;
-        
-        levelsCache.set(cacheKey, data); 
-        pendingSaves.levels.set(cacheKey, data); 
+
+        levelsCache.set(cacheKey, data);
+        pendingSaves.levels.set(cacheKey, data);
+    };
+
+    // ✅ تحديث حقل محدد في الكاش والكتابة المؤجلة لمنع قيم PVP من الضياع
+    // يُستخدم بعد كل عملية DB مباشرة (خصم/إضافة مورا) لضمان التزامن
+    client.updateLevelField = function(userId, guildId, updates) {
+        const cacheKey = `${userId}-${guildId}`;
+        if (levelsCache.has(cacheKey)) {
+            const updated = { ...levelsCache.get(cacheKey), ...updates };
+            levelsCache.set(cacheKey, updated);
+            pendingSaves.levels.set(cacheKey, updated);
+        } else if (pendingSaves.levels.has(cacheKey)) {
+            // تحديث الكتابة المؤجلة حتى لو لم تكن البيانات في الكاش
+            const updated = { ...pendingSaves.levels.get(cacheKey), ...updates };
+            pendingSaves.levels.set(cacheKey, updated);
+        }
     };
 
     client.getDailyStats = async function(id) {
