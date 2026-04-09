@@ -12,6 +12,23 @@ const PERSONALITIES = [
     "معلق درامي، يتعامل مع كل ضربة يتلقاها المقاتلون وكأنها مأساة أو نهاية العالم بأسلوب مسرحي."
 ];
 
+// دالة لتنظيف النص من التشكيل (الحركات) نهائياً
+function removeTashkeel(text) {
+    if (!text) return text;
+    return text.replace(/[\u064B-\u065F]/g, '');
+}
+
+// دالة لمعرفة نوع المعركة الحالي ليتفاعل المعلق معها بذكاء
+function getBattleContext(battleState) {
+    if (battleState.isGuardBattle) {
+        return "المعركة تدور في قلعة الإمبراطور! لص يحاول سرقة الخزينة وفارس الإمبراطور الأسطوري يحاول القضاء عليه بلا رحمة!";
+    } else if (battleState.isPvE) {
+        return "هذه رحلة صيد بحرية خطيرة! صياد شجاع يواجه وحشاً مرعباً ظهر من أعماق المحيط!";
+    } else {
+        return "هذه معركة تحدي (PvP) طاحنة بين مقاتلين في حلبة الموت والمراهنات!";
+    }
+}
+
 async function askGemini(prompt) {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
     if (!apiKey) return null;
@@ -23,14 +40,14 @@ async function askGemini(prompt) {
         const result = await model.generateContent(prompt);
         const text = result.response.text().trim();
         
-        if (text) return text;
+        if (text) return removeTashkeel(text);
     } catch (e) {
         try {
             const genAI = new GoogleGenerativeAI(apiKey);
             const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
             const result = await fallbackModel.generateContent(prompt);
             const text = result.response.text().trim();
-            return text;
+            return removeTashkeel(text);
         } catch (fallbackError) {}
     }
     return null;
@@ -54,19 +71,22 @@ async function initAnnouncer(battleState, p1Name, p2Name) {
     
     const selectedPersonality = PERSONALITIES[Math.floor(Math.random() * PERSONALITIES.length)];
     battleState.announcerPersonality = selectedPersonality;
+    const battleContext = getBattleContext(battleState);
 
     const prompt = `أنت الآن تلعب دور: ${selectedPersonality}
+سياق الحدث: ${battleContext}
 المطلوب منك:
 1. ابتكر لنفسك اسماً عشوائياً من كلمة واحدة فقط (كن مبدعاً ولا تكتب كلمة المعلق في اسمك أبداً).
-2. رحب بالجمهور والمقاتلين (${p1Name} ضد ${p2Name}) بأسلوبك الخاص (حسب شخصيتك) في سطر واحد فقط.
-3. يجب أن تكون لغتك العربية سليمة ومفهومة جداً وجذابة للقرّاء.
+2. رحب بالجمهور والمقاتلين (${p1Name} ضد ${p2Name}) بأسلوبك الخاص (حسب شخصيتك وسياق الحدث) في سطر واحد فقط.
+3. كن مبدعاً جداً في الوصف، لغتك عربية سليمة وجذابة.
+4. تحذير هام جداً: اكتب بنص صافٍ ولا تستخدم التشكيل (الحركات مثل الفتحة والكسرة) على الحروف العربية أبداً.
 اكتب ردك بصيغة:
 الاسم|الترحيب`;
 
     try {
         const res = await askGemini(prompt);
         let name = "المرعب"; 
-        let welcome = `أهلاً بكم في هذه المعركة الطاحنة بين ${p1Name} و ${p2Name}!`;
+        let welcome = `الميدان يشتعل! ${p1Name} يواجه ${p2Name} في معركة لا ترحم!`;
         
         if (res && res.includes('|')) {
             const parts = res.split('|');
@@ -92,13 +112,16 @@ async function triggerAnnouncer(battleState, eventText) {
     battleState.isAnnouncing = true;
     const name = battleState.announcerName || "المرعب";
     const personality = battleState.announcerPersonality || PERSONALITIES[0];
+    const battleContext = getBattleContext(battleState);
 
     const prompt = `أنت معلق المعركة واسمك "${name}".
 شخصيتك هي: ${personality}
+سياق الحدث: ${battleContext}
 الحدث الذي حصل للتو في المعركة: ${eventText}
-علق على هذا الحدث بأسلوبك الخاص وحسب شخصيتك في سطر واحد قصير ومثير.
-استخدم لغة عربية فصحى أو قريبة منها، واجعلها مفهومة وحماسية.
-لا ترحب بالجمهور ولا تذكر اسمك، ابدأ بالتعليق على الحدث مباشرة!`;
+المطلوب:
+علق على هذا الحدث بأسلوبك الخاص وحسب شخصيتك وسياق المعركة في سطر واحد قصير ومثير جداً. أبدع في الوصف!
+لا ترحب بالجمهور ولا تذكر اسمك، ابدأ بالتعليق على الحدث مباشرة!
+تحذير هام جداً: اكتب بنص صافٍ ولا تستخدم التشكيل (الحركات مثل الفتحة والكسرة) على الحروف العربية أبداً.`;
     
     try {
         const comment = await askGemini(prompt);
