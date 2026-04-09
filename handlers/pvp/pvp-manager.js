@@ -102,10 +102,13 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
         }
     } catch (e) {
         console.error('[PvP] Thread creation failed:', e);
-        // ✅ استرداد الرهان لكلا اللاعبين عند فشل إنشاء الثريد
-        await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [bet, challengerMember.id, i.guild.id]).catch(() => {});
+        // ✅ استرداد الرهان لكلا اللاعبين عند فشل إنشاء الثريد + تحديث الكاش
+        const chalRefund = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [bet, challengerMember.id, i.guild.id]).catch(() => ({rows:[]}));
+        if (client.updateLevelField && chalRefund.rows[0]) client.updateLevelField(challengerMember.id, i.guild.id, { mora: Number(chalRefund.rows[0].mora) });
+
         if (!isBotMatch) {
-            await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [bet, opponentMember.id, i.guild.id]).catch(() => {});
+            const oppRefund = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [bet, opponentMember.id, i.guild.id]).catch(() => ({rows:[]}));
+            if (client.updateLevelField && oppRefund.rows[0]) client.updateLevelField(opponentMember.id, i.guild.id, { mora: Number(oppRefund.rows[0].mora) });
         }
         await i.channel.send({ content: "❌ فشل إنشاء ساحة المعركة. تم استرداد الرهان تلقائياً." }).catch(() => {});
         return;
@@ -248,15 +251,28 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
     
     const skillsPlayer = await getAllSkillData(db, playerMember);
     const userRaceP = await getUserRace(playerMember, db);
-    const raceNameP = userRaceP ? (userRaceP.raceName || userRaceP.racename) : 'Human';
+    const rawRaceP = userRaceP ? (userRaceP.raceName || userRaceP.racename) : 'Human';
+
+    // 🔥 قاموس التعريب للأعراق 🔥
+    const RACE_AR = {
+        'Human': 'بشري', 'Dragon': 'تنين', 'Elf': 'آلف', 'Dark Elf': 'آلف الظلام',
+        'Seraphim': 'سيرافيم', 'Demon': 'شيطان', 'Vampire': 'مصاص دماء',
+        'Spirit': 'روح', 'Dwarf': 'قزم', 'Ghoul': 'غول', 'Hybrid': 'نصف وحش'
+    };
+
+    const translatedRaceP = RACE_AR[rawRaceP] || rawRaceP;
+    const translatedMonsterRace = RACE_AR[monsterData.race] || monsterData.race || 'وحش أعماق';
+
+    // 🔥 تركيب صورة وحش البحر الأسطورية 🔥
+    const monsterImage = monsterData.image || 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/monster.png';
 
     const battleState = {
         isPvE: true, monsterData: monsterData, message: null, turn: [playerMember.id, "monster"],
         log: [`🦑 **${monsterData.name}** ظهر من الأعماق!`], processingTurn: false, status: 'active',
         skillCooldowns: { [playerMember.id]: {}, "monster": {} },
         players: new Map([
-            [playerMember.id, { isMonster: false, member: playerMember, hp: pMaxHp, maxHp: pMaxHp, level: Number(playerData.level), raceName: raceNameP, weapon: finalPlayerWeapon, skills: skillsPlayer, effects: defEffects() }],
-            ["monster", { isMonster: true, name: monsterData.name, image: monsterData.image || null, raceName: monsterData.race || 'Monster', hp: mMaxHp, maxHp: mMaxHp, level: monsterData.level || '?', weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
+            [playerMember.id, { isMonster: false, member: playerMember, hp: pMaxHp, maxHp: pMaxHp, level: Number(playerData.level), raceName: translatedRaceP, weapon: finalPlayerWeapon, skills: skillsPlayer, effects: defEffects() }],
+            ["monster", { isMonster: true, name: monsterData.name, image: monsterImage, raceName: translatedMonsterRace, hp: mMaxHp, maxHp: mMaxHp, level: monsterData.level || '؟', weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
         ])
     };
 
@@ -467,6 +483,7 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
     if (battleState.thread && battleState.mainChannel) {
         try {
             if (imageBuffer) {
+                // نرسل نفس الصورة الأسطورية إلى الشات العام!
                 const mainAttachment = new AttachmentBuilder(imageBuffer, { name: 'pvp_result_main.png' });
                 await battleState.mainChannel.send({ content: `⚔️ **انتهت معركة الحلبة!** الفائز المستحق: <@${winnerId}>`, files: [mainAttachment] });
             } else {
