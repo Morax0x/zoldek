@@ -242,16 +242,20 @@ module.exports = {
                     
                     if (client.setLevel) await client.setLevel(senderData);
 
+                    // ✅ إضافة نسبية آمنة + RETURNING لتحديث الكاش بالقيمة الفعلية من DB
                     let receiverData = await client.getLevel(receiver.id, guild.id);
                     if (!receiverData) receiverData = { ...client.defaultData, user: receiver.id, guild: guild.id, mora: 0 };
-                    
-                    let rMora = (Number(receiverData.mora) || 0) + displayAmountReceived;
-                    receiverData.mora = String(rMora);
 
+                    let rMoraRes;
                     try {
-                        await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [rMora, receiver.id, guild.id]);
+                        rMoraRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [displayAmountReceived, receiver.id, guild.id]);
                     } catch(e) {
-                        await db.query(`UPDATE levels SET mora = $1 WHERE userid = $2 AND guildid = $3`, [rMora, receiver.id, guild.id]).catch(()=>{});
+                        rMoraRes = await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3 RETURNING mora`, [displayAmountReceived, receiver.id, guild.id]).catch(()=>({rows:[]}));
+                    }
+                    if (rMoraRes?.rows[0]) {
+                        receiverData.mora = String(rMoraRes.rows[0].mora);
+                    } else {
+                        receiverData.mora = String((Number(receiverData.mora) || 0) + displayAmountReceived);
                     }
                     if (client.setLevel) await client.setLevel(receiverData);
 

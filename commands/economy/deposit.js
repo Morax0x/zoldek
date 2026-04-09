@@ -113,10 +113,11 @@ module.exports = {
             // 🔥 حساب المبلغ الفعلي الذي تم إيداعه بدقة وطباعته بالأرقام 🔥
             const actualDeposited = isAll ? (finalBank - BigInt(data.bank || 0)) : BigInt(amountToDeposit);
 
-            // تحديث الكاش الداخلي بصمت
+            // تحديث الكاش الداخلي بصمت لمنع الكتابة المؤجلة من إرجاع القيمة القديمة
             data.bank = String(finalBank);
             data.mora = String(finalMora);
             data.lastDeposit = now;
+            await client.setLevel(data);
 
             const interestAmount = Math.floor(Number(finalBank) * 0.0005);
             const displayAmount = actualDeposited.toLocaleString(); // طباعة المبلغ الفعلي كرقم

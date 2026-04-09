@@ -105,9 +105,10 @@ module.exports = {
             // 🔥 حساب المبلغ الفعلي الذي تم سحبه بدقة وطباعته بدلاً من كلمة "كل المبلغ" 🔥
             const actualWithdrawn = isAll ? (finalMora - BigInt(data.mora || 0)) : BigInt(amountToWithdraw);
 
-            // تحديث الكاش الداخلي بصمت لكي لا نعطل البوت
+            // تحديث الكاش الداخلي بصمت لمنع الكتابة المؤجلة من إرجاع القيمة القديمة
             data.bank = String(finalBank);
             data.mora = String(finalMora);
+            await client.setLevel(data);
 
             const displayAmount = actualWithdrawn.toLocaleString();
 

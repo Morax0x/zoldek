@@ -400,14 +400,15 @@ async function handleLandInteractions(i, client, db) {
             if (Number(userData.mora || 0) < totalCost) return await i.followUp({ content: `❌ **رصيدك غير كافي!** تحتاج **${totalCost}** ${EMOJI_MORA}`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             
             try {
-                await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [totalCost, userId, guildId]);
-                userData.mora = String(Number(userData.mora || 0) - totalCost);
+                // ✅ GREATEST لمنع الرصيد السالب + RETURNING لتحديث الكاش
+                const plowRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora", '0') AS BIGINT) - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [totalCost, userId, guildId]);
+                userData.mora = plowRes.rows[0] ? String(plowRes.rows[0].mora) : String(Math.max(0, Number(userData.mora || 0) - totalCost));
                 if (typeof client.setLevel === 'function') await client.setLevel(userData);
-                
+
                 await db.query("BEGIN");
                 for (const pid of plotsToPlow) {
                     await db.query(`
-                        INSERT INTO user_lands ("userID", "guildID", "plotID", "status") 
+                        INSERT INTO user_lands ("userID", "guildID", "plotID", "status")
                         VALUES ($1, $2, $3, 'tilled')
                         ON CONFLICT ("userID", "guildID", "plotID") DO UPDATE SET "status" = 'tilled'
                     `, [userId, guildId, pid]);
@@ -416,8 +417,8 @@ async function handleLandInteractions(i, client, db) {
             } catch (e) {
                 await db.query("ROLLBACK").catch(()=>{});
                 try {
-                    await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [totalCost, userId, guildId]);
-                    userData.mora = String(Number(userData.mora || 0) - totalCost);
+                    await db.query(`UPDATE levels SET mora = GREATEST(0, CAST(COALESCE(mora, '0') AS BIGINT) - $1) WHERE userid = $2 AND guildid = $3`, [totalCost, userId, guildId]);
+                    userData.mora = String(Math.max(0, Number(userData.mora || 0) - totalCost));
                     if (typeof client.setLevel === 'function') await client.setLevel(userData);
                     
                     await db.query("BEGIN");
@@ -614,8 +615,11 @@ async function handleLandInteractions(i, client, db) {
             if (addXPAndCheckLevel && totalXP > 0) {
                  await addXPAndCheckLevel(client, i.member, db, totalXP, totalRevenue, false).catch(()=>{});
             } else {
-                 try { await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [totalRevenue, totalXP, userId, guildId]); }
-                 catch(e) { await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE userid = $3 AND guildid = $4`, [totalRevenue, totalXP, userId, guildId]).catch(()=>{}); }
+                 // ✅ RETURNING لتحديث كاش اللاعب بعد إضافة أرباح الحصاد
+                 try {
+                     const harvestRes = await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4 RETURNING "mora"`, [totalRevenue, totalXP, userId, guildId]);
+                     if (client.updateLevelField && harvestRes.rows[0]) client.updateLevelField(userId, guildId, { mora: Number(harvestRes.rows[0].mora) });
+                 } catch(e) { await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE userid = $3 AND guildid = $4`, [totalRevenue, totalXP, userId, guildId]).catch(()=>{}); }
             }
 
             if (updateGuildStat) {

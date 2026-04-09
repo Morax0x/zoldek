@@ -293,7 +293,9 @@ async function playSolo(channel, author, bet, authorData, db, replyFunction, cli
                     if (casinoTax > 0) {
                         finalWinnings -= casinoTax;
                         taxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
-                        await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, channel.guild.id]);
+                        // ✅ RETURNING لتحديث كاش الملك فوراً
+                        const kingRes = await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "bank"`, [casinoTax, king.id, channel.guild.id]);
+                        if (client?.updateLevelField && kingRes.rows[0]) client.updateLevelField(king.id, channel.guild.id, { bank: Number(kingRes.rows[0].bank) });
                     }
                 }
             }

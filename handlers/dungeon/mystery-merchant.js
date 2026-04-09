@@ -157,10 +157,12 @@ function triggerMysteryMerchant(thread, players, db, guildId, merchantState) {
                     return si.reply({ content: `❌ **لا تملك مورا كافية!** تحتاج ${item.price} مورا.`, ephemeral: true });
                 }
 
+                // ✅ GREATEST لمنع الرصيد السالب + RETURNING لتحديث الكاش فوراً
                 try {
-                    await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [item.price, si.user.id, guildId]);
+                    const deductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [item.price, si.user.id, guildId]);
+                    if (si.client?.updateLevelField && deductRes.rows[0]) si.client.updateLevelField(si.user.id, guildId, { mora: Number(deductRes.rows[0].mora) });
                 } catch(e) {
-                    await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [item.price, si.user.id, guildId]).catch(()=>{});
+                    await db.query(`UPDATE levels SET mora = GREATEST(0, mora - $1) WHERE userid = $2 AND guildid = $3`, [item.price, si.user.id, guildId]).catch(()=>{});
                 }
 
                 let effectMsg = "";
