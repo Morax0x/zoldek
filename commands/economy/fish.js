@@ -422,36 +422,15 @@ module.exports = {
                                 if (pvpCore.startPveBattle) {
                                     activeFishingSessions.delete(user.id);
                                     
-                                    // 🔥 تعديل: ننشئ Thread من رسالة الصيد مباشرة ونرسل فيه المعركة 🔥
-                                    let battleThread;
-                                    try {
-                                        const threadName = `🦑-صيد-${monster.name}-${cleanDisplayName(member.displayName || user.username)}`.substring(0, 100);
-                                        battleThread = await loadingMsg.startThread({ 
-                                            name: threadName, 
-                                            autoArchiveDuration: 60, 
-                                            reason: 'PvE Monster Battle' 
-                                        });
-                                        await battleThread.members.add(user.id).catch(()=>{});
-                                        
-                                        // تحديث رسالة الصيد لدفع المستخدم للثريد
-                                        await loadingMsg.edit({ content: `**🦑 ظهر ${monster.name}!**\nانتقل إلى المعركة فوراً: <#${battleThread.id}>`, components: [] }).catch(()=>{});
-                                    } catch (err) {
-                                        console.error("Failed to create thread:", err);
-                                    }
-
-                                    // 🔥 نمرر الـ Thread كقناة وهمية للهاندلر لكي تُرسل المعركة فيه وتتفاعل بداخله 🔥
-                                    if (battleThread) {
-                                        const fakeInteraction = {
-                                            channel: battleThread,
-                                            editReply: async () => {}, // صامت لأننا كتبنا في الثريد
-                                            guild: guild,
-                                            user: user,
-                                            message: null // لإجبار pvp-manager على استخدام هذا الـ channel للربط
-                                        };
-                                        await pvpCore.startPveBattle(fakeInteraction, client, sql, member, monster, playerWeapon);
-                                    } else {
-                                        await pvpCore.startPveBattle(interactionOrMessage, client, sql, member, monster, playerWeapon);
-                                    }
+                                    // 🔥 الحل: نمرر رسالة الصيد مباشرة كـ message، ليتكفل الهاندلر بإنشاء الثريد عليها بشكل سليم 🔥
+                                    const fakeInteraction = {
+                                        channel: interactionOrMessage.channel,
+                                        message: loadingMsg,
+                                        editReply: async (data) => loadingMsg.edit(data),
+                                        guild: guild,
+                                        user: user
+                                    };
+                                    await pvpCore.startPveBattle(fakeInteraction, client, sql, member, monster, playerWeapon);
                                     return; 
                                 }
                             }
