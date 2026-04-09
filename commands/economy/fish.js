@@ -422,7 +422,7 @@ module.exports = {
                                 if (pvpCore.startPveBattle) {
                                     activeFishingSessions.delete(user.id);
                                     
-                                    // 🔥 الحل العبقري: إنشاء الثريد من رسالة الصيد مباشرة 🔥
+                                    // 🔥 تعديل: ننشئ Thread من رسالة الصيد مباشرة ونرسل فيه المعركة 🔥
                                     let battleThread;
                                     try {
                                         const threadName = `🦑-صيد-${monster.name}-${cleanDisplayName(member.displayName || user.username)}`.substring(0, 100);
@@ -433,19 +433,20 @@ module.exports = {
                                         });
                                         await battleThread.members.add(user.id).catch(()=>{});
                                         
-                                        // تحديث رسالة الصيد لتدل على الثريد الجديد
-                                        await loadingMsg.edit({ content: `**🦑 ظهر ${monster.name}!**\nانتقل إلى المعركة هنا: <#${battleThread.id}>`, components: [] }).catch(()=>{});
+                                        // تحديث رسالة الصيد لدفع المستخدم للثريد
+                                        await loadingMsg.edit({ content: `**🦑 ظهر ${monster.name}!**\nانتقل إلى المعركة فوراً: <#${battleThread.id}>`, components: [] }).catch(()=>{});
                                     } catch (err) {
                                         console.error("Failed to create thread:", err);
                                     }
 
-                                    // تمرير الثريد على أنه هو قناة التفاعل ليتم حفظ المعركة بـ ID الثريد ويمنع التداخل
+                                    // 🔥 نمرر الـ Thread كقناة وهمية للهاندلر لكي تُرسل المعركة فيه وتتفاعل بداخله 🔥
                                     if (battleThread) {
                                         const fakeInteraction = {
                                             channel: battleThread,
                                             editReply: async () => {}, // صامت لأننا كتبنا في الثريد
                                             guild: guild,
-                                            user: user
+                                            user: user,
+                                            message: null // لإجبار pvp-manager على استخدام هذا الـ channel للربط
                                         };
                                         await pvpCore.startPveBattle(fakeInteraction, client, sql, member, monster, playerWeapon);
                                     } else {
