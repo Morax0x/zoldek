@@ -301,7 +301,8 @@ async function startMemoryGame(channel, user, member, bet, client, guild, db, in
                                     winAmount -= casinoTax;
                                     taxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
                                     try {
-                                        await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, guild.id]);
+                                        const kingRes = await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "bank"`, [casinoTax, king.id, guild.id]);
+                                        if (client.updateLevelField && kingRes.rows[0]) client.updateLevelField(king.id, guild.id, { bank: Number(kingRes.rows[0].bank) });
                                     } catch(e) {
                                         await db.query(`UPDATE levels SET bank = bank + $1 WHERE userid = $2 AND guildid = $3`, [casinoTax, king.id, guild.id]).catch(()=>{});
                                     }
@@ -316,7 +317,8 @@ async function startMemoryGame(channel, user, member, bet, client, guild, db, in
                         if (buffPercent > 0) buffString = ` (+${buffPercent}%)`;
 
                         try {
-                            await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [payout, user.id, guild.id]);
+                            const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [payout, user.id, guild.id]);
+                            if (client.updateLevelField && winRes.rows[0]) client.updateLevelField(user.id, guild.id, { mora: Number(winRes.rows[0].mora) });
                         } catch(e) {
                             await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [payout, user.id, guild.id]).catch(()=>{});
                         }

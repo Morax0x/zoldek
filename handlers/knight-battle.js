@@ -890,14 +890,14 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
         let pBank = Number(playerData.bank) || 0;
 
         if (resultType === "win") {
-            pMora += amount;
-            
             try {
-                await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [pMora, player.member.id, battleState.message.guild.id]);
+                const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, player.member.id, battleState.message.guild.id]);
+                pMora = winRes.rows[0] ? Number(winRes.rows[0].mora) : pMora + amount;
             } catch(e) {
-                await db.query(`UPDATE levels SET mora = $1 WHERE userid = $2 AND guildid = $3`, [pMora, player.member.id, battleState.message.guild.id]).catch(()=>{});
+                await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [amount, player.member.id, battleState.message.guild.id]).catch(()=>{});
+                pMora += amount;
             }
-            
+
             if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
                 let cache = await client.getLevel(player.member.id, battleState.message.guild.id);
                 if (cache) {
@@ -971,13 +971,15 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                 pMora = 0;
                 pBank = Math.max(0, pBank - remaining);
             }
-            
+
             try {
-                await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [pMora, pBank, player.member.id, battleState.message.guild.id]);
+                // خصم من الكاش أولاً ثم البنك مع حماية من السالب
+                const lossRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("mora",'0') AS BIGINT) - $1 ELSE 0 END), "bank" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("bank",'0') AS BIGINT) ELSE CAST(COALESCE("bank",'0') AS BIGINT) - ($1 - CAST(COALESCE("mora",'0') AS BIGINT)) END) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora", "bank"`, [amount, player.member.id, battleState.message.guild.id]);
+                if (lossRes.rows[0]) { pMora = Number(lossRes.rows[0].mora); pBank = Number(lossRes.rows[0].bank); }
             } catch(e) {
                 await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [pMora, pBank, player.member.id, battleState.message.guild.id]).catch(()=>{});
             }
-            
+
             if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
                 let cache = await client.getLevel(player.member.id, battleState.message.guild.id);
                 if (cache) {

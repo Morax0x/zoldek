@@ -332,8 +332,8 @@ module.exports = {
 async function playSoloRaceSelection(channel, author, bet, authorData, db, replyError, replyFunction, client, gameKey) {
     try {
         authorData.mora = String(Number(authorData.mora) - bet);
-        try { await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [bet, author.id, channel.guild.id]); }
-        catch(e) { await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [bet, author.id, channel.guild.id]).catch(()=>{}); }
+        try { await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora", '0') AS BIGINT) - $1) WHERE "user" = $2 AND "guild" = $3`, [bet, author.id, channel.guild.id]); }
+        catch(e) { await db.query(`UPDATE levels SET mora = GREATEST(0, CAST(COALESCE(mora, '0') AS BIGINT) - $1) WHERE userid = $2 AND guildid = $3`, [bet, author.id, channel.guild.id]).catch(()=>{}); }
         await client.setLevel(authorData);
 
         const shuffledIcons = shuffleArray([...RACE_ICONS]);
@@ -471,7 +471,8 @@ async function playSoloRace(channel, author, bet, authorData, db, client, gameKe
                                 if (casinoTax > 0) {
                                     totalWin -= casinoTax;
                                     taxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
-                                    await db.query(`UPDATE levels SET "bank" = CAST(COALESCE("bank", '0') AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, channel.guild.id]).catch(()=>{});
+                                    const kingRes = await db.query(`UPDATE levels SET "bank" = CAST(COALESCE("bank", '0') AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "bank"`, [casinoTax, king.id, channel.guild.id]).catch(()=>({rows:[]}));
+                                    if (client.updateLevelField && kingRes.rows[0]) client.updateLevelField(king.id, channel.guild.id, { bank: Number(kingRes.rows[0].bank) });
                                 }
                             }
                         }
@@ -550,9 +551,9 @@ async function playChallengeRace(channel, author, opponents, bet, authorData, db
                 let data = await client.getLevel(player.id, channel.guild.id);
                 if (!data) data = { ...channel.client.defaultData, user: player.id, guild: channel.guild.id };
                 
-                data.mora = String(Number(data.mora) - bet);
-                try { await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3`, [bet, player.id, channel.guild.id]); }
-                catch(e) { await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3`, [bet, player.id, channel.guild.id]).catch(()=>{}); }
+                data.mora = String(Math.max(0, Number(data.mora) - bet));
+                try { await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora", '0') AS BIGINT) - $1) WHERE "user" = $2 AND "guild" = $3`, [bet, player.id, channel.guild.id]); }
+                catch(e) { await db.query(`UPDATE levels SET mora = GREATEST(0, CAST(COALESCE(mora, '0') AS BIGINT) - $1) WHERE userid = $2 AND guildid = $3`, [bet, player.id, channel.guild.id]).catch(()=>{}); }
                 
                 if (player.id !== OWNER_ID) {
                      try { await db.query(`UPDATE levels SET "lastRace" = $1 WHERE "user" = $2 AND "guild" = $3`, [Date.now(), player.id, channel.guild.id]); } catch(e){}

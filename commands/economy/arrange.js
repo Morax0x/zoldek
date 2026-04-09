@@ -249,7 +249,8 @@ module.exports = {
                                         profit -= casinoTax;
                                         taxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
                                         try {
-                                            await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, guildId]);
+                                            const kingRes = await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "bank"`, [casinoTax, king.id, guildId]);
+                                            if (client.updateLevelField && kingRes.rows[0]) client.updateLevelField(king.id, guildId, { bank: Number(kingRes.rows[0].bank) });
                                         } catch(e) {
                                             await db.query(`UPDATE levels SET bank = bank + $1 WHERE userid = $2 AND guildid = $3`, [casinoTax, king.id, guildId]).catch(()=>{});
                                         }
@@ -264,7 +265,8 @@ module.exports = {
                             if (buffOnlyPercent > 0) buffText = ` (+${buffOnlyPercent}%)`; 
 
                             try {
-                                await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrize, userId, guildId]);
+                                const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [totalPrize, userId, guildId]);
+                                if (client.updateLevelField && winRes.rows[0]) client.updateLevelField(userId, guildId, { mora: Number(winRes.rows[0].mora) });
                             } catch(e) {
                                 await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [totalPrize, userId, guildId]).catch(console.error);
                             }
