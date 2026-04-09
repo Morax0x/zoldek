@@ -21,8 +21,9 @@ try {
 const rootDir = process.cwd();
 const fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
+// 🔥 هنا كان الخطأ! ربطناه بالمسار الصحيح الجديد للـ PvP 🔥
 let pvpCore;
-try { pvpCore = require(path.join(rootDir, 'handlers', 'pvp-core.js')); } 
+try { pvpCore = require(path.join(rootDir, 'handlers', 'pvp', 'index.js')); } 
 catch (e) { pvpCore = {}; }
 
 if (typeof pvpCore.getWeaponData !== 'function') pvpCore.getWeaponData = () => ({ name: "سكين صيد صدئة", currentDamage: 15, currentLevel: 1 });
@@ -422,7 +423,7 @@ module.exports = {
                                 if (pvpCore.startPveBattle) {
                                     activeFishingSessions.delete(user.id);
                                     
-                                    // 🔥 الحل: نمرر رسالة الصيد مباشرة كـ message، ليتكفل الهاندلر بإنشاء الثريد عليها بشكل سليم 🔥
+                                    // 🔥 ربط دقيق بـ pvp-manager لتوليد الثريد بشكل صحيح 🔥
                                     const fakeInteraction = {
                                         channel: interactionOrMessage.channel,
                                         message: loadingMsg,
