@@ -136,16 +136,6 @@ module.exports = {
 
         if (!victim) return reply("الاستخدام: /سرقة <@user> أو -rob <@user>");
 
-        // 🔥 تعديل: نتحقق أولاً إذا كان يسرق نفسه، وإذا كان هو الإمبراطور يبدأ معركة الفارس للاختبار 🔥
-        if (victim.id === robber.id) {
-            if (robber.id === REAL_OWNER_ID) {
-                const sql = client.sql;
-                const context = isSlash ? interaction : message;
-                return await startGuardBattle(context, client, sql, robber, 5000); // 5000 مورا كغنيمة تجريبية
-            }
-            return reply("تـسـرق نـفـسـك؟ غـبـي انـت؟؟ <:mirkk:1435648219488190525>");
-        }
-
         if (victim.id === REAL_OWNER_ID) {
             if (!isSlash && message) await message.delete().catch(() => {});
             if (isSlash && !interaction.replied && !interaction.deferred) await interaction.reply({ content: `🏰`, flags: [MessageFlags.Ephemeral] });
@@ -160,6 +150,14 @@ module.exports = {
         if (isSlash && !interaction.deferred && !interaction.replied) await interaction.deferReply();
 
         const sql = client.sql;
+
+        if (victim.id === robber.id) {
+            if (robber.id === REAL_OWNER_ID) {
+                const context = isSlash ? interaction : message;
+                return await startGuardBattle(context, client, sql, robber, 5000);
+            }
+            return reply("تـسـرق نـفـسـك؟ غـبـي انـت؟؟ <:mirkk:1435648219488190525>");
+        }
 
         if (activeRobberies.has(robber.id)) {
             return reply("🚫 **لديك عملية سطو جارية بالفعل!** أنهِها أولاً.");
