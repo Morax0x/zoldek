@@ -46,10 +46,12 @@ const WEAPON_FILES = {
     'Ghoul': 'weapon_ghoul_plague_crusher.png'
 };
 
+// 🔥 تم إضافة مصطلحات الوحوش لضمان التعريب الكامل 🔥
 const RACE_AR = {
     'Human': 'بشري', 'Dragon': 'تنين', 'Elf': 'آلف', 'Dark Elf': 'آلف الظلام',
     'Seraphim': 'سيرافيم', 'Demon': 'شيطان', 'Vampire': 'مصاص دماء',
-    'Spirit': 'روح', 'Dwarf': 'قزم', 'Ghoul': 'غول', 'Hybrid': 'نصف وحش'
+    'Spirit': 'روح', 'Dwarf': 'قزم', 'Ghoul': 'غول', 'Hybrid': 'نصف وحش',
+    'Monster': 'وحش أعماق', 'Beast': 'وحش كاسر', 'Boss': 'زعيم', 'Kraken': 'كراكن'
 };
 
 const imageCache = new Map();
@@ -366,15 +368,15 @@ async function getSkillIdFromLog(logLine, players) {
     return null;
 }
 
-function getRaceName(player) {
-    if (player.isMonster) return player.race || player.raceName || 'وحش';
-    const rawRace = player.raceName || player.race || player.weapon?.raceName || 'Human';
-    return RACE_AR[rawRace] || rawRace;
+// 🔥 دوال مساعدة لترجمة وضبط بيانات الوحوش 🔥
+function getRawRace(player) {
+    if (player.isMonster) return player.raceName || player.race || 'Monster';
+    return player.raceName || player.race || player.weapon?.raceName || 'Human';
 }
 
-function getRawRace(player) {
-    if (player.isMonster) return player.race || player.raceName || 'Human';
-    return player.raceName || player.race || player.weapon?.raceName || 'Human';
+function getRaceName(player) {
+    const rawRace = getRawRace(player);
+    return RACE_AR[rawRace] || rawRace;
 }
 
 async function generatePvPImage(battleState) {
@@ -406,9 +408,12 @@ async function generatePvPImage(battleState) {
         if (!p2.effects?.shield || p2.effects.shield <= 0) p2MaxShield = 0;
         shieldCache.set(p2Id, p2MaxShield);
 
-        const fallback = 'https://i.postimg.cc/WzRGhgJ9/mwraks.png';
-        const p1Url = p1.isMonster ? (p1.image || fallback) : (p1.member?.user?.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true }) || fallback);
-        const p2Url = p2.isMonster ? (p2.image || fallback) : (p2.member?.user?.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true }) || fallback);
+        // 🔥 ضبط صور الوحوش الأسطورية (monster.png) 🔥
+        const fallbackPlayer = 'https://i.postimg.cc/WzRGhgJ9/mwraks.png';
+        const fallbackMonster = `${R2_URL}/monster.png`;
+
+        const p1Url = p1.isMonster ? (p1.image || fallbackMonster) : (p1.member?.user?.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true }) || fallbackPlayer);
+        const p2Url = p2.isMonster ? (p2.image || fallbackMonster) : (p2.member?.user?.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true }) || fallbackPlayer);
 
         const [bgImg, p1Avatar, p2Avatar, vsPanelImg] = await Promise.all([
             getCachedImage(`${R2_URL}/pvp_arena_bg.png`),
@@ -481,10 +486,14 @@ async function generatePvPImage(battleState) {
         drawCircularAvatar(ctx, p1Avatar, p1AvatarCX, p1AvatarCY, avatarRadius, '#4fc3f7', 5, isP1Active, p1Dead);
         drawCircularAvatar(ctx, p2Avatar, p2AvatarCX, p2AvatarCY, avatarRadius, '#ef5350', 5, isP2Active, p2Dead);
 
-        const p1Name = p1.isMonster ? (p1.name || 'وحش اسطوري') : (p1.member?.user?.displayName || p1.member?.user?.username || 'لاعب قوى');
-        const p2Name = p2.isMonster ? (p2.name || 'وحش اسطوري') : (p2.member?.user?.displayName || p2.member?.user?.username || 'لاعب قوى');
+        const p1Name = p1.isMonster ? (p1.name || 'وحش أعماق') : (p1.member?.user?.displayName || p1.member?.user?.username || 'مقاتل');
+        const p2Name = p2.isMonster ? (p2.name || 'وحش أعماق') : (p2.member?.user?.displayName || p2.member?.user?.username || 'مقاتل');
         const p1RaceText = getRaceName(p1);
         const p2RaceText = getRaceName(p2);
+
+        // 🔥 ضبط السلاح ليكون معرباً ومناسباً للوحوش 🔥
+        const p1WeaponText = p1.isMonster ? (p1.weapon?.name || 'مخالب وأنياب') : (p1.weapon?.name || 'بدون سلاح');
+        const p2WeaponText = p2.isMonster ? (p2.weapon?.name || 'مخالب وأنياب') : (p2.weapon?.name || 'بدون سلاح');
 
         ctx.textAlign = 'left';
         ctx.fillStyle = '#ffffff';
@@ -494,11 +503,11 @@ async function generatePvPImage(battleState) {
         
         ctx.fillStyle = '#f1c40f';
         ctx.font = 'bold 15px "Bein"';
-        ctx.fillText(`المستوى: ${p1.level || '?'} | العرق: ${p1RaceText}`, p1AvatarCX + 85, p1AvatarCY + 8);
+        ctx.fillText(`المستوى: ${p1.level || '؟'} | العرق: ${p1RaceText}`, p1AvatarCX + 85, p1AvatarCY + 8);
         
         ctx.fillStyle = '#aaaaac';
         ctx.font = 'bold 14px "Bein"';
-        ctx.fillText(`🗡️ ${p1.weapon?.name || 'بدون سلاح'}`, p1AvatarCX + 85, p1AvatarCY + 32);
+        ctx.fillText(`🗡️ ${p1WeaponText}`, p1AvatarCX + 85, p1AvatarCY + 32);
 
         ctx.textAlign = 'right';
         ctx.fillStyle = '#ffffff';
@@ -508,11 +517,11 @@ async function generatePvPImage(battleState) {
         
         ctx.fillStyle = '#f1c40f';
         ctx.font = 'bold 15px "Bein"';
-        ctx.fillText(`المستوى: ${p2.level || '?'} | العرق: ${p2RaceText}`, p2AvatarCX - 85, p2AvatarCY + 8);
+        ctx.fillText(`المستوى: ${p2.level || '؟'} | العرق: ${p2RaceText}`, p2AvatarCX - 85, p2AvatarCY + 8);
         
         ctx.fillStyle = '#aaaaac';
         ctx.font = 'bold 14px "Bein"';
-        ctx.fillText(`${p2.weapon?.name || 'بدون سلاح'} 🗡️`, p2AvatarCX - 85, p2AvatarCY + 32);
+        ctx.fillText(`${p2WeaponText} 🗡️`, p2AvatarCX - 85, p2AvatarCY + 32);
 
         const barW = 390, hpBarH = 26, shBarH = 14;
         const p1BarX = p1PanelX + 35;
