@@ -93,9 +93,10 @@ async function processMonsterTurn(battleState, db) {
     battleState.processingTurn = false;
 }
 
-// 🔥 دالة التصويت والمراهنات 🔥
 async function handleVotingAndBetting(i, client, db) {
-    let battleState = core.activePvpBattles.get(i.channel.id);
+    const channelId = i.channelId || i.message?.channelId || i.channel?.id;
+    let battleState = core.activePvpBattles.get(channelId);
+    
     if (!battleState) return i.reply({ content: "انتهت المعركة أو ألغيت.", flags: [MessageFlags.Ephemeral] });
 
     if (i.customId.startsWith('pvp_bet_')) {
@@ -153,7 +154,7 @@ async function handleVotingAndBetting(i, client, db) {
             battleState.log.push(`⏱️ تم تحديد وقت المباراة: **${finalTime} دقائق**`);
 
             battleState.bettingTimer = setTimeout(async () => {
-                const bState = core.activePvpBattles.get(i.channel.id);
+                const bState = core.activePvpBattles.get(channelId);
                 if (bState && bState.bettingPool.isOpen) {
                     bState.bettingPool.isOpen = false;
                     bState.log.push(`🔒 أُغلقت شباك المراهنات!`);
@@ -164,7 +165,7 @@ async function handleVotingAndBetting(i, client, db) {
             }, battleState.durationMs * 0.33);
 
             battleState.timeoutTimer = setTimeout(async () => {
-                const bState = core.activePvpBattles.get(i.channel.id);
+                const bState = core.activePvpBattles.get(channelId);
                 if (bState && bState.status === 'active') {
                     const player1 = bState.players.get(p1Id);
                     const player2 = bState.players.get(p2Id);
@@ -178,7 +179,6 @@ async function handleVotingAndBetting(i, client, db) {
                 }
             }, battleState.durationMs);
 
-            // 🔥 مسح رسالة التصويت وإرسال رسالة المعلق المنفصلة تليها رسالة المعركة 🔥
             try { await battleState.message.delete().catch(()=>{}); } catch(e){}
             
             const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
@@ -187,7 +187,6 @@ async function handleVotingAndBetting(i, client, db) {
             const { embeds, components, files } = await core.buildBattleEmbed(battleState);
             battleState.message = await battleState.thread.send({ content: null, embeds, components, files });
             
-            // تفعيل المعلق لاختيار اسمه والترحيب
             const p1NameClean = core.cleanDisplayName(i.guild.members.cache.get(p1Id)?.displayName || "مقاتل 1");
             const p2NameClean = battleState.isBotMatch ? 'الزعيم موركس' : core.cleanDisplayName(i.guild.members.cache.get(p2Id)?.displayName || "مقاتل 2");
             initAnnouncer(battleState, p1NameClean, p2NameClean);
@@ -220,7 +219,6 @@ async function handlePvpBetModal(i, client, db) {
     const finalBet = amount - lateTax;
     if (finalBet <= 0) return i.editReply({ content: "❌ المبلغ قليل جداً لتغطية رسوم الدخول المتأخر (2%)." });
 
-    // ✅ GREATEST لمنع الرصيد السالب + RETURNING لتحديث الكاش فوراً ومنع الكتابة المؤجلة من إرجاع القيمة القديمة
     const betDeductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, i.user.id, i.guild.id]).catch(()=>({rows:[]}));
     if (client?.updateLevelField && betDeductRes.rows[0]) {
         client.updateLevelField(i.user.id, i.guild.id, { mora: Number(betDeductRes.rows[0].mora) });
@@ -253,8 +251,9 @@ async function handlePvpChallenge(i, client, db) {
     if (i.user.id !== opponentId && (action === 'accept' || action === 'decline')) return i.reply({ content: "أنت لست الشخص المطلوب في هذا التحدي.", flags: [MessageFlags.Ephemeral] });
 
     if ((i.user.id === challengerId || i.user.id === opponentId) && action === 'decline') {
-        if (!core.activePvpChallenges.has(i.channel.id)) return i.update({ content: "انتهى وقت التحدي.", embeds: [], components: [] });
-        core.activePvpChallenges.delete(i.channel.id);
+        const channelId = i.channelId || i.message?.channelId || i.channel?.id;
+        if (!core.activePvpChallenges.has(channelId)) return i.update({ content: "انتهى وقت التحدي.", embeds: [], components: [] });
+        core.activePvpChallenges.delete(channelId);
 
         await db.query(`UPDATE levels SET "lastPVP" = 0 WHERE "user" = $1 AND "guild" = $2`, [challengerId, i.guild.id]);
 
@@ -285,7 +284,8 @@ async function handlePvpChallenge(i, client, db) {
     }
 
     if (action === 'accept') {
-        if (!core.activePvpChallenges.has(i.channel.id)) return i.update({ content: "انتهى وقت التحدي.", embeds: [], components: [] });
+        const channelId = i.channelId || i.message?.channelId || i.channel?.id;
+        if (!core.activePvpChallenges.has(channelId)) return i.update({ content: "انتهى وقت التحدي.", embeds: [], components: [] });
 
         const opponentMember = i.member;
         const challengerMember = await i.guild.members.fetch(challengerId).catch(() => null);
@@ -304,7 +304,7 @@ async function handlePvpChallenge(i, client, db) {
             return i.update({ content: `❌ المتحدي لم يعد جاهزاً.`, embeds: [], components: [] });
         }
 
-        core.activePvpChallenges.delete(i.channel.id);
+        core.activePvpChallenges.delete(channelId);
         await i.deferUpdate(); 
         await i.editReply({ components: [], embeds: [] });
         await core.startPvpBattle(i, client, db, challengerMember, opponentMember, bet);
@@ -312,9 +312,16 @@ async function handlePvpChallenge(i, client, db) {
 }
 
 async function handlePvpSkillSelect(i, client, db) {
-    let battleState = core.activePvpBattles.get(i.channel.id);
+    // 🔥 البحث الآمن باستخدام ID الشات أو الثريد 🔥
+    const channelId = i.channelId || i.message?.channelId || i.channel?.id;
+    let battleState = core.activePvpBattles.get(channelId);
     let isPvE = false;
-    if (!battleState) { battleState = core.activePveBattles.get(i.channel.id); isPvE = true; }
+    
+    if (!battleState) { 
+        battleState = core.activePveBattles.get(channelId); 
+        if (battleState) isPvE = true; 
+    }
+    
     if (!battleState) return i.reply({ content: "انتهت المعركة.", flags: [MessageFlags.Ephemeral] }).catch(() => {});
 
     const attackerId = battleState.turn[0];
@@ -424,9 +431,16 @@ async function handlePvpSkillSelect(i, client, db) {
 }
 
 async function handlePvpTurn(i, client, db) {
-    let battleState = core.activePvpBattles.get(i.channel.id);
+    // 🔥 البحث الآمن باستخدام ID الشات أو الثريد 🔥
+    const channelId = i.channelId || i.message?.channelId || i.channel?.id;
+    let battleState = core.activePvpBattles.get(channelId);
     let isPvE = false;
-    if (!battleState) { battleState = core.activePveBattles.get(i.channel.id); isPvE = true; }
+
+    if (!battleState) { 
+        battleState = core.activePveBattles.get(channelId); 
+        if (battleState) isPvE = true; 
+    }
+
     if (!battleState) { if (i.customId.startsWith('pvp_')) return i.update({ content: "انتهت المعركة.", components: [] }).catch(() => {}); return; }
 
     if (battleState.status === 'voting') return i.reply({ content: "⏳ بانتظار إكمال التصويت على وقت المباراة!", flags: [MessageFlags.Ephemeral] });
@@ -573,9 +587,7 @@ async function handlePvpInteraction(i, client, db) {
         if (i.customId.startsWith('pvp_accept_') || i.customId.startsWith('pvp_decline_')) {
             await handlePvpChallenge(i, client, db);
         } else if (i.customId.startsWith('pvp_vote_') || i.customId.startsWith('pvp_bet_')) {
-            const pvpManager = require('./pvp-manager.js');
-            // استدعاء دالة handleVotingAndBetting من مكانها الصحيح في Manager
-            await pvpManager.handleVotingAndBetting(i, client, db);
+            await handleVotingAndBetting(i, client, db);
         } else if (i.customId === 'pvp_skill_select_menu') {
             await handlePvpSkillSelect(i, client, db);
         } else {
