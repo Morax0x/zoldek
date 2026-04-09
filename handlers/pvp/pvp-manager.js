@@ -28,7 +28,6 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
     const getLevelResChallenger = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [challengerMember.id, i.guild.id]);
     let challengerData = getLevelResChallenger.rows[0] || { user: challengerMember.id, guild: i.guild.id, level: 0, mora: 0, bank: 0 };
 
-    // ✅ خصم نسبي آمن (GREATEST يمنع الرصيد السالب) + تحديث الكاش فوراً لمنع الكتابة المؤجلة من إرجاع القيمة القديمة
     const newChalMora = Math.max(0, Number(challengerData.mora) - bet);
     await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3`, [bet, challengerMember.id, i.guild.id]);
     if (client.updateLevelField) client.updateLevelField(challengerMember.id, i.guild.id, { mora: newChalMora });
@@ -50,7 +49,6 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
     } else {
         const getLevelResOpponent = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [opponentMember.id, i.guild.id]);
         let opponentData = getLevelResOpponent.rows[0] || { user: opponentMember.id, guild: i.guild.id, level: 0, mora: 0, bank: 0 };
-        // ✅ نفس الإصلاح للخصم
         const newOppMora = Math.max(0, Number(opponentData.mora) - bet);
         await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3`, [bet, opponentMember.id, i.guild.id]);
         if (client.updateLevelField) client.updateLevelField(opponentMember.id, i.guild.id, { mora: newOppMora });
@@ -70,7 +68,6 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
 
     const now = Date.now();
     const cWoundRes = await db.query(`SELECT 1 FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded' AND "expiresAt" > $3`, [challengerMember.id, i.guild.id, now]).catch(()=>({rows:[]}));
-    // ✅ لا نفحص الجرح للبوت (isBotMatch) لأنه لا يمتلك بيانات قاعدة بيانات
     const oWoundRes = isBotMatch ? { rows: [] } : await db.query(`SELECT 1 FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded' AND "expiresAt" > $3`, [opponentMember.id, i.guild.id, now]).catch(()=>({rows:[]}));
 
     let cHp = cWoundRes.rows.length > 0 ? Math.floor(cMaxHp * 0.5) : cMaxHp;
@@ -102,7 +99,6 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
         }
     } catch (e) {
         console.error('[PvP] Thread creation failed:', e);
-        // ✅ استرداد الرهان لكلا اللاعبين عند فشل إنشاء الثريد + تحديث الكاش
         const chalRefund = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [bet, challengerMember.id, i.guild.id]).catch(() => ({rows:[]}));
         if (client.updateLevelField && chalRefund.rows[0]) client.updateLevelField(challengerMember.id, i.guild.id, { mora: Number(chalRefund.rows[0].mora) });
 
@@ -161,7 +157,6 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
 
     battleState.message = await thread.send({ content: `${challengerMember} ${isBotMatch ? '' : opponentMember}`, embeds: [rulesEmbed], components: [rulesRow] });
 
-    // 🔥 نظام النزول التلقائي الذكي (Smart Auto-Bump) 🔥
     const threadCollector = thread.createMessageCollector({ filter: m => !m.author.bot, time: 3600000 }); 
     let messageCounter = 0;
     let bumpCooldown = false;
@@ -176,17 +171,15 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
         
         if (messageCounter >= 20 && !bumpCooldown) {
             if (battleState.processingTurn) {
-                // نؤجل النزول للرسالة التالية إذا كان هناك أكشن يحدث حالياً
                 messageCounter--; 
                 return;
             }
 
             messageCounter = 0;
             bumpCooldown = true;
-            setTimeout(() => { bumpCooldown = false; }, 15000); // 15 ثانية كولداون لمنع السبام
+            setTimeout(() => { bumpCooldown = false; }, 15000); 
 
             try {
-                // 🔥 مسح رسالة المعلق ورسالة المعركة القديمة 🔥
                 if (battleState.announcerMessage && battleState.announcerMessage.deletable) {
                     await battleState.announcerMessage.delete().catch(() => {});
                 }
@@ -217,7 +210,6 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
                     battleState.message = await thread.send({ content: `${challengerMember} ${isBotMatch ? '' : opponentMember}`, embeds: [newRulesEmbed], components: [newRulesRow] });
                 
                 } else if (battleState.status === 'active') {
-                    // 🔥 1. إعادة إرسال المعلق في الأعلى 🔥
                     if (battleState.announcerText) {
                         const annEmbed = new EmbedBuilder()
                             .setDescription(battleState.announcerText)
@@ -225,7 +217,6 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
                         battleState.announcerMessage = await thread.send({ embeds: [annEmbed] });
                     }
                     
-                    // 🔥 2. إعادة إرسال لوحة المعركة تحتها 🔥
                     const { embeds, components, files } = await buildBattleEmbed(battleState);
                     battleState.message = await thread.send({ content: null, embeds, components, files });
                 }
@@ -236,6 +227,7 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
     });
 }
 
+// 🔥 تم تحديث معركة وحش البحر لتفتح ثريد منفصل وتدمج المعلق 🔥
 async function startPveBattle(interaction, client, db, playerMember, monsterData, playerWeaponOverride) {
     const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [playerMember.id, interaction.guild.id]);
     let playerData = getLevelRes.rows[0] || { user: playerMember.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0 };
@@ -253,7 +245,6 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
     const userRaceP = await getUserRace(playerMember, db);
     const rawRaceP = userRaceP ? (userRaceP.raceName || userRaceP.racename) : 'Human';
 
-    // 🔥 قاموس التعريب للأعراق 🔥
     const RACE_AR = {
         'Human': 'بشري', 'Dragon': 'تنين', 'Elf': 'آلف', 'Dark Elf': 'آلف الظلام',
         'Seraphim': 'سيرافيم', 'Demon': 'شيطان', 'Vampire': 'مصاص دماء',
@@ -262,29 +253,88 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
 
     const translatedRaceP = RACE_AR[rawRaceP] || rawRaceP;
     const translatedMonsterRace = RACE_AR[monsterData.race] || monsterData.race || 'وحش أعماق';
-
-    // 🔥 تركيب صورة وحش البحر الأسطورية 🔥
     const monsterImage = monsterData.image || 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/monster.png';
+    const playerName = cleanDisplayName(playerMember.displayName || playerMember.user.username);
+
+    // 🔥 إنشاء الثريد الخاص بالمعركة لمنع التداخل 🔥
+    let thread;
+    try {
+        const threadName = `🦑-صيد-${monsterData.name}-${playerName}`.substring(0, 100);
+        if (interaction.message && typeof interaction.message.startThread === 'function') {
+            thread = await interaction.message.startThread({ name: threadName, autoArchiveDuration: 60, reason: 'PvE Monster Battle' });
+        } else if (interaction.channel) {
+            thread = await interaction.channel.threads.create({ name: threadName, autoArchiveDuration: 60, type: ChannelType.PublicThread, reason: 'PvE Monster Battle' });
+        }
+    } catch (e) {
+        console.error("Thread creation failed for PvE:", e);
+        await interaction.channel.send("❌ فشل إنشاء ساحة المعركة للوحش.");
+        return;
+    }
+
+    try { await thread.members.add(playerMember.id); } catch(e) {}
+    try { await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!** انتقل إلى الساحة: <#${thread.id}>`, embeds: [], components: [] }); } catch (e) {}
 
     const battleState = {
-        isPvE: true, monsterData: monsterData, message: null, turn: [playerMember.id, "monster"],
+        isPvE: true, monsterData: monsterData, message: null, announcerMessage: null, turn: [playerMember.id, "monster"],
         log: [`🦑 **${monsterData.name}** ظهر من الأعماق!`], processingTurn: false, status: 'active',
         skillCooldowns: { [playerMember.id]: {}, "monster": {} },
+        thread: thread, mainChannel: interaction.channel,
         players: new Map([
             [playerMember.id, { isMonster: false, member: playerMember, hp: pMaxHp, maxHp: pMaxHp, level: Number(playerData.level), raceName: translatedRaceP, weapon: finalPlayerWeapon, skills: skillsPlayer, effects: defEffects() }],
             ["monster", { isMonster: true, name: monsterData.name, image: monsterImage, raceName: translatedMonsterRace, hp: mMaxHp, maxHp: mMaxHp, level: monsterData.level || '؟', weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
         ])
     };
 
-    activePveBattles.set(interaction.channel.id, battleState);
+    // 🔥 حفظ حالة المعركة باستخدام ID الثريد 🔥
+    activePveBattles.set(thread.id, battleState);
+    
+    // إعداد المعلق
+    const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
+    battleState.announcerMessage = await thread.send({ embeds: [annEmbed] });
+
     const { embeds, components, files } = await buildBattleEmbed(battleState);
-    try { await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!**`, embeds: [], components: [] }); } catch (e) {}
-    battleState.message = await interaction.channel.send({ content: `⚔️ **قتال ضد وحش!** ${playerMember}`, embeds, components, files });
+    battleState.message = await thread.send({ content: `⚔️ **قتال ضد وحش!** <@${playerMember.id}>`, embeds, components, files });
+
+    const { initAnnouncer } = require('./pvp-announcer.js');
+    initAnnouncer(battleState, playerName, monsterData.name);
+
+    // 🔥 نظام النزول التلقائي في الـ PvE 🔥
+    const threadCollector = thread.createMessageCollector({ filter: m => !m.author.bot, time: 3600000 }); 
+    let messageCounter = 0;
+    let bumpCooldown = false;
+
+    threadCollector.on('collect', async (msg) => {
+        if (battleState.status === 'ended') {
+            threadCollector.stop();
+            return;
+        }
+        
+        messageCounter++;
+        if (messageCounter >= 20 && !bumpCooldown) {
+            if (battleState.processingTurn) { messageCounter--; return; }
+
+            messageCounter = 0; bumpCooldown = true;
+            setTimeout(() => { bumpCooldown = false; }, 15000); 
+
+            try {
+                if (battleState.announcerMessage && battleState.announcerMessage.deletable) await battleState.announcerMessage.delete().catch(() => {});
+                if (battleState.message && battleState.message.deletable) await battleState.message.delete().catch(() => {});
+            } catch (e) {}
+
+            try {
+                if (battleState.announcerText) {
+                    const newAnnEmbed = new EmbedBuilder().setDescription(battleState.announcerText).setColor(battleState.announcerColor || Colors.Gold);
+                    battleState.announcerMessage = await thread.send({ embeds: [newAnnEmbed] });
+                }
+                const { embeds, components, files } = await buildBattleEmbed(battleState);
+                battleState.message = await thread.send({ content: null, embeds, components, files });
+            } catch (e) { console.error("[Auto-Bump PvE Error]:", e); }
+        }
+    });
 }
 
 async function endBattle(battleState, winnerId, db, reason = "win", buffCalculator = null) {
     if (!battleState.message) return;
-    // ✅ منع تنفيذ endBattle أكثر من مرة للمعركة نفسها
     if (battleState.status === 'ended') return;
 
     battleState.status = 'ended';
@@ -299,11 +349,9 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
     const { embeds: finalEmbeds, files: finalFiles } = await buildBattleEmbed(battleState);
     await battleState.message.edit({ embeds: finalEmbeds, components: [], files: finalFiles }).catch(() => {});
 
-    // ✅ حذف من الـ map باستخدام ID الثريد مباشرة (ليس channel.id الذي قد يختلف)
     const channelId = battleState.message.channel.id;
     activePvpBattles.delete(channelId);
     activePveBattles.delete(channelId);
-    // حذف إضافي بـ thread.id لضمان التنظيف الكامل
     if (battleState.thread && battleState.thread.id !== channelId) {
         activePvpBattles.delete(battleState.thread.id);
         activePveBattles.delete(battleState.thread.id);
@@ -339,6 +387,9 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
                 .setDescription(`✦ حصلت على إضعاف -15% مورا واكس بي لمدة 15د`);
         }
         await battleState.message.channel.send({ embeds: [embed] });
+        
+        // مسح الثريد للوحش بعد النهاية بقليل
+        if (battleState.thread) setTimeout(async () => { try { await battleState.thread.delete('انتهت المعركة'); } catch (e) {} }, 60000); 
         return;
     } 
     
@@ -378,11 +429,9 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
 
     let finalWinnings = battleState.totalPot;
     const pool = battleState.bettingPool;
-    // ✅ مرجع للكلايونت عبر الرسالة لتحديث الكاش بعد كل عملية مورا
     const discordClient = battleState.message?.client;
 
     if (cancelRewards) {
-        // ✅ RETURNING "mora" للحصول على القيمة الجديدة وتحديث الكاش فوراً
         if (!winner.isBot) {
             const wRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [battleState.bet, winnerId, guildId]).catch(()=>({rows:[]}));
             if (discordClient?.updateLevelField && wRes.rows[0]) discordClient.updateLevelField(winnerId, guildId, { mora: Number(wRes.rows[0].mora) });
@@ -392,7 +441,6 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
             if (discordClient?.updateLevelField && lRes.rows[0]) discordClient.updateLevelField(loserId, guildId, { mora: Number(lRes.rows[0].mora) });
         }
 
-        // استرداد الرهانات للمتفرجين
         if (pool && pool.bets.size > 0) {
             for (const [uid, betObj] of pool.bets.entries()) {
                 const bRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [betObj.amount, uid, guildId]).catch(()=>({rows:[]}));
@@ -407,7 +455,6 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
         if (rankPoint && !winner.isBot && settings.rolePvPKing && winner.member.roles.cache.has(settings.rolePvPKing)) {
             const stealAmount = Math.floor(battleState.bet * 0.10);
             if (!loser.isBot) {
-                // ✅ تحديث الكاش بعد سرقة الملك
                 const stealRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [stealAmount, loserId, guildId]).catch(()=>({rows:[]}));
                 if (discordClient?.updateLevelField && stealRes.rows[0]) discordClient.updateLevelField(loserId, guildId, { mora: Number(stealRes.rows[0].mora) });
             }
@@ -426,7 +473,6 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
         }
 
         if (!winner.isBot) {
-            // ✅ RETURNING "mora" لتحديث كاش الفائز بعد إضافة الجائزة
             const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [finalWinnings, winnerId, guildId]).catch(()=>({rows:[]}));
             if (discordClient?.updateLevelField && winRes.rows[0]) discordClient.updateLevelField(winnerId, guildId, { mora: Number(winRes.rows[0].mora) });
             if (rankPoint && updateGuildStat) updateGuildStat(discordClient, guildId, winnerId, 'pvp_wins', 1);
@@ -460,7 +506,6 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
                 if (betObj.targetId === winnerId) {
                     const share = betObj.amount / totalWinnerBet;
                     const payout = Math.floor(netPot * share);
-                    // ✅ تحديث كاش كل فائز في المراهنات
                     const betPayRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [payout, uid, guildId]).catch(()=>({rows:[]}));
                     if (discordClient?.updateLevelField && betPayRes.rows[0]) discordClient.updateLevelField(uid, guildId, { mora: Number(betPayRes.rows[0].mora) });
                 }
@@ -483,7 +528,6 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
     if (battleState.thread && battleState.mainChannel) {
         try {
             if (imageBuffer) {
-                // نرسل نفس الصورة الأسطورية إلى الشات العام!
                 const mainAttachment = new AttachmentBuilder(imageBuffer, { name: 'pvp_result_main.png' });
                 await battleState.mainChannel.send({ content: `⚔️ **انتهت معركة الحلبة!** الفائز المستحق: <@${winnerId}>`, files: [mainAttachment] });
             } else {
