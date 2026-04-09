@@ -1,75 +1,114 @@
 async function processTestingBotTurn(battleState, db, core, calculateMoraBuff) {
-    const botId = battleState.turn[0];
-    const playerId = battleState.turn[1];
-    const bot = battleState.players.get(botId);
-    const player = battleState.players.get(playerId);
-    if (!bot || !player) return;
+    try {
+        if (!battleState || !battleState.turn || !battleState.players) return;
 
-    await new Promise(r => setTimeout(r, 2000)); 
+        const botId = battleState.turn[0];
+        const playerId = battleState.turn[1];
+        
+        const bot = battleState.players.get(botId);
+        const player = battleState.players.get(playerId);
+        if (!bot || !player) return;
 
-    const { logEntries, skipTurn } = core.applyPersistentEffects(battleState, botId);
-    battleState.log.push(...logEntries);
+        await new Promise(r => setTimeout(r, 2000)); 
 
-    if (bot.hp <= 0) {
-        await core.endBattle(battleState, playerId, db, "win", calculateMoraBuff);
-        return;
-    }
+        // 🔥 تهيئة وقائية للكائنات لتجنب الكراش (Null-check) 🔥
+        if (!battleState.log) battleState.log = [];
+        if (!bot.effects) bot.effects = {};
+        if (!player.effects) player.effects = {};
+        if (!battleState.skillCooldowns) battleState.skillCooldowns = {};
+        if (!battleState.skillCooldowns[botId]) battleState.skillCooldowns[botId] = {};
+        if (!battleState.stats) battleState.stats = { actions: 0 };
+        if (!battleState.stats[botId]) battleState.stats[botId] = { skillsUsed: 0, damageDealt: 0 };
 
-    // 🔥 زيادة عداد الجولات 🔥
-    battleState.stats.actions += 1;
+        let persistentResult;
+        try {
+            persistentResult = core.applyPersistentEffects(battleState, botId);
+        } catch (e) {
+            persistentResult = { logEntries: [], skipTurn: false };
+        }
+        
+        const logEntries = persistentResult.logEntries || [];
+        const skipTurn = persistentResult.skipTurn || false;
 
-    if (skipTurn) {
-        battleState.log.push(`⚡ **${bot.name}** مشلول ولا يستطيع الحركة!`);
-    } else {
-        Object.keys(battleState.skillCooldowns[botId]).forEach(s => {
-            if (battleState.skillCooldowns[botId][s] > 0) battleState.skillCooldowns[botId][s]--;
-        });
+        if (logEntries.length > 0) battleState.log.push(...logEntries);
 
-        const availableSkills = Object.values(bot.skills).filter(s => (battleState.skillCooldowns[botId][s.id] || 0) === 0);
-        let chosenSkill = null;
-
-        if (bot.hp / bot.maxHp < 0.4 && availableSkills.find(s => s.id === 'skill_healing')) {
-            chosenSkill = availableSkills.find(s => s.id === 'skill_healing');
-        } else if (bot.effects.shield === 0 && availableSkills.find(s => s.id === 'skill_shielding')) {
-            chosenSkill = availableSkills.find(s => s.id === 'skill_shielding');
-        } else if (Math.random() < 0.7 && availableSkills.length > 0) {
-            const attackSkills = availableSkills.filter(s => s.id !== 'skill_healing' && s.id !== 'skill_shielding');
-            if (attackSkills.length > 0) chosenSkill = attackSkills[Math.floor(Math.random() * attackSkills.length)];
+        if ((bot.hp || 0) <= 0) {
+            bot.hp = 0;
+            try { await core.endBattle(battleState, playerId, db, "win", calculateMoraBuff); } catch(e){}
+            return;
         }
 
-        if (chosenSkill) {
-            battleState.skillCooldowns[botId][chosenSkill.id] = chosenSkill.cooldown || 3;
-            const actionLog = core.applySkillEffect(battleState, botId, chosenSkill);
-            battleState.log.push(actionLog);
-            
-            // 🔥 زيادة عداد المهارات للبوت 🔥
-            battleState.stats[botId].skillsUsed += 1;
-        } else {
-            const dmg = core.calculateDamage(bot, player);
-            if (player.effects.evasion > 0) {
-                battleState.log.push(`👻 **${bot.name}** هاجم، لكنك راوغت ببراعة!`);
-            } else {
-                player.hp -= dmg;
-                
-                // 🔥 زيادة عداد الضرر للبوت 🔥
-                battleState.stats[botId].damageDealt += dmg;
+        // 🔥 زيادة عداد الجولات 🔥
+        battleState.stats.actions = (battleState.stats.actions || 0) + 1;
 
-                if (dmg > 0) battleState.log.push(`⚔️ **${bot.name}** سدد ضربة أسطورية وألحق **${dmg}** ضرر!`);
-                else battleState.log.push(`🛡️ درعك امتص الضربة بالكامل!`);
+        if (skipTurn) {
+            battleState.log.push(`⚡ **${bot.name || 'الزعيم'}** مشلول ولا يستطيع الحركة!`);
+        } else {
+            Object.keys(battleState.skillCooldowns[botId]).forEach(s => {
+                if (battleState.skillCooldowns[botId][s] > 0) battleState.skillCooldowns[botId][s]--;
+            });
+
+            const botSkills = bot.skills || {};
+            const availableSkills = Object.values(botSkills).filter(s => (battleState.skillCooldowns[botId][s.id] || 0) === 0);
+            let chosenSkill = null;
+
+            const botMaxHp = bot.maxHp || 1;
+            if ((bot.hp || 0) / botMaxHp < 0.4 && availableSkills.find(s => s.id === 'skill_healing')) {
+                chosenSkill = availableSkills.find(s => s.id === 'skill_healing');
+            } else if ((bot.effects.shield || 0) === 0 && availableSkills.find(s => s.id === 'skill_shielding')) {
+                chosenSkill = availableSkills.find(s => s.id === 'skill_shielding');
+            } else if (Math.random() < 0.7 && availableSkills.length > 0) {
+                const attackSkills = availableSkills.filter(s => s.id !== 'skill_healing' && s.id !== 'skill_shielding');
+                if (attackSkills.length > 0) chosenSkill = attackSkills[Math.floor(Math.random() * attackSkills.length)];
+            }
+
+            if (chosenSkill) {
+                battleState.skillCooldowns[botId][chosenSkill.id] = chosenSkill.cooldown || 3;
+                try {
+                    const actionLog = core.applySkillEffect(battleState, botId, chosenSkill);
+                    battleState.log.push(actionLog);
+                    battleState.stats[botId].skillsUsed += 1;
+                } catch (e) {
+                    console.error("AI Skill Execution Error:", e);
+                }
+            } else {
+                let dmg = 0;
+                try {
+                    dmg = core.calculateDamage(bot, player);
+                } catch (e) { console.error("AI Calc Damage Error:", e); }
+                
+                if ((player.effects.evasion || 0) > 0) {
+                    battleState.log.push(`👻 **${bot.name || 'الزعيم'}** هاجم، لكنك راوغت ببراعة!`);
+                } else {
+                    player.hp = Math.max(0, (player.hp || 0) - dmg);
+                    battleState.stats[botId].damageDealt += dmg;
+
+                    if (dmg > 0) battleState.log.push(`⚔️ **${bot.name || 'الزعيم'}** سدد ضربة أسطورية وألحق **${dmg}** ضرر!`);
+                    else battleState.log.push(`🛡️ درعك امتص الضربة بالكامل!`);
+                }
             }
         }
-    }
 
-    if (player.hp <= 0) {
-        player.hp = 0;
-        await core.endBattle(battleState, botId, db, "win", calculateMoraBuff);
-        return;
-    }
+        if ((player.hp || 0) <= 0) {
+            player.hp = 0;
+            try { await core.endBattle(battleState, botId, db, "win", calculateMoraBuff); } catch(e){}
+            return;
+        }
 
-    battleState.turn = [playerId, botId];
-    const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-    if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(() => {});
-    battleState.processingTurn = false;
+        battleState.turn = [playerId, botId];
+        
+        try {
+            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+            if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(() => {});
+        } catch (e) {
+            console.error("AI UI Update Error:", e);
+        }
+        
+        battleState.processingTurn = false;
+    } catch (criticalError) {
+        console.error("[CRITICAL] processTestingBotTurn Error:", criticalError);
+        if (battleState) battleState.processingTurn = false;
+    }
 }
 
 module.exports = { processTestingBotTurn };
