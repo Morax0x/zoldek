@@ -43,7 +43,7 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
         skillsOpponent = {
             'race_dragon_skill': { id: 'race_dragon_skill', name: 'أنفاس نارية', stat_type: 'TrueDMG_Burn', effectValue: 500, currentLevel: 20 },
             'skill_healing': { id: 'skill_healing', name: 'علاج أسطوري', stat_type: '%', effectValue: 40, currentLevel: 20 },
-            'skill_shielding': { id: 'skill_shielding', name: 'درع الزعيم', stat_type: '%', effectValue: 50, currentLevel: 20 },
+            'skill_shielding': { id: 'skill_shielding', name: 'درع الزعيـم', stat_type: '%', effectValue: 50, currentLevel: 20 },
             'skill_buffing': { id: 'skill_buffing', name: 'طاقة مطلقة', stat_type: '%', effectValue: 60, currentLevel: 20 }
         };
     } else {
