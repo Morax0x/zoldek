@@ -277,9 +277,16 @@ async function buildBattleEmbed(battleState) {
     if (!attacker.isMonster) {
         const mainButtons = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('pvp_action_attack').setLabel('هـجـوم').setStyle(ButtonStyle.Danger).setEmoji('⚔️'),
-            new ButtonBuilder().setCustomId('pvp_action_skill').setLabel('مـهــارات').setStyle(ButtonStyle.Primary).setEmoji('✨'),
-            new ButtonBuilder().setCustomId('pvp_action_forfeit').setLabel('انسحاب').setStyle(ButtonStyle.Secondary).setEmoji('🏳️')
+            new ButtonBuilder().setCustomId('pvp_action_skill').setLabel('مـهــارات').setStyle(ButtonStyle.Primary).setEmoji('✨')
         );
+        
+        // إخفاء زر الانسحاب لو كانت معركة ضد وحش (PvE)
+        if (!battleState.isPvE) {
+            mainButtons.addComponents(
+                new ButtonBuilder().setCustomId('pvp_action_forfeit').setLabel('انسحاب').setStyle(ButtonStyle.Secondary).setEmoji('🏳️')
+            );
+        }
+        
         components = [mainButtons];
     }
 
@@ -740,6 +747,7 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
     battleState.message = await thread.send({ content: `${challengerMember} 🆚 ${opponentMember}`, embeds, components, files });
 }
 
+// 🔥 التعديل الجذري على إنشاء ثريد وحش البحر وربطه بـ thread.id 🔥
 async function startPveBattle(interaction, client, db, playerMember, monsterData, playerWeaponOverride) {
     const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [playerMember.id, interaction.guild.id]);
     let playerData = getLevelRes.rows[0] || { user: playerMember.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0 };
@@ -758,22 +766,81 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
     const skillsPlayer = await getAllSkillData(db, playerMember);
     
     const userRaceP = await getUserRace(playerMember, db);
-    const raceNameP = userRaceP ? (userRaceP.raceName || userRaceP.racename) : 'Human';
+    const rawRaceP = userRaceP ? (userRaceP.raceName || userRaceP.racename) : 'Human';
+    
+    // قاموس التعريب
+    const RACE_AR = {
+        'Human': 'بشري', 'Dragon': 'تنين', 'Elf': 'آلف', 'Dark Elf': 'آلف الظلام',
+        'Seraphim': 'سيرافيم', 'Demon': 'شيطان', 'Vampire': 'مصاص دماء',
+        'Spirit': 'روح', 'Dwarf': 'قزم', 'Ghoul': 'غول', 'Hybrid': 'نصف وحش'
+    };
+    const raceNameP = RACE_AR[rawRaceP] || rawRaceP;
+    const translatedMonsterRace = RACE_AR[monsterData.race] || monsterData.race || 'وحش أعماق';
+    const monsterImage = monsterData.image || 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/monster.png';
+    const playerName = cleanDisplayName(playerMember.displayName || playerMember.user.username);
+
+    // إنشاء الثريد الخاص بالمعركة
+    let thread;
+    try {
+        const threadName = `🦑-صيد-${monsterData.name}-${playerName}`.substring(0, 100);
+        if (interaction.message && typeof interaction.message.startThread === 'function') {
+            thread = await interaction.message.startThread({ name: threadName, autoArchiveDuration: 60, reason: 'PvE Monster Battle' });
+        } else if (interaction.channel) {
+            thread = await interaction.channel.threads.create({ name: threadName, autoArchiveDuration: 60, type: ChannelType.PublicThread, reason: 'PvE Monster Battle' });
+        }
+    } catch (e) {
+        console.error("Thread creation failed for PvE:", e);
+        if (interaction.channel) await interaction.channel.send("❌ فشل إنشاء ساحة المعركة للوحش.").catch(()=>{});
+        return;
+    }
+
+    if (!thread) return;
+
+    try { await thread.members.add(playerMember.id); } catch(e) {}
+    try { 
+        if (interaction.editReply) {
+            await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!** انتقل إلى الساحة: <#${thread.id}>`, embeds: [], components: [] }).catch(()=>{}); 
+        }
+    } catch(e){}
 
     const battleState = {
-        isPvE: true, monsterData: monsterData, message: null, turn: [playerMember.id, "monster"],
-        log: [`🦑 **${monsterData.name}** ظهر من الأعماق!`], processingTurn: false,
+        isPvE: true, monsterData: monsterData, message: null, announcerMessage: null, turn: [playerMember.id, "monster"],
+        log: [`🦑 **${monsterData.name}** ظهر من الأعماق!`], processingTurn: false, status: 'active',
         skillCooldowns: { [playerMember.id]: {}, "monster": {} },
+        thread: thread, mainChannel: interaction.channel && !interaction.channel.isThread() ? interaction.channel : null,
         players: new Map([
             [playerMember.id, { isMonster: false, member: playerMember, hp: pMaxHp, maxHp: pMaxHp, level: Number(playerData.level), raceName: raceNameP, weapon: finalPlayerWeapon, skills: skillsPlayer, effects: defEffects() }],
-            ["monster", { isMonster: true, name: monsterData.name, image: monsterData.image || null, raceName: monsterData.race || 'Monster', hp: mMaxHp, maxHp: mMaxHp, level: monsterData.level || '?', weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
+            ["monster", { isMonster: true, name: monsterData.name, image: monsterImage, raceName: translatedMonsterRace, hp: mMaxHp, maxHp: mMaxHp, level: monsterData.level || '؟', weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
         ])
     };
 
-    activePveBattles.set(interaction.channel.id, battleState);
+    // 🔥 تسجيل المعركة برقم الثريد لكي تتجاوب الأزرار بشكل صحيح 🔥
+    activePveBattles.set(thread.id, battleState);
+    
+    let initAnnouncer;
+    try { ({ initAnnouncer } = require('./pvp-announcer.js')); } catch (e) { initAnnouncer = null; }
+
+    if (initAnnouncer) {
+        const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
+        battleState.announcerMessage = await thread.send({ embeds: [annEmbed] });
+    }
+
     const { embeds, components, files } = await buildBattleEmbed(battleState);
-    try { await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!**`, embeds: [], components: [] }); } catch (e) {}
-    battleState.message = await interaction.channel.send({ content: `⚔️ **قتال ضد وحش!** ${playerMember}`, embeds, components, files });
+    battleState.message = await thread.send({ content: `⚔️ **قتال ضد وحش!** <@${playerMember.id}>`, embeds, components, files });
+
+    if (initAnnouncer) {
+        initAnnouncer(battleState, playerName, monsterData.name);
+    }
+
+    // مهلة 5 دقائق لوحش البحر
+    battleState.timeoutTimer = setTimeout(async () => {
+        if (battleState.status === 'active') {
+            let triggerAnnouncer;
+            try { ({ triggerAnnouncer } = require('./pvp-announcer.js')); } catch(e) {}
+            if (triggerAnnouncer) triggerAnnouncer(battleState, `انتهى الوقت! الوحش يغوص في الأعماق مجدداً!`);
+            await module.exports.endBattle(battleState, "monster", db, "timeout");
+        }
+    }, 5 * 60 * 1000); 
 }
 
 async function endBattle(battleState, winnerId, db, reason = "win", buffCalculator = null) {
@@ -782,6 +849,7 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
     const { embeds: finalEmbeds, files: finalFiles } = await buildBattleEmbed(battleState);
     await battleState.message.edit({ embeds: finalEmbeds, components: [], files: finalFiles }).catch(err => console.error("[PvP endBattle Edit Error]:", err.message));
 
+    // حذف المعركة من الذاكرة بناءً على مكان رسالة المعركة (وهو الثريد)
     const channelId = battleState.message.channel.id;
     activePvpBattles.delete(channelId);
     activePveBattles.delete(channelId);
@@ -828,6 +896,15 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
                 .setTitle(`💀 هزمك ${battleState.monsterData.name}...`)
                 .setDescription(`✦ حصلت على إضعاف -15% مورا واكس بي لمدة 15د`);
         }
+        await battleState.message.channel.send({ embeds: [embed] });
+        
+        // 🔥 حذف الثريد التلقائي بعد دقيقتين للوحش 🔥
+        if (battleState.thread) {
+            setTimeout(async () => {
+                try { await battleState.thread.delete('انتهت المعركة مع الوحش'); } catch (e) {}
+            }, 120000);
+        }
+        return;
     } else {
         let finalWinnings = battleState.totalPot;
         let kingText = "";
