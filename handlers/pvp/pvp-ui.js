@@ -55,12 +55,12 @@ async function buildBattleEmbed(battleState) {
     let components = [];
 
     if (!attacker.isMonster && !attacker.isBot) {
-        // 🔥 تحديث: حذف زر الانسحاب إذا كانت المعركة ضد وحش PVE 🔥
         const mainButtons = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('pvp_action_attack').setLabel('هـجـوم').setStyle(ButtonStyle.Danger).setEmoji('⚔️'),
             new ButtonBuilder().setCustomId('pvp_action_skill').setLabel('مـهــارات').setStyle(ButtonStyle.Primary).setEmoji('✨')
         );
         
+        // 🔥 إخفاء زر الانسحاب إذا كانت معركة PvE (ضد وحش) 🔥
         if (!battleState.isPvE) {
             mainButtons.addComponents(
                 new ButtonBuilder().setCustomId('pvp_action_forfeit').setLabel('انسحاب').setStyle(ButtonStyle.Secondary).setEmoji('🏳️')
