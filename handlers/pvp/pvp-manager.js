@@ -256,9 +256,11 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
     const monsterImage = monsterData.image || 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/monster.png';
     const playerName = cleanDisplayName(playerMember.displayName || playerMember.user.username);
 
+    // 🔥 إنشاء الثريد الخاص بالمعركة لمنع التداخل 🔥
     let thread;
     try {
         const threadName = `🦑-صيد-${monsterData.name}-${playerName}`.substring(0, 100);
+        // نستخدم رسالة interaction لإنشاء الثريد عليها ليكون مرتبطاً بها
         if (interaction.message && typeof interaction.message.startThread === 'function') {
             thread = await interaction.message.startThread({ name: threadName, autoArchiveDuration: 60, reason: 'PvE Monster Battle' });
         } else if (interaction.channel) {
@@ -266,18 +268,24 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
         }
     } catch (e) {
         console.error("Thread creation failed for PvE:", e);
-        await interaction.channel.send("❌ فشل إنشاء ساحة المعركة للوحش.").catch(()=>{});
+        if (interaction.channel) await interaction.channel.send("❌ فشل إنشاء ساحة المعركة للوحش.").catch(()=>{});
         return;
     }
 
+    if (!thread) return;
+
     try { await thread.members.add(playerMember.id); } catch(e) {}
-    try { await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!** انتقل إلى الساحة: <#${thread.id}>` }).catch(()=>{}); } catch(e){}
+    try { 
+        if (interaction.editReply) {
+            await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!** انتقل إلى الساحة: <#${thread.id}>`, embeds: [], components: [] }).catch(()=>{}); 
+        }
+    } catch(e){}
 
     const battleState = {
         isPvE: true, monsterData: monsterData, message: null, announcerMessage: null, turn: [playerMember.id, "monster"],
         log: [`🦑 **${monsterData.name}** ظهر من الأعماق!`], processingTurn: false, status: 'active',
         skillCooldowns: { [playerMember.id]: {}, "monster": {} },
-        thread: thread, mainChannel: interaction.channel,
+        thread: thread, mainChannel: interaction.channel && !interaction.channel.isThread() ? interaction.channel : null,
         players: new Map([
             [playerMember.id, { isMonster: false, member: playerMember, hp: pMaxHp, maxHp: pMaxHp, level: Number(playerData.level), raceName: translatedRaceP, weapon: finalPlayerWeapon, skills: skillsPlayer, effects: defEffects() }],
             ["monster", { isMonster: true, name: monsterData.name, image: monsterImage, raceName: translatedMonsterRace, hp: mMaxHp, maxHp: mMaxHp, level: monsterData.level || '؟', weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
