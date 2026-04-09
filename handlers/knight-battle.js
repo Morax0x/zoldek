@@ -1,10 +1,16 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, ComponentType, MessageFlags } = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, ComponentType, MessageFlags, AttachmentBuilder } = require("discord.js");
 const path = require('path');
 
 let updateGuildStat;
 try {
     ({ updateGuildStat } = require('./guild-board-handler.js'));
 } catch (e) {}
+
+// 🔥 استدعاء مصمم الصور والمعلق 🔥
+let generatePvPImage, generatePvPResultImage, initAnnouncer, triggerAnnouncer;
+try { ({ generatePvPImage } = require('../generators/pvp-generator.js')); } catch (e) { generatePvPImage = null; }
+try { ({ generatePvPResultImage } = require('../generators/pvp-summary-generator.js')); } catch (e) { generatePvPResultImage = null; }
+try { ({ initAnnouncer, triggerAnnouncer } = require('./pvp/pvp-announcer.js')); } catch (e) { initAnnouncer = ()=>{}; triggerAnnouncer = ()=>{}; }
 
 const rootDir = process.cwd();
 const weaponsConfig = require(path.join(rootDir, 'json', 'weapons-config.json'));
@@ -484,36 +490,13 @@ function applySkillEffect(battleState, attackerId, skill) {
     }
 }
 
-function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0) {
+// 🔥 تحديث مهم جداً: جعل الدالة Asynchronous لدعم الكانفاس 🔥
+async function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0) {
     const attackerId = battleState.turn[0]; 
     const defenderId = "guard"; 
     const attacker = battleState.players.get(attackerId);
     const defender = battleState.players.get(defenderId);
       
-    const embed = new EmbedBuilder()
-        .setTitle('⚔️ مبارزة الموت: ضد فارس الإمبراطور')
-        .setColor('#D6D4D4')
-        .setImage(KNIGHT_IMAGES.MAIN);
-
-    embed.addFields(
-        { 
-            name: `${attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member.user.displayName)}`, 
-            value: `HP: ${buildHpBar(attacker.hp, attacker.maxHp)}\nتأثيرات: ${buildEffectsString(attacker.effects)}`, 
-            inline: true 
-        },
-        { 
-            name: `${defender.isMonster ? defender.name : cleanDisplayName(defender.member.user.displayName)}`, 
-            value: `HP: ${buildHpBar(defender.hp, defender.maxHp)}\nتأثيرات: ${buildEffectsString(defender.effects)}`, 
-            inline: true 
-        }
-    );
-
-    embed.setDescription(`**قـُبـض عليـك قاتل لتنجـو!**\nفارس الإمبراطور يغلق الابواب!`);
-
-    if (battleState.log.length > 0) {
-        embed.addFields({ name: "📝 سجل المعركة:", value: battleState.log.slice(-5).join('\n'), inline: false });
-    }
-
     const componentsToSend = [];
 
     if (skillSelectionMode) {
@@ -562,7 +545,49 @@ function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0
         componentsToSend.push(mainButtons);
     }
 
-    return { embeds: [embed], components: componentsToSend };
+    let files = [];
+    let embeds = [];
+
+    // 🔥 دمج مصمم الصور (الكانفاس) بدلاً من الإمبد العادي 🔥
+    if (generatePvPImage) {
+        try {
+            const buffer = await generatePvPImage(battleState);
+            if (buffer) {
+                files.push(new AttachmentBuilder(buffer, { name: 'knight_battle.png' }));
+            }
+        } catch (err) {
+            console.error("[PvP Canvas Generation Error]:", err);
+        }
+    }
+
+    if (files.length === 0) {
+        const embed = new EmbedBuilder()
+            .setTitle('⚔️ مبارزة الموت: ضد فارس الإمبراطور')
+            .setColor('#D6D4D4')
+            .setImage(KNIGHT_IMAGES.MAIN);
+
+        embed.addFields(
+            { 
+                name: `${attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member.user.displayName)}`, 
+                value: `HP: ${buildHpBar(attacker.hp, attacker.maxHp)}\nتأثيرات: ${buildEffectsString(attacker.effects)}`, 
+                inline: true 
+            },
+            { 
+                name: `${defender.isMonster ? defender.name : cleanDisplayName(defender.member.user.displayName)}`, 
+                value: `HP: ${buildHpBar(defender.hp, defender.maxHp)}\nتأثيرات: ${buildEffectsString(defender.effects)}`, 
+                inline: true 
+            }
+        );
+
+        embed.setDescription(`**قـُبـض عليـك قاتل لتنجـو!**\nفارس الإمبراطور يغلق الابواب!`);
+
+        if (battleState.log.length > 0) {
+            embed.addFields({ name: "📝 سجل المعركة:", value: battleState.log.slice(-5).join('\n'), inline: false });
+        }
+        embeds.push(embed);
+    }
+
+    return { embeds, components: componentsToSend, files };
 }
 
 function executeGuardLogic(battleState, player, guard, playerId) {
@@ -580,6 +605,7 @@ function executeGuardLogic(battleState, player, guard, playerId) {
 
     if (skipTurn) {
         battleState.log.push(`💤 **فارس الإمبراطور** مشلول ولا يستطيع الحركة!`);
+        triggerAnnouncer(battleState, `يا إلهي! فارس الإمبراطور مشلول تماماً وغير قادر على الحراك!`);
         return;
     }
 
@@ -592,6 +618,7 @@ function executeGuardLogic(battleState, player, guard, playerId) {
         guard.hp = Math.min(guard.maxHp, guard.hp + healAmt);
         guard.effects.blood_liturgy_used++; 
         actionLog = `🩸 **فارس الإمبراطور** استخدم "قداس الدم"! امتص **${drainDmg}** من صحتك وشفى نفسه (+${healAmt})!`;
+        triggerAnnouncer(battleState, `فارس الإمبراطور يسحب الدماء بقداس الدم ويستعيد طاقته! إنها مجزرة!`);
         const breakMsg = checkShieldBreak(battleState, playerId);
         if (breakMsg) actionLog += `\n${breakMsg}`;
     }
@@ -602,11 +629,13 @@ function executeGuardLogic(battleState, player, guard, playerId) {
         guard.effects.shield += shieldAmt;
         guard.effects.potions_used++; 
         actionLog = `🧪 **فارس الإمبراطور** شرب جرعة طوارئ واستعاد **${healAmount}** HP واكتسب درعاً!`;
+        triggerAnnouncer(battleState, `الفارس يشرب جرعة شفاء ويتحصن من جديد!`);
     }
     else if (player.hp < player.maxHp * 0.20) {
         const dmg = calculateDamage(guard, player, 1.5);
         player.hp -= dmg;
         actionLog = `💀 **فارس الإمبراطور** رأى ضعفك واستخدم "إعدام"! سبب **${dmg}** ضرر!`;
+        triggerAnnouncer(battleState, `الفارس ينقض بحكم الإعدام! ضربة فتاكة ومميتة!`);
         const breakMsg = checkShieldBreak(battleState, playerId);
         if (breakMsg) actionLog += `\n${breakMsg}`;
     }
@@ -614,6 +643,7 @@ function executeGuardLogic(battleState, player, guard, playerId) {
         const dmg = calculateDamage(guard, player, 1.3); 
         player.hp -= dmg;
         actionLog = `🔨 **فارس الإمبراطور** سدد ضربة ثقيلة لتحطيم درعك! سبب **${dmg}** ضرر!`;
+        triggerAnnouncer(battleState, `ضربة عنيفة من الفارس محطماً الدرع بكل وحشية!`);
         const breakMsg = checkShieldBreak(battleState, playerId);
         if (breakMsg) actionLog += `\n${breakMsg}`;
     }
@@ -621,6 +651,7 @@ function executeGuardLogic(battleState, player, guard, playerId) {
         guard.effects.rebound_active = 0.5; 
         guard.effects.rebound_turns = 1;
         actionLog = `🛡️ **فارس الإمبراطور** يتخذ وضعية "انعكاس الضرر"!`;
+        triggerAnnouncer(battleState, `الفارس يستعد لرد الضربات! احترس من الانعكاس!`);
     }
     else {
         let multiplier = player.effects.buff > 0 ? 1.1 : 1.0;
@@ -633,8 +664,14 @@ function executeGuardLogic(battleState, player, guard, playerId) {
             player.effects.burn = Math.floor(guard.weapon.currentDamage * 0.1);
             player.effects.burn_turns = 2;
             actionLog += `⚔️ **فارس الإمبراطور** جرحك وسـبب نزيفاً! (**${dmg}** ضرر)`;
+            triggerAnnouncer(battleState, `سيف الفارس يمزق اللحم ويسبب نزيفاً مرعباً!`);
         } else {
             actionLog += `⚔️ **فارس الإمبراطور** هاجمك وسبب **${dmg}** ضرر!`;
+            if (dmg > 0) {
+                triggerAnnouncer(battleState, `الفارس يوجه ضربة قوية! هجوم لا يستهان به!`);
+            } else {
+                triggerAnnouncer(battleState, `الضربة تصدى لها ببراعة ولا يوجد أي تأثير!`);
+            }
         }
     }
 
@@ -662,14 +699,14 @@ function setupBattleCollector(battleState) {
 
             if (customId === 'knight_skill_menu') {
                 battleState.processingTurn = false;
-                return await i.update(buildBattleEmbed(battleState, true, 0));
+                return await i.update(await buildBattleEmbed(battleState, true, 0));
             } else if (customId === 'knight_skill_back') {
                 battleState.processingTurn = false;
-                return await i.update(buildBattleEmbed(battleState, false));
+                return await i.update(await buildBattleEmbed(battleState, false));
             } else if (customId.startsWith('knight_skill_page_')) {
                 battleState.processingTurn = false;
                 const newPage = parseInt(customId.split('_')[3]);
-                return await i.update(buildBattleEmbed(battleState, true, newPage));
+                return await i.update(await buildBattleEmbed(battleState, true, newPage));
             }
 
             battleState.log = []; 
@@ -684,11 +721,15 @@ function setupBattleCollector(battleState) {
 
             if (pSkip) {
                 battleState.log.push(`⚡ أنت مشلول، لا يمكنك الحركة هذا الدور!`);
+                triggerAnnouncer(battleState, `اللاعب مسمر في مكانه من الشلل! إنها فرصة الفارس!`);
             } else {
                 if (customId === 'knight_attack') {
                     const dmg = calculateDamage(player, guard);
                     guard.hp -= dmg;
                     battleState.log.push(`⚔️ **${cleanDisplayName(player.member.user.displayName)}** هاجم الفارس وسبب **${dmg}** ضرر!`);
+                    if (dmg > 0) triggerAnnouncer(battleState, `هجوم عنيف من اللاعب يهز درع الفارس!`);
+                    else triggerAnnouncer(battleState, `هجوم اللاعب كان كالهواء.. الفارس لم يتأثر!`);
+                    
                     const breakMsg = checkShieldBreak(battleState, "guard");
                     if (breakMsg) battleState.log.push(breakMsg);
                 } 
@@ -698,6 +739,8 @@ function setupBattleCollector(battleState) {
                     if (skillData) {
                         const logMsg = applySkillEffect(battleState, i.user.id, skillData);
                         battleState.log.push(logMsg);
+                        triggerAnnouncer(battleState, `اللاعب استدعى قوته الخاصة واستخدم مهارة ${skillData.name}!`);
+                        
                         const breakMsg = checkShieldBreak(battleState, "guard");
                         if (breakMsg) battleState.log.push(breakMsg);
                     }
@@ -717,7 +760,7 @@ function setupBattleCollector(battleState) {
             }
 
             battleState.processingTurn = false;
-            await i.update(buildBattleEmbed(battleState, false, 0));
+            await i.update(await buildBattleEmbed(battleState, false, 0));
 
         } catch (error) {
             console.error("Collector Logic Error:", error);
@@ -822,33 +865,32 @@ async function startGuardBattle(interaction, client, db, robberMember, amountToS
             introMsg = `🔥🛡️ **فارس الإمبراطور (غاضب x${multiplier})** يتذكر وجهك! "عدت للموت مجدداً؟ هذه المرة لن أرحمك!"`;
         }
 
+        // 🔥 إعداد الخصم ليتعرف عليه مصمم الصور بأنه فارس 🔥
         const battleState = {
             isPvE: true, isGuardBattle: true, amountToSteal,
-            message: null, turn: [robberMember.id, "guard"], processingTurn: false,
+            message: null, announcerMessage: null, turn: [robberMember.id, "guard"], processingTurn: false,
             isEnded: false, 
             log: [introMsg], 
             skillPage: 0, skillCooldowns: { [robberMember.id]: {}, "guard": {} },
             players: new Map([
-                [robberMember.id, { isMonster: false, member: robberMember, hp: pMaxHp, maxHp: pMaxHp, weapon: robberWeapon, skills: robberSkills, effects: defEffects() }],
-                ["guard", { isMonster: true, name: `فـارس الإمبراطور ${multiplier > 1 ? `(x${multiplier})` : ''}`, hp: guardMaxHp, maxHp: guardMaxHp, weapon: guardWeapon, skills: {}, effects: guardEffects }]
+                [robberMember.id, { isMonster: false, member: robberMember, hp: pMaxHp, maxHp: pMaxHp, level: Number(robberData.level), raceName: 'بشري', weapon: robberWeapon, skills: robberSkills, effects: defEffects() }],
+                ["guard", { isMonster: true, name: `فـارس الإمبراطور ${multiplier > 1 ? `(x${multiplier})` : ''}`, image: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/knight.png', raceName: 'فارس إمبراطوري', level: 'Max', hp: guardMaxHp, maxHp: guardMaxHp, weapon: guardWeapon, skills: {}, effects: guardEffects }]
             ])
         };
 
         activePveBattles.set(interaction.channel.id, battleState);
         
-        const { embeds, components } = buildBattleEmbed(battleState, false, 0);
-        const msgPayload = { content: `**قـاتـل لتنجـو بحيـاتـك!** <@${robberMember.id}>`, embeds, components };
+        // 🔥 فصل رسالة المعلق عن المعركة 🔥
+        const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
+        battleState.announcerMessage = await interaction.channel.send({ embeds: [annEmbed] });
 
-        let sentMsg;
-        if (interaction.isRepliable && !interaction.replied) {
-            const response = await interaction.reply({ ...msgPayload, withResponse: true });
-            sentMsg = response.resource ? response.resource.message : response; 
-        } else {
-            sentMsg = await interaction.channel.send(msgPayload);
-        }
+        const { embeds, components, files } = await buildBattleEmbed(battleState, false, 0);
+        const msgPayload = { content: `**قـاتـل لتنجـو بحيـاتـك!** <@${robberMember.id}>`, embeds, components, files };
+
+        battleState.message = await interaction.channel.send(msgPayload);
         
-        battleState.message = sentMsg;
         setupBattleCollector(battleState);
+        initAnnouncer(battleState, cleanDisplayName(robberMember.displayName), battleState.players.get("guard").name);
         
     } catch (error) {
         console.error("Error starting knight battle:", error);
@@ -880,8 +922,6 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
         if (!playerData) playerData = { mora: 0, bank: 0 };
         
         const amount = battleState.amountToSteal;
-
-        const embed = new EmbedBuilder();
         activePveBattles.delete(battleState.message.channel.id);
 
         await battleState.message.edit({ components: [] }).catch(() => {});
@@ -889,7 +929,11 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
         let pMora = Number(playerData.mora) || 0;
         let pBank = Number(playerData.bank) || 0;
 
+        let imageBuffer = null;
+        let gradeText = "";
+
         if (resultType === "win") {
+            gradeText = `🌟 التقييم [ S ] - هروب أسطوري!`;
             try {
                 const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, player.member.id, battleState.message.guild.id]);
                 pMora = winRes.rows[0] ? Number(winRes.rows[0].mora) : pMora + amount;
@@ -905,14 +949,6 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                     await client.setLevel(cache);
                 }
             }
-            
-            const randomWinImage = WIN_IMAGES_LIST[Math.floor(Math.random() * WIN_IMAGES_LIST.length)];
-            const randomColor = Colors[Object.keys(Colors)[Math.floor(Math.random() * Object.keys(Colors).length)]];
-
-            embed.setTitle(`🏆 هــروب نــاجــح!`)
-                 .setColor(randomColor) 
-                 .setDescription(`تمكنت من هزيمة فارس الإمبراطور والفرار بالغنيمة!\n\n💰 **المبلغ المسروق:** ${amount.toLocaleString()} ${EMOJI_MORA}`)
-                 .setImage(randomWinImage); 
 
             try { await db.query(`ALTER TABLE user_daily_stats ADD COLUMN "knights_defeated" INTEGER DEFAULT 0`); } catch(e) {}
             try { await db.query(`ALTER TABLE user_daily_stats ADD COLUMN "knight_badge_given" INTEGER DEFAULT 0`); } catch(e) {}
@@ -959,12 +995,17 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                             announceChannel.send({ content: `<@${player.member.id}>`, embeds: [badgeEmbed] }).catch(()=>{});
                         }
                     }
-
-                    embed.addFields({ name: '🎖️ إنجاز يومي!', value: 'لقد حصلت على وسام **🛡️ قاهر الفرسان** لليوم!' });
                 }
             } catch(e) {}
 
+            if (generatePvPResultImage) {
+                try {
+                    imageBuffer = await generatePvPResultImage(battleState, player.member.id, gradeText, amount, 0);
+                } catch(e) {}
+            }
+
         } else {
+            gradeText = `❌ التقييم [ F ] - تم القبض عليك!`;
             if (pMora >= amount) pMora -= amount;
             else {
                 const remaining = amount - pMora;
@@ -973,7 +1014,6 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             }
 
             try {
-                // خصم من الكاش أولاً ثم البنك مع حماية من السالب
                 const lossRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("mora",'0') AS BIGINT) - $1 ELSE 0 END), "bank" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("bank",'0') AS BIGINT) ELSE CAST(COALESCE("bank",'0') AS BIGINT) - ($1 - CAST(COALESCE("mora",'0') AS BIGINT)) END) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora", "bank"`, [amount, player.member.id, battleState.message.guild.id]);
                 if (lossRes.rows[0]) { pMora = Number(lossRes.rows[0].mora); pBank = Number(lossRes.rows[0].bank); }
             } catch(e) {
@@ -989,12 +1029,24 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                 }
             }
             
-            embed.setTitle(`💀 هـُزمـت!`).setColor(Colors.DarkRed)
-                 .setDescription(` قـتـلـك فارس الإمبراطور... \n\n**الغرامة المدفوعة ✶ :** ${amount.toLocaleString()} ${EMOJI_MORA}`)
-                 .setImage(KNIGHT_IMAGES.LOSE);
+            if (generatePvPResultImage) {
+                try {
+                    imageBuffer = await generatePvPResultImage(battleState, "guard", gradeText, amount, 0);
+                } catch(e) {}
+            }
         }
 
-        await battleState.message.channel.send({ content: `<@${player.member.id}>`, embeds: [embed] });
+        if (imageBuffer) {
+            const attachment = new AttachmentBuilder(imageBuffer, { name: 'knight_result.png' });
+            await battleState.message.channel.send({ content: `<@${player.member.id}>`, files: [attachment] });
+        } else {
+            const fallbackEmbed = new EmbedBuilder()
+                .setTitle(resultType === "win" ? `🏆 هــروب نــاجــح!` : `💀 هـُزمـت!`)
+                .setColor(resultType === "win" ? Colors.Green : Colors.DarkRed)
+                .setDescription(resultType === "win" ? `تمكنت من الفرار!\n\n💰 **المبلغ المسروق:** ${amount.toLocaleString()} ${EMOJI_MORA}` : `قـتـلـك فارس الإمبراطور...\n\n**الغرامة المدفوعة:** ${amount.toLocaleString()} ${EMOJI_MORA}`);
+            await battleState.message.channel.send({ content: `<@${player.member.id}>`, embeds: [fallbackEmbed] });
+        }
+
     } catch (error) {
         console.error("End Game Error:", error);
     }
