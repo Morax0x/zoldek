@@ -256,11 +256,9 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
     const monsterImage = monsterData.image || 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/monster.png';
     const playerName = cleanDisplayName(playerMember.displayName || playerMember.user.username);
 
-    // 🔥 إنشاء الثريد الخاص بالمعركة لمنع التداخل 🔥
     let thread;
     try {
         const threadName = `🦑-صيد-${monsterData.name}-${playerName}`.substring(0, 100);
-        // نستخدم رسالة interaction لإنشاء الثريد عليها ليكون مرتبطاً بها
         if (interaction.message && typeof interaction.message.startThread === 'function') {
             thread = await interaction.message.startThread({ name: threadName, autoArchiveDuration: 60, reason: 'PvE Monster Battle' });
         } else if (interaction.channel) {
@@ -272,7 +270,10 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
         return;
     }
 
-    if (!thread) return;
+    if (!thread) {
+        if (interaction.channel) await interaction.channel.send("❌ حدث خطأ، لم يتم إنشاء الثريد.").catch(()=>{});
+        return;
+    }
 
     try { await thread.members.add(playerMember.id); } catch(e) {}
     try { 
@@ -295,20 +296,27 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
     // 🔥 تسجيل المعركة في Map باستخدام ID الثريد لتعمل الأزرار بدقة! 🔥
     activePveBattles.set(thread.id, battleState);
     
-    const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
-    battleState.announcerMessage = await thread.send({ embeds: [annEmbed] });
+    let initAnnouncer;
+    try { ({ initAnnouncer } = require('./pvp-announcer.js')); } catch (e) { initAnnouncer = null; }
+
+    if (initAnnouncer) {
+        const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
+        battleState.announcerMessage = await thread.send({ embeds: [annEmbed] });
+    }
 
     const { embeds, components, files } = await buildBattleEmbed(battleState);
     battleState.message = await thread.send({ content: `⚔️ **قتال ضد وحش!** <@${playerMember.id}>`, embeds, components, files });
 
-    const { initAnnouncer } = require('./pvp-announcer.js');
-    initAnnouncer(battleState, playerName, monsterData.name);
+    if (initAnnouncer) {
+        initAnnouncer(battleState, playerName, monsterData.name);
+    }
 
     // مهلة 5 دقائق لوحش البحر
     battleState.timeoutTimer = setTimeout(async () => {
         if (battleState.status === 'active') {
-            const { triggerAnnouncer } = require('./pvp-announcer.js');
-            triggerAnnouncer(battleState, `انتهى الوقت! الوحش يغوص في الأعماق مجدداً!`);
+            let triggerAnnouncer;
+            try { ({ triggerAnnouncer } = require('./pvp-announcer.js')); } catch(e) {}
+            if (triggerAnnouncer) triggerAnnouncer(battleState, `انتهى الوقت! الوحش يغوص في الأعماق مجدداً!`);
             await module.exports.endBattle(battleState, "monster", db, "timeout");
         }
     }, 5 * 60 * 1000); 
@@ -400,8 +408,12 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
         }
         await battleState.message.channel.send({ embeds: [embed] });
         
-        // 🔥 حذف الثريد بعد دقيقتين من النهاية 🔥
-        if (battleState.thread) setTimeout(async () => { try { await battleState.thread.delete('انتهت المعركة مع الوحش'); } catch (e) {} }, 120000); 
+        // 🔥 حذف الثريد التلقائي للوحش 🔥
+        if (battleState.thread) {
+            setTimeout(async () => {
+                try { await battleState.thread.delete('انتهت المعركة مع الوحش'); } catch (e) {}
+            }, 120000);
+        }
         return;
     } 
     
