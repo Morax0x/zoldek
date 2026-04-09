@@ -1,6 +1,10 @@
 const { cleanDisplayName, getBalancedPvPMultiplier } = require('./pvp-utils.js');
 
 function calculateDamage(attacker, defender, multiplier = 1) {
+    if (!attacker || !defender) return 0;
+    if (!attacker.effects) attacker.effects = {};
+    if (!defender.effects) defender.effects = {};
+
     let baseDmg = attacker.weapon ? attacker.weapon.currentDamage : 15;
     
     if (attacker.effects.buff > 0) baseDmg *= (1 + attacker.effects.buff);
@@ -32,6 +36,8 @@ function calculateDamage(attacker, defender, multiplier = 1) {
 }
 
 function applySkillEffect(battleState, attackerId, skill) {
+    if (!skill || !skill.id) return "⚠️ مهارة غير صالحة!";
+    
     const cooldownDuration = skill.id.startsWith('race_') ? 5 : 3;
     if (!battleState.skillCooldowns[attackerId]) battleState.skillCooldowns[attackerId] = {};
     battleState.skillCooldowns[attackerId][skill.id] = cooldownDuration;
@@ -40,15 +46,21 @@ function applySkillEffect(battleState, attackerId, skill) {
     const defenderId = battleState.turn.find(id => id !== attackerId);
     const defender = battleState.players.get(defenderId);
 
-    const attackerName = attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member?.displayName || attacker.member?.user?.username);
+    if (!attacker || !defender) return "⚠️ حدث خطأ: تعذر العثور على بيانات الخصم!";
+    if (!attacker.effects) attacker.effects = {};
+    if (!defender.effects) defender.effects = {};
 
-    const effectValue = skill.effectValue;
+    const attackerName = attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member?.displayName || attacker.member?.user?.username || 'مقاتل');
+
+    const effectValue = skill.effectValue || 0;
     const statType = skill.stat_type;
     const skillLevel = skill.currentLevel || 1;
 
     let baseAtk = attacker.weapon ? attacker.weapon.currentDamage : 15;
     if (attacker.effects.buff > 0) baseAtk *= (1 + attacker.effects.buff);
     if (attacker.effects.weaken > 0) baseAtk *= (1 - attacker.effects.weaken);
+
+    const attackerMaxHp = attacker.maxHp || 100;
 
     switch (statType) {
         case 'Gamble_Dmg': {
@@ -62,7 +74,7 @@ function applySkillEffect(battleState, attackerId, skill) {
                 const minFail = 100;
                 const maxFail = 200;
                 const failDmg = Math.floor(Math.random() * (maxFail - minFail + 1)) + minFail;
-                const selfDmg = Math.floor(attacker.hp * 0.03); 
+                const selfDmg = Math.floor((attacker.hp || 100) * 0.03); 
                 defender.hp -= failDmg;
                 attacker.hp -= selfDmg;
                 return `🎲 **${attackerName}** خسر الرهان... خدش الخصم بـ **${failDmg}** وأذى نفسه بـ **${selfDmg}**!`;
@@ -108,14 +120,14 @@ function applySkillEffect(battleState, attackerId, skill) {
             if(skillLevel > 15) shieldPercent += ((0.35 - 0.25) / 15) * (skillLevel - 15);
             if(skillLevel >= 30) shieldPercent = 0.35;
             
-            const shieldVal = Math.floor(attacker.maxHp * shieldPercent);
+            const shieldVal = Math.floor(attackerMaxHp * shieldPercent);
             attacker.effects.shield += shieldVal;
             attacker.effects.buff = 0.2;
             attacker.effects.buff_turns = 2;
             return `⚔️ **${attackerName}** طهر نفسه واكتسب درعاً وقوة!`;
         }
         case 'Scale_MissingHP_Heal': {
-            const missingHpPercent = (attacker.maxHp - attacker.hp) / attacker.maxHp;
+            const missingHpPercent = Math.max(0, (attackerMaxHp - (attacker.hp || 0)) / attackerMaxHp);
             const extraDmg = Math.floor(baseAtk * missingHpPercent * 2);
             const multi = getBalancedPvPMultiplier(1.2, skillLevel);
             const dmg = Math.floor(baseAtk * multi) + extraDmg;
@@ -125,12 +137,12 @@ function applySkillEffect(battleState, attackerId, skill) {
             if(skillLevel > 15) healPercent += ((0.25 - 0.15) / 15) * (skillLevel - 15);
             if(skillLevel >= 30) healPercent = 0.25;
             
-            const healVal = Math.floor(attacker.maxHp * healPercent);
-            attacker.hp = Math.min(attacker.maxHp, attacker.hp + healVal);
+            const healVal = Math.floor(attackerMaxHp * healPercent);
+            attacker.hp = Math.min(attackerMaxHp, (attacker.hp || 0) + healVal);
             return `⚖️ **${attackerName}** عاقب خصمه بضرر متصاعد (${dmg}) وشفى نفسه!`;
         }
         case 'Sacrifice_Crit': {
-            const selfDmg = Math.floor(attacker.maxHp * 0.10);
+            const selfDmg = Math.floor(attackerMaxHp * 0.10);
             attacker.hp -= selfDmg;
             const multi = getBalancedPvPMultiplier(2.0, skillLevel);
             const dmg = Math.floor(baseAtk * multi);
@@ -191,11 +203,10 @@ function applySkillEffect(battleState, attackerId, skill) {
 
                 const healVal = Math.floor(dmg * 0.25); 
                 const currentHp = attacker.hp || 0;
-                const maxHp = attacker.maxHp || 100;
-                const missingHp = maxHp - currentHp;
+                const missingHp = attackerMaxHp - currentHp;
 
                 if (healVal > missingHp) {
-                    attacker.hp = maxHp;
+                    attacker.hp = attackerMaxHp;
                     const overflowShield = Math.floor((healVal - missingHp) * 0.15); 
                     attacker.effects.shield += overflowShield;
                     return `🍷 **${attackerName}** نهش خصمه! (+درع ${overflowShield} | نزيف ${bleedDmg})`;
@@ -238,7 +249,7 @@ function applySkillEffect(battleState, attackerId, skill) {
             if(skillLevel > 15) shieldPercent += ((0.3 - 0.2) / 15) * (skillLevel - 15);
             if(skillLevel >= 30) shieldPercent = 0.3;
             
-            attacker.effects.shield += Math.floor(attacker.maxHp * shieldPercent);
+            attacker.effects.shield += Math.floor(attackerMaxHp * shieldPercent);
             attacker.effects.rebound_active = 0.4; attacker.effects.rebound_turns = 2;
             return `🔨 **${attackerName}** تحصن بالجبل (دفاع وعكس ضرر)!`;
         }
@@ -250,9 +261,9 @@ function applySkillEffect(battleState, attackerId, skill) {
             defender.effects.poison = ghoulPoison;
             defender.effects.poison_turns = 3;
 
-            if (defender.hp - dmg <= 0) {
+            if ((defender.hp || 0) - dmg <= 0) {
                 defender.hp = 0;
-                attacker.hp = Math.min(attacker.maxHp, attacker.hp + Math.floor(attacker.maxHp * 0.25));
+                attacker.hp = Math.min(attackerMaxHp, (attacker.hp || 0) + Math.floor(attackerMaxHp * 0.25));
                 return `🥩 **${attackerName}** افترس خصمه المسموم واستعاد صحته!`;
             }
             defender.hp -= dmg;
@@ -271,7 +282,7 @@ function applySkillEffect(battleState, attackerId, skill) {
         default:
             switch (skill.id) {
                 case 'skill_shielding': 
-                    attacker.effects.shield += Math.floor(attacker.maxHp * (effectValue / 100));
+                    attacker.effects.shield += Math.floor(attackerMaxHp * (effectValue / 100));
                     return `🛡️ **${attackerName}** اكتسب درعاً!`;
                 case 'skill_buffing':
                     attacker.effects.buff = effectValue / 100; attacker.effects.buff_turns = 3;
@@ -280,8 +291,8 @@ function applySkillEffect(battleState, attackerId, skill) {
                     attacker.effects.rebound_active = effectValue / 100; attacker.effects.rebound_turns = 3;
                     return `🔄 **${attackerName}** جهز الانعكاس!`;
                 case 'skill_healing':
-                    const heal = Math.floor(attacker.maxHp * (effectValue / 100));
-                    attacker.hp = Math.min(attacker.maxHp, attacker.hp + heal);
+                    const heal = Math.floor(attackerMaxHp * (effectValue / 100));
+                    attacker.hp = Math.min(attackerMaxHp, (attacker.hp || 0) + heal);
                     return `💖 **${attackerName}** استعاد ${heal} HP!`;
                 case 'skill_poison': {
                     const pVal = 50 + (skillLevel * 25);
@@ -316,19 +327,20 @@ function applySkillEffect(battleState, attackerId, skill) {
 }
 
 function applyPersistentEffects(battleState, attackerId) {
-    const attacker = battleState.players.get(attackerId);
     let logEntries = [];
     let skipTurn = false;
 
-    const attackerName = attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member?.displayName || attacker.member?.user?.username);
+    const attacker = battleState.players.get(attackerId);
+    if (!attacker) return { logEntries, skipTurn };
+    if (!attacker.effects) attacker.effects = {};
 
-    // ✅ فحص الشلل والارتباك قبل تخفيض العدادات حتى تعمل لعدد الجولات الصحيح
+    const attackerName = attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member?.displayName || attacker.member?.user?.username || 'مقاتل');
+
     if (attacker.effects.stun) {
         logEntries.push(`⚡ **${attackerName}** مشلول ولا يستطيع الحركة!`);
         skipTurn = true;
     }
 
-    // تخفيض عدادات التأثيرات بعد الفحص
     const effectsList = ['buff', 'weaken', 'rebound_active', 'stun', 'confusion', 'evasion', 'blind'];
     effectsList.forEach(eff => {
         if (attacker.effects[eff + '_turns'] > 0) {
