@@ -2,7 +2,15 @@ const { MessageFlags, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputSty
 const core = require('./index.js'); 
 const botAI = require('./pvp-ai.js'); 
 const { calculateMoraBuff } = require('../../streak-handler.js'); 
-const { triggerAnnouncer, initAnnouncer } = require('./pvp-announcer.js'); // 🔥 استدعاء المعلق المنفصل 🔥
+
+// استدعاء المعلق المنفصل مع حماية في حالة عدم التوفر
+let triggerAnnouncer, initAnnouncer;
+try {
+    ({ triggerAnnouncer, initAnnouncer } = require('./pvp-announcer.js'));
+} catch (e) {
+    triggerAnnouncer = () => {};
+    initAnnouncer = () => {};
+}
 
 async function processMonsterTurn(battleState, db) {
     const monsterId = "monster";
@@ -17,7 +25,7 @@ async function processMonsterTurn(battleState, db) {
     battleState.log.push(...logEntries);
 
     if (monster.hp <= 0) {
-        triggerAnnouncer(battleState, `الوحش ${monster.name} سقط ميتاً أخيراً!`);
+        try { triggerAnnouncer(battleState, `الوحش ${monster.name} سقط ميتاً أخيراً!`); } catch(e) {}
         await core.endBattle(battleState, playerId, db, "win");
         return;
     }
@@ -71,7 +79,9 @@ async function processMonsterTurn(battleState, db) {
                     player.hp -= damageTaken;
                     if (damageTaken > 0) {
                         battleState.log.push(`🦑 **${monster.name}** هاجمك وألحق **${damageTaken}** ضرر!`);
-                        if (damageTaken > player.maxHp * 0.20) triggerAnnouncer(battleState, `الوحش ${monster.name} سدد ضربة ساحقة للاعب أفقدته ${damageTaken} نقطة صحة دفعة واحدة!`);
+                        if (damageTaken > player.maxHp * 0.20) {
+                            try { triggerAnnouncer(battleState, `الوحش ${monster.name} سدد ضربة ساحقة للاعب أفقدته ${damageTaken} نقطة صحة دفعة واحدة!`); } catch(e){}
+                        }
                     }
                 }
             }
@@ -80,16 +90,19 @@ async function processMonsterTurn(battleState, db) {
 
     if (player.hp <= 0) {
         player.hp = 0;
-        triggerAnnouncer(battleState, `اللاعب سقط ضحية للوحش ${monster.name} ومات!`);
+        try { triggerAnnouncer(battleState, `اللاعب سقط ضحية للوحش ${monster.name} ومات!`); } catch(e){}
         await core.endBattle(battleState, monsterId, db, "win");
         return;
     }
 
     battleState.turn = [playerId, monsterId];
     
-    // 🔥 تحديث رسالة المعركة نقية بدون المساس بالمعلق 🔥
-    const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-    if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(() => {});
+    try {
+        const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+        if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(() => {});
+    } catch (e) {
+        console.error("[processMonsterTurn UI Error]:", e);
+    }
     battleState.processingTurn = false;
 }
 
@@ -97,7 +110,7 @@ async function handleVotingAndBetting(i, client, db) {
     const channelId = i.channelId || i.message?.channelId || i.channel?.id;
     let battleState = core.activePvpBattles.get(channelId);
     
-    if (!battleState) return i.reply({ content: "انتهت المعركة أو ألغيت.", flags: [MessageFlags.Ephemeral] });
+    if (!battleState) return i.reply({ content: "انتهت المعركة أو ألغيت.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
     if (i.customId.startsWith('pvp_bet_')) {
         const betTargetId = i.customId.split('_')[2];
@@ -105,16 +118,16 @@ async function handleVotingAndBetting(i, client, db) {
         const p1Id = Array.from(battleState.players.keys())[0];
         const p2Id = Array.from(battleState.players.keys())[1];
         
-        if (i.user.id === p1Id || i.user.id === p2Id) return i.reply({ content: "❌ لا يمكنك المراهنة في معركة تشارك فيها!", flags: [MessageFlags.Ephemeral] });
-        if (!battleState.bettingPool.isOpen) return i.reply({ content: "🔒 أُغلقت شباك التذاكر! لا يمكن المراهنة الآن.", flags: [MessageFlags.Ephemeral] });
+        if (i.user.id === p1Id || i.user.id === p2Id) return i.reply({ content: "❌ لا يمكنك المراهنة في معركة تشارك فيها!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+        if (!battleState.bettingPool.isOpen) return i.reply({ content: "🔒 أُغلقت شباك التذاكر! لا يمكن المراهنة الآن.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
         const existingBet = battleState.bettingPool.bets.get(i.user.id);
-        if (existingBet && existingBet.targetId !== betTargetId) return i.reply({ content: "❌ لقد راهنت بالفعل على الخصم! لا يمكنك خيانة رهانك.", flags: [MessageFlags.Ephemeral] });
+        if (existingBet && existingBet.targetId !== betTargetId) return i.reply({ content: "❌ لقد راهنت بالفعل على الخصم! لا يمكنك خيانة رهانك.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
         const modal = new ModalBuilder().setCustomId(`modal_pvp_bet_${betTargetId}_${threadId}`).setTitle('المراهنة على المعركة');
         const amountInput = new TextInputBuilder().setCustomId('bet_amount').setLabel("كم مورا تريد أن تراهن؟").setStyle(TextInputStyle.Short).setRequired(true);
         modal.addComponents(new ActionRowBuilder().addComponents(amountInput));
-        await i.showModal(modal);
+        await i.showModal(modal).catch(()=>{});
         return;
     }
 
@@ -122,7 +135,7 @@ async function handleVotingAndBetting(i, client, db) {
         const p1Id = Array.from(battleState.players.keys())[0];
         const p2Id = Array.from(battleState.players.keys())[1];
 
-        if (i.user.id !== p1Id && i.user.id !== p2Id) return i.reply({ content: "❌ فقط المتبارزين يمكنهم التصويت على الوقت!", flags: [MessageFlags.Ephemeral] });
+        if (i.user.id !== p1Id && i.user.id !== p2Id) return i.reply({ content: "❌ فقط المتبارزين يمكنهم التصويت على الوقت!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
         const voteValue = parseInt(i.customId.split('_')[2]);
         battleState.timeVotes[i.user.id] = voteValue;
@@ -144,7 +157,7 @@ async function handleVotingAndBetting(i, client, db) {
             .setColor(p1Vote !== null && p2Vote !== null && p1Vote !== p2Vote && !battleState.isBotMatch ? Colors.Red : 0x38558F)
             .setImage('https://i.postimg.cc/DyB5Pv8F/3.png');
 
-        await i.update({ embeds: [rulesEmbed] });
+        await i.update({ embeds: [rulesEmbed] }).catch(()=>{});
 
         if (p1Vote !== null && p2Vote !== null && (p1Vote === p2Vote || battleState.isBotMatch)) {
             battleState.status = 'active';
@@ -154,42 +167,48 @@ async function handleVotingAndBetting(i, client, db) {
             battleState.log.push(`⏱️ تم تحديد وقت المباراة: **${finalTime} دقائق**`);
 
             battleState.bettingTimer = setTimeout(async () => {
-                const bState = core.activePvpBattles.get(channelId);
-                if (bState && bState.bettingPool.isOpen) {
-                    bState.bettingPool.isOpen = false;
-                    bState.log.push(`🔒 أُغلقت شباك المراهنات!`);
-                    await core.updateSpectatorEmbed(bState);
-                    const { embeds, components, files } = await core.buildBattleEmbed(bState);
-                    if (bState.message) await bState.message.edit({ embeds, components, files }).catch(()=>{});
-                }
+                try {
+                    const bState = core.activePvpBattles.get(channelId);
+                    if (bState && bState.bettingPool.isOpen) {
+                        bState.bettingPool.isOpen = false;
+                        bState.log.push(`🔒 أُغلقت شباك المراهنات!`);
+                        await core.updateSpectatorEmbed(bState).catch(()=>{});
+                        const { embeds, components, files } = await core.buildBattleEmbed(bState);
+                        if (bState.message) await bState.message.edit({ embeds, components, files }).catch(()=>{});
+                    }
+                } catch(e) {}
             }, battleState.durationMs * 0.33);
 
             battleState.timeoutTimer = setTimeout(async () => {
-                const bState = core.activePvpBattles.get(channelId);
-                if (bState && bState.status === 'active') {
-                    const player1 = bState.players.get(p1Id);
-                    const player2 = bState.players.get(p2Id);
-                    
-                    let winnerId = p1Id;
-                    if (player2.hp > player1.hp) winnerId = p2Id;
-                    else if (player1.hp === player2.hp) winnerId = Math.random() > 0.5 ? p1Id : p2Id;
+                try {
+                    const bState = core.activePvpBattles.get(channelId);
+                    if (bState && bState.status === 'active') {
+                        const player1 = bState.players.get(p1Id);
+                        const player2 = bState.players.get(p2Id);
+                        
+                        let winnerId = p1Id;
+                        if (player2.hp > player1.hp) winnerId = p2Id;
+                        else if (player1.hp === player2.hp) winnerId = Math.random() > 0.5 ? p1Id : p2Id;
 
-                    triggerAnnouncer(bState, `انتهى الوقت المحدد للمباراة! حان وقت التقييم!`);
-                    await core.endBattle(bState, winnerId, db, "timeout");
-                }
+                        try { triggerAnnouncer(bState, `انتهى الوقت المحدد للمباراة! حان وقت التقييم!`); } catch(e){}
+                        await core.endBattle(bState, winnerId, db, "timeout");
+                    }
+                } catch (e) {}
             }, battleState.durationMs);
 
             try { await battleState.message.delete().catch(()=>{}); } catch(e){}
             
-            const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
-            battleState.announcerMessage = await battleState.thread.send({ embeds: [annEmbed] });
-            
-            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-            battleState.message = await battleState.thread.send({ content: null, embeds, components, files });
-            
-            const p1NameClean = core.cleanDisplayName(i.guild.members.cache.get(p1Id)?.displayName || "مقاتل 1");
-            const p2NameClean = battleState.isBotMatch ? 'الزعيم موركس' : core.cleanDisplayName(i.guild.members.cache.get(p2Id)?.displayName || "مقاتل 2");
-            initAnnouncer(battleState, p1NameClean, p2NameClean);
+            try {
+                const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
+                battleState.announcerMessage = await battleState.thread.send({ embeds: [annEmbed] }).catch(()=>{});
+                
+                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                battleState.message = await battleState.thread.send({ content: null, embeds, components, files }).catch(()=>{});
+                
+                const p1NameClean = core.cleanDisplayName(i.guild.members.cache.get(p1Id)?.displayName || "مقاتل 1");
+                const p2NameClean = battleState.isBotMatch ? 'الزعيم موركس' : core.cleanDisplayName(i.guild.members.cache.get(p2Id)?.displayName || "مقاتل 2");
+                try { initAnnouncer(battleState, p1NameClean, p2NameClean); } catch(e){}
+            } catch(e) {}
         }
     }
 }
@@ -200,26 +219,26 @@ async function handlePvpBetModal(i, client, db) {
     const threadId = parts[4];
 
     const battleState = core.activePvpBattles.get(threadId);
-    if (!battleState) return i.reply({ content: "❌ انتهت المعركة أو لم تعد متاحة.", flags: [MessageFlags.Ephemeral] });
+    if (!battleState) return i.reply({ content: "❌ انتهت المعركة أو لم تعد متاحة.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
-    if (!battleState.bettingPool.isOpen) return i.reply({ content: "🔒 أُغلقت شباك التذاكر! لا يمكن المراهنة الآن.", flags: [MessageFlags.Ephemeral] });
+    if (!battleState.bettingPool.isOpen) return i.reply({ content: "🔒 أُغلقت شباك التذاكر! لا يمكن المراهنة الآن.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
     const amountStr = i.fields.getTextInputValue('bet_amount');
     let amount = parseInt(amountStr);
 
-    if (isNaN(amount) || amount <= 0) return i.reply({ content: "❌ يرجى إدخال رقم صحيح وموجب.", flags: [MessageFlags.Ephemeral] });
-    await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+    if (isNaN(amount) || amount <= 0) return i.reply({ content: "❌ يرجى إدخال رقم صحيح وموجب.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+    await i.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
     let userDataRes = await db.query(`SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]).catch(() => ({ rows: [] }));
     let userMora = userDataRes.rows[0] ? Number(userDataRes.rows[0].mora) : 0;
 
-    if (userMora < amount) return i.editReply({ content: `❌ لا تملك **${amount.toLocaleString()}** مورا في رصيدك!` });
+    if (userMora < amount) return i.editReply({ content: `❌ لا تملك **${amount.toLocaleString()}** مورا في رصيدك!` }).catch(()=>{});
 
     let lateTax = battleState.status === 'active' ? Math.floor(amount * 0.02) : 0;
     const finalBet = amount - lateTax;
-    if (finalBet <= 0) return i.editReply({ content: "❌ المبلغ قليل جداً لتغطية رسوم الدخول المتأخر (2%)." });
+    if (finalBet <= 0) return i.editReply({ content: "❌ المبلغ قليل جداً لتغطية رسوم الدخول المتأخر (2%)." }).catch(()=>{});
 
-    const betDeductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, i.user.id, i.guild.id]).catch(()=>({rows:[]}));
+    const betDeductRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora", '0') AS BIGINT) - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, i.user.id, i.guild.id]).catch(()=>({rows:[]}));
     if (client?.updateLevelField && betDeductRes.rows[0]) {
         client.updateLevelField(i.user.id, i.guild.id, { mora: Number(betDeductRes.rows[0].mora) });
     }
@@ -237,8 +256,8 @@ async function handlePvpBetModal(i, client, db) {
     let replyMsg = `✅ تمت المراهنة بـ **${amount.toLocaleString()}** مورا بنجاح!`;
     if (lateTax > 0) replyMsg += `\n(تم خصم **${lateTax.toLocaleString()}** مورا ضريبة دخول متأخر)`;
     
-    await i.editReply({ content: replyMsg });
-    await core.updateSpectatorEmbed(battleState);
+    await i.editReply({ content: replyMsg }).catch(()=>{});
+    await core.updateSpectatorEmbed(battleState).catch(()=>{});
 }
 
 async function handlePvpChallenge(i, client, db) {
@@ -248,22 +267,22 @@ async function handlePvpChallenge(i, client, db) {
     const opponentId = parts[3];
     const bet = parseInt(parts[4]);
 
-    if (i.user.id !== opponentId && (action === 'accept' || action === 'decline')) return i.reply({ content: "أنت لست الشخص المطلوب في هذا التحدي.", flags: [MessageFlags.Ephemeral] });
+    if (i.user.id !== opponentId && (action === 'accept' || action === 'decline')) return i.reply({ content: "أنت لست الشخص المطلوب في هذا التحدي.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
     if ((i.user.id === challengerId || i.user.id === opponentId) && action === 'decline') {
         const channelId = i.channelId || i.message?.channelId || i.channel?.id;
-        if (!core.activePvpChallenges.has(channelId)) return i.update({ content: "انتهى وقت التحدي.", embeds: [], components: [] });
+        if (!core.activePvpChallenges.has(channelId)) return i.update({ content: "انتهى وقت التحدي.", embeds: [], components: [] }).catch(()=>{});
         core.activePvpChallenges.delete(channelId);
 
-        await db.query(`UPDATE levels SET "lastPVP" = 0 WHERE "user" = $1 AND "guild" = $2`, [challengerId, i.guild.id]);
+        await db.query(`UPDATE levels SET "lastPVP" = 0 WHERE "user" = $1 AND "guild" = $2`, [challengerId, i.guild.id]).catch(()=>{});
 
         const isCancel = i.user.id === challengerId;
         const statusType = isCancel ? 'canceled' : 'declined';
         
         try {
             const { generatePvPChallengeImage } = require('../../generators/pvp-summary-generator.js');
-            const cLevelRes = await db.query(`SELECT level FROM levels WHERE "user" = $1 AND "guild" = $2`, [challengerId, i.guild.id]);
-            const oLevelRes = await db.query(`SELECT level FROM levels WHERE "user" = $1 AND "guild" = $2`, [opponentId, i.guild.id]);
+            const cLevelRes = await db.query(`SELECT level FROM levels WHERE "user" = $1 AND "guild" = $2`, [challengerId, i.guild.id]).catch(()=>({rows:[]}));
+            const oLevelRes = await db.query(`SELECT level FROM levels WHERE "user" = $1 AND "guild" = $2`, [opponentId, i.guild.id]).catch(()=>({rows:[]}));
             const cRaceObj = await core.getUserRace({ id: challengerId }, db);
             const oRaceObj = await core.getUserRace({ id: opponentId }, db);
             const cMem = await i.guild.members.fetch(challengerId).catch(()=>null);
@@ -276,43 +295,46 @@ async function handlePvpChallenge(i, client, db) {
             if (imgBuffer) {
                 const { AttachmentBuilder } = require('discord.js');
                 const attach = new AttachmentBuilder(imgBuffer, { name: 'challenge_declined.png' });
-                return i.update({ content: `<@${opponentId}>`, files: [attach], embeds: [], components: [] });
+                return i.update({ content: `<@${opponentId}>`, files: [attach], embeds: [], components: [] }).catch(()=>{});
             }
         } catch(e) {}
 
-        return i.update({ content: `<@${opponentId}>`, embeds: [], components: [] });
+        return i.update({ content: `<@${opponentId}>`, embeds: [], components: [] }).catch(()=>{});
     }
 
     if (action === 'accept') {
         const channelId = i.channelId || i.message?.channelId || i.channel?.id;
-        if (!core.activePvpChallenges.has(channelId)) return i.update({ content: "انتهى وقت التحدي.", embeds: [], components: [] });
+        if (!core.activePvpChallenges.has(channelId)) return i.update({ content: "انتهى وقت التحدي.", embeds: [], components: [] }).catch(()=>{});
 
         const opponentMember = i.member;
         const challengerMember = await i.guild.members.fetch(challengerId).catch(() => null);
         
         if (!challengerMember) {
-            await db.query(`UPDATE levels SET "lastPVP" = 0 WHERE "user" = $1 AND "guild" = $2`, [challengerId, i.guild.id]);
-            return i.update({ content: "المتحدي غادر السيرفر.", embeds: [], components: [] });
+            await db.query(`UPDATE levels SET "lastPVP" = 0 WHERE "user" = $1 AND "guild" = $2`, [challengerId, i.guild.id]).catch(()=>{});
+            return i.update({ content: "المتحدي غادر السيرفر.", embeds: [], components: [] }).catch(()=>{});
         }
 
         const opponentWeapon = await core.getWeaponData(db, opponentMember);
-        if (!opponentWeapon || opponentWeapon.currentLevel === 0) return i.reply({ content: `❌ أنت لست جاهزاً (تحتاج سلاح وعرق).`, flags: [MessageFlags.Ephemeral] });
+        if (!opponentWeapon || opponentWeapon.currentLevel === 0) return i.reply({ content: `❌ أنت لست جاهزاً (تحتاج سلاح وعرق).`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
         const challengerWeapon = await core.getWeaponData(db, challengerMember);
         if (!challengerWeapon || challengerWeapon.currentLevel === 0) {
-            await db.query(`UPDATE levels SET "lastPVP" = 0 WHERE "user" = $1 AND "guild" = $2`, [challengerId, i.guild.id]);
-            return i.update({ content: `❌ المتحدي لم يعد جاهزاً.`, embeds: [], components: [] });
+            await db.query(`UPDATE levels SET "lastPVP" = 0 WHERE "user" = $1 AND "guild" = $2`, [challengerId, i.guild.id]).catch(()=>{});
+            return i.update({ content: `❌ المتحدي لم يعد جاهزاً.`, embeds: [], components: [] }).catch(()=>{});
         }
 
         core.activePvpChallenges.delete(channelId);
-        await i.deferUpdate(); 
-        await i.editReply({ components: [], embeds: [] });
-        await core.startPvpBattle(i, client, db, challengerMember, opponentMember, bet);
+        await i.deferUpdate().catch(()=>{}); 
+        await i.editReply({ components: [], embeds: [] }).catch(()=>{});
+        try {
+            await core.startPvpBattle(i, client, db, challengerMember, opponentMember, bet);
+        } catch(e) {
+            console.error("Error in startPvpBattle:", e);
+        }
     }
 }
 
 async function handlePvpSkillSelect(i, client, db) {
-    // 🔥 البحث الآمن باستخدام ID الشات أو الثريد 🔥
     const channelId = i.channelId || i.message?.channelId || i.channel?.id;
     let battleState = core.activePvpBattles.get(channelId);
     let isPvE = false;
@@ -325,21 +347,21 @@ async function handlePvpSkillSelect(i, client, db) {
     if (!battleState) return i.reply({ content: "انتهت المعركة.", flags: [MessageFlags.Ephemeral] }).catch(() => {});
 
     const attackerId = battleState.turn[0];
-    if (i.user.id !== attackerId) return i.reply({ content: "ليس دورك!", flags: [MessageFlags.Ephemeral] });
+    if (i.user.id !== attackerId) return i.reply({ content: "ليس دورك!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
     const skillId = i.values[0];
     const attacker = battleState.players.get(attackerId);
-    if (!attacker) return i.reply({ content: "حدث خطأ في بيانات اللاعب.", flags: [MessageFlags.Ephemeral] });
+    if (!attacker) return i.reply({ content: "حدث خطأ في بيانات اللاعب.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
     const cooldowns = battleState.skillCooldowns[attackerId] || {};
-    if (cooldowns[skillId] > 0) return i.reply({ content: `المهارة في الانتظار (${cooldowns[skillId]} جولات)!`, flags: [MessageFlags.Ephemeral] });
+    if (cooldowns[skillId] > 0) return i.reply({ content: `المهارة في الانتظار (${cooldowns[skillId]} جولات)!`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
-    if (battleState.processingTurn) return i.reply({ content: "⌛ جاري المعالجة...", flags: [MessageFlags.Ephemeral] });
+    if (battleState.processingTurn) return i.reply({ content: "⌛ جاري المعالجة...", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
     battleState.processingTurn = true;
 
     try {
-        await i.deferUpdate();
-        try { await i.deleteReply(); } catch(e) {}
+        await i.deferUpdate().catch(()=>{});
+        try { await i.deleteReply().catch(()=>{}); } catch(e) {}
 
         const defenderId = battleState.turn[1];
         const defender = battleState.players.get(defenderId);
@@ -354,20 +376,23 @@ async function handlePvpSkillSelect(i, client, db) {
 
         if (attacker.hp <= 0) {
             attacker.hp = 0;
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} سقط صريعاً بسبب تأثيرات النزيف أو السموم!`);
+            try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} سقط صريعاً بسبب تأثيرات النزيف أو السموم!`); } catch(e){}
             await core.endBattle(battleState, defenderId, db, "win", calculateMoraBuff);
             return;
         }
 
         if (skipTurn) {
             battleState.log.push(`⚡ **${attackerName}** مشلول ولا يستطيع الحركة!`);
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} متجمد في مكانه كالصنم! الشلل يمنعه من الحركة!`);
+            try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} متجمد في مكانه كالصنم! الشلل يمنعه من الحركة!`); } catch(e){}
             battleState.turn = [defenderId, attackerId];
-            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-            await battleState.message.edit({ embeds, components, files }).catch(() => {});
+            
+            try {
+                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                await battleState.message.edit({ embeds, components, files }).catch(() => {});
+            } catch(e){}
             
             if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
-            else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
+            else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user?.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
             else battleState.processingTurn = false;
             return;
         }
@@ -384,16 +409,19 @@ async function handlePvpSkillSelect(i, client, db) {
             const selfDmg = Math.floor(weaponDmg * 0.5);
             attacker.hp -= selfDmg;
             battleState.log.push(`😵 **${attackerName}** في حالة ارتباك وضرب نفسه! (-${selfDmg})`);
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`);
+            try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`); } catch(e){}
         } else {
             const skills = attacker.skills || {};
             const skill = Object.values(skills).find(s => s.id === skillId);
             if (skill) {
                 battleState.skillCooldowns[attackerId][skillId] = skill.cooldown || core.SKILL_COOLDOWN_TURNS;
-                const actionLog = core.applySkillEffect(battleState, attackerId, skill);
-                battleState.log.push(actionLog);
-                
-                triggerAnnouncer(battleState, `اللاعب ${attackerName} استخدم مهارته الخاصة "${skill.name}"! ${actionLog}`);
+                try {
+                    const actionLog = core.applySkillEffect(battleState, attackerId, skill);
+                    battleState.log.push(actionLog);
+                    try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} استخدم مهارته الخاصة "${skill.name}"! ${actionLog}`); } catch(e){}
+                } catch(e){
+                    console.error("Skill execution error", e);
+                }
 
                 if (!isPvE && battleState.stats && battleState.stats[attackerId]) battleState.stats[attackerId].skillsUsed += 1;
             }
@@ -401,26 +429,32 @@ async function handlePvpSkillSelect(i, client, db) {
 
         if (defender.hp <= 0) {
             defender.hp = 0;
-            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-            await battleState.message.edit({ embeds, components, files }).catch(() => {});
-            triggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`);
+            try{ 
+                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                await battleState.message.edit({ embeds, components, files }).catch(() => {});
+            } catch(e){}
+            try{ triggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`); } catch(e){}
             await core.endBattle(battleState, attackerId, db, "win", calculateMoraBuff);
             return;
         }
         if (attacker.hp <= 0) {
             attacker.hp = 0;
-            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-            await battleState.message.edit({ embeds, components, files }).catch(() => {});
+            try{ 
+                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                await battleState.message.edit({ embeds, components, files }).catch(() => {});
+            } catch(e){}
             await core.endBattle(battleState, defenderId, db, "win", calculateMoraBuff);
             return;
         }
 
         battleState.turn = [defenderId, attackerId];
-        const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-        await battleState.message.edit({ embeds, components, files }).catch(() => {});
+        try{ 
+            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+            await battleState.message.edit({ embeds, components, files }).catch(() => {});
+        } catch(e){}
 
         if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
-        else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
+        else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user?.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
         else battleState.processingTurn = false;
 
     } catch (err) {
@@ -431,7 +465,6 @@ async function handlePvpSkillSelect(i, client, db) {
 }
 
 async function handlePvpTurn(i, client, db) {
-    // 🔥 البحث الآمن باستخدام ID الشات أو الثريد 🔥
     const channelId = i.channelId || i.message?.channelId || i.channel?.id;
     let battleState = core.activePvpBattles.get(channelId);
     let isPvE = false;
@@ -443,26 +476,26 @@ async function handlePvpTurn(i, client, db) {
 
     if (!battleState) { if (i.customId.startsWith('pvp_')) return i.update({ content: "انتهت المعركة.", components: [] }).catch(() => {}); return; }
 
-    if (battleState.status === 'voting') return i.reply({ content: "⏳ بانتظار إكمال التصويت على وقت المباراة!", flags: [MessageFlags.Ephemeral] });
+    if (battleState.status === 'voting') return i.reply({ content: "⏳ بانتظار إكمال التصويت على وقت المباراة!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
     const attackerId = battleState.turn[0];
     const defenderId = battleState.turn[1];
 
-    if (i.user.id !== attackerId) return i.reply({ content: "ليس دورك!", flags: [MessageFlags.Ephemeral] });
+    if (i.user.id !== attackerId) return i.reply({ content: "ليس دورك!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
     if (i.customId === 'pvp_action_skill') {
         try {
             const skillMenu = core.buildPvpSkillSelector(battleState);
-            if (!skillMenu) return i.reply({ content: "لا تملك مهارات!", flags: [MessageFlags.Ephemeral] });
-            return await i.reply({ content: "✨ **اختر مهارة:**", components: [skillMenu], flags: [MessageFlags.Ephemeral] });
-        } catch (e) { if (e.code === 10062) return; throw e; }
+            if (!skillMenu) return i.reply({ content: "لا تملك مهارات!", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            return await i.reply({ content: "✨ **اختر مهارة:**", components: [skillMenu], flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+        } catch (e) { if (e.code === 10062) return; console.error("Skill Menu error", e); return; }
     }
 
-    if (battleState.processingTurn) return i.reply({ content: "⌛ جاري المعالجة...", flags: [MessageFlags.Ephemeral] });
+    if (battleState.processingTurn) return i.reply({ content: "⌛ جاري المعالجة...", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
     battleState.processingTurn = true;
 
     try {
-        await i.deferUpdate();
+        await i.deferUpdate().catch(()=>{});
         const attacker = battleState.players.get(attackerId);
         const defender = battleState.players.get(defenderId);
         if (!attacker || !defender) { battleState.processingTurn = false; return; }
@@ -477,26 +510,28 @@ async function handlePvpTurn(i, client, db) {
 
         if (attacker.hp <= 0) {
             attacker.hp = 0;
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} سقط صريعاً بسبب تأثيرات النزيف أو السموم!`);
+            try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} سقط صريعاً بسبب تأثيرات النزيف أو السموم!`); }catch(e){}
             await core.endBattle(battleState, defenderId, db, "win", calculateMoraBuff);
             return;
         }
 
         if (skipTurn) {
             battleState.log.push(`⚡ **${attackerName}** مشلول ولا يستطيع الحركة!`);
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} متجمد في مكانه كالصنم! الشلل يمنعه من الحركة!`);
+            try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} متجمد في مكانه كالصنم! الشلل يمنعه من الحركة!`); }catch(e){}
             battleState.turn = [defenderId, attackerId];
-            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-            await i.editReply({ embeds, components, files });
+            try{
+                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                await i.editReply({ embeds, components, files }).catch(()=>{});
+            } catch(e){}
             
             if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
-            else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
+            else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user?.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
             else battleState.processingTurn = false;
             return;
         }
 
         if (i.customId === 'pvp_action_forfeit') {
-            triggerAnnouncer(battleState, `يا للعار! اللاعب ${attackerName} ينسحب من المعركة كالجبناء!`);
+            try{ triggerAnnouncer(battleState, `يا للعار! اللاعب ${attackerName} ينسحب من المعركة كالجبناء!`); }catch(e){}
             await core.endBattle(battleState, defenderId, db, "forfeit", calculateMoraBuff);
             return;
         }
@@ -514,20 +549,23 @@ async function handlePvpTurn(i, client, db) {
                 const selfDmg = Math.floor(weaponDmg * 0.5);
                 attacker.hp -= selfDmg;
                 battleState.log.push(`😵 **${attackerName}** في حالة ارتباك وضرب نفسه! (-${selfDmg})`);
-                triggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`);
+                try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`); }catch(e){}
             } else if (!attacker.weapon || attacker.weapon.currentLevel === 0) {
                 battleState.log.push(`❌ ${attackerName} يحاول الهجوم بلا سلاح!`);
             } else {
                 if (attacker.effects.blind > 0 && Math.random() < 0.5) {
                     battleState.log.push(`🌫️ **${attackerName}** أخطأ الهجوم بسبب العمى!`);
-                    triggerAnnouncer(battleState, `اللاعب ${attackerName} يضرب الهواء كالأعمى ولا يصيب شيئاً!`);
+                    try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} يضرب الهواء كالأعمى ولا يصيب شيئاً!`); }catch(e){}
                 } else {
                     const attackerHpBefore = attacker.hp;
-                    const dmg = core.calculateDamage(attacker, defender);
+                    let dmg = 0;
+                    try {
+                        dmg = core.calculateDamage(attacker, defender);
+                    } catch(e) { console.error("Calc Dmg Error", e); }
 
                     if (defender.effects.evasion > 0) {
                         battleState.log.push(`👻 **${attackerName}** هاجم، لكن **${defenderName}** راوغ ببراعة!`);
-                        triggerAnnouncer(battleState, `مراوغة أسطورية من ${defenderName}! هجوم ${attackerName} ذهب في الهواء!`);
+                        try{ triggerAnnouncer(battleState, `مراوغة أسطورية من ${defenderName}! هجوم ${attackerName} ذهب في الهواء!`); }catch(e){}
                     } else {
                         if (defender.effects.rebound_active > 0) {
                             const reflected = attackerHpBefore - attacker.hp;
@@ -539,10 +577,10 @@ async function handlePvpTurn(i, client, db) {
 
                         if (dmg > 0) {
                             battleState.log.push(`⚔️ **${attackerName}** هاجم وألحق **${dmg}** ضرر!`);
-                            triggerAnnouncer(battleState, `اللاعب ${attackerName} ضرب خصمه بقوة وسلب منه ${dmg} نقطة صحة!`);
+                            try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} ضرب خصمه بقوة وسلب منه ${dmg} نقطة صحة!`); }catch(e){}
                         } else {
                             battleState.log.push(`🛡️ **${defenderName}** امتص الضربة بالكامل!`);
-                            triggerAnnouncer(battleState, `اللاعب ${defenderName} تصدى للضربة ببراعة ولم يتأثر أبداً!`);
+                            try{ triggerAnnouncer(battleState, `اللاعب ${defenderName} تصدى للضربة ببراعة ولم يتأثر أبداً!`); }catch(e){}
                         }
                     }
                 }
@@ -551,26 +589,32 @@ async function handlePvpTurn(i, client, db) {
 
         if (defender.hp <= 0) {
             defender.hp = 0;
-            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-            await i.editReply({ embeds, components, files });
-            triggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`);
+            try{
+                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                await i.editReply({ embeds, components, files }).catch(()=>{});
+            } catch(e){}
+            try{ triggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`); }catch(e){}
             await core.endBattle(battleState, attackerId, db, "win", calculateMoraBuff);
             return;
         }
         if (attacker.hp <= 0) {
             attacker.hp = 0;
-            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-            await i.editReply({ embeds, components, files });
+            try{
+                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                await i.editReply({ embeds, components, files }).catch(()=>{});
+            } catch(e){}
             await core.endBattle(battleState, defenderId, db, "win", calculateMoraBuff);
             return;
         }
 
         battleState.turn = [defenderId, attackerId];
-        const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-        await i.editReply({ embeds, components, files });
+        try{
+            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+            await i.editReply({ embeds, components, files }).catch(()=>{});
+        } catch(e){}
 
         if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
-        else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
+        else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user?.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
         else battleState.processingTurn = false;
 
     } catch (err) {
@@ -581,7 +625,6 @@ async function handlePvpTurn(i, client, db) {
     }
 }
 
-// 🔥 تم ربط جميع الأزرار والوظائف بشكل سليم هنا 🔥
 async function handlePvpInteraction(i, client, db) {
     try {
         if (i.customId.startsWith('pvp_accept_') || i.customId.startsWith('pvp_decline_')) {
