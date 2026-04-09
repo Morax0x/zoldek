@@ -227,7 +227,6 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
     });
 }
 
-// 🔥 تم تحديث معركة وحش البحر لتفتح ثريد منفصل وتدمج المعلق 🔥
 async function startPveBattle(interaction, client, db, playerMember, monsterData, playerWeaponOverride) {
     const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [playerMember.id, interaction.guild.id]);
     let playerData = getLevelRes.rows[0] || { user: playerMember.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0 };
@@ -267,12 +266,12 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
         }
     } catch (e) {
         console.error("Thread creation failed for PvE:", e);
-        await interaction.channel.send("❌ فشل إنشاء ساحة المعركة للوحش.");
+        await interaction.channel.send("❌ فشل إنشاء ساحة المعركة للوحش.").catch(()=>{});
         return;
     }
 
     try { await thread.members.add(playerMember.id); } catch(e) {}
-    try { await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!** انتقل إلى الساحة: <#${thread.id}>`, embeds: [], components: [] }); } catch (e) {}
+    try { await interaction.editReply({ content: `🦑 **ظهر ${monsterData.name}!** انتقل إلى الساحة: <#${thread.id}>` }).catch(()=>{}); } catch(e){}
 
     const battleState = {
         isPvE: true, monsterData: monsterData, message: null, announcerMessage: null, turn: [playerMember.id, "monster"],
@@ -285,10 +284,9 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
         ])
     };
 
-    // 🔥 حفظ حالة المعركة باستخدام ID الثريد 🔥
+    // 🔥 تسجيل المعركة في الـ Map برقم الثريد لكي تتجاوب الأزرار بشكل صحيح 🔥
     activePveBattles.set(thread.id, battleState);
     
-    // إعداد المعلق
     const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
     battleState.announcerMessage = await thread.send({ embeds: [annEmbed] });
 
@@ -298,16 +296,21 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
     const { initAnnouncer } = require('./pvp-announcer.js');
     initAnnouncer(battleState, playerName, monsterData.name);
 
-    // 🔥 نظام النزول التلقائي في الـ PvE 🔥
-    const threadCollector = thread.createMessageCollector({ filter: m => !m.author.bot, time: 3600000 }); 
+    // 🔥 مهلة 5 دقائق لوحش البحر 🔥
+    battleState.timeoutTimer = setTimeout(async () => {
+        if (battleState.status === 'active') {
+            const { triggerAnnouncer } = require('./pvp-announcer.js');
+            triggerAnnouncer(battleState, `انتهى الوقت! الوحش يغوص في الأعماق مجدداً!`);
+            await module.exports.endBattle(battleState, "monster", db, "timeout");
+        }
+    }, 5 * 60 * 1000); 
+
+    const threadCollector = thread.createMessageCollector({ filter: m => !m.author.bot, time: 300000 }); 
     let messageCounter = 0;
     let bumpCooldown = false;
 
     threadCollector.on('collect', async (msg) => {
-        if (battleState.status === 'ended') {
-            threadCollector.stop();
-            return;
-        }
+        if (battleState.status === 'ended') { threadCollector.stop(); return; }
         
         messageCounter++;
         if (messageCounter >= 20 && !bumpCooldown) {
@@ -388,13 +391,12 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
         }
         await battleState.message.channel.send({ embeds: [embed] });
         
-        // مسح الثريد للوحش بعد النهاية بقليل
-        if (battleState.thread) setTimeout(async () => { try { await battleState.thread.delete('انتهت المعركة'); } catch (e) {} }, 60000); 
+        // 🔥 حذف الثريد بعد دقيقتين من النهاية 🔥
+        if (battleState.thread) setTimeout(async () => { try { await battleState.thread.delete('انتهت المعركة مع الوحش'); } catch (e) {} }, 120000); 
         return;
     } 
     
-    // ==========================================
-    // 📊 معالجة قتال اللاعبين (التقييم والصور)
+    // ... (بقية كود التقييم والتوزيع للـ PvP)
     // ==========================================
     let score = 100;
     const stats = battleState.stats;
