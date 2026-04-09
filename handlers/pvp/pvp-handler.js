@@ -2,21 +2,7 @@ const { MessageFlags, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputSty
 const core = require('./index.js'); 
 const botAI = require('./pvp-ai.js'); 
 const { calculateMoraBuff } = require('../../streak-handler.js'); 
-const { triggerAnnouncer, initAnnouncer } = require('./pvp-announcer.js');
-
-function checkShieldBreakGlobal(battleState, defenderId) {
-    const defender = battleState.players.get(defenderId);
-    if (defender && defender.effects.shield <= 0 && defender.effects.shield_source) {
-        const skillId = defender.effects.shield_source;
-        const cd = defender.effects.shield_cd_duration || 4; 
-        if (!battleState.skillCooldowns[defenderId]) battleState.skillCooldowns[defenderId] = {};
-        battleState.skillCooldowns[defenderId][skillId] = cd;
-        defender.effects.shield_source = null;
-        defender.effects.shield_cd_duration = 0;
-        return `💔 **انكسر درع ${defender.isMonster ? defender.name : core.cleanDisplayName(defender.member?.user?.displayName)}**! (بدأ كولداون المهارة)`;
-    }
-    return null;
-}
+const { triggerAnnouncer, initAnnouncer } = require('./pvp-announcer.js'); // 🔥 استدعاء المعلق المنفصل 🔥
 
 async function processMonsterTurn(battleState, db) {
     const monsterId = "monster";
@@ -87,9 +73,6 @@ async function processMonsterTurn(battleState, db) {
                         battleState.log.push(`🦑 **${monster.name}** هاجمك وألحق **${damageTaken}** ضرر!`);
                         if (damageTaken > player.maxHp * 0.20) triggerAnnouncer(battleState, `الوحش ${monster.name} سدد ضربة ساحقة للاعب أفقدته ${damageTaken} نقطة صحة دفعة واحدة!`);
                     }
-
-                    const breakMsg = checkShieldBreakGlobal(battleState, playerId);
-                    if (breakMsg) battleState.log.push(breakMsg);
                 }
             }
         }
@@ -104,115 +87,7 @@ async function processMonsterTurn(battleState, db) {
 
     battleState.turn = [playerId, monsterId];
     
-    const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-    if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(() => {});
-    battleState.processingTurn = false;
-}
-
-// 🔥 نظام الذكاء الاصطناعي لفارس الإمبراطور 🔥
-async function processGuardTurn(battleState, db) {
-    const guardId = "guard";
-    const playerId = battleState.turn[1];
-    const guard = battleState.players.get(guardId);
-    const player = battleState.players.get(playerId);
-    if (!guard || !player) return;
-
-    await new Promise(r => setTimeout(r, 1500));
-
-    const playerCooldowns = battleState.skillCooldowns[playerId];
-    if (playerCooldowns) {
-        for (const skillId in playerCooldowns) {
-            if (playerCooldowns[skillId] > 0) playerCooldowns[skillId]--;
-        }
-    }
-
-    const { logEntries, skipTurn } = core.applyPersistentEffects(battleState, guardId);
-    if (logEntries.length > 0) battleState.log.push(...logEntries);
-
-    if (guard.hp <= 0) {
-        triggerAnnouncer(battleState, `فارس الإمبراطور سقط أخيراً! لقد فعلها اللص!`);
-        await core.endBattle(battleState, playerId, db, "win");
-        return;
-    }
-
-    if (skipTurn) {
-        battleState.log.push(`💤 **فارس الإمبراطور** مشلول ولا يستطيع الحركة!`);
-        triggerAnnouncer(battleState, `يا إلهي! فارس الإمبراطور مشلول تماماً وغير قادر على الحراك!`);
-    } else {
-        let actionLog = "";
-        
-        if (guard.hp < guard.maxHp * 0.30 && guard.effects.blood_liturgy_used < 5) {
-            const drainDmg = Math.floor(guard.weapon.currentDamage * 1.5); 
-            player.hp -= drainDmg;
-            const healAmt = Math.max(Math.floor(drainDmg * 0.8), Math.floor(guard.maxHp * 0.15));
-            guard.hp = Math.min(guard.maxHp, guard.hp + healAmt);
-            guard.effects.blood_liturgy_used++; 
-            actionLog = `🩸 **فارس الإمبراطور** استخدم "قداس الدم"! امتص **${drainDmg}** من صحتك وشفى نفسه (+${healAmt})!`;
-            triggerAnnouncer(battleState, `فارس الإمبراطور يسحب الدماء بقداس الدم ويستعيد طاقته! إنها مجزرة!`);
-            const breakMsg = checkShieldBreakGlobal(battleState, playerId);
-            if (breakMsg) actionLog += `\n${breakMsg}`;
-        }
-        else if (guard.hp < guard.maxHp * 0.50 && guard.effects.potions_used < 5) {
-            const healAmount = Math.floor(guard.maxHp * 0.25); 
-            guard.hp = Math.min(guard.maxHp, guard.hp + healAmount);
-            const shieldAmt = Math.floor(guard.maxHp * 0.10);
-            guard.effects.shield += shieldAmt;
-            guard.effects.potions_used++; 
-            actionLog = `🧪 **فارس الإمبراطور** شرب جرعة طوارئ واستعاد **${healAmount}** HP واكتسب درعاً!`;
-            triggerAnnouncer(battleState, `الفارس يشرب جرعة شفاء ويتحصن من جديد!`);
-        }
-        else if (player.hp < player.maxHp * 0.20) {
-            const dmg = core.calculateDamage(guard, player, 1.5);
-            player.hp -= dmg;
-            actionLog = `💀 **فارس الإمبراطور** رأى ضعفك واستخدم "إعدام"! سبب **${dmg}** ضرر!`;
-            triggerAnnouncer(battleState, `الفارس ينقض بحكم الإعدام! ضربة فتاكة ومميتة!`);
-            const breakMsg = checkShieldBreakGlobal(battleState, playerId);
-            if (breakMsg) actionLog += `\n${breakMsg}`;
-        }
-        else if (player.effects.shield > 0) {
-            const dmg = core.calculateDamage(guard, player, 1.3); 
-            player.hp -= dmg;
-            actionLog = `🔨 **فارس الإمبراطور** سدد ضربة ثقيلة لتحطيم درعك! سبب **${dmg}** ضرر!`;
-            triggerAnnouncer(battleState, `ضربة عنيفة من الفارس محطماً الدرع بكل وحشية!`);
-            const breakMsg = checkShieldBreakGlobal(battleState, playerId);
-            if (breakMsg) actionLog += `\n${breakMsg}`;
-        }
-        else if (player.effects.buff > 0 && Math.random() < 0.20) {
-            guard.effects.rebound_active = 0.5; 
-            guard.effects.rebound_turns = 1;
-            actionLog = `🛡️ **فارس الإمبراطور** يتخذ وضعية "انعكاس الضرر"!`;
-            triggerAnnouncer(battleState, `الفارس يستعد لرد الضربات! احترس من الانعكاس!`);
-        }
-        else {
-            let multiplier = player.effects.buff > 0 ? 1.1 : 1.0;
-            const dmg = core.calculateDamage(guard, player, multiplier);
-            player.hp -= dmg;
-            const breakMsg = checkShieldBreakGlobal(battleState, playerId);
-            if (breakMsg) actionLog += `${breakMsg}\n`;
-
-            if (Math.random() < 0.2) {
-                player.effects.burn = Math.floor(guard.weapon.currentDamage * 0.1);
-                player.effects.burn_turns = 2;
-                actionLog += `⚔️ **فارس الإمبراطور** جرحك وسـبب نزيفاً! (**${dmg}** ضرر)`;
-                triggerAnnouncer(battleState, `سيف الفارس يمزق اللحم ويسبب نزيفاً مرعباً!`);
-            } else {
-                actionLog += `⚔️ **فارس الإمبراطور** هاجمك وسبب **${dmg}** ضرر!`;
-                if (dmg > 0) triggerAnnouncer(battleState, `الفارس يوجه ضربة قوية! هجوم لا يستهان به!`);
-            }
-        }
-
-        battleState.log.push(actionLog);
-    }
-
-    if (player.hp <= 0) {
-        player.hp = 0;
-        triggerAnnouncer(battleState, `اللاعب سقط ضحية لفارس الإمبراطور ومات!`);
-        await core.endBattle(battleState, guardId, db, "win");
-        return;
-    }
-
-    battleState.turn = [playerId, guardId];
-    
+    // 🔥 تحديث رسالة المعركة نقية بدون المساس بالمعلق 🔥
     const { embeds, components, files } = await core.buildBattleEmbed(battleState);
     if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(() => {});
     battleState.processingTurn = false;
@@ -437,6 +312,7 @@ async function handlePvpChallenge(i, client, db) {
 }
 
 async function handlePvpSkillSelect(i, client, db) {
+    // 🔥 البحث الآمن باستخدام ID الشات أو الثريد 🔥
     const channelId = i.channelId || i.message?.channelId || i.channel?.id;
     let battleState = core.activePvpBattles.get(channelId);
     let isPvE = false;
@@ -491,7 +367,6 @@ async function handlePvpSkillSelect(i, client, db) {
             await battleState.message.edit({ embeds, components, files }).catch(() => {});
             
             if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
-            else if (isPvE && battleState.turn[0] === "guard") processGuardTurn(battleState, db).catch(err => console.error(err));
             else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
             else battleState.processingTurn = false;
             return;
@@ -510,8 +385,6 @@ async function handlePvpSkillSelect(i, client, db) {
             attacker.hp -= selfDmg;
             battleState.log.push(`😵 **${attackerName}** في حالة ارتباك وضرب نفسه! (-${selfDmg})`);
             triggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`);
-            const breakMsg = checkShieldBreakGlobal(battleState, attackerId);
-            if (breakMsg) battleState.log.push(breakMsg);
         } else {
             const skills = attacker.skills || {};
             const skill = Object.values(skills).find(s => s.id === skillId);
@@ -521,9 +394,6 @@ async function handlePvpSkillSelect(i, client, db) {
                 battleState.log.push(actionLog);
                 
                 triggerAnnouncer(battleState, `اللاعب ${attackerName} استخدم مهارته الخاصة "${skill.name}"! ${actionLog}`);
-                
-                const breakMsg = checkShieldBreakGlobal(battleState, defenderId);
-                if (breakMsg) battleState.log.push(breakMsg);
 
                 if (!isPvE && battleState.stats && battleState.stats[attackerId]) battleState.stats[attackerId].skillsUsed += 1;
             }
@@ -550,18 +420,18 @@ async function handlePvpSkillSelect(i, client, db) {
         await battleState.message.edit({ embeds, components, files }).catch(() => {});
 
         if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
-        else if (isPvE && battleState.turn[0] === "guard") processGuardTurn(battleState, db).catch(err => console.error(err));
         else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
         else battleState.processingTurn = false;
 
     } catch (err) {
         console.error("[PvP Skill Handler Error]", err);
     } finally {
-        if (battleState && (!isPvE || (battleState.turn[0] !== "monster" && battleState.turn[0] !== "guard"))) battleState.processingTurn = false;
+        if (battleState && (!isPvE || battleState.turn[0] !== "monster")) battleState.processingTurn = false;
     }
 }
 
 async function handlePvpTurn(i, client, db) {
+    // 🔥 البحث الآمن باستخدام ID الشات أو الثريد 🔥
     const channelId = i.channelId || i.message?.channelId || i.channel?.id;
     let battleState = core.activePvpBattles.get(channelId);
     let isPvE = false;
@@ -620,7 +490,6 @@ async function handlePvpTurn(i, client, db) {
             await i.editReply({ embeds, components, files });
             
             if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
-            else if (isPvE && battleState.turn[0] === "guard") processGuardTurn(battleState, db).catch(err => console.error(err));
             else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
             else battleState.processingTurn = false;
             return;
@@ -646,9 +515,6 @@ async function handlePvpTurn(i, client, db) {
                 attacker.hp -= selfDmg;
                 battleState.log.push(`😵 **${attackerName}** في حالة ارتباك وضرب نفسه! (-${selfDmg})`);
                 triggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`);
-                
-                const breakMsg = checkShieldBreakGlobal(battleState, attackerId);
-                if (breakMsg) battleState.log.push(breakMsg);
             } else if (!attacker.weapon || attacker.weapon.currentLevel === 0) {
                 battleState.log.push(`❌ ${attackerName} يحاول الهجوم بلا سلاح!`);
             } else {
@@ -678,9 +544,6 @@ async function handlePvpTurn(i, client, db) {
                             battleState.log.push(`🛡️ **${defenderName}** امتص الضربة بالكامل!`);
                             triggerAnnouncer(battleState, `اللاعب ${defenderName} تصدى للضربة ببراعة ولم يتأثر أبداً!`);
                         }
-
-                        const breakMsg = checkShieldBreakGlobal(battleState, defenderId);
-                        if (breakMsg) battleState.log.push(breakMsg);
                     }
                 }
             }
@@ -707,7 +570,6 @@ async function handlePvpTurn(i, client, db) {
         await i.editReply({ embeds, components, files });
 
         if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
-        else if (isPvE && battleState.turn[0] === "guard") processGuardTurn(battleState, db).catch(err => console.error(err));
         else if (battleState.isBotMatch && battleState.turn[0] === battleState.message.client.user.id) botAI.processTestingBotTurn(battleState, db, core, calculateMoraBuff).catch(err => console.error(err));
         else battleState.processingTurn = false;
 
@@ -715,10 +577,11 @@ async function handlePvpTurn(i, client, db) {
         console.error("[PvP Handler Error]", err);
         await i.editReply({ content: "حدث خطأ أثناء المعركة." }).catch(() => {});
     } finally {
-        if (battleState && (!isPvE || (battleState.turn[0] !== "monster" && battleState.turn[0] !== "guard"))) battleState.processingTurn = false;
+        if (battleState && (!isPvE || battleState.turn[0] !== "monster")) battleState.processingTurn = false;
     }
 }
 
+// 🔥 تم ربط جميع الأزرار والوظائف بشكل سليم هنا 🔥
 async function handlePvpInteraction(i, client, db) {
     try {
         if (i.customId.startsWith('pvp_accept_') || i.customId.startsWith('pvp_decline_')) {
