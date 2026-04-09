@@ -24,7 +24,7 @@ function buildPvpSkillSelector(battleState) {
 
     availableSkills.forEach(skill => {
         const cd = cooldowns[skill.id] || 0;
-        const cdText = cd > 0 ? `⏳ انتظار: ${cd} جولات` : `${skill.description || skill.name}`;
+        const cdText = cd > 0 ? `⏳ انتظـار: ${cd} جولات` : `${skill.description || skill.name}`;
 
         options.push(new StringSelectMenuOptionBuilder()
             .setLabel(skill.name)
