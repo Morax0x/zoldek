@@ -73,6 +73,11 @@ async function getCooldownReductionMs(db, userId, guildId) {
     } catch(e) { return 0; }
 }
 
+function cleanDisplayName(name) {
+    if (!name) return "لاعب";
+    return name.replace(/<a?:.+?:\d+>/g, '').trim();
+}
+
 module.exports = {
     data: new SlashCommandBuilder().setName('صيد').setDescription('ابـدأ رحـلـة صيد تفاعلية جديدة'),
     name: 'fish',
@@ -151,7 +156,6 @@ module.exports = {
             const currentRod = rodsConfig.find(r => r.level === activeRodLevel) || rodsConfig[0];
             const currentBoat = boatsConfig.find(b => b.level === activeBoatLevel) || boatsConfig[0];
             
-            // 🔥 التعديل السحري: استنتاج المكان تلقائياً من القارب مع حماية السنارة 🔥
             let targetLocationIndex = locationsConfig.findIndex(l => l.id === currentBoat.location_id);
             if (targetLocationIndex === -1) targetLocationIndex = 0;
             
@@ -417,7 +421,36 @@ module.exports = {
 
                                 if (pvpCore.startPveBattle) {
                                     activeFishingSessions.delete(user.id);
-                                    await pvpCore.startPveBattle(interactionOrMessage, client, sql, member, monster, playerWeapon);
+                                    
+                                    // 🔥 الحل العبقري: إنشاء الثريد من رسالة الصيد مباشرة 🔥
+                                    let battleThread;
+                                    try {
+                                        const threadName = `🦑-صيد-${monster.name}-${cleanDisplayName(member.displayName || user.username)}`.substring(0, 100);
+                                        battleThread = await loadingMsg.startThread({ 
+                                            name: threadName, 
+                                            autoArchiveDuration: 60, 
+                                            reason: 'PvE Monster Battle' 
+                                        });
+                                        await battleThread.members.add(user.id).catch(()=>{});
+                                        
+                                        // تحديث رسالة الصيد لتدل على الثريد الجديد
+                                        await loadingMsg.edit({ content: `**🦑 ظهر ${monster.name}!**\nانتقل إلى المعركة هنا: <#${battleThread.id}>`, components: [] }).catch(()=>{});
+                                    } catch (err) {
+                                        console.error("Failed to create thread:", err);
+                                    }
+
+                                    // تمرير الثريد على أنه هو قناة التفاعل ليتم حفظ المعركة بـ ID الثريد ويمنع التداخل
+                                    if (battleThread) {
+                                        const fakeInteraction = {
+                                            channel: battleThread,
+                                            editReply: async () => {}, // صامت لأننا كتبنا في الثريد
+                                            guild: guild,
+                                            user: user
+                                        };
+                                        await pvpCore.startPveBattle(fakeInteraction, client, sql, member, monster, playerWeapon);
+                                    } else {
+                                        await pvpCore.startPveBattle(interactionOrMessage, client, sql, member, monster, playerWeapon);
+                                    }
                                     return; 
                                 }
                             }
