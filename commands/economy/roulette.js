@@ -339,15 +339,21 @@ async function playSoloRound(message, user, member, bet, userData, client, db) {
                         if (casinoTax > 0) {
                             win -= casinoTax;
                             taxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
-                            try { await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, message.guild.id]); }
-                            catch(e) { await db.query(`UPDATE levels SET bank = bank + $1 WHERE userid = $2 AND guildid = $3`, [casinoTax, king.id, message.guild.id]).catch(()=>{}); }
+                            // ✅ RETURNING لتحديث كاش الملك فوراً
+                            try {
+                                const kingRes = await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "bank"`, [casinoTax, king.id, message.guild.id]);
+                                if (client.updateLevelField && kingRes.rows[0]) client.updateLevelField(king.id, message.guild.id, { bank: Number(kingRes.rows[0].bank) });
+                            } catch(e) { await db.query(`UPDATE levels SET bank = bank + $1 WHERE userid = $2 AND guildid = $3`, [casinoTax, king.id, message.guild.id]).catch(()=>{}); }
                         }
                     }
                 }
 
-                try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [win, user.id, message.guild.id]); }
-                catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [win, user.id, message.guild.id]).catch(console.error); }
-                
+                // ✅ RETURNING لتحديث كاش اللاعب فوراً ومنع الكتابة المؤجلة من محو المكاسب
+                try {
+                    const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [win, user.id, message.guild.id]);
+                    if (client.updateLevelField && winRes.rows[0]) client.updateLevelField(user.id, message.guild.id, { mora: Number(winRes.rows[0].mora) });
+                } catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [win, user.id, message.guild.id]).catch(console.error); }
+
                 if (updateGuildStat) {
                     updateGuildStat(client, message.guild.id, user.id, 'casino_profit', Math.max(0, win - bet));
                 }
@@ -399,15 +405,21 @@ async function playSoloRound(message, user, member, bet, userData, client, db) {
                                 if (casinoTax > 0) {
                                     win -= casinoTax;
                                     taxText = `\n👑 ضريبـة ملـك الكازيـنـو (-1%): **${casinoTax}**-`;
-                                    try { await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3`, [casinoTax, king.id, message.guild.id]); }
-                                    catch(e) { await db.query(`UPDATE levels SET bank = bank + $1 WHERE userid = $2 AND guildid = $3`, [casinoTax, king.id, message.guild.id]).catch(()=>{}); }
+                                    // ✅ RETURNING لتحديث كاش الملك
+                                    try {
+                                        const kingRes = await db.query(`UPDATE levels SET "bank" = "bank" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "bank"`, [casinoTax, king.id, message.guild.id]);
+                                        if (client.updateLevelField && kingRes.rows[0]) client.updateLevelField(king.id, message.guild.id, { bank: Number(kingRes.rows[0].bank) });
+                                    } catch(e) { await db.query(`UPDATE levels SET bank = bank + $1 WHERE userid = $2 AND guildid = $3`, [casinoTax, king.id, message.guild.id]).catch(()=>{}); }
                                 }
                             }
                         }
 
-                        try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [win, user.id, message.guild.id]); }
-                        catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [win, user.id, message.guild.id]).catch(console.error); }
-                        
+                        // ✅ RETURNING لتحديث كاش اللاعب ومنع الكتابة المؤجلة من محو المكاسب
+                        try {
+                            const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [win, user.id, message.guild.id]);
+                            if (client.updateLevelField && winRes.rows[0]) client.updateLevelField(user.id, message.guild.id, { mora: Number(winRes.rows[0].mora) });
+                        } catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [win, user.id, message.guild.id]).catch(console.error); }
+
                         if (updateGuildStat) {
                             updateGuildStat(client, message.guild.id, user.id, 'casino_profit', Math.max(0, win - bet));
                         }
@@ -494,20 +506,26 @@ async function playMultiplayerGame(msg, players, bet, totalPot, client, guild, d
         
         if (winner && maxMult > 1) {
             let finalWinnings = totalPot;
-            try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [finalWinnings, winner.id, guild.id]); }
-            catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [finalWinnings, winner.id, guild.id]).catch(console.error); }
+            // ✅ RETURNING لتحديث كاش الفائز فوراً
+            try {
+                const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [finalWinnings, winner.id, guild.id]);
+                if (client.updateLevelField && winRes.rows[0]) client.updateLevelField(winner.id, guild.id, { mora: Number(winRes.rows[0].mora) });
+            } catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [finalWinnings, winner.id, guild.id]).catch(console.error); }
 
             const winEmbed = new EmbedBuilder()
                 .setTitle(`🏆 الفائز: ${winner.displayName}`)
                 .setDescription(`ربـح **${finalWinnings}** ${EMOJI_MORA}`)
                 .setColor("Gold");
-            
+
             msg.edit({ embeds: [winEmbed], components: [] }).catch(()=>{});
         } else {
             const loseEmbed = new EmbedBuilder().setTitle("💀 لا فائز").setDescription(`استرجاع الأموال.`).setColor("Red");
+            // ✅ RETURNING لتحديث كاش كل لاعب عند الاسترداد
             for (const p of players) {
-                try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [bet, p.id, guild.id]); }
-                catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [bet, p.id, guild.id]).catch(console.error); }
+                try {
+                    const refundRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [bet, p.id, guild.id]);
+                    if (client.updateLevelField && refundRes.rows[0]) client.updateLevelField(p.id, guild.id, { mora: Number(refundRes.rows[0].mora) });
+                } catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [bet, p.id, guild.id]).catch(console.error); }
             }
             msg.edit({ embeds: [loseEmbed], components: [] }).catch(()=>{});
         }

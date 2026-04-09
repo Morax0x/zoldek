@@ -269,7 +269,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                     validParty.push(id);
                     
                     if (id !== OWNER_ID && !targetIsKing) {
-                        await db.query(`UPDATE levels SET "mora" = "mora" - 100 WHERE "user" = $1 AND "guild" = $2`, [id, guildId]);
+                        await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - 100) WHERE "user" = $1 AND "guild" = $2`, [id, guildId]);
                     }
                     
                     if (id === host.id && id !== OWNER_ID && !targetIsKing) {
@@ -281,7 +281,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                     
                     if (consumeResult.success) {
                         validParty.push(id);
-                        await db.query(`UPDATE levels SET "mora" = "mora" - 100 WHERE "user" = $1 AND "guild" = $2`, [id, guildId]);
+                        await db.query(`UPDATE levels SET "mora" = GREATEST(0, "mora" - 100) WHERE "user" = $1 AND "guild" = $2`, [id, guildId]);
                         
                         const dRes = await db.query(`SELECT "last_join_reset" FROM levels WHERE "user" = $1 AND "guild" = $2`, [id, guildId]);
                         const d = dRes.rows[0];

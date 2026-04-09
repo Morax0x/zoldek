@@ -194,11 +194,19 @@ async function handleAuctionSystem(interaction) {
 
         try {
             await db.query("BEGIN");
-            
+
+            // ✅ استرداد رهان المزايد السابق + RETURNING لتحديث كاشه
             if (currentAuction.highest_bidder && currentAuction.highest_bidder !== user.id) {
-                await db.query("UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3", [currentAuction.current_bid, currentAuction.highest_bidder, guild.id]);
+                const prevBidderRes = await db.query("UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3 RETURNING mora", [currentAuction.current_bid, currentAuction.highest_bidder, guild.id]);
+                if (interaction?.client?.updateLevelField && prevBidderRes.rows[0]) {
+                    interaction.client.updateLevelField(currentAuction.highest_bidder, guild.id, { mora: Number(prevBidderRes.rows[0].mora) });
+                }
             }
-            await db.query("UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3", [cost, user.id, guild.id]);
+            // ✅ GREATEST لمنع الرصيد السالب + RETURNING لتحديث كاش المزايد الجديد
+            const bidDeductRes = await db.query("UPDATE levels SET mora = GREATEST(0, mora - $1) WHERE userid = $2 AND guildid = $3 RETURNING mora", [cost, user.id, guild.id]);
+            if (interaction?.client?.updateLevelField && bidDeductRes.rows[0]) {
+                interaction.client.updateLevelField(user.id, guild.id, { mora: Number(bidDeductRes.rows[0].mora) });
+            }
 
             let newEndTime = parseInt(currentAuction.end_time);
             if (newEndTime - Date.now() < 60000) newEndTime += 60000;
