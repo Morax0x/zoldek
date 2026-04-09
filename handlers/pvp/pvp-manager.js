@@ -227,6 +227,7 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
     });
 }
 
+// 🔥 تم إعداد الثريد بشكل صحيح ليعمل عليه الـ PvE وتجاوب الأزرار 🔥
 async function startPveBattle(interaction, client, db, playerMember, monsterData, playerWeaponOverride) {
     const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [playerMember.id, interaction.guild.id]);
     let playerData = getLevelRes.rows[0] || { user: playerMember.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0 };
@@ -255,7 +256,6 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
     const monsterImage = monsterData.image || 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/monster.png';
     const playerName = cleanDisplayName(playerMember.displayName || playerMember.user.username);
 
-    // 🔥 إنشاء الثريد الخاص بالمعركة لمنع التداخل 🔥
     let thread;
     try {
         const threadName = `🦑-صيد-${monsterData.name}-${playerName}`.substring(0, 100);
@@ -284,7 +284,7 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
         ])
     };
 
-    // 🔥 تسجيل المعركة في الـ Map برقم الثريد لكي تتجاوب الأزرار بشكل صحيح 🔥
+    // 🔥 تسجيل المعركة في Map باستخدام ID الثريد لتعمل الأزرار بدقة! 🔥
     activePveBattles.set(thread.id, battleState);
     
     const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
@@ -296,7 +296,7 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
     const { initAnnouncer } = require('./pvp-announcer.js');
     initAnnouncer(battleState, playerName, monsterData.name);
 
-    // 🔥 مهلة 5 دقائق لوحش البحر 🔥
+    // مهلة 5 دقائق لوحش البحر
     battleState.timeoutTimer = setTimeout(async () => {
         if (battleState.status === 'active') {
             const { triggerAnnouncer } = require('./pvp-announcer.js');
@@ -352,6 +352,7 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
     const { embeds: finalEmbeds, files: finalFiles } = await buildBattleEmbed(battleState);
     await battleState.message.edit({ embeds: finalEmbeds, components: [], files: finalFiles }).catch(() => {});
 
+    // تأكد من مسح الثريد والشات معاً للتنظيف
     const channelId = battleState.message.channel.id;
     activePvpBattles.delete(channelId);
     activePveBattles.delete(channelId);
@@ -396,8 +397,6 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
         return;
     } 
     
-    // ... (بقية كود التقييم والتوزيع للـ PvP)
-    // ==========================================
     let score = 100;
     const stats = battleState.stats;
     
