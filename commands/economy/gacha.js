@@ -104,19 +104,32 @@ async function deductMora(client, db, userId, guildId, amount) {
 
     if (mora + bank < amount) return false;
 
-    if (mora >= amount) mora -= amount;
-    else { let diff = amount - mora; mora = 0; bank -= diff; }
+    let moraDeduct = 0, bankDeduct = 0;
+    if (mora >= amount) { moraDeduct = amount; }
+    else { moraDeduct = mora; bankDeduct = amount - mora; }
+
+    // استخدام خصم نسبي بدلاً من مطلق لمنع التعارض مع العمليات المتزامنة
+    let updateRes;
+    try {
+        updateRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora",'0') AS BIGINT) - $1), "bank" = GREATEST(0, CAST(COALESCE("bank",'0') AS BIGINT) - $2) WHERE "user" = $3 AND "guild" = $4 RETURNING "mora", "bank"`, [moraDeduct, bankDeduct, userId, guildId]);
+    } catch(e) {
+        updateRes = await safeQuery(db, `UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora",'0') AS BIGINT) - $1), "bank" = GREATEST(0, CAST(COALESCE("bank",'0') AS BIGINT) - $2) WHERE "user" = $3 AND "guild" = $4 RETURNING "mora", "bank"`, [moraDeduct, bankDeduct, userId, guildId]);
+    }
 
     if (client && typeof client.getLevel === 'function') {
         let u = await client.getLevel(userId, guildId);
         if (u) {
-            u.mora = String(mora);
-            u.bank = String(bank);
+            if (updateRes && updateRes.rows && updateRes.rows[0]) {
+                u.mora = String(Number(updateRes.rows[0].mora));
+                u.bank = String(Number(updateRes.rows[0].bank));
+            } else {
+                u.mora = String(Math.max(0, mora - moraDeduct));
+                u.bank = String(Math.max(0, bank - bankDeduct));
+            }
             if (typeof client.setLevel === 'function') await client.setLevel(u);
         }
     }
 
-    await safeExecute(db, `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [mora, bank, userId, guildId]);
     return true;
 }
 
