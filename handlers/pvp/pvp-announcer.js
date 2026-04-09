@@ -12,6 +12,9 @@ const PERSONALITIES = [
     "معلق درامي، يتعامل مع كل ضربة يتلقاها المقاتلون وكأنها مأساة أو نهاية العالم بأسلوب مسرحي."
 ];
 
+// قائمة أسماء احتياطية في حال أخطأ الذكاء الاصطناعي
+const FALLBACK_NAMES = ["المرعب", "الهائج", "السفاح", "الصياد", "الجزار", "الأسطورة", "الكابوس", "البرق"];
+
 // دالة لتنظيف النص من التشكيل (الحركات) نهائياً
 function removeTashkeel(text) {
     if (!text) return text;
@@ -60,7 +63,7 @@ async function updateAnnouncerMessage(battleState) {
             .setDescription(battleState.announcerText || "🎙️ المعلق يراقب بصمت...")
             .setColor(battleState.announcerColor || Colors.Gold);
         
-        await battleState.announcerMessage.edit({ embeds: [annEmbed] });
+        await battleState.announcerMessage.edit({ embeds: [annEmbed] }).catch(()=>{});
     } catch (e) {}
 }
 
@@ -80,19 +83,24 @@ async function initAnnouncer(battleState, p1Name, p2Name) {
 2. رحب بالجمهور والمقاتلين (${p1Name} ضد ${p2Name}) بأسلوبك الخاص (حسب شخصيتك وسياق الحدث) في سطر واحد فقط.
 3. كن مبدعاً جداً في الوصف، لغتك عربية سليمة وجذابة.
 4. تحذير هام جداً: اكتب بنص صافٍ ولا تستخدم التشكيل (الحركات مثل الفتحة والكسرة) على الحروف العربية أبداً.
-اكتب ردك بصيغة:
-الاسم|الترحيب`;
+
+**يجب** أن يكون ردك حصراً بهذه الصيغة (بدون أي إضافات أخرى):
+اسمك_من_كلمة_واحدة|ترحيبك_في_سطر_واحد`;
 
     try {
         const res = await askGemini(prompt);
-        let name = "المرعب"; 
+        let name = FALLBACK_NAMES[Math.floor(Math.random() * FALLBACK_NAMES.length)]; 
         let welcome = `الميدان يشتعل! ${p1Name} يواجه ${p2Name} في معركة لا ترحم!`;
         
         if (res && res.includes('|')) {
             const parts = res.split('|');
-            name = parts[0].replace(/[\*🎙️:\-]/g, '').replace(/المعلق/g, '').trim(); 
-            if (name === '') name = 'المرعب';
-            welcome = parts[1].trim();
+            // تنظيف الاسم المستخرج بأقصى درجة
+            let extractedName = parts[0].replace(/[\*🎙️:\-]/g, '').replace(/المعلق/g, '').trim(); 
+            // إذا كان الاسم المستخرج كلمة واحدة حقيقية، استخدمه
+            if (extractedName && !extractedName.includes(' ') && extractedName.length < 15) {
+                name = extractedName;
+            }
+            welcome = parts.slice(1).join('|').trim(); // أخذ كل ما بعد | كترحيب
         } else if (res) {
             welcome = res.replace(/\*/g, '');
         }
@@ -110,7 +118,7 @@ async function triggerAnnouncer(battleState, eventText) {
     if (battleState.isAnnouncing) return;
     
     battleState.isAnnouncing = true;
-    const name = battleState.announcerName || "المرعب";
+    const name = battleState.announcerName || FALLBACK_NAMES[Math.floor(Math.random() * FALLBACK_NAMES.length)];
     const personality = battleState.announcerPersonality || PERSONALITIES[0];
     const battleContext = getBattleContext(battleState);
 
