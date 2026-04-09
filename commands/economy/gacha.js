@@ -181,33 +181,54 @@ function performPull(pityData, userRace) {
 }
 
 async function maintainChestInventory(db, userId, guildId) {
-    const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
-    
-    let freeCount = 0;
-    let paidCount = 0;
-    let idsToDelete = [];
-    
-    if (invRes.rows) {
-        for (const row of invRes.rows) {
-            const idKey = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
-            const qtyKey = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
-            const rowIdKey = Object.keys(row).find(k => k.toLowerCase() === 'id');
-            
-            const id = idKey ? String(row[idKey]).toLowerCase().trim() : '';
-            const qty = qtyKey ? Number(row[qtyKey]) : 0;
-
-            if (id === 'free_gacha_chest') { freeCount += qty; if (rowIdKey) idsToDelete.push(row[rowIdKey]); }
-            if (id === 'gacha_chest') { paidCount += qty; if (rowIdKey) idsToDelete.push(row[rowIdKey]); }
+    // Uses a single atomic CTE statement: DELETE + INSERT in one query.
+    // If the INSERT fails, PostgreSQL rolls back the DELETE too — no data loss.
+    const consolidate = async (itemId) => {
+        const cteQ = `
+            WITH deleted AS (
+                DELETE FROM user_inventory
+                WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = $3
+                RETURNING GREATEST(0, CAST(COALESCE("quantity"::TEXT, '0') AS INTEGER)) AS qty
+            ),
+            total AS (SELECT COALESCE(SUM(qty), 0) AS cnt FROM deleted)
+            INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity")
+            SELECT $2, $1, $3, cnt FROM total WHERE cnt > 0
+            RETURNING "quantity"
+        `;
+        try {
+            const res = await db.query(cteQ, [userId, guildId, itemId]);
+            return res.rows[0] ? Number(res.rows[0].quantity) : 0;
+        } catch(e) {
+            // Fallback: lowercase column names
+            const cteFallback = `
+                WITH deleted AS (
+                    DELETE FROM user_inventory
+                    WHERE userid = $1 AND guildid = $2 AND LOWER(CAST(itemid AS TEXT)) = $3
+                    RETURNING GREATEST(0, CAST(COALESCE(quantity::TEXT, '0') AS INTEGER)) AS qty
+                ),
+                total AS (SELECT COALESCE(SUM(qty), 0) AS cnt FROM deleted)
+                INSERT INTO user_inventory (guildid, userid, itemid, quantity)
+                SELECT $2, $1, $3, cnt FROM total WHERE cnt > 0
+                RETURNING quantity
+            `;
+            try {
+                const res2 = await db.query(cteFallback, [userId, guildId, itemId]);
+                return res2.rows[0] ? Number(res2.rows[0].quantity) : 0;
+            } catch(e2) {
+                // Read-only fallback: don't modify DB, just return current count
+                try {
+                    const r = await db.query(
+                        `SELECT COALESCE(SUM(GREATEST(0, CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER))), 0) AS cnt FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = $3`,
+                        [userId, guildId, itemId]
+                    );
+                    return r.rows[0] ? Number(r.rows[0].cnt) : 0;
+                } catch(e3) { return 0; }
+            }
         }
-    }
-    
-    for (const delId of idsToDelete) {
-        await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [delId]);
-    }
-    
-    if (freeCount > 0) await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, userId, freeCount]);
-    if (paidCount > 0) await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, userId, paidCount]);
-    
+    };
+
+    const freeCount = await consolidate('free_gacha_chest');
+    const paidCount = await consolidate('gacha_chest');
     return { freeChests: freeCount, paidChests: paidCount };
 }
 
@@ -310,28 +331,31 @@ module.exports = {
             const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
 
             if (dailyLimit > 0 && pityData.last_free_claim !== todaySaudi) {
-                const oldInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
-                let oldIds = [];
-                if (oldInvRes.rows) {
-                    oldInvRes.rows.forEach(r => {
-                        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
-                        const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
-                        if (idKey && String(r[idKey]).toLowerCase().trim() === 'free_gacha_chest' && rowIdKey) {
-                            oldIds.push(r[rowIdKey]);
-                        }
-                    });
-                }
-                for (let oid of oldIds) await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [oid]);
-
-                await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]);
-                
-                freeChests = dailyLimit;
-                totalChests = freeChests + paidChests;
-                
+                // Mark today's daily as claimed regardless
                 await safeExecute(db, `UPDATE user_gacha_pity SET "last_free_claim" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [todaySaudi, user.id, guildId]);
                 pityData.last_free_claim = todaySaudi;
 
-                (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).send({ content: `🎁 <@${user.id}> **مكافأة يومية!** لقد تم تجديد صناديقك المجانية لليوم لتصبح **${dailyLimit}** صناديق.` }).catch(()=>{});
+                if (freeChests < dailyLimit) {
+                    // Only reset if user has fewer free chests than their daily entitlement.
+                    // This preserves dungeon-earned chests above the daily limit.
+                    const oldInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+                    let oldIds = [];
+                    if (oldInvRes.rows) {
+                        oldInvRes.rows.forEach(r => {
+                            const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                            const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
+                            if (idKey && String(r[idKey]).toLowerCase().trim() === 'free_gacha_chest' && rowIdKey) {
+                                oldIds.push(r[rowIdKey]);
+                            }
+                        });
+                    }
+                    for (let oid of oldIds) await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [oid]);
+                    await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]);
+                    freeChests = dailyLimit;
+                    totalChests = freeChests + paidChests;
+
+                    (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).send({ content: `🎁 <@${user.id}> **مكافأة يومية!** لقد تم تجديد صناديقك المجانية لليوم لتصبح **${dailyLimit}** صناديق.` }).catch(()=>{});
+                }
             }
 
             const getPullButtons = (totalBalance) => {
@@ -451,10 +475,10 @@ module.exports = {
                         }
                         
                         if (remainingFree > 0 && freeRowId) {
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [remainingFree, freeRowId]);
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1) WHERE "id" = $2`, [remainingFree, freeRowId]);
                         }
                         if (remainingPaid > 0 && paidRowId) {
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [remainingPaid, paidRowId]);
+                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1) WHERE "id" = $2`, [remainingPaid, paidRowId]);
                         }
                         
                         freeChests -= remainingFree;
@@ -487,16 +511,16 @@ module.exports = {
                         if (item) resArr.push({ item, rarity });
                     }
 
+                    // Query inventory once, then check all items against the snapshot
+                    const invSnap = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+                    const invRows = invSnap.rows || [];
+
                     for (const [itemId, qty] of Object.entries(itemsToAdd)) {
-                        let existingItemRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
-                        let existingRow = null;
-                        if (existingItemRes.rows) {
-                            existingRow = existingItemRes.rows.find(r => {
-                                const idK = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
-                                return idK && String(r[idK]).toLowerCase().trim() === itemId.toLowerCase();
-                            });
-                        }
-                        
+                        const existingRow = invRows.find(r => {
+                            const idK = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                            return idK && String(r[idK]).toLowerCase().trim() === itemId.toLowerCase();
+                        });
+
                         if (existingRow) {
                             const rowIdK = Object.keys(existingRow).find(k => k.toLowerCase() === 'id');
                             await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [qty, existingRow[rowIdK]]);
