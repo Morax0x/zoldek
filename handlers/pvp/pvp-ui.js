@@ -24,7 +24,7 @@ function buildPvpSkillSelector(battleState) {
 
     availableSkills.forEach(skill => {
         const cd = cooldowns[skill.id] || 0;
-        const cdText = cd > 0 ? `كولداون: ${cd} جولات` : `${skill.description || skill.name}`;
+        const cdText = cd > 0 ? `⏳ انتظار: ${cd} جولات` : `${skill.description || skill.name}`;
 
         options.push(new StringSelectMenuOptionBuilder()
             .setLabel(skill.name)
@@ -37,7 +37,7 @@ function buildPvpSkillSelector(battleState) {
     return new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('pvp_skill_select_menu')
-            .setPlaceholder('اختر مهارة لاستخدامها...')
+            .setPlaceholder('✨ اختر مهارة قتالية...')
             .addOptions(options.slice(0, 25))
     );
 }
@@ -81,12 +81,12 @@ async function buildBattleEmbed(battleState) {
     if (files.length === 0) {
         const embed = new EmbedBuilder().setTitle(`⚔️ ${attackerName} 🆚 ${defenderName} ⚔️`).setColor(Colors.Red);
         embed.addFields(
-            { name: `${attackerName}`, value: `HP: ${buildHpBar(attacker.hp, attacker.maxHp)}\nتأثيرات: ${buildEffectsString(attacker.effects)}`, inline: true },
-            { name: `${defenderName}`, value: `HP: ${buildHpBar(defender.hp, defender.maxHp)}\nتأثيرات: ${buildEffectsString(defender.effects)}`, inline: true }
+            { name: `${attackerName}`, value: `صحة: ${buildHpBar(attacker.hp, attacker.maxHp)}\nتأثيرات: ${buildEffectsString(attacker.effects)}`, inline: true },
+            { name: `${defenderName}`, value: `صحة: ${buildHpBar(defender.hp, defender.maxHp)}\nتأثيرات: ${buildEffectsString(defender.effects)}`, inline: true }
         );
 
         if (battleState.isPvE) {
-            embed.setDescription(`🦑 **معركة ضد وحش!**\nالدور الآن لـ: **${attackerName}**`);
+            embed.setDescription(`🦑 **معركة صيد ملحمية!**\nالدور الآن: **${attackerName}**`);
         } else {
             const turnMention = attacker.isBot ? attackerName : `<@${attacker.member?.id}>`;
             embed.setDescription(`الرهان: **${(battleState.bet * 2).toLocaleString()}** ${EMOJI_MORA}\n\n**الدور الآن لـ:** ${turnMention}`);
