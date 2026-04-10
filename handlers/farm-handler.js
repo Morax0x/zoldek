@@ -163,7 +163,10 @@ async function checkFarmIncome(client, db) {
                         if (!seed) continue;
 
                         const growthMs = (seed.growth_time_hours * 3600000) * growthMultiplier;
-                        const plantTime = Number(plot.plantTime || plot.planttime) || now;
+                        
+                        let plantTime = Number(plot.plantTime || plot.planttime);
+                        if (!plantTime || plantTime < 10000000000) plantTime = now; 
+
                         const age = now - plantTime;
 
                         if (age >= growthMs) {
@@ -193,7 +196,7 @@ async function checkFarmIncome(client, db) {
             }
 
             // ============================================
-            // 2. معالجة الحيوانات والدخل اليومي
+            // 2. معالجة الحيوانات (الموت من الكبر والجوع)
             // ============================================
             const userFarmRes = await safeQuery(db, `SELECT * FROM user_farm WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
             const userFarm = userFarmRes.rows;
@@ -211,26 +214,39 @@ async function checkFarmIncome(client, db) {
                 if (!animal) continue; 
 
                 const qty = Number(row.quantity || row.Quantity) || 1;
-                const purchaseTimestamp = Number(row.purchaseTimestamp || row.purchasetimestamp) || now; 
+                
+                let purchaseTimestamp = Number(row.purchaseTimestamp || row.purchasetimestamp);
+                // 🛠️ حماية التوقيت للشراء (منع الموت الفوري)
+                if (!purchaseTimestamp || purchaseTimestamp < 10000000000) {
+                    purchaseTimestamp = now; 
+                    await safeExecute(db, `UPDATE user_farm SET "purchaseTimestamp" = $1 WHERE "id" = $2`, [now, rowId]);
+                }
+
                 const ageInMs = now - purchaseTimestamp;
                 const lifespanInMs = animal.lifespan_days * ONE_DAY;
 
-                // نظام الموت الطبيعي
+                // 💀 الموت من الكبر فقط
                 if (ageInMs >= lifespanInMs) {
                     await safeExecute(db, `DELETE FROM user_farm WHERE "id" = $1`, [rowId]);
                     await safeExecute(db, `INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'death_old', animal.name, qty, now]);
-                    if (!oldDeaths.includes(animal.name)) oldDeaths.push(animal.name);
+                    if (!oldDeaths.includes(animal.name)) oldDeaths.push(`${animal.name} (${qty})`);
                     continue; 
                 }
 
-                currentAnimalsCount += qty;
                 const maxHungerMs = (animal.max_hunger_days || 3) * ONE_DAY; 
-                let lastFed = Number(row.lastFedTimestamp || row.lastfedtimestamp) || now;
+                
+                let lastFed = Number(row.lastFedTimestamp || row.lastfedtimestamp);
+                if (!lastFed || lastFed < 10000000000) {
+                    lastFed = purchaseTimestamp; 
+                }
+
                 let fullUntil = lastFed + maxHungerMs; 
                 let timeLeft = fullUntil - now; 
+                
+                currentAnimalsCount += qty;
                 const feedThreshold = Math.max(14 * 60 * 60 * 1000, maxHungerMs * 0.25);
 
-                // إطعام التلقائي من العامل
+                // الإطعام التلقائي من العامل
                 if (hasWorker && timeLeft <= feedThreshold) {
                     const invDataRes = await safeQuery(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userID, guildID, animal.feed_id]);
                     const invData = invDataRes.rows[0];
