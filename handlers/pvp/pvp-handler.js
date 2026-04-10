@@ -3,14 +3,27 @@ const core = require('./index.js');
 const botAI = require('./pvp-ai.js'); 
 const { calculateMoraBuff } = require('../../streak-handler.js'); 
 
-// استدعاء المعلق المنفصل مع حماية في حالة عدم التوفر
-let triggerAnnouncer, initAnnouncer;
+// استدعاء المعلق المنفصل مع حماية كاملة من الأخطاء المتزامنة والغير متزامنة
+let triggerAnnouncer = () => {};
+let initAnnouncer = () => {};
 try {
-    ({ triggerAnnouncer, initAnnouncer } = require('./pvp-announcer.js'));
-} catch (e) {
-    triggerAnnouncer = () => {};
-    initAnnouncer = () => {};
-}
+    const _ann = require('./pvp-announcer.js');
+    const _rawTrigger = _ann.triggerAnnouncer;
+    const _rawInit = _ann.initAnnouncer;
+    // Wrap so any sync OR async error is swallowed — never an unhandled rejection
+    triggerAnnouncer = (bs, text) => {
+        try {
+            const p = _rawTrigger(bs, text);
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+        } catch(e) {}
+    };
+    initAnnouncer = (bs, p1, p2) => {
+        try {
+            const p = _rawInit(bs, p1, p2);
+            if (p && typeof p.catch === 'function') p.catch(e => console.error('[Announcer Init Error]', e));
+        } catch(e) {}
+    };
+} catch (e) {}
 
 async function processMonsterTurn(battleState, db) {
     const monsterId = "monster";

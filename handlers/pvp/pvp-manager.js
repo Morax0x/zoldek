@@ -293,11 +293,18 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
 
         activePveBattles.set(thread.id, battleState);
         
-        let initAnnouncer;
-        try { ({ initAnnouncer } = require('./pvp-announcer.js')); } catch (e) { initAnnouncer = null; }
+        let _rawInitAnnouncer = null;
+        try { ({ initAnnouncer: _rawInitAnnouncer } = require('./pvp-announcer.js')); } catch (e) {}
+        const safeInitAnnouncer = (bs, p1, p2) => {
+            if (!_rawInitAnnouncer) return;
+            try {
+                const p = _rawInitAnnouncer(bs, p1, p2);
+                if (p && typeof p.catch === 'function') p.catch(e => console.error('[PvE Announcer Init Error]', e));
+            } catch(e) {}
+        };
 
         try {
-            if (initAnnouncer) {
+            if (_rawInitAnnouncer) {
                 const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
                 battleState.announcerMessage = await thread.send({ embeds: [annEmbed] });
             }
@@ -308,16 +315,19 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
             return;
         }
 
-        if (initAnnouncer) {
-            initAnnouncer(battleState, playerName, monsterData?.name || 'الوحش');
-        }
+        safeInitAnnouncer(battleState, playerName, monsterData?.name || 'الوحش');
 
         battleState.timeoutTimer = setTimeout(async () => {
             try {
                 if (battleState.status === 'active') {
-                    let triggerAnnouncer;
-                    try { ({ triggerAnnouncer } = require('./pvp-announcer.js')); } catch(e) {}
-                    if (triggerAnnouncer) triggerAnnouncer(battleState, `انتهى الوقت! الوحش يغوص في الأعماق مجدداً!`);
+                    try {
+                        let triggerAnnouncer;
+                        try { ({ triggerAnnouncer } = require('./pvp-announcer.js')); } catch(e) {}
+                        if (triggerAnnouncer) {
+                            const p = triggerAnnouncer(battleState, `انتهى الوقت! الوحش يغوص في الأعماق مجدداً!`);
+                            if (p && typeof p.catch === 'function') p.catch(() => {});
+                        }
+                    } catch(e) {}
                     await module.exports.endBattle(battleState, "monster", db, "timeout");
                 }
             } catch (err) {

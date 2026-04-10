@@ -129,11 +129,15 @@ async function bootstrap() {
 
     const eventsPath = path.join(__dirname, 'events');
     const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
-    for (const file of eventFiles) { 
-        const filePath = path.join(eventsPath, file); 
-        const event = require(filePath); 
-        if (event.once) client.once(event.name, (...args) => event.execute(...args, client)); 
-        else client.on(event.name, (...args) => event.execute(...args, client)); 
+    for (const file of eventFiles) {
+        const filePath = path.join(eventsPath, file);
+        const event = require(filePath);
+        const safeHandler = async (...args) => {
+            try { await event.execute(...args, client); }
+            catch(e) { console.error(`[Event Error - ${event.name}]:`, e); }
+        };
+        if (event.once) client.once(event.name, safeHandler);
+        else client.on(event.name, safeHandler);
     }
 
     require('./interaction-handler.js')(client, client.sql, client.antiRolesCache);
@@ -165,7 +169,7 @@ async function bootstrap() {
         } catch(e) {}
 
         // تسجيل الأوامر في الخلفية لكي لا يعيق تشغيل البوت
-        registerCommands();
+        registerCommands().catch(e => console.error('[registerCommands Error]:', e));
     }); 
 
     try { require('./handlers/topgg-handler.js')(client, client.sql); } catch (err) {}
