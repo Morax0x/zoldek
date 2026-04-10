@@ -227,42 +227,68 @@ async function handleQuestPanel(i, client, db) {
          return i.editReply({ content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حاليا!**", embeds: [], components: [] }).catch(()=>{});
     }
 
+    // 🔥 تحديث قسم الإشعارات ليعمل بالعكس بشكل سليم 🔥
     if (section === 'notifications') {
-        const notifDataRes = await db.query(`SELECT * FROM quest_notifications WHERE "id" = $1`, [id]);
+        const notifDataRes = await db.query(`SELECT * FROM quest_notifications WHERE "id" = $1`, [id]).catch(()=>({rows:[]}));
         let notifData = notifDataRes.rows[0];
+
         if (!notifData) {
             notifData = { id: id, userID: userId, guildID: guildId, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1, kingsNotif: 1, badgesNotif: 1 };
             try { 
-                await db.query(`INSERT INTO quest_notifications ("id", "userID", "guildID", "dailyNotif", "weeklyNotif", "achievementsNotif", "levelNotif", "kingsNotif", "badgesNotif") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, [id, userId, guildId, 1, 1, 1, 1, 1, 1]);
+                await db.query(`INSERT INTO quest_notifications ("id", "userID", "guildID", "dailyNotif", "weeklyNotif", "achievementsNotif", "levelNotif", "kingsNotif", "badgesNotif") VALUES ($1, $2, $3, 1, 1, 1, 1, 1, 1)`).catch(()=>{});
             } catch(e) {}
         }
 
+        // قراءة آمنة للحروف (سواء كبيرة أو صغيرة)
+        let dNotif = Number(notifData.dailyNotif ?? notifData.dailynotif ?? 1);
+        let wNotif = Number(notifData.weeklyNotif ?? notifData.weeklynotif ?? 1);
+        let aNotif = Number(notifData.achievementsNotif ?? notifData.achievementsnotif ?? 1);
+        let lNotif = Number(notifData.levelNotif ?? notifData.levelnotif ?? 1);
+        let kNotif = Number(notifData.kingsNotif ?? notifData.kingsnotif ?? 1);
+        let bNotif = Number(notifData.badgesNotif ?? notifData.badgesnotif ?? 1);
+
         if (rawId.includes('toggle_notif')) {
-            if (rawId.includes('daily')) notifData.dailyNotif = notifData.dailyNotif ? 0 : 1;
-            else if (rawId.includes('weekly')) notifData.weeklyNotif = notifData.weeklyNotif ? 0 : 1;
-            else if (rawId.includes('ach')) notifData.achievementsNotif = notifData.achievementsNotif ? 0 : 1;
-            else if (rawId.includes('level')) notifData.levelNotif = notifData.levelNotif ? 0 : 1;
-            else if (rawId.includes('kings')) notifData.kingsNotif = notifData.kingsNotif ? 0 : 1;
-            else if (rawId.includes('badges')) notifData.badgesNotif = notifData.badgesNotif ? 0 : 1;
+            if (rawId.includes('daily')) dNotif = dNotif === 1 ? 0 : 1;
+            else if (rawId.includes('weekly')) wNotif = wNotif === 1 ? 0 : 1;
+            else if (rawId.includes('ach')) aNotif = aNotif === 1 ? 0 : 1;
+            else if (rawId.includes('level')) lNotif = lNotif === 1 ? 0 : 1;
+            else if (rawId.includes('kings')) kNotif = kNotif === 1 ? 0 : 1;
+            else if (rawId.includes('badges')) bNotif = bNotif === 1 ? 0 : 1;
             
             try { 
-                await db.query(`UPDATE quest_notifications SET "dailyNotif"=$1, "weeklyNotif"=$2, "achievementsNotif"=$3, "levelNotif"=$4, "kingsNotif"=$5, "badgesNotif"=$6 WHERE "id"=$7`, [notifData.dailyNotif, notifData.weeklyNotif, notifData.achievementsNotif, notifData.levelNotif, notifData.kingsNotif, notifData.badgesNotif, id]);
-            } catch(e) {}
+                await db.query(`
+                    INSERT INTO quest_notifications ("id", "userID", "guildID", "dailyNotif", "weeklyNotif", "achievementsNotif", "levelNotif", "kingsNotif", "badgesNotif") 
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    ON CONFLICT("id") DO UPDATE SET 
+                    "dailyNotif" = EXCLUDED."dailyNotif", 
+                    "weeklyNotif" = EXCLUDED."weeklyNotif", 
+                    "achievementsNotif" = EXCLUDED."achievementsNotif", 
+                    "levelNotif" = EXCLUDED."levelNotif", 
+                    "kingsNotif" = EXCLUDED."kingsNotif", 
+                    "badgesNotif" = EXCLUDED."badgesNotif"
+                `, [id, userId, guildId, dNotif, wNotif, aNotif, lNotif, kNotif, bNotif]);
+            } catch(e) {
+                await db.query(`
+                    UPDATE quest_notifications 
+                    SET dailynotif=$1, weeklynotif=$2, achievementsnotif=$3, levelnotif=$4, kingsnotif=$5, badgesnotif=$6 
+                    WHERE id=$7
+                `, [dNotif, wNotif, aNotif, lNotif, kNotif, bNotif, id]).catch(()=>{});
+            }
         }
 
         const buffer = await generateNotificationControlPanel(i.member);
         const attachment = new AttachmentBuilder(buffer, { name: 'notification-panel.png' });
 
         const notifButtonsRow1 = new ActionRowBuilder().addComponents(
-            createNotifButton('المـهـام اليـوميـة', 'panel_toggle_notif_daily', notifData.dailyNotif),
-            createNotifButton('المـهـام الاسـبوعيـة', 'panel_toggle_notif_weekly', notifData.weeklyNotif),
-            createNotifButton('اشعـارات اللفـل', 'panel_toggle_notif_level', notifData.levelNotif)
+            createNotifButton('المـهـام اليـوميـة', 'panel_toggle_notif_daily', dNotif),
+            createNotifButton('المـهـام الاسـبوعيـة', 'panel_toggle_notif_weekly', wNotif),
+            createNotifButton('اشعـارات اللفـل', 'panel_toggle_notif_level', lNotif)
         );
         
         const notifButtonsRow2 = new ActionRowBuilder().addComponents(
-            createNotifButton('اشعـارات الانجـازات', 'panel_toggle_notif_ach', notifData.achievementsNotif),
-            createNotifButton('اشعـارات الاوسـمـة', 'panel_toggle_notif_badges', notifData.badgesNotif),
-            createNotifButton('اشعـارات الملـوك', 'panel_toggle_notif_kings', notifData.kingsNotif)
+            createNotifButton('اشعـارات الانجـازات', 'panel_toggle_notif_ach', aNotif),
+            createNotifButton('اشعـارات الاوسـمـة', 'panel_toggle_notif_badges', bNotif),
+            createNotifButton('اشعـارات الملـوك', 'panel_toggle_notif_kings', kNotif)
         );
 
         return i.editReply({ embeds: [], components: [notifButtonsRow1, notifButtonsRow2], files: [attachment] }).catch(()=>{});
@@ -285,7 +311,6 @@ async function handleQuestPanel(i, client, db) {
 
     let embeds = []; let files = []; let totalPages = 1; let data; let buttons = [];
 
-    // 🔥 تعديل: تمت إزالة منطق فحص الأزرار من هنا، اللوحة للعرض فقط 🔥
     if (section === 'daily') {
         data = await buildDailyEmbed(db, i.member, dailyStats, currentPage);
     } 
