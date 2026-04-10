@@ -1,55 +1,70 @@
 const { createCanvas, loadImage } = require('canvas'); 
 const { AttachmentBuilder } = require('discord.js');
+const path = require('path');
+const fs = require('fs');
 
-const FONT_MAIN = '"Cairo", "NotoEmoji"'; 
-const FONT_EMOJI = '"NotoEmoji"'; 
+// 🎨 إعدادات الخطوط
+const FONT_MAIN = '"Cairo", "Tahoma", sans-serif'; 
+const FONT_EMOJI = '"Noto Color Emoji", "Apple Color Emoji", sans-serif';
 
-const FONT_PAGE_TITLE = FONT_MAIN;
-const FONT_QUEST_TITLE = FONT_MAIN;
-const FONT_ACH_DESCRIPTION = FONT_MAIN;
-const FONT_COUNTDOWN = FONT_MAIN;
-const FONT_REWARDS = FONT_MAIN;
-const FONT_PROGRESS_TEXT = FONT_MAIN;
-
-const WEEKLY_COLOR = { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' };
-
-const COLOR_XP = '#349eeb'; 
-const COLOR_MORA = '#ebc934'; 
-const COLOR_REP = '#FFD700'; 
-
-const BASE_COLORS = {
-    background: '#1a1827', 
-    text: '#FFFFFF',
-    subText: '#B0B0B0',
-    hexBg: '#2a273b', 
+// 🌌 لوحة الألوان الأساسية
+const COLORS = {
+    bgDark: '#040508',         
+    bgLight: '#0d1326',        
+    textMain: '#ffffff',       
+    textMuted: '#9aa5c7',      
 };
 
-const EMOJI_MORA = 'M';
-const EMOJI_STAR = 'XP';
-const EMOJI_REP = 'REP';
-const PADDING = 20;
-const PAGE_MARGIN = 25;
-const CARD_WIDTH = 800;
-const CARD_HEIGHT = 180;
-const PAGE_WIDTH = CARD_WIDTH + (PAGE_MARGIN * 2);
+// 🔗 روابط الصور المرفوعة (Assets)
+const BASE_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/ui';
+const ASSETS = {
+    bg: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/wallpaper.png', 
+    mora: `${BASE_URL}/icon_mora.png`,
+    xp: `${BASE_URL}/icon_xp.png`,
+    rep: `${BASE_URL}/icon_rep.png`,
+    uncommon: `${BASE_URL}/Uncommon.png`,
+    rare: `${BASE_URL}/Rare.png`,
+    epic: `${BASE_URL}/Epic.png`,
+    legendary: `${BASE_URL}/Legendary.png`
+};
 
-function getEmojiUrl(emoji) {
-    if (!emoji) return null;
-    const customMatch = emoji.match(/<?(a)?:?(\w{2,32}):(\d{17,19})>?/);
-    if (customMatch) {
-        const ext = customMatch[1] ? 'gif' : 'png';
-        return `https://cdn.discordapp.com/emojis/${customMatch[3]}.${ext}`;
-    }
+// 🌌 أنواع الندرة وتوزيع الألوان المتوهجة المطابقة لها
+const RARITIES = [
+    { name: 'uncommon', color: '#00FF66', imgKey: 'uncommon' }, 
+    { name: 'rare', color: '#00E5FF', imgKey: 'rare' },         
+    { name: 'epic', color: '#B530FF', imgKey: 'epic' },         
+    { name: 'legendary', color: '#FFD700', imgKey: 'legendary' }
+];
+
+const PAGE_WIDTH = 950;
+const TIMELINE_X = 860; 
+const CARD_WIDTH = 750;
+const CARD_HEIGHT = 170;
+const CARD_X = 50; 
+const PADDING = 25;
+const PAGE_MARGIN = 40;
+
+let cachedAssets = null;
+
+// 🛡️ تحميل الصور بأمان (محلياً ثم عبر الرابط)
+async function loadSafeImage(fileName, url) {
     try {
-        if (/^[a-zA-Z0-9\s]+$/.test(emoji)) return null;
-        const codePoints = [...emoji]
-            .map(c => c.codePointAt(0).toString(16))
-            .filter(cp => cp !== 'fe0f') 
-            .join('-');
-        return `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${codePoints}.png`;
+        const localPath = path.join(process.cwd(), 'images', 'ui', fileName);
+        if (fs.existsSync(localPath)) return await loadImage(localPath);
+        return await loadImage(url);
     } catch (e) {
-        return null; 
+        console.error(`[Canvas Error] Failed to load ${fileName}:`, e.message);
+        return null;
     }
+}
+
+// 🛡️ تحويل الألوان
+function hexToRgba(hex, alpha) {
+    if (!hex) return `rgba(255, 255, 255, ${alpha})`;
+    let r = parseInt(hex.slice(1, 3), 16) || 0;
+    let g = parseInt(hex.slice(3, 5), 16) || 0;
+    let b = parseInt(hex.slice(5, 7), 16) || 0;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function getWeeklyResetCountdown() {
@@ -57,21 +72,26 @@ function getWeeklyResetCountdown() {
     const now = new Date();
     const nowUTC = now.getTime() + (now.getTimezoneOffset() * 60000);
     const nowKSA = new Date(nowUTC + (KSA_TIMEZONE_OFFSET * 60000));
-    const dayOfWeek = nowKSA.getUTCDay(); 
+    
+    // يوم التصفير الأسبوعي هو الجمعة (بتوقيت السعودية)
+    const dayOfWeek = nowKSA.getDay(); 
     const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+    
     const nextFriday = new Date(nowKSA);
     nextFriday.setDate(nowKSA.getDate() + daysUntilFriday);
     nextFriday.setHours(0, 0, 0, 0); 
+    
     if (daysUntilFriday === 0 && nowKSA.getTime() > nextFriday.getTime()) {
         nextFriday.setDate(nextFriday.getDate() + 7);
     }
+    
     const msRemaining = nextFriday.getTime() - nowKSA.getTime();
     const days = Math.floor(msRemaining / (1000 * 60 * 60 * 24));
     const hours = Math.floor((msRemaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    return `تتجدد خلال: ${days} ي و ${hours} س`;
+    return `تتجدد خلال: ${days}ي و ${hours}س`;
 }
 
-function drawRoundedRect(ctx, x, y, width, height, radius) { 
+function drawRoundedRect(ctx, x, y, width, height, radius) {
     ctx.beginPath();
     ctx.moveTo(x + radius, y);
     ctx.lineTo(x + width - radius, y);
@@ -85,204 +105,325 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
     ctx.closePath();
 }
 
-function drawProgressBar(ctx, x, y, width, height, progressPercent, colorStart, colorEnd) { 
-    ctx.save();
-    ctx.fillStyle = '#2c2f33';
-    drawRoundedRect(ctx, x, y, width, height, height / 2);
+function drawRewardChip(ctx, x, y, text, color, iconImg) {
+    ctx.font = `bold 16px ${FONT_MAIN}`;
+    const textWidth = ctx.measureText(text).width;
+    const iconSpace = iconImg ? 28 : 0;
+    const chipWidth = textWidth + iconSpace + 24;
+    const chipHeight = 30;
+
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = hexToRgba(color, 0.4);
+    ctx.fillStyle = hexToRgba(color, 0.15); 
+    drawRoundedRect(ctx, x, y, chipWidth, chipHeight, chipHeight / 2);
     ctx.fill();
-    if (progressPercent > 0) {
-        const progressGradient = ctx.createLinearGradient(x, 0, x + width, 0);
-        progressGradient.addColorStop(0, colorStart);
-        progressGradient.addColorStop(1, colorEnd);
-        ctx.fillStyle = progressGradient;
-        drawRoundedRect(ctx, x, y, width * progressPercent, height, height / 2);
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = hexToRgba(color, 0.7);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    const iconSize = 20;
+    const iconX = x + 8;
+    const iconY = y + (chipHeight - iconSize) / 2;
+    
+    if (iconImg) ctx.drawImage(iconImg, iconX, iconY, iconSize, iconSize);
+
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, iconImg ? iconX + iconSize + 6 : x + 12, y + (chipHeight / 2) + 1);
+
+    return chipWidth + 12; 
+}
+
+function getEmojiUrl(emoji) {
+    if (!emoji) return null;
+    const customMatch = emoji.match(/<?(a)?:?(\w{2,32}):(\d{17,19})>?/);
+    if (customMatch) {
+        const ext = customMatch[1] ? 'gif' : 'png';
+        return `https://cdn.discordapp.com/emojis/${customMatch[3]}.${ext}`;
+    }
+    try {
+        if (/^[a-zA-Z0-9\s]+$/.test(emoji)) return null;
+        const codePoints = [...emoji].map(c => c.codePointAt(0).toString(16)).filter(cp => cp !== 'fe0f').join('-');
+        return `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${codePoints}.png`;
+    } catch (e) { return null; }
+}
+
+async function drawQuestNode(ctx, centerY, questData, index, assets) {
+    const quest = questData?.quest || {};
+    const progressVal = Number(questData?.progress) || 0;
+    const goalVal = Number(quest?.goal) || 1;
+    const isDone = progressVal >= goalVal;
+    const percent = Math.min(1, Math.max(0, progressVal / goalVal));
+    
+    // 🔥 تخصيص الندرة والخلفية
+    const rarityInfo = RARITIES[index % RARITIES.length];
+    const cardColor = quest.color || rarityInfo.color;
+    const cardBgImage = assets[quest.rarity || rarityInfo.imgKey] || assets[rarityInfo.imgKey]; 
+
+    const cardY = centerY - (CARD_HEIGHT / 2);
+
+    ctx.save();
+
+    // 1. رسم خط الربط
+    ctx.beginPath();
+    ctx.moveTo(TIMELINE_X, centerY);
+    ctx.lineTo(CARD_X + CARD_WIDTH, centerY);
+    ctx.strokeStyle = hexToRgba(cardColor, 0.4);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 2. عقدة الطاقة (Node)
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = cardColor;
+    ctx.beginPath();
+    ctx.arc(TIMELINE_X, centerY, 14, 0, Math.PI * 2);
+    ctx.fillStyle = '#06080F';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = cardColor;
+    ctx.stroke();
+
+    if (isDone) {
+        ctx.beginPath();
+        ctx.arc(TIMELINE_X, centerY, 6, 0, Math.PI * 2);
+        ctx.fillStyle = cardColor;
         ctx.fill();
     }
-    ctx.restore();
-}
-
-function drawWavyBackground(ctx, x, y, width, height, color1, color2) { 
-    ctx.save();
-    drawRoundedRect(ctx, x, y, width, height, 15);
-    ctx.clip(); 
-    const gradient = ctx.createLinearGradient(x, y, x + width, y + height);
-    gradient.addColorStop(0, color1);
-    gradient.addColorStop(1, color2);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(x, y, width, height);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 5; i++) {
-        ctx.beginPath();
-        ctx.moveTo(x, y + (height / 5) * i);
-        for (let j = 0; j <= width; j += 20) {
-            const waveHeight = Math.sin((j / width) * Math.PI * 3 + i) * 10;
-            ctx.lineTo(x + j, y + (height / 5) * i + waveHeight);
-        }
-        ctx.stroke();
-    }
-    ctx.restore();
-}
-
-async function drawQuestCard(ctx, x, y, questData) {
-    const { quest, progress } = questData;
-    const isDone = progress >= quest.goal;
-    const percent = Math.min(1, Math.max(0, progress / quest.goal));
-
-    const rarityColors = WEEKLY_COLOR; 
-
-    ctx.save();
-
-    drawWavyBackground(ctx, x, y, CARD_WIDTH, CARD_HEIGHT, BASE_COLORS.background, '#11101a');
-
-    ctx.strokeStyle = rarityColors.highlight;
-    ctx.shadowColor = rarityColors.highlight;
-    ctx.shadowBlur = isDone ? 20 : 10;
-    ctx.lineWidth = 3;
-    drawRoundedRect(ctx, x, y, CARD_WIDTH, CARD_HEIGHT, 15);
-    ctx.stroke();
-
-    ctx.strokeStyle = rarityColors.glow;
-    ctx.shadowColor = rarityColors.glow;
-    ctx.shadowBlur = isDone ? 10 : 5;
-    ctx.lineWidth = 1;
-    drawRoundedRect(ctx, x + 3, y + 3, CARD_WIDTH - 6, CARD_HEIGHT - 6, 12);
-    ctx.stroke();
-    ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
 
-    const hexRadius = 55;
-    const hexX = x + PADDING + hexRadius;
-    const hexY = y + CARD_HEIGHT / 2;
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-        ctx.lineTo(hexX + hexRadius * Math.cos(Math.PI / 3 * i), hexY + hexRadius * Math.sin(Math.PI / 3 * i));
+    // 3. البطاقة (حصر الصورة كخلفية - Texturing)
+    ctx.save(); 
+    drawRoundedRect(ctx, CARD_X, cardY, CARD_WIDTH, CARD_HEIGHT, 18);
+    ctx.clip(); 
+
+    if (cardBgImage) {
+        ctx.drawImage(cardBgImage, CARD_X, cardY, CARD_WIDTH, CARD_HEIGHT);
+        ctx.fillStyle = isDone ? 'rgba(26, 22, 12, 0.4)' : 'rgba(10, 12, 20, 0.7)';
+        ctx.fillRect(CARD_X, cardY, CARD_WIDTH, CARD_HEIGHT);
+    } else {
+        const cardGradient = ctx.createLinearGradient(CARD_X, cardY, CARD_X, cardY + CARD_HEIGHT);
+        cardGradient.addColorStop(0, 'rgba(28, 34, 56, 0.95)'); 
+        cardGradient.addColorStop(1, 'rgba(16, 20, 32, 0.95)');
+        ctx.fillStyle = cardGradient;
+        ctx.fill();
     }
-    ctx.closePath();
-    ctx.fillStyle = BASE_COLORS.hexBg;
+    
+    ctx.fillStyle = hexToRgba(cardColor, 0.08);
+    ctx.beginPath(); ctx.arc(CARD_X + CARD_WIDTH, cardY, 150, 0, Math.PI * 2); ctx.fill();
+    
+    ctx.restore(); 
+
+    // رسم إطار البطاقة والتوهج
+    ctx.save();
+    drawRoundedRect(ctx, CARD_X, cardY, CARD_WIDTH, CARD_HEIGHT, 18);
+    ctx.strokeStyle = isDone ? cardColor : hexToRgba(cardColor, 0.5);
+    ctx.lineWidth = isDone ? 2.5 : 1.5;
+    if (isDone) {
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = hexToRgba(cardColor, 0.8);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    // 4. الأيقونة الكوكبية
+    const iconRadius = 38;
+    const iconX = CARD_X + CARD_WIDTH - PADDING - iconRadius;
+    const iconY = cardY + PADDING + iconRadius - 5;
+
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = cardColor;
+    ctx.beginPath();
+    ctx.arc(iconX, iconY, iconRadius, 0, Math.PI * 2);
+    ctx.fillStyle = '#0a0d16'; 
     ctx.fill();
-    ctx.strokeStyle = rarityColors.frame;
-    ctx.lineWidth = 3;
+    
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = cardColor;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(iconX, iconY, iconRadius - 6, 0, Math.PI * 2);
+    ctx.strokeStyle = hexToRgba(cardColor, 0.4);
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
     try {
-        const emojiStr = quest.emoji || '📅'; 
-        const emojiUrl = getEmojiUrl(emojiStr);
-
+        const emojiUrl = getEmojiUrl(quest.emoji);
         if (emojiUrl) {
             const img = await loadImage(emojiUrl);
-            ctx.drawImage(img, hexX - 30, hexY - 30, 60, 60);
+            ctx.drawImage(img, iconX - 24, iconY - 24, 48, 48); 
         } else {
-            ctx.font = `60px ${FONT_EMOJI}`; 
+            ctx.font = `34px ${FONT_EMOJI}`; 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle = BASE_COLORS.text;
-            ctx.fillText(emojiStr, hexX, hexY);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(quest.emoji || '📅', iconX, iconY + 3);
         }
     } catch (err) {}
 
-    const textX = hexX + hexRadius + PADDING;
-    const textRightX = x + CARD_WIDTH - PADDING;
-    const barWidth = (x + CARD_WIDTH - PADDING) - textX;
+    // 5. النصوص
+    const textRightEdge = iconX - iconRadius - PADDING;
 
-    ctx.fillStyle = isDone ? rarityColors.glow : BASE_COLORS.text;
-    ctx.font = `bold 32px ${FONT_QUEST_TITLE}`;
-    ctx.textAlign = 'left';
+    ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText(quest.name, textX, y + PADDING);
+
+    ctx.fillStyle = isDone ? cardColor : '#ffffff';
+    ctx.font = `bold 24px ${FONT_MAIN}`;
+    ctx.fillText(quest.name || 'مهمة مجهولة', textRightEdge, cardY + PADDING);
 
     if (quest.description) {
-        ctx.fillStyle = BASE_COLORS.subText;
-        ctx.font = `18px ${FONT_ACH_DESCRIPTION}`;
-        ctx.textAlign = 'left';
-        ctx.fillText(quest.description, textX, y + PADDING + 45); 
+        ctx.fillStyle = '#c2cadb';
+        ctx.font = `16px ${FONT_MAIN}`;
+        ctx.fillText(quest.description, textRightEdge, cardY + PADDING + 34); 
     }
 
-    ctx.textAlign = 'right'; 
-    const rewardY = y + 65; 
-    let currentRewardX = textRightX;
+    // 6. المكافآت مع الأيقونات
+    const rewardsY = cardY + PADDING + 64;
+    let currentChipLeft = CARD_X + PADDING; 
 
-    ctx.font = `bold 20px ${FONT_ACH_DESCRIPTION}`; 
+    const moraReward = Number(quest?.reward?.mora) || 0;
+    const xpReward = Number(quest?.reward?.xp) || 0;
+    const repReward = Number(quest?.repReward) || 0;
 
-    ctx.fillStyle = COLOR_XP; 
-    const xpText = `${quest.reward.xp.toLocaleString()}`;
-    const xpTextWidth = ctx.measureText(xpText).width;
-    ctx.fillText(xpText, currentRewardX - 25, rewardY); 
-    ctx.fillText(EMOJI_STAR, currentRewardX, rewardY); 
-
-    currentRewardX -= (xpTextWidth + 40);
-
-    ctx.fillStyle = COLOR_MORA; 
-    const moraText = `${quest.reward.mora.toLocaleString()}`;
-    const moraTextWidth = ctx.measureText(moraText).width;
-    ctx.fillText(moraText, currentRewardX - 25, rewardY); 
-    ctx.fillText(EMOJI_MORA, currentRewardX, rewardY);
-
-    currentRewardX -= (moraTextWidth + 40);
-
-    if (quest.repReward && quest.repReward > 0) {
-        ctx.fillStyle = COLOR_REP; 
-        const repText = `${quest.repReward.toLocaleString()}`;
-        ctx.fillText(repText, currentRewardX - 45, rewardY); 
-        ctx.fillText(EMOJI_REP, currentRewardX, rewardY);
+    if (moraReward > 0) {
+        currentChipLeft += drawRewardChip(ctx, currentChipLeft, rewardsY, `${moraReward.toLocaleString()}`, '#FFD700', assets.mora);
+    }
+    if (xpReward > 0) {
+        currentChipLeft += drawRewardChip(ctx, currentChipLeft, rewardsY, `${xpReward.toLocaleString()}`, '#00E5FF', assets.xp);
+    }
+    if (repReward > 0) {
+        currentChipLeft += drawRewardChip(ctx, currentChipLeft, rewardsY, `+${repReward.toLocaleString()}`, '#B530FF', assets.rep);
     }
 
-    const barY = y + 103; 
-    drawProgressBar(ctx, textX, barY, barWidth, 15, percent, rarityColors.highlight, rarityColors.glow);
+    // 7. شريط ليزر التقدم
+    const barHeight = 12;
+    const barWidth = CARD_WIDTH - (PADDING * 2);
+    const barX = CARD_X + PADDING;
+    const barY = cardY + CARD_HEIGHT - PADDING - barHeight + 8;
 
-    ctx.fillStyle = BASE_COLORS.subText;
-    ctx.font = `18px ${FONT_ACH_DESCRIPTION}`;
-    ctx.textAlign = 'left';
-    const progressText = `التقدم: ${progress.toLocaleString()} / ${quest.goal.toLocaleString()}`;
-    ctx.fillText(progressText, textX, barY + 25); 
+    ctx.fillStyle = '#c2cadb';
+    ctx.font = `bold 14px ${FONT_MAIN}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`${progressVal.toLocaleString()} / ${goalVal.toLocaleString()}`, barX + barWidth, barY - 6);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; 
+    drawRoundedRect(ctx, barX, barY, barWidth, barHeight, barHeight/2);
+    ctx.fill();
+
+    if (percent > 0) {
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = cardColor;
+        ctx.fillStyle = cardColor;
+        drawRoundedRect(ctx, barX, barY, barWidth * percent, barHeight, barHeight/2);
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(barX + (barWidth * percent), barY + (barHeight/2), 7, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = percent > 0.5 ? '#ffffff' : cardColor;
+    ctx.font = `bold 11px ${FONT_MAIN}`;
+    ctx.fillText(`${Math.floor(percent * 100)}%`, barX + (barWidth / 2), barY + (barHeight / 2) + 1);
 
     ctx.restore();
 }
 
+async function loadAssets() {
+    if (cachedAssets) return cachedAssets;
+    
+    const [bg, mora, xp, rep, uncommon, rare, epic, legendary] = await Promise.all([
+        loadSafeImage('wallpaper.png', ASSETS.bg),
+        loadSafeImage('icon_mora.png', ASSETS.mora),
+        loadSafeImage('icon_xp.png', ASSETS.xp),
+        loadSafeImage('icon_rep.png', ASSETS.rep),
+        loadSafeImage('Uncommon.png', ASSETS.uncommon),
+        loadSafeImage('Rare.png', ASSETS.rare),
+        loadSafeImage('Epic.png', ASSETS.epic),
+        loadSafeImage('Legendary.png', ASSETS.legendary)
+    ]);
+
+    cachedAssets = { bg, mora, xp, rep, uncommon, rare, epic, legendary };
+    return cachedAssets;
+}
+
 async function generateWeeklyQuestsImage(member, questsData, page = 1) {
-    const perPage = 4; 
-    const totalPages = Math.ceil(questsData.length / perPage) || 1;
-    page = Math.max(1, Math.min(page, totalPages)); 
+    try {
+        const assets = await loadAssets();
 
-    const start = (page - 1) * perPage;
-    const end = start + perPage;
-    const questsToShow = questsData.slice(start, end); 
+        const perPage = 4; 
+        const totalPages = Math.ceil(questsData.length / perPage) || 1;
+        page = Math.max(1, Math.min(page, totalPages)); 
 
-    const pageHeight = (CARD_HEIGHT + PADDING) * questsToShow.length + (PAGE_MARGIN * 2) + 80;
+        const start = (page - 1) * perPage;
+        const end = start + perPage;
+        const questsToShow = questsData.slice(start, end); 
 
-    const canvas = createCanvas(PAGE_WIDTH, pageHeight);
-    const ctx = canvas.getContext('2d');
+        const pageHeight = Math.max(180 + (CARD_HEIGHT + 30) * questsToShow.length, 450);
 
-    ctx.fillStyle = BASE_COLORS.background;
-    ctx.fillRect(0, 0, PAGE_WIDTH, pageHeight);
+        const canvas = createCanvas(PAGE_WIDTH, pageHeight);
+        const ctx = canvas.getContext('2d');
 
-    const avatarSize = 60; 
-    const avatarY = PAGE_MARGIN;
-     
-    ctx.fillStyle = BASE_COLORS.text;
-    ctx.font = `bold 36px ${FONT_PAGE_TITLE}`; 
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`المهام الأسبوعية لـ ${member.displayName}`, PAGE_MARGIN + PADDING, avatarY + avatarSize / 2);
+        if (assets.bg) {
+            ctx.drawImage(assets.bg, 0, 0, PAGE_WIDTH, pageHeight);
+            ctx.fillStyle = 'rgba(4, 5, 8, 0.5)'; 
+            ctx.fillRect(0, 0, PAGE_WIDTH, pageHeight);
+        } else {
+            const bgGradient = ctx.createLinearGradient(0, 0, PAGE_WIDTH, pageHeight);
+            bgGradient.addColorStop(0, '#040508');
+            bgGradient.addColorStop(1, '#0d1326');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, PAGE_WIDTH, pageHeight);
+        }
 
-    ctx.fillStyle = BASE_COLORS.subText;
-    ctx.font = `24px ${FONT_COUNTDOWN}`; 
-    ctx.textAlign = 'right';
-     
-    ctx.fillText(`صفحة ${page}/${totalPages}`, PAGE_WIDTH - PAGE_MARGIN - PADDING, avatarY + 15);
+        const headerY = 60;
+        const mName = member?.displayName || member?.user?.username || 'مغامر';
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold 38px ${FONT_MAIN}`; 
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`المهام الأسبوعية لـ ${mName}`, PAGE_WIDTH - PAGE_MARGIN, headerY);
 
-    const countdownText = getWeeklyResetCountdown();
-    ctx.fillText(countdownText, PAGE_WIDTH - PAGE_MARGIN - PADDING, avatarY + 45);
+        ctx.fillStyle = '#c2cadb';
+        ctx.font = `18px ${FONT_MAIN}`; 
+        ctx.textAlign = 'left';
+        const countdownText = getWeeklyResetCountdown();
+        ctx.fillText(`[ ${countdownText}  |  صفحة ${page}/${totalPages} ]`, PAGE_MARGIN, headerY);
 
-    let currentY = PAGE_MARGIN + 80;
-    for (const data of questsToShow) { 
-        await drawQuestCard(ctx, PAGE_MARGIN, currentY, data);
-        currentY += CARD_HEIGHT + PADDING;
+        const startTimelineY = headerY + 60;
+        const endTimelineY = pageHeight - 40;
+        
+        ctx.beginPath();
+        ctx.moveTo(TIMELINE_X, startTimelineY);
+        ctx.lineTo(TIMELINE_X, endTimelineY);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        let currentCenterY = startTimelineY + (CARD_HEIGHT / 2) + 10;
+        
+        for (let i = 0; i < questsToShow.length; i++) { 
+            await drawQuestNode(ctx, currentCenterY, questsToShow[i], i, assets);
+            currentCenterY += CARD_HEIGHT + 30; 
+        }
+
+        const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `weekly-quests-${member?.id || 'user'}-p${page}.png` });
+
+        return { attachment, totalPages };
+    } catch (err) {
+        console.error("[generateWeeklyQuestsImage Error]:", err);
+        throw err;
     }
-
-    const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `weekly-quests-${member.id}-p${page}.png` });
-
-    return { attachment, totalPages };
 }
 
 module.exports = {
