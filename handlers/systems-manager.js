@@ -1,7 +1,12 @@
 const { EmbedBuilder, PermissionsBitField, AttachmentBuilder } = require("discord.js");
 const questsConfig = require('../json/quests-config.json');
 const announcementsTexts = require('../json/announcements-texts.js');
-const { generateLevelUpCard } = require('../generators/levelup-card-generator');
+
+let generateLevelUpCard;
+try { ({ generateLevelUpCard } = require('../generators/levelup-card-generator')); } catch(e) {}
+
+let addXPAndCheckLevel;
+try { ({ addXPAndCheckLevel } = require('./handler-utils.js')); } catch(e) {}
 
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
@@ -23,7 +28,7 @@ module.exports = (client, db) => {
 
             if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
 
-            const allLevelRolesConfigRes = await db.query(`SELECT "level", "roleID" FROM level_roles WHERE "guildID" = $1 ORDER BY "level" DESC`, [guild.id]);
+            const allLevelRolesConfigRes = await db.query(`SELECT "level", "roleID" FROM level_roles WHERE "guildID" = $1 ORDER BY "level" DESC`, [guild.id]).catch(()=>({rows:[]}));
             const allLevelRolesConfig = allLevelRolesConfigRes.rows;
             if (allLevelRolesConfig.length === 0) return;
 
@@ -65,13 +70,13 @@ module.exports = (client, db) => {
             await client.checkAndAwardLevelRoles(member, newLevel);
             const guild = member.guild;
             
-            const customSettingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]);
+            const customSettingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]).catch(()=>({rows:[]}));
             let customSettings = customSettingsRes.rows[0] || {};
             
             let channelToSend = null;
               
             try {
-                let channelDataRes = await db.query(`SELECT "channel" FROM channel WHERE "guild" = $1`, [guild.id]);
+                let channelDataRes = await db.query(`SELECT "channel" FROM channel WHERE "guild" = $1`, [guild.id]).catch(()=>({rows:[]}));
                 let channelData = channelDataRes.rows[0];
                 if (channelData && channelData.channel && channelData.channel !== 'Default') {
                     const fetchedChannel = guild.channels.cache.get(channelData.channel);
@@ -152,7 +157,7 @@ module.exports = (client, db) => {
             
             const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`; 
             
-            const settingsRes = await db.query(`SELECT "questChannelID", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [guild.id]); 
+            const settingsRes = await db.query(`SELECT "questChannelID", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [guild.id]).catch(()=>({rows:[]})); 
             const settings = settingsRes.rows[0]; 
             const qChannel = settings ? settings.questChannelID : null;
             if (!qChannel) return; 
@@ -163,7 +168,7 @@ module.exports = (client, db) => {
             
             const canAttachFiles = perms.has(PermissionsBitField.Flags.AttachFiles); 
             const questName = quest.name; 
-            const reward = quest.reward; 
+            const reward = quest.reward || { mora: 0, xp: 0 }; 
             let message = ''; 
             let files = []; 
             const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` <:mora:1435647151349698621> | XP: \`${reward.xp.toLocaleString()}\` <a:levelup:1437805366048985290>`; 
@@ -177,11 +182,15 @@ module.exports = (client, db) => {
                     if (questType === 'achievement') { 
                         const userAvatar = member.user.displayAvatarURL({ extension: 'png', size: 256 });
                         const userName = member.displayName || member.user.username;
-                        const buffer = await client.generateAchievementCard(userAvatar, userName, quest.name, quest.description, quest.reward.mora, quest.reward.xp, quest.repReward || 0);
-                        attachment = new AttachmentBuilder(buffer, { name: 'achievement.png' });
+                        if(client.generateAchievementCard) {
+                            const buffer = await client.generateAchievementCard(userAvatar, userName, quest.name, quest.description, quest.reward.mora, quest.reward.xp, quest.repReward || 0);
+                            attachment = new AttachmentBuilder(buffer, { name: 'achievement.png' });
+                        }
                     } else { 
                         const typeForAlert = questType === 'weekly' ? 'rare' : 'daily'; 
-                        attachment = await client.generateQuestAlert(member, quest, typeForAlert); 
+                        if(client.generateQuestAlert) {
+                            attachment = await client.generateQuestAlert(member, quest, typeForAlert); 
+                        }
                     } 
                     if(attachment) files.push(attachment); 
                 } catch (imgErr) {} 
@@ -200,21 +209,21 @@ module.exports = (client, db) => {
             const currentProgress = stats[quest.stat] || 0;
             if (currentProgress >= quest.goal) {
                 const claimID = `${member.id}-${member.guild.id}-${quest.id}-${dateKey}`;
-                const existingClaimRes = await db.query(`SELECT * FROM user_quest_claims WHERE "claimID" = $1`, [claimID]);
+                const existingClaimRes = await db.query(`SELECT * FROM user_quest_claims WHERE "claimID" = $1`, [claimID]).catch(()=>({rows:[]}));
                 const existingClaim = existingClaimRes.rows[0];
+                
                 if (!existingClaim) {
-                    await db.query(`INSERT INTO user_quest_claims ("claimID", "userID", "guildID", "questID", "dateStr") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("claimID") DO NOTHING`, [claimID, member.id, member.guild.id, quest.id, dateKey]);
-                    let levelData = await client.getLevel(member.id, member.guild.id);
-                    if (!levelData) levelData = { ...client.defaultData, user: member.id, guild: member.guild.id };
-                    levelData.mora = (Number(levelData.mora) || 0) + quest.reward.mora;
-                    levelData.xp = (Number(levelData.xp) || 0) + quest.reward.xp;
-                    levelData.totalXP = (Number(levelData.totalXP) || 0) + quest.reward.xp;
-                    const nextXP = 5 * (levelData.level ** 2) + (50 * levelData.level) + 100;
-                    if (levelData.xp >= nextXP) {
-                        levelData.xp -= nextXP;
-                        levelData.level += 1;
+                    await db.query(`INSERT INTO user_quest_claims ("claimID", "userID", "guildID", "questID", "dateStr") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("claimID") DO NOTHING`, [claimID, member.id, member.guild.id, quest.id, dateKey]).catch(()=>{});
+                    
+                    // 🔥 تسليم الجائزة فوراً باستخدام دالة addXPAndCheckLevel الآمنة 🔥
+                    if (addXPAndCheckLevel) {
+                        await addXPAndCheckLevel(client, member, db, quest.reward.xp, quest.reward.mora, false);
                     }
-                    await client.setLevel(levelData);
+                    
+                    if (quest.repReward && quest.repReward > 0) {
+                        await db.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3) ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = COALESCE(user_reputation."rep_points", 0) + $4`, [member.id, member.guild.id, quest.repReward, quest.repReward]).catch(()=>{});
+                    }
+
                     await client.sendQuestAnnouncement(member.guild, member, quest, questType);
                     newlyCompleted++;
                 }
@@ -222,18 +231,18 @@ module.exports = (client, db) => {
         }
 
         if (newlyCompleted > 0 && questsToCheck.length > 0) {
-            const countDataRes = await db.query(`SELECT COUNT(*) as cnt FROM user_quest_claims WHERE "userID" = $1 AND "guildID" = $2 AND "dateStr" = $3`, [member.id, member.guild.id, dateKey]);
+            const countDataRes = await db.query(`SELECT COUNT(*) as cnt FROM user_quest_claims WHERE "userID" = $1 AND "guildID" = $2 AND "dateStr" = $3`, [member.id, member.guild.id, dateKey]).catch(()=>({rows:[]}));
             const countData = countDataRes.rows[0];
             const completedCount = countData ? Number(countData.cnt) : 0;
             const threshold = Math.max(1, questsToCheck.length - 1); 
 
             if (completedCount >= threshold) {
-                const settingsRes = await db.query(`SELECT "questChannelID", "roleDailyBadge", "roleWeeklyBadge", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [member.guild.id]);
+                const settingsRes = await db.query(`SELECT "questChannelID", "roleDailyBadge", "roleWeeklyBadge", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [member.guild.id]).catch(()=>({rows:[]}));
                 const settings = settingsRes.rows[0];
                 const qChannel = settings ? settings.questChannelID : null;
                 const announceChannel = qChannel ? member.guild.channels.cache.get(qChannel) : null;
                 
-                const notifSettingsRes = await db.query(`SELECT "badgesNotif" FROM quest_notifications WHERE "id" = $1`, [`${member.id}-${member.guild.id}`]);
+                const notifSettingsRes = await db.query(`SELECT "badgesNotif" FROM quest_notifications WHERE "id" = $1`, [`${member.id}-${member.guild.id}`]).catch(()=>({rows:[]}));
                 const notifSettings = notifSettingsRes.rows[0];
                 const bNotif = notifSettings ? notifSettings.badgesNotif : 1;
                 
@@ -243,12 +252,12 @@ module.exports = (client, db) => {
                 if (questType === 'daily') {
                     try { await db.query(`ALTER TABLE user_daily_stats ADD COLUMN IF NOT EXISTS "daily_badge_given" BIGINT DEFAULT 0`); } catch(e){}
                     const dailyId = `${member.id}-${member.guild.id}-${dateKey}`;
-                    const dailyDataRes = await db.query(`SELECT "daily_badge_given" FROM user_daily_stats WHERE "id" = $1`, [dailyId]);
+                    const dailyDataRes = await db.query(`SELECT "daily_badge_given" FROM user_daily_stats WHERE "id" = $1`, [dailyId]).catch(()=>({rows:[]}));
                     const dailyData = dailyDataRes.rows[0];
                     const dBadgeGiven = dailyData ? Number(dailyData.daily_badge_given) : 0;
 
                     if (dBadgeGiven === 0) {
-                        await db.query(`UPDATE user_daily_stats SET "daily_badge_given" = 1 WHERE "id" = $1`, [dailyId]);
+                        await db.query(`UPDATE user_daily_stats SET "daily_badge_given" = 1 WHERE "id" = $1`, [dailyId]).catch(()=>{});
                         const rDailyBadge = settings ? settings.roleDailyBadge : null;
                         if (rDailyBadge) member.roles.add(rDailyBadge).catch(()=>{});
 
@@ -269,12 +278,12 @@ module.exports = (client, db) => {
                 else if (questType === 'weekly') {
                     try { await db.query(`ALTER TABLE user_weekly_stats ADD COLUMN IF NOT EXISTS "weekly_badge_given" BIGINT DEFAULT 0`); } catch(e){}
                     const weeklyId = `${member.id}-${member.guild.id}-${dateKey}`;
-                    const weeklyDataRes = await db.query(`SELECT "weekly_badge_given" FROM user_weekly_stats WHERE "id" = $1`, [weeklyId]);
+                    const weeklyDataRes = await db.query(`SELECT "weekly_badge_given" FROM user_weekly_stats WHERE "id" = $1`, [weeklyId]).catch(()=>({rows:[]}));
                     const weeklyData = weeklyDataRes.rows[0];
                     const wBadgeGiven = weeklyData ? Number(weeklyData.weekly_badge_given) : 0;
 
                     if (wBadgeGiven === 0) {
-                        await db.query(`UPDATE user_weekly_stats SET "weekly_badge_given" = 1 WHERE "id" = $1`, [weeklyId]);
+                        await db.query(`UPDATE user_weekly_stats SET "weekly_badge_given" = 1 WHERE "id" = $1`, [weeklyId]).catch(()=>{});
                         const rWeeklyBadge = settings ? settings.roleWeeklyBadge : null;
                         if (rWeeklyBadge) member.roles.add(rWeeklyBadge).catch(()=>{});
 
@@ -297,59 +306,11 @@ module.exports = (client, db) => {
     }
 
     client.checkAchievements = async function(client, member, levelData, totalStatsData) {
-        for (const ach of questsConfig.achievements) {
-            let currentProgress = 0;
-            const streakDataRes = await db.query(`SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, [member.guild.id, member.id]);
-            const streakData = streakDataRes.rows[0];
-            
-            const mediaStreakDataRes = await db.query(`SELECT * FROM media_streaks WHERE "guildID" = $1 AND "userID" = $2`, [member.guild.id, member.id]);
-            const mediaStreakData = mediaStreakDataRes.rows[0];
-              
-            if (!totalStatsData) totalStatsData = await client.getTotalStats(`${member.id}-${member.guild.id}`) || {};
-            totalStatsData = client.safeMerge(totalStatsData, defaultTotalStats); 
-
-            if (ach.stat === 'messages' || ach.stat === 'total_messages') currentProgress = totalStatsData.total_messages || 0;
-            else if (ach.stat === 'images') currentProgress = totalStatsData.total_images || 0;
-            else if (ach.stat === 'stickers') currentProgress = totalStatsData.total_stickers || 0;
-            else if (ach.stat === 'emojis_sent') currentProgress = totalStatsData.total_emojis_sent || 0; 
-            else if (ach.stat === 'reactions_added' || ach.stat === 'total_reactions_added') currentProgress = totalStatsData.total_reactions_added || 0;
-            else if (ach.stat === 'replies_sent') currentProgress = totalStatsData.total_replies_sent || 0;
-            else if (ach.stat === 'vc_minutes' || ach.stat === 'totalVCTime') currentProgress = totalStatsData.total_vc_minutes || 0;
-            else if (ach.stat === 'disboard_bumps') currentProgress = totalStatsData.total_disboard_bumps || 0;
-            else if (ach.stat === 'topgg_votes') currentProgress = totalStatsData.total_topgg_votes || 0;
-            else if (ach.stat === 'meow_count' || ach.stat === 'total_meow_count') {
-                 let ld = levelData || await client.getLevel(member.id, member.guild.id);
-                 currentProgress = ld ? (Number(ld.total_meow_count) || 0) : 0;
-            }
-            else if (ach.stat === 'boost_count') {
-                 let ld = levelData || await client.getLevel(member.id, member.guild.id);
-                 currentProgress = ld ? (Number(ld.boost_count) || 0) : 0;
-            }
-            else if (levelData && levelData.hasOwnProperty(ach.stat)) currentProgress = levelData[ach.stat];
-            else if (totalStatsData.hasOwnProperty(ach.stat)) currentProgress = totalStatsData[ach.stat];
-            else if (ach.stat === 'highestStreak' && streakData) currentProgress = Number(streakData.highestStreak) || 0;
-            else if (ach.stat === 'highestMediaStreak' && mediaStreakData) currentProgress = Number(mediaStreakData.highestStreak) || 0;
-            else if (streakData && streakData.hasOwnProperty(ach.stat)) currentProgress = streakData[ach.stat];
-            else {
-                 if (['has_caesar_role', 'has_race_role', 'has_tree_role', 'has_tag_role'].includes(ach.stat)) continue;
-                continue;
-            }
-
-            if (currentProgress >= ach.goal) {
-                const existingAchRes = await db.query(`SELECT * FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2 AND "achievementID" = $3`, [member.id, member.guild.id, ach.id]);
-                const existingAch = existingAchRes.rows[0];
-                if (!existingAch) {
-                    await db.query(`INSERT INTO user_achievements ("userID", "guildID", "achievementID", "timestamp") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "achievementID") DO NOTHING`, [member.id, member.guild.id, ach.id, Date.now()]);
-                    let ld = levelData || await client.getLevel(member.id, member.guild.id);
-                    if (!ld) ld = { ...client.defaultData, user: member.id, guild: member.guild.id };
-                    ld.mora = (Number(ld.mora) || 0) + ach.reward.mora;
-                    ld.xp = (Number(ld.xp) || 0) + ach.reward.xp;
-                    ld.totalXP = (Number(ld.totalXP) || 0) + ach.reward.xp;
-                    await client.setLevel(ld);
-                    await client.sendQuestAnnouncement(member.guild, member, ach, 'achievement');
-                }
-            }
-        }
+        // 🔥 توجيه الفحص إلى الملف المخصص achievements-utils.js لضمان الجوائز التلقائية 🔥
+        try {
+            const { checkAchievements } = require('../achievements-utils.js');
+            await checkAchievements(client, member, levelData, totalStatsData);
+        } catch (e) { console.error("Error redirecting to achievements-utils:", e); }
     }
 
     const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000;
@@ -421,7 +382,7 @@ module.exports = (client, db) => {
             const guildID = member.guild.id;
             const userID = member.id;
             
-            const existingAchRes = await db.query(`SELECT * FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2 AND "achievementID" = $3`, [userID, guildID, achievementId]);
+            const existingAchRes = await db.query(`SELECT * FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2 AND "achievementID" = $3`, [userID, guildID, achievementId]).catch(()=>({rows:[]}));
             const existingAch = existingAchRes.rows[0];
             
             const ach = questsConfig.achievements.find(a => a.id === achievementId);
@@ -429,7 +390,7 @@ module.exports = (client, db) => {
             
             let hasRole = false;
             if (achievementId === 'ach_race_role') {
-                const raceRolesRes = await db.query(`SELECT "roleID" FROM race_roles WHERE "guildID" = $1`, [guildID]);
+                const raceRolesRes = await db.query(`SELECT "roleID" FROM race_roles WHERE "guildID" = $1`, [guildID]).catch(()=>({rows:[]}));
                 const raceRoles = raceRolesRes.rows;
                 const raceRoleIDs = raceRoles.map(r => r.roleID);
                 hasRole = member.roles.cache.some(role => raceRoleIDs.includes(role.id));
@@ -437,13 +398,17 @@ module.exports = (client, db) => {
             
             if (hasRole) {
                 if (existingAch) return; 
-                await db.query(`INSERT INTO user_achievements ("userID", "guildID", "achievementID", "timestamp") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "achievementID") DO NOTHING`, [userID, guildID, ach.id, Date.now()]);
-                let ld = await client.getLevel(userID, guildID);
-                if (!ld) ld = { ...client.defaultData, user: userID, guild: guildID };
-                ld.mora = (Number(ld.mora) || 0) + ach.reward.mora;
-                ld.xp = (Number(ld.xp) || 0) + ach.reward.xp;
-                ld.totalXP = (Number(ld.totalXP) || 0) + ach.reward.xp;
-                await client.setLevel(ld);
+                await db.query(`INSERT INTO user_achievements ("userID", "guildID", "achievementID", "timestamp") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "achievementID") DO NOTHING`, [userID, guildID, ach.id, Date.now()]).catch(()=>{});
+                
+                // 🔥 تسليم الجائزة التلقائي 🔥
+                if (addXPAndCheckLevel) {
+                    await addXPAndCheckLevel(client, member, db, ach.reward.xp, ach.reward.mora, false);
+                }
+                
+                if (ach.repReward && ach.repReward > 0) {
+                     await db.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3) ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = COALESCE(user_reputation."rep_points", 0) + $4`, [member.id, member.guild.id, ach.repReward, ach.repReward]).catch(()=>{});
+                }
+                
                 await client.sendQuestAnnouncement(member.guild, member, ach, 'achievement');
             } 
         } catch (err) {}
