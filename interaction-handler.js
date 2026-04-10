@@ -108,7 +108,9 @@ module.exports = (client, db, antiRolesCache) => {
                 let isAllowed = false;
                 if (i.member.permissions.has(PermissionsBitField.Flags.Administrator)) isAllowed = true;
                 else {
-                    const settings = db.prepare("SELECT casinoChannelID, casinoChannelID2 FROM settings WHERE guild = ?").get(i.guild.id);
+                    let settings = null;
+                    try { settings = db.prepare("SELECT casinoChannelID, casinoChannelID2 FROM settings WHERE guild = ?").get(i.guild.id); } catch(e){}
+                    
                     if (settings && ((settings.casinoChannelID === i.channel.id) || (settings.casinoChannelID2 === i.channel.id)) && command.category === 'Economy') {
                         isAllowed = true;
                     } else {
@@ -161,21 +163,24 @@ module.exports = (client, db, antiRolesCache) => {
 
                 if (id.startsWith('notify_afk_')) {
                     const targetID = id.split('_')[2];
-                    const afkData = db.prepare("SELECT * FROM afk WHERE userID = ? AND guildID = ?").get(targetID, i.guild.id);
+                    let afkData = null;
+                    try { afkData = db.prepare("SELECT * FROM afk WHERE userID = ? AND guildID = ?").get(targetID, i.guild.id); } catch(e){}
 
                     if (!afkData) return i.reply({ content: "❌ هذا الشخص عاد بالفعل!", flags: [MessageFlags.Ephemeral] });
 
-                    let subscribers = JSON.parse(afkData.subscribers || '[]');
+                    let subscribers = [];
+                    try { subscribers = JSON.parse(afkData.subscribers || '[]'); } catch(e){}
                     if (subscribers.includes(i.user.id)) return i.reply({ content: "✅ أنت مسجل بالفعل في قائمة التنبيه.", flags: [MessageFlags.Ephemeral] });
 
                     subscribers.push(i.user.id);
-                    db.prepare("UPDATE afk SET subscribers = ? WHERE userID = ? AND guildID = ?").run(JSON.stringify(subscribers), targetID, i.guild.id);
+                    try { db.prepare("UPDATE afk SET subscribers = ? WHERE userID = ? AND guildID = ?").run(JSON.stringify(subscribers), targetID, i.guild.id); } catch(e){}
                     await i.reply({ content: "🔔 **تم!** سأقوم بمنشنتك فور عودة العضو.", flags: [MessageFlags.Ephemeral] });
                     return;
 
                 } else if (id.startsWith('leave_msg_afk_')) {
                     const targetID = id.split('_')[3];
-                    const afkData = db.prepare("SELECT * FROM afk WHERE userID = ? AND guildID = ?").get(targetID, i.guild.id);
+                    let afkData = null;
+                    try { afkData = db.prepare("SELECT * FROM afk WHERE userID = ? AND guildID = ?").get(targetID, i.guild.id); } catch(e){}
                     
                     if (!afkData) return i.reply({ content: "❌ هذا الشخص عاد للتو!", flags: [MessageFlags.Ephemeral] });
 
@@ -270,14 +275,14 @@ module.exports = (client, db, antiRolesCache) => {
 
             if (i.isModalSubmit()) {
                 
-                // 🔥 توجيه استلام إدخال الرهان إلى دالته المخصصة 🔥
                 if (i.customId.startsWith('modal_pvp_bet_')) {
                     if (handlePvpBetModal) await handlePvpBetModal(i, client, db);
                     return;
                 }
                 
-                if (i.customId.startsWith('farm_buy_modal|') || i.customId.startsWith('farm_sell_modal|') || i.customId.startsWith('modal_synth_') || i.customId.startsWith('modal_smelt_')) {
-                    if (handleFarmShopModal && (i.customId.startsWith('farm_buy') || i.customId.startsWith('farm_sell'))) {
+                // 🔥 تم تعديل المنطق لكي لا يمنع تفاعلات الصهر والدمج 🔥
+                if (i.customId.startsWith('farm_buy_modal|') || i.customId.startsWith('farm_sell_modal|')) {
+                    if (handleFarmShopModal) {
                         await handleFarmShopModal(i, client, db);
                     }
                     return;
@@ -292,10 +297,12 @@ module.exports = (client, db, antiRolesCache) => {
                     const targetID = i.customId.split('_')[3];
                     const content = i.fields.getTextInputValue('msg_content');
 
-                    const afkData = db.prepare("SELECT * FROM afk WHERE userID = ? AND guildID = ?").get(targetID, i.guild.id);
+                    let afkData = null;
+                    try { afkData = db.prepare("SELECT * FROM afk WHERE userID = ? AND guildID = ?").get(targetID, i.guild.id); } catch(e){}
                     
                     if (afkData) {
-                        let messages = JSON.parse(afkData.messages || '[]');
+                        let messages = [];
+                        try { messages = JSON.parse(afkData.messages || '[]'); } catch(e){}
                         
                         messages.push({
                             authorID: i.user.id,
@@ -303,7 +310,7 @@ module.exports = (client, db, antiRolesCache) => {
                             timestamp: Math.floor(Date.now() / 1000)
                         });
 
-                        db.prepare("UPDATE afk SET messages = ? WHERE userID = ? AND guildID = ?").run(JSON.stringify(messages), targetID, i.guild.id);
+                        try { db.prepare("UPDATE afk SET messages = ? WHERE userID = ? AND guildID = ?").run(JSON.stringify(messages), targetID, i.guild.id); } catch(e){}
                         await i.reply({ content: "✅ **تم إرسال رسالتك!** سيراها فور عودته.", flags: [MessageFlags.Ephemeral] });
                     } else {
                         await i.reply({ content: "❌ عاد الشخص قبل أن ترسل الرسالة.", flags: [MessageFlags.Ephemeral] });
@@ -349,6 +356,7 @@ module.exports = (client, db, antiRolesCache) => {
 
         } catch (error) {
             if (error.code === 10062 || error.code === 40060) return;
+            console.error("[InteractionCreate Error]:", error);
         } finally {
             if (processingInteractions.has(i.user.id)) {
                 processingInteractions.delete(i.user.id);
@@ -357,13 +365,12 @@ module.exports = (client, db, antiRolesCache) => {
     });
 };
 
-// ... (تكملة الكود الخاص بك دون أي تغيير)
 async function handleMarketInteraction(interaction, client, db) {
     const user = interaction.user;
     const guild = interaction.guild;
 
     if (interaction.customId.startsWith('buy_modal_')) {
-        await interaction.deferReply({ ephemeral: false }); 
+        await interaction.deferReply({ ephemeral: false }).catch(()=>{}); 
 
         const assetId = interaction.customId.replace('buy_modal_', '');
         const quantityInput = interaction.fields.getTextInputValue('quantity_input');
@@ -371,22 +378,24 @@ async function handleMarketInteraction(interaction, client, db) {
 
         if (isNaN(quantity) || quantity <= 0) return interaction.editReply({ content: '❌ يرجى إدخال رقم صحيح وموجب.', flags: [MessageFlags.Ephemeral] });
 
-        const marketItem = db.prepare("SELECT * FROM market_items WHERE id = ?").get(assetId);
+        let marketItem = null;
+        try { marketItem = db.prepare("SELECT * FROM market_items WHERE id = ?").get(assetId); } catch(e){}
 
         let currentPrice = 0;
         let itemName = assetId;
 
         if (marketItem) {
-            currentPrice = marketItem.currentPrice;
+            currentPrice = Number(marketItem.currentPrice) || 0;
             itemName = marketItem.name;
         } else {
             const configItem = marketConfig.find(i => i.id === assetId);
             if (!configItem) return interaction.editReply({ content: '❌ حدث خطأ: هذا الأصل غير موجود.' });
-            currentPrice = configItem.price;
+            currentPrice = Number(configItem.price) || 0;
             itemName = configItem.name;
         }
 
-        let userData = await client.getLevel(user.id, guild.id);
+        let userData;
+        try { userData = await client.getLevel(user.id, guild.id); } catch(e){}
         if (!userData) userData = { ...client.defaultData, user: user.id, guild: guild.id };
         const userMora = Number(userData.mora) || 0;
         
@@ -394,7 +403,8 @@ async function handleMarketInteraction(interaction, client, db) {
 
         if (userMora < totalCost) return interaction.editReply({ content: `🚫 ليس لديك رصيد كافٍ! التكلفة: **${totalCost.toLocaleString()}**` });
 
-        const portfolioItem = db.prepare("SELECT quantity, purchasePrice FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(user.id, guild.id, assetId);
+        let portfolioItem = null;
+        try { portfolioItem = db.prepare("SELECT quantity, purchasePrice FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(user.id, guild.id, assetId); } catch(e){}
         let newPurchasePrice = currentPrice;
 
         if (portfolioItem) {
@@ -410,7 +420,7 @@ async function handleMarketInteraction(interaction, client, db) {
             db.prepare("UPDATE levels SET mora = mora - ? WHERE user = ? AND guild = ?").run(totalCost, user.id, guild.id);
             
             userData.mora = userMora - totalCost;
-            await client.setLevel(userData);
+            try { await client.setLevel(userData); } catch(e){}
 
             if (portfolioItem) {
                 db.prepare("UPDATE user_portfolio SET quantity = quantity + ?, purchasePrice = ? WHERE userID = ? AND guildID = ? AND itemID = ?").run(quantity, newPurchasePrice, user.id, guild.id, assetId);
@@ -430,7 +440,7 @@ async function handleMarketInteraction(interaction, client, db) {
             await interaction.editReply({ content: '❌ حدث خطأ أثناء معالجة العملية.' });
         }
     } else if (interaction.customId.startsWith('sell_modal_')) {
-        await interaction.deferReply({ ephemeral: false }); 
+        await interaction.deferReply({ ephemeral: false }).catch(()=>{}); 
 
         const assetId = interaction.customId.replace('sell_modal_', '');
         const quantityInput = interaction.fields.getTextInputValue('quantity_input');
@@ -438,30 +448,33 @@ async function handleMarketInteraction(interaction, client, db) {
 
         if (isNaN(quantity) || quantity <= 0) return interaction.editReply({ content: '❌ يرجى إدخال رقم صحيح وموجب.' });
 
-        const portfolioItem = db.prepare("SELECT quantity FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(user.id, guild.id, assetId);
+        let portfolioItem = null;
+        try { portfolioItem = db.prepare("SELECT quantity FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(user.id, guild.id, assetId); } catch(e){}
 
         if (!portfolioItem || parseInt(portfolioItem.quantity) < quantity) {
             return interaction.editReply({ content: `🚫 لا تملك هذه الكمية للبيع! لديك: **${portfolioItem ? portfolioItem.quantity : 0}**` });
         }
 
-        const marketItem = db.prepare("SELECT * FROM market_items WHERE id = ?").get(assetId);
-        let currentPrice = marketItem ? marketItem.currentPrice : 0;
+        let marketItem = null;
+        try { marketItem = db.prepare("SELECT * FROM market_items WHERE id = ?").get(assetId); } catch(e){}
+        let currentPrice = marketItem ? Number(marketItem.currentPrice) : 0;
         
-        if (currentPrice === 0) {
+        if (currentPrice === 0 || isNaN(currentPrice)) {
             const configItem = marketConfig.find(i => i.id === assetId);
-            currentPrice = configItem ? configItem.price : 0;
+            currentPrice = configItem ? Number(configItem.price) : 0;
         }
 
         const totalEarned = Math.floor(currentPrice * quantity);
 
-        let userData = await client.getLevel(user.id, guild.id);
+        let userData;
+        try { userData = await client.getLevel(user.id, guild.id); } catch(e){}
         if (!userData) userData = { ...client.defaultData, user: user.id, guild: guild.id };
 
         try {
             db.prepare("UPDATE levels SET mora = mora + ? WHERE user = ? AND guild = ?").run(totalEarned, user.id, guild.id);
             
             userData.mora = Number(userData.mora) + totalEarned;
-            await client.setLevel(userData);
+            try { await client.setLevel(userData); } catch(e){}
 
             if (parseInt(portfolioItem.quantity) === quantity) {
                 db.prepare("DELETE FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").run(user.id, guild.id, assetId);
@@ -517,6 +530,13 @@ async function handleGiveawayBuilderButtons(i, client, db) {
         if (!durationMs || durationMs <= 0) return i.editReply("❌ المدة غير صالحة.");
         if (isNaN(winnerCount) || winnerCount < 1) return i.editReply("❌ عدد الفائزين غير صالح.");
 
+        if (data.rewardsInput) {
+            const xpMatch = data.rewardsInput.match(/xp:\s*(\d+)/i);
+            const moraMatch = data.rewardsInput.match(/mora:\s*(\d+)/i);
+            data.xpReward = xpMatch ? parseInt(xpMatch[1]) : 0;
+            data.moraReward = moraMatch ? parseInt(moraMatch[1]) : 0;
+        }
+
         const endsAt = Date.now() + durationMs;
         let embedDescription = (data.description ? `${data.description}\n\n` : "") + `✶ عـدد الـمـشاركـيـن: \`0\`\n✦ ينتهي بعـد: <t:${Math.floor(endsAt / 1000)}:R>`;
 
@@ -540,9 +560,16 @@ async function handleGiveawayBuilderButtons(i, client, db) {
         }
 
         const gMessage = await targetChannel.send({ embeds: [embed], components: [row] });
-        db.prepare("INSERT INTO active_giveaways (messageID, guildID, channelID, prize, endsAt, winnerCount, xpReward, moraReward, isFinished) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)").run(gMessage.id, i.guild.id, targetChannel.id, data.prize, endsAt, winnerCount, data.xpReward || 0, data.moraReward || 0);
+        
+        try {
+            db.prepare("INSERT INTO active_giveaways (messageID, guildID, channelID, prize, endsAt, winnerCount, xpReward, moraReward, isFinished) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)").run(gMessage.id, i.guild.id, targetChannel.id, data.prize, endsAt, winnerCount, data.xpReward || 0, data.moraReward || 0);
+        } catch (e) {
+            console.error("[Giveaway Insert Error]:", e);
+        }
 
-        setTimeout(() => endGiveaway(client, gMessage.id), durationMs);
+        const safeDuration = Math.min(durationMs, 2147483647);
+        setTimeout(() => endGiveaway(client, gMessage.id), safeDuration);
+        
         giveawayBuilders.delete(i.user.id);
         await i.message.edit({ content: "✅ تم إرسال القيفاواي بنجاح!", embeds: [], components: [] }).catch(() => {});
         await i.editReply("✅ تم الإرسال!");
@@ -552,18 +579,20 @@ async function handleGiveawayBuilderButtons(i, client, db) {
         const giveawayID = i.message.id;
         const userID = i.user.id;
         
-        const existingEntry = db.prepare("SELECT 1 FROM giveaway_entries WHERE giveawayID = ? AND userID = ?").get(giveawayID, userID);
-        let replyMessage = "";
+        let existingEntry = null;
+        try { existingEntry = db.prepare("SELECT 1 FROM giveaway_entries WHERE giveawayID = ? AND userID = ?").get(giveawayID, userID); } catch(e){}
         
+        let replyMessage = "";
         if (existingEntry) {
-            db.prepare("DELETE FROM giveaway_entries WHERE giveawayID = ? AND userID = ?").run(giveawayID, userID);
+            try { db.prepare("DELETE FROM giveaway_entries WHERE giveawayID = ? AND userID = ?").run(giveawayID, userID); } catch(e){}
             replyMessage = "✅ تـم الـغـاء الـمـشاركـة";
         } else {
             const weight = await getUserWeight(i.member, db).catch(() => 1);
-            db.prepare("INSERT INTO giveaway_entries (giveawayID, userID, weight) VALUES (?, ?, ?)").run(giveawayID, userID, weight);
+            try { db.prepare("INSERT INTO giveaway_entries (giveawayID, userID, weight) VALUES (?, ?, ?)").run(giveawayID, userID, weight); } catch(e){}
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح دخـلت بـ: ${weight} تذكـرة`;
         }
-        await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] });
+        await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+
     } else if (id === 'g_enter_drop') {
         if (!i.replied && !i.deferred) await i.deferUpdate().catch(() => {});
         const messageID = i.message.id;
@@ -581,13 +610,13 @@ async function handleGiveawayBuilderButtons(i, client, db) {
             db.prepare("INSERT INTO giveaway_entries (giveawayID, userID, weight) VALUES (?, ?, ?)").run(messageID, userID, weight);
             return i.followUp({ content: `✅ تم التسجيل بنجاح (تذاكر: ${weight})!`, flags: [MessageFlags.Ephemeral] });
         } catch (error) {
-            return i.followUp({ content: "❌ حدث خطأ.", flags: [MessageFlags.Ephemeral] });
+            return i.followUp({ content: "❌ حدث خطأ.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
         }
     }
 }
 
 async function handleTimeoutModal(i) {
-    await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+    await i.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(()=>{});
     const targetId = i.customId.replace('timeout_app_modal_', '');
     let durationInput = i.fields.getTextInputValue('timeout_duration') || "3h";
     let reasonInput = i.fields.getTextInputValue('timeout_reason') || "مخالفة القوانين";
