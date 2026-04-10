@@ -6,8 +6,9 @@
       "description": "احصل على منشن واحد من أي عضو",
       "stat": "mentions_received",
       "goal": 1,
-      "reward": { "mora": 10, "xp": 10 },
-      "emoji": "📢"
+      "reward": { "mora": 15, "xp": 10 },
+      "emoji": "📢",
+      "rarity": "common"
     },
     {
       "id": "d_reply_1",
@@ -15,8 +16,9 @@
       "description": "قم بالرد على رسالة واحدة لعضو آخر",
       "stat": "replies_sent",
       "goal": 1,
-      "reward": { "mora": 10, "xp": 10 },
-      "emoji": "↩️"
+      "reward": { "mora": 15, "xp": 10 },
+      "emoji": "↩️",
+      "rarity": "common"
     },
     {
       "id": "d_img_1",
@@ -24,18 +26,9 @@
       "description": "أرسل صورة واحدة أو فيديو",
       "stat": "images",
       "goal": 1,
-      "reward": { "mora": 20, "xp": 15 },
-      "emoji": "🖼️"
-    },
-    {
-      "id": "daily_react_boost",
-      "name": "اضف 3 رياكشن بروم التعزيز",
-      "description": "قم بإضافة 3 رياكشن في روم التعزيز.",
-      "stat": "boost_channel_reactions",
-      "goal": 3,
-      "reward": { "mora": 300, "xp": 200 },
-      "emoji": "🚀",
-      "type": "daily"
+      "reward": { "mora": 25, "xp": 20 },
+      "emoji": "🖼️",
+      "rarity": "common"
     },
     {
       "id": "d_react_3",
@@ -43,8 +36,9 @@
       "description": "أضف 3 ريأكشنات على الرسائل",
       "stat": "reactions_added",
       "goal": 3,
-      "reward": { "mora": 10, "xp": 10 },
-      "emoji": "💙"
+      "reward": { "mora": 20, "xp": 15 },
+      "emoji": "💙",
+      "rarity": "common"
     },
     {
       "id": "d_count_1",
@@ -53,7 +47,8 @@
       "stat": "counting_channel",
       "goal": 1,
       "reward": { "mora": 20, "xp": 20 },
-      "emoji": "🔢"
+      "emoji": "🔢",
+      "rarity": "common"
     },
     {
       "id": "d_msg_5",
@@ -61,8 +56,9 @@
       "description": "أرسل 5 رسائل في القنوات النصية",
       "stat": "messages",
       "goal": 5,
-      "reward": { "mora": 30, "xp": 10 },
-      "emoji": "✉️"
+      "reward": { "mora": 30, "xp": 25 },
+      "emoji": "✉️",
+      "rarity": "common"
     },
     {
       "id": "d_tree_1",
@@ -70,8 +66,9 @@
       "description": "قم بسقاية الشجرة مرة واحدة",
       "stat": "water_tree",
       "goal": 1,
-      "reward": { "mora": 100, "xp": 25 },
-      "emoji": "🌳"
+      "reward": { "mora": 50, "xp": 30 },
+      "emoji": "🌳",
+      "rarity": "uncommon"
     },
     {
       "id": "d_meow_1",
@@ -80,34 +77,8 @@
       "stat": "meow_count",
       "goal": 1,
       "reward": { "mora": 30, "xp": 30 },
-      "emoji": "🐱"
-    },
-    {
-      "id": "d_vc_5",
-      "name": "اقض 5 دقائق في القاعة الصوتية",
-      "description": "اقضِ 5 دقائق في أي قناة صوتية",
-      "stat": "vc_minutes",
-      "goal": 5,
-      "reward": { "mora": 500, "xp": 350 },
-      "emoji": "🔊"
-    },
-    {
-      "id": "d_stream_5",
-      "name": "افتح بث 5 دقائق",
-      "description": "قم بعمل بث (Stream) لمدة 5 دقائق",
-      "stat": "streaming_minutes",
-      "goal": 5,
-      "reward": { "mora": 800, "xp": 800 },
-      "emoji": "🔴"
-    },
-    {
-      "id": "daily_bump_1",
-      "name": "انشر السيرفر BUMP",
-      "description": "قم بعمل بومب للسيرفر في قناة البومب.",
-      "stat": "disboard_bumps",
-      "goal": 1,
-      "reward": { "mora": 999, "xp": 200 },
-      "emoji": "🚀"
+      "emoji": "🐱",
+      "rarity": "uncommon"
     },
     {
       "id": "d_emoji_20",
@@ -115,8 +86,9 @@
       "description": "ارسل 20 إيموجي في الشات",
       "stat": "emojis_sent",
       "goal": 20,
-      "reward": { "mora": 50, "xp": 50 },
-      "emoji": "😀"
+      "reward": { "mora": 50, "xp": 40 },
+      "emoji": "😀",
+      "rarity": "uncommon"
     },
     {
       "id": "d_sticker_3",
@@ -124,26 +96,71 @@
       "description": "ارسل 3 ملصق (Sticker)",
       "stat": "stickers",
       "goal": 3,
-      "reward": { "mora": 30, "xp": 30 },
-      "emoji": "🎟️"
+      "reward": { "mora": 40, "xp": 30 },
+      "emoji": "🎟️",
+      "rarity": "uncommon"
+    },
+    {
+      "id": "d_vc_5",
+      "name": "اقض 5 دقائق بالصوتية",
+      "description": "اقضِ 5 دقائق في أي قناة صوتية",
+      "stat": "vc_minutes",
+      "goal": 5,
+      "reward": { "mora": 150, "xp": 100 },
+      "emoji": "🔊",
+      "rarity": "rare"
     },
     {
       "id": "d_ai_talk_3",
       "name": "تحدث مع الامبراطورة",
-      "description": "تحدث مع الامبراطورة واحصل على 3 رد",
+      "description": "تحدث مع الامبراطورة واحصل على 3 ردود",
       "stat": "ai_interactions",
       "goal": 3,
-      "reward": { "mora": 300, "xp": 100 },
-      "emoji": "🗣️"
+      "reward": { "mora": 150, "xp": 100 },
+      "emoji": "🗣️",
+      "rarity": "rare"
+    },
+    {
+      "id": "daily_react_boost",
+      "name": "دعم روم التعزيز",
+      "description": "قم بإضافة 3 رياكشن في روم التعزيز",
+      "stat": "boost_channel_reactions",
+      "goal": 3,
+      "reward": { "mora": 200, "xp": 150 },
+      "emoji": "🚀",
+      "rarity": "rare"
+    },
+    {
+      "id": "d_stream_5",
+      "name": "افتح بث 5 دقائق",
+      "description": "قم بعمل بث (Stream) لمدة 5 دقائق",
+      "stat": "streaming_minutes",
+      "goal": 5,
+      "reward": { "mora": 300, "xp": 250 },
+      "emoji": "🔴",
+      "rarity": "epic"
+    },
+    {
+      "id": "daily_bump_1",
+      "name": "انشر السيرفر BUMP",
+      "description": "قم بعمل بومب للسيرفر في قناة البومب.",
+      "stat": "disboard_bumps",
+      "goal": 1,
+      "reward": { "mora": 500, "xp": 300 },
+      "repReward": 1,
+      "emoji": "🚀",
+      "rarity": "epic"
     },
     {
       "id": "daily_vote_topgg",
       "name": "صوت للسيرفر على TOP GG",
-      "description": "اكتب تصويت بروم الاوامر لتحصل على رابط التصويت",
+      "description": "اكتب تصويت بروم الاوامر لتحصل على الرابط",
       "stat": "topgg_votes",
       "goal": 1,
-      "reward": { "mora": 2000, "xp": 500 },
-      "emoji": "🗳️"
+      "reward": { "mora": 800, "xp": 500 },
+      "repReward": 1,
+      "emoji": "🗳️",
+      "rarity": "legendary"
     }
   ],
   "weekly": [
@@ -153,35 +170,9 @@
       "description": "شارك في قناة العد 30 مرة",
       "stat": "counting_channel",
       "goal": 30,
-      "reward": { "mora": 70, "xp": 70 },
-      "emoji": "🔢"
-    },
-    {
-      "id": "w_mention_70",
-      "name": "احصل على 70 رد او منشن",
-      "description": "احصل على 70 منشن أو رد من الأعضاء",
-      "stat": "mentions_received",
-      "goal": 70,
-      "reward": { "mora": 100, "xp": 100 },
-      "emoji": "📢"
-    },
-    {
-      "id": "w_msg_250",
-      "name": "ارسل 250 رسالة",
-      "description": "أرسل 250 رسالة خلال الأسبوع",
-      "stat": "messages",
-      "goal": 250,
-      "reward": { "mora": 30, "xp": 250 },
-      "emoji": "📨"
-    },
-    {
-      "id": "w_reply_70",
-      "name": "منشن او رد على عضو آخر 70 مرة",
-      "description": "قم بالرد على 70 رسالة مختلفة",
-      "stat": "replies_sent",
-      "goal": 70,
-      "reward": { "mora": 700, "xp": 250 },
-      "emoji": "↩️"
+      "reward": { "mora": 150, "xp": 100 },
+      "emoji": "🔢",
+      "rarity": "common"
     },
     {
       "id": "w_react_30",
@@ -189,17 +180,19 @@
       "description": "أضف 30 ريأكشن على الرسائل",
       "stat": "reactions_added",
       "goal": 30,
-      "reward": { "mora": 30, "xp": 30 },
-      "emoji": "💫"
+      "reward": { "mora": 150, "xp": 100 },
+      "emoji": "💫",
+      "rarity": "common"
     },
     {
-      "id": "w_vc_30",
-      "name": "اقض 30 دقيقة في القاعة الصوتية",
-      "description": "اقضِ 30 دقيقة إجمالاً في القنوات الصوتية",
-      "stat": "vc_minutes",
-      "goal": 30,
-      "reward": { "mora": 999, "xp": 700 },
-      "emoji": "🎤"
+      "id": "w_mention_70",
+      "name": "احصل على 70 رد او منشن",
+      "description": "احصل على 70 منشن أو رد من الأعضاء",
+      "stat": "mentions_received",
+      "goal": 70,
+      "reward": { "mora": 300, "xp": 200 },
+      "emoji": "📢",
+      "rarity": "uncommon"
     },
     {
       "id": "w_img_20",
@@ -207,26 +200,9 @@
       "description": "أرسل 20 صورة أو فيديو خلال الأسبوع",
       "stat": "images",
       "goal": 20,
-      "reward": { "mora": 100, "xp": 100 },
-      "emoji": "🖼️"
-    },
-    {
-      "id": "w_stream_35",
-      "name": "افتح بث 35 دقيقة",
-      "description": "قم بعمل بث (Stream) لمدة 35 دقيقة",
-      "stat": "streaming_minutes",
-      "goal": 35,
-      "reward": { "mora": 1300, "xp": 800 },
-      "emoji": "🔴"
-    },
-    {
-      "id": "w_tree_10",
-      "name": "اسقي الشجرة 10 مرات",
-      "description": "قم بسقاية الشجرة 10 مرات خلال الأسبوع",
-      "stat": "water_tree",
-      "goal": 10,
-      "reward": { "mora": 300, "xp": 300 },
-      "emoji": "🌳"
+      "reward": { "mora": 250, "xp": 200 },
+      "emoji": "🖼️",
+      "rarity": "uncommon"
     },
     {
       "id": "w_emoji_100",
@@ -234,8 +210,9 @@
       "description": "استخدم 100 ايموجي في رسائل منوعة",
       "stat": "emojis_sent",
       "goal": 100,
-      "reward": { "mora": 200, "xp": 200 },
-      "emoji": "😀"
+      "reward": { "mora": 250, "xp": 200 },
+      "emoji": "😀",
+      "rarity": "uncommon"
     },
     {
       "id": "w_sticker_50",
@@ -243,17 +220,70 @@
       "description": "ارسل 50 ملصق",
       "stat": "stickers",
       "goal": 50,
-      "reward": { "mora": 200, "xp": 200 },
-      "emoji": "🎟️"
+      "reward": { "mora": 250, "xp": 200 },
+      "emoji": "🎟️",
+      "rarity": "uncommon"
+    },
+    {
+      "id": "w_msg_250",
+      "name": "ارسل 250 رسالة",
+      "description": "أرسل 250 رسالة خلال الأسبوع",
+      "stat": "messages",
+      "goal": 250,
+      "reward": { "mora": 400, "xp": 350 },
+      "emoji": "📨",
+      "rarity": "rare"
+    },
+    {
+      "id": "w_reply_70",
+      "name": "منشن او رد على 70 عضو",
+      "description": "قم بالرد على 70 رسالة مختلفة",
+      "stat": "replies_sent",
+      "goal": 70,
+      "reward": { "mora": 400, "xp": 350 },
+      "emoji": "↩️",
+      "rarity": "rare"
+    },
+    {
+      "id": "w_tree_10",
+      "name": "اسقي الشجرة 10 مرات",
+      "description": "قم بسقاية الشجرة 10 مرات خلال الأسبوع",
+      "stat": "water_tree",
+      "goal": 10,
+      "reward": { "mora": 500, "xp": 400 },
+      "emoji": "🌳",
+      "rarity": "rare"
+    },
+    {
+      "id": "w_vc_30",
+      "name": "اقض 30 دقيقة بالصوتية",
+      "description": "اقضِ 30 دقيقة إجمالاً في القنوات الصوتية",
+      "stat": "vc_minutes",
+      "goal": 30,
+      "reward": { "mora": 800, "xp": 600 },
+      "emoji": "🎤",
+      "rarity": "epic"
+    },
+    {
+      "id": "w_stream_35",
+      "name": "افتح بث 35 دقيقة",
+      "description": "قم بعمل بث (Stream) لمدة 35 دقيقة",
+      "stat": "streaming_minutes",
+      "goal": 35,
+      "reward": { "mora": 1200, "xp": 900 },
+      "emoji": "🔴",
+      "rarity": "epic"
     },
     {
       "id": "weekly_vote_topgg",
       "name": "صوت للسيرفر 8 مرات",
-      "description": "ادعم السيرفر بالتصويت طوال الأسبوع لرفع التقييم",
+      "description": "ادعم السيرفر بالتصويت طوال الأسبوع",
       "stat": "topgg_votes",
       "goal": 8,
-      "reward": { "mora": 3500, "xp": 999 },
-      "emoji": "🗳️"
+      "reward": { "mora": 3000, "xp": 2000 },
+      "repReward": 3,
+      "emoji": "🗳️",
+      "rarity": "legendary"
     }
   ],
   "achievements": [
@@ -308,16 +338,6 @@
       "rarity": "common"
     },
     {
-      "id": "ach_meow_50",
-      "name": "قطـة",
-      "description": "قول مياو 50 مرة",
-      "stat": "total_meow_count",
-      "goal": 50,
-      "reward": { "mora": 500, "xp": 500 },
-      "emoji": "🐱",
-      "rarity": "common"
-    },
-    {
       "id": "ach_lvl_5",
       "name": "بداية الرحلة",
       "description": "الوصول إلى المستوى 5",
@@ -328,6 +348,16 @@
       "rarity": "common"
     },
     {
+      "id": "ach_meow_50",
+      "name": "قطـة",
+      "description": "قول مياو 50 مرة",
+      "stat": "total_meow_count",
+      "goal": 50,
+      "reward": { "mora": 500, "xp": 500 },
+      "emoji": "🐱",
+      "rarity": "uncommon"
+    },
+    {
       "id": "ach_streak_10",
       "name": "امـيـر الستريـك",
       "description": "الوصول إلى 10 ستريك",
@@ -335,7 +365,7 @@
       "goal": 10,
       "reward": { "mora": 500, "xp": 500 },
       "emoji": "🔥",
-      "rarity": "common"
+      "rarity": "uncommon"
     },
     {
       "id": "ach_lvl_10",
@@ -345,7 +375,7 @@
       "goal": 10,
       "reward": { "mora": 700, "xp": 300 },
       "emoji": "🏅",
-      "rarity": "common"
+      "rarity": "uncommon"
     },
     {
       "id": "ach_shop_10",
@@ -355,7 +385,17 @@
       "goal": 10,
       "reward": { "mora": 2000, "xp": 700 },
       "emoji": "🛍️",
-      "rarity": "common"
+      "rarity": "uncommon"
+    },
+    {
+      "id": "ach_vote_10",
+      "name": "صوت للسيرفر 10 مرات",
+      "description": "شكراً لدعمك المستمر!",
+      "stat": "total_topgg_votes",
+      "goal": 10,
+      "reward": { "mora": 1000, "xp": 300 },
+      "emoji": "🗳️",
+      "rarity": "uncommon"
     },
     {
       "id": "ach_msg_2",
@@ -365,7 +405,7 @@
       "goal": 1000,
       "reward": { "mora": 1000, "xp": 1000 },
       "emoji": "💬",
-      "rarity": "common"
+      "rarity": "rare"
     },
     {
       "id": "ach_react_2",
@@ -375,7 +415,7 @@
       "goal": 100,
       "reward": { "mora": 1000, "xp": 1000 },
       "emoji": "🏆",
-      "rarity": "common"
+      "rarity": "rare"
     },
     {
       "id": "ach_streak_20",
@@ -395,7 +435,7 @@
       "goal": 20,
       "reward": { "mora": 1500, "xp": 500 },
       "emoji": "🏅",
-      "rarity": "common"
+      "rarity": "rare"
     },
     {
       "id": "ach_vc_2",
@@ -418,6 +458,26 @@
       "rarity": "rare"
     },
     {
+      "id": "ach_tag_role",
+      "name": "VIP",
+      "description": "ضع تاق السيرفر في حالتك",
+      "stat": "has_tag_role",
+      "goal": 1,
+      "reward": { "mora": 2000, "xp": 1000 },
+      "emoji": "💎",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_vote_30",
+      "name": "صوت للسيرفر 30 مرة",
+      "description": "أنت من الداعمين الأوفياء!",
+      "stat": "total_topgg_votes",
+      "goal": 30,
+      "reward": { "mora": 3000, "xp": 1000 },
+      "emoji": "🗳️",
+      "rarity": "rare"
+    },
+    {
       "id": "ach_lvl_40",
       "name": "الى المجد",
       "description": "الوصول إلى المستوى 40",
@@ -425,7 +485,7 @@
       "goal": 40,
       "reward": { "mora": 2500, "xp": 999 },
       "emoji": "🏅",
-      "rarity": "rare"
+      "rarity": "epic"
     },
     {
       "id": "ach_lvl_50",
@@ -435,7 +495,7 @@
       "goal": 50,
       "reward": { "mora": 2800, "xp": 1200 },
       "emoji": "🏅",
-      "rarity": "rare"
+      "rarity": "epic"
     },
     {
       "id": "ach_msg_3",
@@ -445,7 +505,7 @@
       "goal": 10000,
       "reward": { "mora": 3000, "xp": 3000 },
       "emoji": "💬",
-      "rarity": "rare"
+      "rarity": "epic"
     },
     {
       "id": "ach_react_3",
@@ -455,7 +515,7 @@
       "goal": 300,
       "reward": { "mora": 3000, "xp": 3000 },
       "emoji": "🏆",
-      "rarity": "rare"
+      "rarity": "epic"
     },
     {
       "id": "ach_vc_3",
@@ -465,7 +525,7 @@
       "goal": 1440,
       "reward": { "mora": 3000, "xp": 2000 },
       "emoji": "🎙️",
-      "rarity": "rare"
+      "rarity": "epic"
     },
     {
       "id": "ach_streak_50",
@@ -475,7 +535,7 @@
       "goal": 50,
       "reward": { "mora": 3000, "xp": 2000 },
       "emoji": "🔥",
-      "rarity": "rare"
+      "rarity": "epic"
     },
     {
       "id": "ach_lvl_60",
@@ -489,6 +549,17 @@
       "rarity": "epic"
     },
     {
+      "id": "ach_vote_50",
+      "name": "صوت للسيرفر 50 مرة",
+      "description": "دعمك لا يقدر بثمن!",
+      "stat": "total_topgg_votes",
+      "goal": 50,
+      "reward": { "mora": 15000, "xp": 2000 },
+      "repReward": 5,
+      "emoji": "🗳️",
+      "rarity": "epic"
+    },
+    {
       "id": "ach_lvl_70",
       "name": "توجت كـ ملك",
       "description": "الوصول إلى المستوى 70",
@@ -497,7 +568,7 @@
       "reward": { "mora": 3300, "xp": 1800 },
       "repReward": 10,
       "emoji": "🏅",
-      "rarity": "epic"
+      "rarity": "legendary"
     },
     {
       "id": "ach_vc_4",
@@ -508,7 +579,7 @@
       "reward": { "mora": 4000, "xp": 2500 },
       "repReward": 10,
       "emoji": "🎙️",
-      "rarity": "epic"
+      "rarity": "legendary"
     },
     {
       "id": "ach_lvl_80",
@@ -519,7 +590,7 @@
       "reward": { "mora": 4000, "xp": 2000 },
       "repReward": 15,
       "emoji": "🏅",
-      "rarity": "epic"
+      "rarity": "legendary"
     },
     {
       "id": "ach_lvl_90",
@@ -530,7 +601,7 @@
       "reward": { "mora": 5000, "xp": 3000 },
       "repReward": 20,
       "emoji": "🏅",
-      "rarity": "epic"
+      "rarity": "legendary"
     },
     {
       "id": "ach_msg_4",
@@ -541,7 +612,7 @@
       "reward": { "mora": 7600, "xp": 5000 },
       "repReward": 25,
       "emoji": "👑",
-      "rarity": "epic"
+      "rarity": "legendary"
     },
     {
       "id": "ach_react_4",
@@ -552,7 +623,7 @@
       "reward": { "mora": 7600, "xp": 5000 },
       "repReward": 10,
       "emoji": "👑",
-      "rarity": "epic"
+      "rarity": "legendary"
     },
     {
       "id": "ach_vc_5",
@@ -563,7 +634,7 @@
       "reward": { "mora": 7600, "xp": 5000 },
       "repReward": 30,
       "emoji": "👑",
-      "rarity": "epic"
+      "rarity": "legendary"
     },
     {
       "id": "ach_boost_1",
@@ -574,17 +645,7 @@
       "reward": { "mora": 8000, "xp": 5000 },
       "repReward": 20,
       "emoji": "🚀",
-      "rarity": "epic"
-    },
-    {
-      "id": "ach_tag_role",
-      "name": "VIP",
-      "description": "ضع تاق السيرفر في حالتك",
-      "stat": "has_tag_role",
-      "goal": 1,
-      "reward": { "mora": 1, "xp": 1 },
-      "emoji": "💎",
-      "rarity": "rare"
+      "rarity": "legendary"
     },
     {
       "id": "ach_streak_100",
@@ -595,7 +656,7 @@
       "reward": { "mora": 10000, "xp": 10000 },
       "repReward": 15,
       "emoji": "👑",
-      "rarity": "epic"
+      "rarity": "legendary"
     },
     {
       "id": "ach_lvl_99",
@@ -631,37 +692,6 @@
       "rarity": "legendary"
     },
     {
-      "id": "ach_vote_10",
-      "name": "صوت للسيرفر 10 مرات",
-      "description": "شكراً لدعمك المستمر!",
-      "stat": "total_topgg_votes",
-      "goal": 10,
-      "reward": { "mora": 1000, "xp": 300 },
-      "emoji": "🗳️",
-      "rarity": "common"
-    },
-    {
-      "id": "ach_vote_30",
-      "name": "صوت للسيرفر 30 مرة",
-      "description": "أنت من الداعمين الأوفياء!",
-      "stat": "total_topgg_votes",
-      "goal": 30,
-      "reward": { "mora": 3000, "xp": 400 },
-      "emoji": "🗳️",
-      "rarity": "uncommon"
-    },
-    {
-      "id": "ach_vote_50",
-      "name": "صوت للسيرفر 50 مرة",
-      "description": "دعمك لا يقدر بثمن!",
-      "stat": "total_topgg_votes",
-      "goal": 50,
-      "reward": { "mora": 15000, "xp": 999 },
-      "repReward": 5,
-      "emoji": "🗳️",
-      "rarity": "rare"
-    },
-    {
       "id": "ach_vote_100",
       "name": "صوت للسيرفر 100 مرة",
       "description": "أنت أسطورة في دعم السيرفر!",
@@ -670,7 +700,7 @@
       "reward": { "mora": 25000, "xp": 5000 },
       "repReward": 10,
       "emoji": "🗳️",
-      "rarity": "epic"
+      "rarity": "legendary"
     }
   ]
 }
