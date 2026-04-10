@@ -154,17 +154,6 @@ module.exports = {
                 const allowGhost = isGhostMessage && !ghostModeUsers.has(ghostKey);
 
                 if (!allowGhost) {
-                    const now = Math.floor(Date.now() / 1000);
-                    const diffSeconds = now - Number(afkData.timestamp);
-                    const minutes = Math.floor(diffSeconds / 60); 
-                    const cappedMinutes = Math.min(minutes, 720); 
-                    const reward = (minutes >= 60) ? (cappedMinutes * 1) : 0;
-
-                    if (reward > 0) {
-                        try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [reward, message.author.id, message.guild.id]); }
-                        catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [reward, message.author.id, message.guild.id]).catch(()=>{}); }
-                    }
-
                     let storedMessages = [];
                     try {
                         storedMessages = JSON.parse(afkData.messages || '[]');
@@ -200,10 +189,6 @@ module.exports = {
 
                     const timeAgo = `<t:${afkData.timestamp}:R>`;
                     let replyContent = `👋 **✶أهلاً بعودتك يا ${message.author}!**\n⏱️ **✶مدة الغياب:** ${timeAgo}\n🔔 **✶تم منشنتك:** ${afkData.mentionsCount || afkData.mentionscount} مرة أثناء غيابك`;
-                    
-                    if (reward > 0) {
-                        replyContent += `\n💰 **✶مكافأة الراحة:** حصلت على **${reward}** <:mora:1435647151349698621> لأنك كنت غائباً ${timeAgo}`;
-                    }
 
                     const welcomeMsg = await safeReply(message, { 
                         content: replyContent,
@@ -811,7 +796,8 @@ module.exports = {
                         const cooldownTime = (Number(autoReply.cooldown) || 600) * 1000;
                         const now = Date.now();
                         if (message.author.id === message.guild.ownerId || !autoResponderCooldowns.has(cooldownKey) || now > autoResponderCooldowns.get(cooldownKey)) {
-                            const files = autoReply.images ? JSON.parse(autoReply.images) : [];
+                            let files = [];
+                            try { files = autoReply.images ? JSON.parse(autoReply.images) : []; } catch(e){}
                             safeReply(message, { content: autoReply.response, files: files, allowedMentions: { repliedUser: false } }).catch(() => {});
                             autoResponderCooldowns.set(cooldownKey, now + cooldownTime);
                             setTimeout(() => autoResponderCooldowns.delete(cooldownKey), cooldownTime);
