@@ -201,107 +201,6 @@ async function handleQuestPanel(i, client, db) {
         } catch (err) { return; }
     }
 
-    if (i.isButton() && rawId.startsWith('claim_')) {
-        await i.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-        try {
-            if (rawId.startsWith('claim_quest_')) {
-                const parts = rawId.split('_');
-                const period = parts[2]; 
-                const questId = parts.slice(3).join('_');
-                const isDaily = period === 'daily';
-                const dateKey = isDaily ? todayStr : weekStr;
-                const questsList = isDaily ? questsConfig.daily : questsConfig.weekly;
-                
-                const quest = questsList.find(q => q.id === questId);
-                if (!quest) return i.editReply({ content: '❌ المهمة غير موجودة.' }).catch(()=>{});
-
-                const claimId = `${userId}-${guildId}-${quest.id}-${dateKey}`;
-                const isClaimedRes = await db.query(`SELECT 1 FROM user_quest_claims WHERE "claimID" = $1`, [claimId]);
-                if (isClaimedRes.rows.length > 0) return i.editReply({ content: '⚠️ لقد قمت باستلام الجائزة مسبقا!' }).catch(()=>{});
-
-                const table = isDaily ? 'user_daily_stats' : 'user_weekly_stats';
-                const dateCol = isDaily ? 'date' : 'weekStartDate';
-                const userStatsRes = await db.query(`SELECT * FROM ${table} WHERE "userID" = $1 AND "guildID" = $2 AND "${dateCol}" = $3`, [userId, guildId, dateKey]);
-                const userStats = userStatsRes.rows[0] || {};
-                
-                const currentProgress = Number(userStats[quest.stat]) || 0; 
-                if (currentProgress < quest.goal) return i.editReply({ content: `❌ لم تنجز المهمة بعد! تقدمك: ${currentProgress}/${quest.goal}` }).catch(()=>{});
-
-                try {
-                    await db.query("BEGIN");
-                    await db.query(`INSERT INTO user_quest_claims ("claimID", "userID", "guildID", "questID", "dateStr") VALUES ($1, $2, $3, $4, $5)`, [claimId, userId, guildId, quest.id, dateKey]);
-                    
-                    if (quest.repReward && quest.repReward > 0) {
-                        await db.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3) ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = user_reputation."rep_points" + $4`, [userId, guildId, quest.repReward, quest.repReward]);
-                    }
-                    
-                    const userLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
-                    if (userLevelRes.rows.length > 0) {
-                        const currentMora = Number(userLevelRes.rows[0].mora) + quest.reward.mora;
-                        const currentXP = Number(userLevelRes.rows[0].xp) + quest.reward.xp;
-                        await db.query(`UPDATE levels SET "mora" = $1, "xp" = $2 WHERE "user" = $3 AND "guild" = $4`, [currentMora, currentXP, userId, guildId]);
-                    }
-                    await db.query("COMMIT");
-                } catch (e) {
-                    await db.query("ROLLBACK");
-                    throw e;
-                }
-
-                let msg = `🎉 **مبارك!** أكملت "${quest.name}" وحصلت على: 💰 **${quest.reward.mora}** | ✨ **${quest.reward.xp}**`;
-                if (quest.repReward) msg += ` | 🌟 **+${quest.repReward}** سمعة!`;
-                return i.editReply({ content: msg }).catch(()=>{});
-            }
-
-            if (rawId.startsWith('claim_ach_')) {
-                const achId = rawId.replace('claim_ach_', '');
-                const ach = questsConfig.achievements.find(a => a.id === achId);
-                if (!ach) return i.editReply({ content: '❌ الإنجاز غير موجود.' }).catch(()=>{});
-
-                const isClaimedRes = await db.query(`SELECT 1 FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2 AND "achievementID" = $3`, [userId, guildId, ach.id]);
-                if (isClaimedRes.rows.length > 0) return i.editReply({ content: '⚠️ لقد قمت باستلام هذا الوسام مسبقا!' }).catch(()=>{});
-
-                const currentProgress = await getUserStat(userId, guildId, ach.stat, db);
-                if (currentProgress < ach.goal) return i.editReply({ content: `❌ الإنجاز مقفل! تقدمك: ${currentProgress}/${ach.goal}` }).catch(()=>{});
-
-                try {
-                    await db.query("BEGIN");
-                    await db.query(`INSERT INTO user_achievements ("userID", "guildID", "achievementID", "timestamp") VALUES ($1, $2, $3, $4)`, [userId, guildId, ach.id, Date.now()]);
-                    
-                    if (ach.repReward && ach.repReward > 0) {
-                        await db.query(`INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3) ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = user_reputation."rep_points" + $4`, [userId, guildId, ach.repReward, ach.repReward]);
-                    }
-                    
-                    const userLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
-                    if (userLevelRes.rows.length > 0) {
-                        const currentMora = Number(userLevelRes.rows[0].mora) + ach.reward.mora;
-                        const currentXP = Number(userLevelRes.rows[0].xp) + ach.reward.xp;
-                        await db.query(`UPDATE levels SET "mora" = $1, "xp" = $2 WHERE "user" = $3 AND "guild" = $4`, [currentMora, currentXP, userId, guildId]);
-                    }
-                    await db.query("COMMIT");
-                } catch (e) {
-                    await db.query("ROLLBACK");
-                    throw e;
-                }
-
-                const userAvatar = i.user.displayAvatarURL({ extension: 'png', size: 256 });
-                const userName = i.member.displayName || i.user.username;
-                
-                try {
-                    const buffer = await generateAchievementCard(userAvatar, userName, ach.name, ach.description, ach.reward.mora, ach.reward.xp, ach.repReward);
-                    const attachment = new AttachmentBuilder(buffer, { name: 'achievement.png' });
-                    return i.editReply({ content: `<@${userId}>`, files: [attachment] }).catch(()=>{});
-                } catch(e) {
-                    let fallbackMsg = `🏅 **وسام عظيم!** استلمت "${ach.name}" وحصلت على: 💰 **${ach.reward.mora}** | ✨ **${ach.reward.xp}**`;
-                    if (ach.repReward) fallbackMsg += ` | 🌟 **+${ach.repReward}** سمعة!`;
-                    return i.editReply({ content: fallbackMsg }).catch(()=>{});
-                }
-            }
-        } catch (err) {
-            return i.editReply({ content: '❌ حدث خطأ أثناء تسليم الجائزة.' }).catch(()=>{});
-        }
-        return; 
-    }
-
     if (i.isStringSelectMenu()) await i.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(()=>{}); 
     else if (i.isButton()) await i.deferUpdate().catch(()=>{}); 
 
@@ -386,27 +285,12 @@ async function handleQuestPanel(i, client, db) {
 
     let embeds = []; let files = []; let totalPages = 1; let data; let buttons = [];
 
+    // 🔥 تعديل: تمت إزالة منطق فحص الأزرار من هنا، اللوحة للعرض فقط 🔥
     if (section === 'daily') {
         data = await buildDailyEmbed(db, i.member, dailyStats, currentPage);
-        for (const q of getRotatedQuests(questsConfig.daily, 3, 2, todayStr)) {
-            if (q.repReward && q.repReward > 0 && Math.min(Number(dailyStats[q.stat]) || 0, q.goal) >= q.goal) {
-                const claimRes = await db.query(`SELECT 1 FROM user_quest_claims WHERE "claimID" = $1`, [`${userId}-${guildId}-${q.id}-${todayStr}`]);
-                if (claimRes.rows.length === 0) {
-                    buttons.push(new ButtonBuilder().setCustomId(`claim_quest_daily_${q.id}`).setLabel(`استلام سمعة: ${q.name}`).setStyle(ButtonStyle.Success));
-                }
-            }
-        }
     } 
     else if (section === 'weekly') {
         data = await buildWeeklyEmbed(db, i.member, weeklyStats, currentPage);
-        for (const q of getRotatedQuests(questsConfig.weekly, 2, 2, weekStr)) {
-            if (q.repReward && q.repReward > 0 && Math.min(Number(weeklyStats[q.stat]) || 0, q.goal) >= q.goal) {
-                const claimRes = await db.query(`SELECT 1 FROM user_quest_claims WHERE "claimID" = $1`, [`${userId}-${guildId}-${q.id}-${weekStr}`]);
-                if (claimRes.rows.length === 0) {
-                    buttons.push(new ButtonBuilder().setCustomId(`claim_quest_weekly_${q.id}`).setLabel(`استلام سمعة: ${q.name}`).setStyle(ButtonStyle.Success));
-                }
-            }
-        }
     } 
     else if (section === 'achievements') { 
         data = await buildAchievementsEmbed(db, i.member, levelData, totalStats, completedAchievements, currentPage);
