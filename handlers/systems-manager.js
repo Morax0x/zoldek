@@ -102,8 +102,11 @@ module.exports = (client, db) => {
             let levelUpContent = null;
             let embed;
             const id = `${member.id}-${guild.id}`; 
-            let notifSettings = await client.getQuestNotif(id);
-            const lNotif = notifSettings ? notifSettings.levelNotif : 1;
+            
+            let notifSettingsRes = await db.query(`SELECT * FROM quest_notifications WHERE "id" = $1`, [id]).catch(()=>({rows:[]}));
+            let notifSettings = notifSettingsRes.rows[0];
+            const lNotif = notifSettings ? Number(notifSettings.levelNotif || notifSettings.levelnotif || 1) : 1;
+            
             if (lNotif === 0) return; 
 
             const lvlUpTitle = customSettings.lvlUpTitle;
@@ -131,31 +134,25 @@ module.exports = (client, db) => {
     client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') { 
         try { 
             const id = `${member.id}-${guild.id}`; 
-            let notifSettings = await client.getQuestNotif(id); 
+            let notifSettingsRes = await db.query(`SELECT * FROM quest_notifications WHERE "id" = $1`, [id]).catch(()=>({rows:[]})); 
+            let notifSettings = notifSettingsRes.rows[0];
+            
             if (!notifSettings) { 
-                notifSettings = { id: id, userID: member.id, guildID: guild.id, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1, kingsNotif: 1, badgesNotif: 1 }; 
-                await client.setQuestNotif(notifSettings); 
+                notifSettings = { dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1 }; 
+                await db.query(`INSERT INTO quest_notifications ("id", "userID", "guildID", "dailyNotif", "weeklyNotif", "achievementsNotif") VALUES ($1, $2, $3, 1, 1, 1) ON CONFLICT DO NOTHING`, [id, member.id, guild.id]).catch(()=>{});
             } 
             
-            const dNotif = notifSettings.dailyNotif;
-            const wNotif = notifSettings.weeklyNotif;
-            const aNotif = notifSettings.achievementsNotif;
+            const dNotif = Number(notifSettings.dailyNotif ?? notifSettings.dailynotif ?? 1);
+            const wNotif = Number(notifSettings.weeklyNotif ?? notifSettings.weeklynotif ?? 1);
+            const aNotif = Number(notifSettings.achievementsNotif ?? notifSettings.achievementsnotif ?? 1);
 
             let sendMention = false; 
-            if (questType === 'daily') {
-                if (dNotif === 0) return; 
-                sendMention = true; 
-            }
-            if (questType === 'weekly') {
-                if (wNotif === 0) return; 
-                sendMention = true; 
-            }
-            if (questType === 'achievement') {
-                if (aNotif === 0) return; 
-                sendMention = true; 
-            }
+            if (questType === 'daily' && dNotif !== 0) sendMention = true;
+            if (questType === 'weekly' && wNotif !== 0) sendMention = true;
+            if (questType === 'achievement' && aNotif !== 0) sendMention = true;
             
-            const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`; 
+            // 🔥 هنا السر: نستخدم المنشن إذا كان مفعل، وإذا معطل نستخدم الاسم فقط! 🔥
+            const userIdentifier = sendMention ? `<@${member.id}>` : `**${member.displayName}**`; 
             
             const settingsRes = await db.query(`SELECT "questChannelID", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [guild.id]).catch(()=>({rows:[]})); 
             const settings = settingsRes.rows[0]; 
@@ -197,6 +194,7 @@ module.exports = (client, db) => {
             } 
             
             message = announcementsTexts.getQuestMessage(questType, userIdentifier, questName, rewardDetails, panelChannelLink, client);
+            // 🔥 إرسال الرسالة مع تحديد ما إذا كان مسموحاً بمنشن اللاعب أم لا 🔥
             await channel.send({ content: message, files: files, allowedMentions: { users: sendMention ? [member.id] : [] } }).catch(()=>{}); 
         } catch (err) {} 
     }
@@ -215,7 +213,6 @@ module.exports = (client, db) => {
                 if (!existingClaim) {
                     await db.query(`INSERT INTO user_quest_claims ("claimID", "userID", "guildID", "questID", "dateStr") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("claimID") DO NOTHING`, [claimID, member.id, member.guild.id, quest.id, dateKey]).catch(()=>{});
                     
-                    // 🔥 تسليم الجائزة فوراً باستخدام دالة addXPAndCheckLevel الآمنة 🔥
                     if (addXPAndCheckLevel) {
                         await addXPAndCheckLevel(client, member, db, quest.reward.xp, quest.reward.mora, false);
                     }
@@ -244,10 +241,13 @@ module.exports = (client, db) => {
                 
                 const notifSettingsRes = await db.query(`SELECT "badgesNotif" FROM quest_notifications WHERE "id" = $1`, [`${member.id}-${member.guild.id}`]).catch(()=>({rows:[]}));
                 const notifSettings = notifSettingsRes.rows[0];
-                const bNotif = notifSettings ? notifSettings.badgesNotif : 1;
+                const bNotif = notifSettings ? Number(notifSettings.badgesNotif ?? notifSettings.badgesnotif ?? 1) : 1;
                 
                 const pChannel = settings ? settings.lastQuestPanelChannelID : null;
                 const panelChannelLink = pChannel ? `\n\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${pChannel}>` : "";
+
+                // 🔥 تحديد المنشن للوسام بناءً على إعداد المستخدم 🔥
+                const badgeUserIdentifier = bNotif !== 0 ? `<@${member.id}>` : `**${member.displayName}**`;
 
                 if (questType === 'daily') {
                     try { await db.query(`ALTER TABLE user_daily_stats ADD COLUMN IF NOT EXISTS "daily_badge_given" BIGINT DEFAULT 0`); } catch(e){}
@@ -261,7 +261,7 @@ module.exports = (client, db) => {
                         const rDailyBadge = settings ? settings.roleDailyBadge : null;
                         if (rDailyBadge) member.roles.add(rDailyBadge).catch(()=>{});
 
-                        if (announceChannel && bNotif === 1) {
+                        if (announceChannel) {
                             let files = [];
                             if (announceChannel.permissionsFor(member.guild.members.me)?.has(PermissionsBitField.Flags.AttachFiles)) {
                                 try {
@@ -270,8 +270,8 @@ module.exports = (client, db) => {
                                     files.push(new AttachmentBuilder(buffer, { name: `daily-badge-${Date.now()}.png` }));
                                 } catch(e) {}
                             }
-                            const badgeMsg = announcementsTexts.getBadgeMessage('daily', `<@${member.id}>`, client, panelChannelLink);
-                            await announceChannel.send({ content: badgeMsg, files: files }).catch(()=>{});
+                            const badgeMsg = announcementsTexts.getBadgeMessage('daily', badgeUserIdentifier, client, panelChannelLink);
+                            await announceChannel.send({ content: badgeMsg, files: files, allowedMentions: { users: bNotif !== 0 ? [member.id] : [] } }).catch(()=>{});
                         }
                     }
                 } 
@@ -287,7 +287,7 @@ module.exports = (client, db) => {
                         const rWeeklyBadge = settings ? settings.roleWeeklyBadge : null;
                         if (rWeeklyBadge) member.roles.add(rWeeklyBadge).catch(()=>{});
 
-                        if (announceChannel && bNotif === 1) {
+                        if (announceChannel) {
                             let files = [];
                             if (announceChannel.permissionsFor(member.guild.members.me)?.has(PermissionsBitField.Flags.AttachFiles)) {
                                 try {
@@ -296,8 +296,8 @@ module.exports = (client, db) => {
                                     files.push(new AttachmentBuilder(buffer, { name: `weekly-badge-${Date.now()}.png` }));
                                 } catch(e) {}
                             }
-                            const badgeMsg = announcementsTexts.getBadgeMessage('weekly', `<@${member.id}>`, client, panelChannelLink);
-                            await announceChannel.send({ content: badgeMsg, files: files }).catch(()=>{});
+                            const badgeMsg = announcementsTexts.getBadgeMessage('weekly', badgeUserIdentifier, client, panelChannelLink);
+                            await announceChannel.send({ content: badgeMsg, files: files, allowedMentions: { users: bNotif !== 0 ? [member.id] : [] } }).catch(()=>{});
                         }
                     }
                 }
@@ -306,7 +306,6 @@ module.exports = (client, db) => {
     }
 
     client.checkAchievements = async function(client, member, levelData, totalStatsData) {
-        // 🔥 توجيه الفحص إلى الملف المخصص achievements-utils.js لضمان الجوائز التلقائية 🔥
         try {
             const { checkAchievements } = require('../achievements-utils.js');
             await checkAchievements(client, member, levelData, totalStatsData);
@@ -400,7 +399,6 @@ module.exports = (client, db) => {
                 if (existingAch) return; 
                 await db.query(`INSERT INTO user_achievements ("userID", "guildID", "achievementID", "timestamp") VALUES ($1, $2, $3, $4) ON CONFLICT ("userID", "guildID", "achievementID") DO NOTHING`, [userID, guildID, ach.id, Date.now()]).catch(()=>{});
                 
-                // 🔥 تسليم الجائزة التلقائي 🔥
                 if (addXPAndCheckLevel) {
                     await addXPAndCheckLevel(client, member, db, ach.reward.xp, ach.reward.mora, false);
                 }
