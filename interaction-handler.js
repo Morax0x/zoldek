@@ -101,27 +101,42 @@ module.exports = (client, db, antiRolesCache) => {
                 if (!command) return;
 
                 try {
-                    const isBlacklisted = db.prepare("SELECT 1 FROM blacklistTable WHERE id = ?").get(i.user.id);
-                    if (isBlacklisted) return i.reply({ content: "🚫 **أنت في القائمة السوداء.**", flags: [MessageFlags.Ephemeral] });
+                    let isBlacklistedRes;
+                    try { isBlacklistedRes = await db.query(`SELECT 1 FROM blacklistTable WHERE "id" = $1`, [i.user.id]); }
+                    catch(e) { isBlacklistedRes = await db.query(`SELECT 1 FROM blacklistTable WHERE id = $1`, [i.user.id]).catch(()=>({rows:[]})); }
+                    if (isBlacklistedRes && isBlacklistedRes.rows.length > 0) return i.reply({ content: "🚫 **أنت في القائمة السوداء.**", flags: [MessageFlags.Ephemeral] });
                 } catch (e) {}
 
                 let isAllowed = false;
                 if (i.member.permissions.has(PermissionsBitField.Flags.Administrator)) isAllowed = true;
                 else {
                     let settings = null;
-                    try { settings = db.prepare("SELECT casinoChannelID, casinoChannelID2 FROM settings WHERE guild = ?").get(i.guild.id); } catch(e){}
+                    try { 
+                        let settingsRes = await db.query(`SELECT "casinoChannelID", "casinoChannelID2" FROM settings WHERE "guild" = $1`, [i.guild.id]).catch(()=>({rows:[]})); 
+                        settings = settingsRes.rows[0];
+                    } catch(e){}
                     
-                    if (settings && ((settings.casinoChannelID === i.channel.id) || (settings.casinoChannelID2 === i.channel.id)) && command.category === 'Economy') {
+                    if (settings && ((settings.casinoChannelID === i.channel.id || settings.casinochannelid === i.channel.id) || (settings.casinoChannelID2 === i.channel.id || settings.casinochannelid2 === i.channel.id)) && command.category === 'Economy') {
                         isAllowed = true;
                     } else {
                         try {
-                            const channelPerm = db.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(i.guild.id, command.name, i.channel.id);
-                            const categoryPerm = i.channel.parentId ? db.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(i.guild.id, command.name, i.channel.parentId) : null;
+                            let channelPermRes;
+                            try { channelPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2 AND "channelID" = $3`, [i.guild.id, command.name, i.channel.id]); }
+                            catch(e) { channelPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2 AND channelid = $3`, [i.guild.id, command.name, i.channel.id]).catch(()=>({rows:[]})); }
                             
-                            if (channelPerm || categoryPerm) isAllowed = true;
+                            let categoryPermRes = {rows: []};
+                            if (i.channel.parentId) {
+                                try { categoryPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2 AND "channelID" = $3`, [i.guild.id, command.name, i.channel.parentId]); }
+                                catch(e) { categoryPermRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2 AND channelid = $3`, [i.guild.id, command.name, i.channel.parentId]).catch(()=>({rows:[]})); }
+                            }
+                            
+                            if ((channelPermRes && channelPermRes.rows.length > 0) || (categoryPermRes && categoryPermRes.rows.length > 0)) isAllowed = true;
                             else {
-                                const hasRestrictions = db.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(i.guild.id, command.name);
-                                if (!hasRestrictions) isAllowed = true;
+                                let hasRestrictionsRes;
+                                try { hasRestrictionsRes = await db.query(`SELECT 1 FROM command_permissions WHERE "guildID" = $1 AND "commandName" = $2`, [i.guild.id, command.name]); }
+                                catch(e) { hasRestrictionsRes = await db.query(`SELECT 1 FROM command_permissions WHERE guildid = $1 AND commandname = $2`, [i.guild.id, command.name]).catch(()=>({rows:[]})); }
+                                
+                                if (!hasRestrictionsRes || hasRestrictionsRes.rows.length === 0) isAllowed = true;
                             }
                         } catch (e) { isAllowed = true; }
                     }
@@ -161,10 +176,14 @@ module.exports = (client, db, antiRolesCache) => {
                     return;
                 }
 
+                // 🔥 إصلاح أزرار تنبيه الـ AFK هنا 🔥
                 if (id.startsWith('notify_afk_')) {
                     const targetID = id.split('_')[2];
-                    let afkData = null;
-                    try { afkData = db.prepare("SELECT * FROM afk WHERE userID = ? AND guildID = ?").get(targetID, i.guild.id); } catch(e){}
+                    
+                    let afkDataRes;
+                    try { afkDataRes = await db.query(`SELECT * FROM afk WHERE "userID" = $1 AND "guildID" = $2`, [targetID, i.guild.id]); }
+                    catch(e) { afkDataRes = await db.query(`SELECT * FROM afk WHERE userid = $1 AND guildid = $2`, [targetID, i.guild.id]).catch(()=>({rows:[]})); }
+                    const afkData = afkDataRes?.rows?.[0];
 
                     if (!afkData) return i.reply({ content: "❌ هذا الشخص عاد بالفعل!", flags: [MessageFlags.Ephemeral] });
 
@@ -173,14 +192,21 @@ module.exports = (client, db, antiRolesCache) => {
                     if (subscribers.includes(i.user.id)) return i.reply({ content: "✅ أنت مسجل بالفعل في قائمة التنبيه.", flags: [MessageFlags.Ephemeral] });
 
                     subscribers.push(i.user.id);
-                    try { db.prepare("UPDATE afk SET subscribers = ? WHERE userID = ? AND guildID = ?").run(JSON.stringify(subscribers), targetID, i.guild.id); } catch(e){}
+                    try { 
+                        await db.query(`UPDATE afk SET "subscribers" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [JSON.stringify(subscribers), targetID, i.guild.id]); 
+                    } catch(e){
+                        await db.query(`UPDATE afk SET subscribers = $1 WHERE userid = $2 AND guildid = $3`, [JSON.stringify(subscribers), targetID, i.guild.id]).catch(()=>{});
+                    }
                     await i.reply({ content: "🔔 **تم!** سأقوم بمنشنتك فور عودة العضو.", flags: [MessageFlags.Ephemeral] });
                     return;
 
                 } else if (id.startsWith('leave_msg_afk_')) {
                     const targetID = id.split('_')[3];
-                    let afkData = null;
-                    try { afkData = db.prepare("SELECT * FROM afk WHERE userID = ? AND guildID = ?").get(targetID, i.guild.id); } catch(e){}
+                    
+                    let afkDataRes;
+                    try { afkDataRes = await db.query(`SELECT * FROM afk WHERE "userID" = $1 AND "guildID" = $2`, [targetID, i.guild.id]); }
+                    catch(e) { afkDataRes = await db.query(`SELECT * FROM afk WHERE userid = $1 AND guildid = $2`, [targetID, i.guild.id]).catch(()=>({rows:[]})); }
+                    const afkData = afkDataRes?.rows?.[0];
                     
                     if (!afkData) return i.reply({ content: "❌ هذا الشخص عاد للتو!", flags: [MessageFlags.Ephemeral] });
 
@@ -280,7 +306,6 @@ module.exports = (client, db, antiRolesCache) => {
                     return;
                 }
                 
-                // 🔥 تم تعديل المنطق لكي لا يمنع تفاعلات الصهر والدمج 🔥
                 if (i.customId.startsWith('farm_buy_modal|') || i.customId.startsWith('farm_sell_modal|')) {
                     if (handleFarmShopModal) {
                         await handleFarmShopModal(i, client, db);
@@ -293,12 +318,15 @@ module.exports = (client, db, antiRolesCache) => {
                     return;
                 }
 
+                // 🔥 إصلاح المودال الخاص بإرسال الرسالة للـ AFK 🔥
                 if (i.customId.startsWith('modal_afk_msg_')) {
                     const targetID = i.customId.split('_')[3];
                     const content = i.fields.getTextInputValue('msg_content');
 
-                    let afkData = null;
-                    try { afkData = db.prepare("SELECT * FROM afk WHERE userID = ? AND guildID = ?").get(targetID, i.guild.id); } catch(e){}
+                    let afkDataRes;
+                    try { afkDataRes = await db.query(`SELECT * FROM afk WHERE "userID" = $1 AND "guildID" = $2`, [targetID, i.guild.id]); }
+                    catch(e) { afkDataRes = await db.query(`SELECT * FROM afk WHERE userid = $1 AND guildid = $2`, [targetID, i.guild.id]).catch(()=>({rows:[]})); }
+                    const afkData = afkDataRes?.rows?.[0];
                     
                     if (afkData) {
                         let messages = [];
@@ -310,7 +338,11 @@ module.exports = (client, db, antiRolesCache) => {
                             timestamp: Math.floor(Date.now() / 1000)
                         });
 
-                        try { db.prepare("UPDATE afk SET messages = ? WHERE userID = ? AND guildID = ?").run(JSON.stringify(messages), targetID, i.guild.id); } catch(e){}
+                        try { 
+                            await db.query(`UPDATE afk SET "messages" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [JSON.stringify(messages), targetID, i.guild.id]); 
+                        } catch(e){
+                            await db.query(`UPDATE afk SET messages = $1 WHERE userid = $2 AND guildid = $3`, [JSON.stringify(messages), targetID, i.guild.id]).catch(()=>{});
+                        }
                         await i.reply({ content: "✅ **تم إرسال رسالتك!** سيراها فور عودته.", flags: [MessageFlags.Ephemeral] });
                     } else {
                         await i.reply({ content: "❌ عاد الشخص قبل أن ترسل الرسالة.", flags: [MessageFlags.Ephemeral] });
