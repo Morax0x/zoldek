@@ -58,39 +58,42 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
         let leveledUp = false;
         let oldLevel = userData.level;
 
-        // 🛑 التعديل السحري: لن نتحقق من التلفيل ولن نرفع اللفل إلا إذا كان هذا الحدث ناتج عن "رسالة بالشات" 🛑
-        if (isMessageEvent) {
-            let nextXP = calculateRequiredXP(userData.level);
-            
-            // سيستمر بالدوران ورفع اللفل طالما الخبرة المتراكمة أكبر من المطلوب
-            while (userData.xp >= nextXP) {
-                userData.xp -= nextXP;
-                userData.level++;
-                leveledUp = true;
-                nextXP = calculateRequiredXP(userData.level);
-            }
+        // 🔥 التعديل: السماح بحساب التلفيل دائماً حتى لو كانت الخبرة من إنجاز أو مهمة 🔥
+        let nextXP = calculateRequiredXP(userData.level);
+        while (userData.xp >= nextXP) {
+            userData.xp -= nextXP;
+            userData.level++;
+            leveledUp = true;
+            nextXP = calculateRequiredXP(userData.level);
         }
 
-        // التحديث الآمن في الداتابيز
+        // 🔥 التحديث الآمن: جمع المورا والاكس بي مباشرة في قاعدة البيانات لمنع مسح المكافآت 🔥
         try {
             await db.query(`
                 INSERT INTO levels ("user", "guild", "xp", "totalXP", "level", "mora") 
                 VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT ("user", "guild") DO UPDATE SET 
-                "xp" = EXCLUDED."xp", "totalXP" = EXCLUDED."totalXP", "level" = EXCLUDED."level", "mora" = EXCLUDED."mora"
-            `, [userId, guildId, userData.xp, userData.totalXP, userData.level, userData.mora]);
+                "xp" = EXCLUDED."xp", 
+                "level" = EXCLUDED."level", 
+                "totalXP" = CAST(COALESCE(levels."totalXP", '0') AS BIGINT) + $7, 
+                "mora" = CAST(COALESCE(levels."mora", '0') AS BIGINT) + $8
+            `, [userId, guildId, userData.xp, userData.totalXP, userData.level, userData.mora, xpToAdd, moraToAdd]);
         } catch(e) {
             await db.query(`
                 INSERT INTO levels (userid, guildid, xp, totalxp, level, mora) 
                 VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (userid, guildid) DO UPDATE SET 
-                xp = EXCLUDED.xp, totalxp = EXCLUDED.totalxp, level = EXCLUDED.level, mora = EXCLUDED.mora
-            `, [userId, guildId, userData.xp, userData.totalXP, userData.level, userData.mora]).catch(()=>{});
+                xp = EXCLUDED.xp, 
+                level = EXCLUDED.level, 
+                totalxp = CAST(COALESCE(levels.totalxp, '0') AS BIGINT) + $7, 
+                mora = CAST(COALESCE(levels.mora, '0') AS BIGINT) + $8
+            `, [userId, guildId, userData.xp, userData.totalXP, userData.level, userData.mora, xpToAdd, moraToAdd]).catch(()=>{});
         }
 
         if (client.setLevel) await client.setLevel(userData);
 
-        if (leveledUp) {
+        // 🔥 لن نزعج اللاعب بصورة التلفيل إلا إذا كان يتحدث في الشات 🔥
+        if (leveledUp && isMessageEvent) {
             const mockInteraction = { guild: member.guild, channel: member.guild.systemChannel || member.guild.channels.cache.first() };
             if (generateLevelUpCard) {
                 await sendLevelUpMessage(mockInteraction, member, userData.level, oldLevel, userData, db).catch(console.error);
