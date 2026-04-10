@@ -126,14 +126,23 @@ async function grantAchievementReward(client, member, achievement, db, isRepeata
         try { await member.roles.add(roleReward); } catch (e) {}
     }
 
-    // 4. إرسال رسالة الإعلان في قناة الإنجازات
+    // 4. إرسال رسالة الإعلان في قناة الإنجازات مع دعم المنشن الذكي
     const settingsRes = await safeQuery(db, `SELECT "achievementChannelID" FROM settings WHERE "guild" = $1`, [member.guild.id]);
     let settings = settingsRes.rows[0];
     
     if (settings && (settings.achievementchannelid || settings.achievementChannelID)) {
         const channelId = settings.achievementchannelid || settings.achievementChannelID;
         const channel = member.guild.channels.cache.get(channelId);
+        
         if (channel) {
+            // فحص إعدادات الإشعارات الخاصة باللاعب
+            let notifSettingsRes = await db.query(`SELECT * FROM quest_notifications WHERE "id" = $1`, [`${member.id}-${member.guild.id}`]).catch(()=>({rows:[]}));
+            let notifSettings = notifSettingsRes.rows[0];
+            const aNotif = notifSettings ? Number(notifSettings.achievementsNotif ?? notifSettings.achievementsnotif ?? 1) : 1;
+
+            // 🔥 هنا يتم التحديد: إذا مفعل (1) نضع منشن، وإذا معطل (0) نضع الاسم العادي 🔥
+            const userIdentifier = aNotif !== 0 ? `<@${member.id}>` : `**${member.displayName}**`;
+
             const EMOJI_XP = '<:xp:1435647161730469958>'; 
             const EMOJI_MORA = '<:mora:1435647151349698621>';
 
@@ -159,7 +168,7 @@ async function grantAchievementReward(client, member, achievement, db, isRepeata
                 .setThumbnail("https://i.postimg.cc/k49M41bX/trophy.png")
                 .setTimestamp();
 
-            await channel.send({ content: `<@${member.id}>`, embeds: [embed] }).catch(()=>{});
+            await channel.send({ content: userIdentifier, embeds: [embed], allowedMentions: { users: aNotif !== 0 ? [member.id] : [] } }).catch(()=>{});
         }
     }
 }
