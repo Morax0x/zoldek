@@ -103,7 +103,6 @@ function drawCircularAvatar(ctx, img, cx, cy, radius, borderColor, isDead = fals
     ctx.restore();
 }
 
-// 🔥 إضافة متغير status لمعرفة حالة التحدي (pending, declined, canceled, timeout) 🔥
 async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, status = 'pending') {
     try {
         const W = 1200, H = 760;
@@ -179,7 +178,6 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
         ctx.fillText(cleanChallengerName, W/2, logPanelY + 84);
         ctx.restore();
 
-        // 🔥 رسم النصوص بناءً على الحالة 🔥
         if (status === 'pending') {
             ctx.fillStyle = '#aaaaac'; ctx.font = 'bold 28px "Bein"';
             ctx.fillText('يطلب مواجهتك في تحدي', W/2, logPanelY + 145);
@@ -224,7 +222,6 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
             ctx.fillText(totalPot.toLocaleString(), W/2 + boxWidth/2 + 25, bottomBoxesY + 95);
             ctx.restore();
         } else {
-            // رسم حالة الإلغاء أو الرفض
             let statusText = "";
             let statusColor = "";
             let subText = "";
@@ -413,22 +410,43 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
                             bettorName = "مقاتل";
                         }
                         
-                        bettorName = bettorName.replace(/[!.]/g, '').substring(0, 15);
+                        bettorName = bettorName.replace(/[!.]/g, '').substring(0, 12);
                         
                         winnersList.push({ id: uid, amount: betObj.amount, name: bettorName });
                         totalWinnerBet += betObj.amount;
                     }
                 }
 
+                // 🔥 الطباعة الأفقية الأنيقة للمراهنين 🔥
                 if (winnersList.length > 0) {
                     const netPot = Math.floor(totalBetPool * 0.95);
-                    let startY = betAreaY + 110;
+                    let startY = betAreaY + 115;
                     ctx.font = '16px "Bein"';
-                    winnersList.slice(0, 4).forEach((win, idx) => {
+                    ctx.fillStyle = '#2ecc71';
+                    
+                    let lines = [];
+                    let currentLine = "";
+                    
+                    // نجمع أسماء المراهنين وأرباحهم في سطور لتجنب الخروج من اللوحة
+                    winnersList.forEach((win, idx) => {
                         const payout = Math.floor(netPot * (win.amount / totalWinnerBet));
-                        ctx.fillStyle = '#2ecc71';
-                        ctx.fillText(`الرابح: ${win.name} حصد ${payout.toLocaleString()} مورا ✦`, W/2, startY + (idx * 25));
+                        const entry = `${win.name} (${payout.toLocaleString()})`;
+                        
+                        // فحص عرض السطر لضمان بقائه داخل اللوحة
+                        if (ctx.measureText(currentLine + " | " + entry).width > W - 150) {
+                            lines.push(currentLine);
+                            currentLine = entry;
+                        } else {
+                            currentLine += currentLine === "" ? entry : `  |  ${entry}`;
+                        }
                     });
+                    if (currentLine !== "") lines.push(currentLine);
+
+                    // طباعة السطور المتراصة
+                    lines.forEach((line, i) => {
+                        ctx.fillText(line, W/2, startY + (i * 28));
+                    });
+
                 } else {
                     ctx.fillStyle = '#ef5350';
                     ctx.fillText('لم يراهن أحد على الفائز.. صودرت المبالغ!', W/2, betAreaY + 110);
