@@ -3,14 +3,13 @@ const core = require('./index.js');
 const botAI = require('./pvp-ai.js'); 
 const { calculateMoraBuff } = require('../../streak-handler.js'); 
 
-// استدعاء المعلق المنفصل مع حماية كاملة من الأخطاء المتزامنة والغير متزامنة
+// استدعاء المعلق المنفصل مع حماية كاملة من الأخطاء
 let triggerAnnouncer = () => {};
 let initAnnouncer = () => {};
 try {
     const _ann = require('./pvp-announcer.js');
     const _rawTrigger = _ann.triggerAnnouncer;
     const _rawInit = _ann.initAnnouncer;
-    // Wrap so any sync OR async error is swallowed — never an unhandled rejection
     triggerAnnouncer = (bs, text) => {
         try {
             const p = _rawTrigger(bs, text);
@@ -25,98 +24,154 @@ try {
     };
 } catch (e) {}
 
+// 🔥 نظام الحماية المطلقة: تمنع تعليق المعركة إذا تأخرت الصورة أو فشلت 🔥
+async function safeBuildBattleEmbed(battleState) {
+    try {
+        const result = await Promise.race([
+            core.buildBattleEmbed(battleState),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Canvas_Timeout")), 6000))
+        ]);
+        return result;
+    } catch (e) {
+        console.error("[SafeEmbed] Canvas Timeout/Error - Falling back to text mode:", e.message);
+        
+        const [attackerId, defenderId] = battleState.turn;
+        const attacker = battleState.players.get(attackerId);
+        const defender = battleState.players.get(defenderId);
+        
+        if (!attacker || !defender) return { embeds: [], components: [], files: [] };
+
+        const attackerName = attacker.isMonster ? attacker.name : core.cleanDisplayName(attacker.member?.displayName || attacker.member?.user?.username || 'مقاتل');
+        const defenderName = defender.isMonster ? defender.name : core.cleanDisplayName(defender.member?.displayName || defender.member?.user?.username || 'مقاتل');
+
+        const embed = new EmbedBuilder()
+            .setTitle(`⚔️ ${attackerName} 🆚 ${defenderName} ⚔️`)
+            .setColor(Colors.Red)
+            .setDescription(battleState.isPvE ? `🦑 **معركة ضد وحش!**\nالدور الآن لـ: **${attackerName}**` : `الرهان: **${(battleState.bet * 2).toLocaleString()}**\n**الدور الآن لـ:** <@${attackerId}>`);
+        
+        embed.addFields(
+            { name: `${attackerName}`, value: `HP: ${attacker.hp}/${attacker.maxHp}`, inline: true },
+            { name: `${defenderName}`, value: `HP: ${defender.hp}/${defender.maxHp}`, inline: true }
+        );
+
+        if (battleState.log.length > 0) {
+            embed.addFields({ name: "📝 السجل:", value: battleState.log.slice(-4).join('\n'), inline: false });
+        }
+        
+        let components = [];
+        if (!attacker.isMonster) {
+            const mainButtons = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('pvp_action_attack').setLabel('هـجـوم').setStyle(ButtonStyle.Danger).setEmoji('⚔️'),
+                new ButtonBuilder().setCustomId('pvp_action_skill').setLabel('مـهــارات').setStyle(ButtonStyle.Primary).setEmoji('✨')
+            );
+            if (!battleState.isPvE) mainButtons.addComponents(new ButtonBuilder().setCustomId('pvp_action_forfeit').setLabel('انسحاب').setStyle(ButtonStyle.Secondary).setEmoji('🏳️'));
+            components = [mainButtons];
+        }
+        return { embeds: [embed], components, files: [] };
+    }
+}
+
+// 🔥 حماية وحش البحر من التعليق الأبدي 🔥
 async function processMonsterTurn(battleState, db) {
     const monsterId = "monster";
     const playerId = battleState.turn[1];
     const monster = battleState.players.get(monsterId);
     const player = battleState.players.get(playerId);
-    if (!monster || !player) return;
-
-    await new Promise(r => setTimeout(r, 1500));
-
-    const { logEntries, skipTurn } = core.applyPersistentEffects(battleState, monsterId);
-    battleState.log.push(...logEntries);
-
-    if (monster.hp <= 0) {
-        try { triggerAnnouncer(battleState, `الوحش ${monster.name} سقط ميتاً أخيراً!`); } catch(e) {}
-        await core.endBattle(battleState, playerId, db, "win");
+    
+    if (!monster || !player) {
+        battleState.processingTurn = false;
         return;
     }
 
-    if (skipTurn) {
-        battleState.log.push(`⚡ **${monster.name}** لم يستطع التحرك بسبب الشلل!`);
-    } else {
-        let hitSelf = false;
-        if (monster.effects.confusion && Math.random() < 0.5) {
-            hitSelf = true;
-            const selfDmg = Math.floor(monster.weapon.currentDamage * 0.5);
-            monster.hp -= selfDmg;
-            battleState.log.push(`😵 **${monster.name}** ضرب نفسه بسبب الارتباك! (-${selfDmg})`);
+    try {
+        await new Promise(r => setTimeout(r, 1500));
+
+        const { logEntries, skipTurn } = core.applyPersistentEffects(battleState, monsterId);
+        battleState.log.push(...logEntries);
+
+        if (monster.hp <= 0) {
+            try { triggerAnnouncer(battleState, `الوحش ${monster.name} سقط ميتاً أخيراً!`); } catch(e) {}
+            await core.endBattle(battleState, playerId, db, "win");
+            return;
         }
 
-        if (!hitSelf) {
-            let isBlindMiss = false;
-            if (monster.effects.blind > 0 && Math.random() < 0.5) {
-                isBlindMiss = true;
-                battleState.log.push(`🌫️ **${monster.name}** أخطأ الهجوم بسبب العمى!`);
+        if (skipTurn) {
+            battleState.log.push(`⚡ **${monster.name}** لم يستطع التحرك بسبب الشلل!`);
+        } else {
+            let hitSelf = false;
+            if (monster.effects.confusion && Math.random() < 0.5) {
+                hitSelf = true;
+                const selfDmg = Math.floor(monster.weapon.currentDamage * 0.5);
+                monster.hp -= selfDmg;
+                battleState.log.push(`😵 **${monster.name}** ضرب نفسه بسبب الارتباك! (-${selfDmg})`);
             }
 
-            if (!isBlindMiss) {
-                if (player.effects.evasion > 0) {
-                    battleState.log.push(`👻 **${monster.name}** هاجم، لكنك راوغت الهجوم ببراعة!`);
-                } else {
-                    let damage = monster.weapon.currentDamage;
-                    if (monster.effects.weaken > 0) damage = Math.floor(damage * (1 - monster.effects.weaken));
+            if (!hitSelf) {
+                let isBlindMiss = false;
+                if (monster.effects.blind > 0 && Math.random() < 0.5) {
+                    isBlindMiss = true;
+                    battleState.log.push(`🌫️ **${monster.name}** أخطأ الهجوم بسبب العمى!`);
+                }
 
-                    let damageTaken = Math.floor(damage);
+                if (!isBlindMiss) {
+                    if (player.effects.evasion > 0) {
+                        battleState.log.push(`👻 **${monster.name}** هاجم، لكنك راوغت الهجوم ببراعة!`);
+                    } else {
+                        let damage = monster.weapon.currentDamage;
+                        if (monster.effects.weaken > 0) damage = Math.floor(damage * (1 - monster.effects.weaken));
 
-                    if (player.effects.shield > 0) {
-                        if (player.effects.shield >= damageTaken) {
-                            player.effects.shield -= damageTaken;
-                            damageTaken = 0;
-                            battleState.log.push(`🛡️ درع اللاعب امتص الهجوم بالكامل!`);
-                        } else {
-                            damageTaken -= player.effects.shield;
-                            player.effects.shield = 0;
-                            battleState.log.push(`🛡️ درع اللاعب تحطم ولكنه خفف الضرر!`);
+                        let damageTaken = Math.floor(damage);
+
+                        if (player.effects.shield > 0) {
+                            if (player.effects.shield >= damageTaken) {
+                                player.effects.shield -= damageTaken;
+                                damageTaken = 0;
+                                battleState.log.push(`🛡️ درع اللاعب امتص الهجوم بالكامل!`);
+                            } else {
+                                damageTaken -= player.effects.shield;
+                                player.effects.shield = 0;
+                                battleState.log.push(`🛡️ درع اللاعب تحطم ولكنه خفف الضرر!`);
+                            }
                         }
-                    }
 
-                    if (player.effects.rebound_active > 0) {
-                        const reflected = Math.floor(damageTaken * player.effects.rebound_active);
-                        monster.hp -= reflected;
-                        damageTaken -= reflected;
-                        battleState.log.push(`🔄 عكست **${reflected}** ضرر للوحش!`);
-                    }
+                        if (player.effects.rebound_active > 0) {
+                            const reflected = Math.floor(damageTaken * player.effects.rebound_active);
+                            monster.hp -= reflected;
+                            damageTaken -= reflected;
+                            battleState.log.push(`🔄 عكست **${reflected}** ضرر للوحش!`);
+                        }
 
-                    player.hp -= damageTaken;
-                    if (damageTaken > 0) {
-                        battleState.log.push(`🦑 **${monster.name}** هاجمك وألحق **${damageTaken}** ضرر!`);
-                        if (damageTaken > player.maxHp * 0.20) {
-                            try { triggerAnnouncer(battleState, `الوحش ${monster.name} سدد ضربة ساحقة للاعب أفقدته ${damageTaken} نقطة صحة دفعة واحدة!`); } catch(e){}
+                        player.hp -= damageTaken;
+                        if (damageTaken > 0) {
+                            battleState.log.push(`🦑 **${monster.name}** هاجمك وألحق **${damageTaken}** ضرر!`);
+                            if (damageTaken > player.maxHp * 0.20) {
+                                try { triggerAnnouncer(battleState, `الوحش ${monster.name} سدد ضربة ساحقة للاعب أفقدته ${damageTaken} نقطة صحة دفعة واحدة!`); } catch(e){}
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    if (player.hp <= 0) {
-        player.hp = 0;
-        try { triggerAnnouncer(battleState, `اللاعب سقط ضحية للوحش ${monster.name} ومات!`); } catch(e){}
-        await core.endBattle(battleState, monsterId, db, "win");
-        return;
-    }
+        if (player.hp <= 0) {
+            player.hp = 0;
+            try { triggerAnnouncer(battleState, `اللاعب سقط ضحية للوحش ${monster.name} ومات!`); } catch(e){}
+            await core.endBattle(battleState, monsterId, db, "win");
+            return;
+        }
 
-    battleState.turn = [playerId, monsterId];
-    
-    try {
-        const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+        battleState.turn = [playerId, monsterId];
+        
+        const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
         if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(() => {});
+        
     } catch (e) {
-        console.error("[processMonsterTurn UI Error]:", e);
+        console.error("[processMonsterTurn Logic Error]:", e);
+    } finally {
+        if (battleState && battleState.turn[0] !== "monster") {
+            battleState.processingTurn = false;
+        }
     }
-    battleState.processingTurn = false;
 }
 
 async function handleVotingAndBetting(i, client, db) {
@@ -186,7 +241,7 @@ async function handleVotingAndBetting(i, client, db) {
                         bState.bettingPool.isOpen = false;
                         bState.log.push(`🔒 أُغلقت شباك المراهنات!`);
                         await core.updateSpectatorEmbed(bState).catch(()=>{});
-                        const { embeds, components, files } = await core.buildBattleEmbed(bState);
+                        const { embeds, components, files } = await safeBuildBattleEmbed(bState);
                         if (bState.message) await bState.message.edit({ embeds, components, files }).catch(()=>{});
                     }
                 } catch(e) {}
@@ -215,7 +270,7 @@ async function handleVotingAndBetting(i, client, db) {
                 const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
                 battleState.announcerMessage = await battleState.thread.send({ embeds: [annEmbed] }).catch(()=>{});
                 
-                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
                 battleState.message = await battleState.thread.send({ content: null, embeds, components, files }).catch(()=>{});
                 
                 const p1NameClean = core.cleanDisplayName(i.guild.members.cache.get(p1Id)?.displayName || "مقاتل 1");
@@ -400,7 +455,7 @@ async function handlePvpSkillSelect(i, client, db) {
             battleState.turn = [defenderId, attackerId];
             
             try {
-                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
                 await battleState.message.edit({ embeds, components, files }).catch(() => {});
             } catch(e){}
             
@@ -443,7 +498,7 @@ async function handlePvpSkillSelect(i, client, db) {
         if (defender.hp <= 0) {
             defender.hp = 0;
             try{ 
-                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
                 await battleState.message.edit({ embeds, components, files }).catch(() => {});
             } catch(e){}
             try{ triggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`); } catch(e){}
@@ -453,7 +508,7 @@ async function handlePvpSkillSelect(i, client, db) {
         if (attacker.hp <= 0) {
             attacker.hp = 0;
             try{ 
-                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+                const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
                 await battleState.message.edit({ embeds, components, files }).catch(() => {});
             } catch(e){}
             await core.endBattle(battleState, defenderId, db, "win", calculateMoraBuff);
@@ -462,7 +517,7 @@ async function handlePvpSkillSelect(i, client, db) {
 
         battleState.turn = [defenderId, attackerId];
         try{ 
-            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
+            const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
             await battleState.message.edit({ embeds, components, files }).catch(() => {});
         } catch(e){}
 
@@ -532,9 +587,12 @@ async function handlePvpTurn(i, client, db) {
             battleState.log.push(`⚡ **${attackerName}** مشلول ولا يستطيع الحركة!`);
             try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} متجمد في مكانه كالصنم! الشلل يمنعه من الحركة!`); }catch(e){}
             battleState.turn = [defenderId, attackerId];
+            
             try{
-                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-                await i.editReply({ embeds, components, files }).catch(()=>{});
+                const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
+                await i.editReply({ embeds, components, files }).catch(async () => {
+                    if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(()=>{});
+                });
             } catch(e){}
             
             if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
@@ -603,8 +661,10 @@ async function handlePvpTurn(i, client, db) {
         if (defender.hp <= 0) {
             defender.hp = 0;
             try{
-                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-                await i.editReply({ embeds, components, files }).catch(()=>{});
+                const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
+                await i.editReply({ embeds, components, files }).catch(async () => {
+                    if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(()=>{});
+                });
             } catch(e){}
             try{ triggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`); }catch(e){}
             await core.endBattle(battleState, attackerId, db, "win", calculateMoraBuff);
@@ -613,8 +673,10 @@ async function handlePvpTurn(i, client, db) {
         if (attacker.hp <= 0) {
             attacker.hp = 0;
             try{
-                const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-                await i.editReply({ embeds, components, files }).catch(()=>{});
+                const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
+                await i.editReply({ embeds, components, files }).catch(async () => {
+                    if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(()=>{});
+                });
             } catch(e){}
             await core.endBattle(battleState, defenderId, db, "win", calculateMoraBuff);
             return;
@@ -622,8 +684,10 @@ async function handlePvpTurn(i, client, db) {
 
         battleState.turn = [defenderId, attackerId];
         try{
-            const { embeds, components, files } = await core.buildBattleEmbed(battleState);
-            await i.editReply({ embeds, components, files }).catch(()=>{});
+            const { embeds, components, files } = await safeBuildBattleEmbed(battleState);
+            await i.editReply({ embeds, components, files }).catch(async () => {
+                if (battleState.message) await battleState.message.edit({ embeds, components, files }).catch(()=>{});
+            });
         } catch(e){}
 
         if (isPvE && battleState.turn[0] === "monster") processMonsterTurn(battleState, db).catch(err => console.error(err));
