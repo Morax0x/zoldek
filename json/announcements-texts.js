@@ -14,7 +14,7 @@ module.exports = {
                 `✶ انـرت سمـاء الامـبراطـوريـة بإنجـازك ${EMOJI_FASTER}`,
                 `✥ انـجـاز: **${questName}**`,
                 ``,
-                `- فـالتسـجل امبراطوريتـنـا اسمـك بيـن العضـمـاء ${EMOJI_PRAY}`,
+                `- فـالتسـجل امبراطوريتـنـا اسمـك بيـن العظـمـاء ${EMOJI_PRAY}`,
                 rewardDetails,
                 panelChannelLink
             ].filter(Boolean).join('\n');
