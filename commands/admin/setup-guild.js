@@ -33,21 +33,21 @@ module.exports = {
         const db = client.sql;
 
         try { 
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "kingsBoardMessageID" TEXT`);
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "chatterChannelID" TEXT`);
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "roleChatterBadge" TEXT`);
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "roleKnightSlayer" TEXT`);
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "questChannelID" TEXT`);
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "countingChannelID" TEXT`);
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "treeChannelID" TEXT`);
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "treeBotID" TEXT`);
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "treeMessageID" TEXT`);
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "kingsBoardMessageID" TEXT`).catch(()=>{});
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "chatterChannelID" TEXT`).catch(()=>{});
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "roleChatterBadge" TEXT`).catch(()=>{});
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "roleKnightSlayer" TEXT`).catch(()=>{});
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "questChannelID" TEXT`).catch(()=>{});
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "countingChannelID" TEXT`).catch(()=>{});
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "treeChannelID" TEXT`).catch(()=>{});
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "treeBotID" TEXT`).catch(()=>{});
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "treeMessageID" TEXT`).catch(()=>{});
             
             // 🔥 إضافة أعمدة ملوك الصوت واللصوص هنا لكي يحفظهم الداتابيز! 🔥
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "roleVoice" TEXT`);
-            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "roleThief" TEXT`);
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "roleVoice" TEXT`).catch(()=>{});
+            await db.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS "roleThief" TEXT`).catch(()=>{});
             
-            await db.query(`CREATE TABLE IF NOT EXISTS quest_achievement_roles ("guildID" TEXT, "roleID" TEXT, "achievementID" TEXT, PRIMARY KEY ("guildID", "achievementID"))`); 
+            await db.query(`CREATE TABLE IF NOT EXISTS quest_achievement_roles ("guildID" TEXT, "roleID" TEXT, "achievementID" TEXT, PRIMARY KEY ("guildID", "achievementID"))`).catch(()=>{}); 
         } catch (e) {
             console.error("Setup Guild DB Error:", e);
         }
@@ -175,7 +175,7 @@ module.exports = {
 
         collector.on('collect', async interaction => {
             if (interaction.user.id !== message.author.id) {
-                return interaction.reply({ content: '❌ هذا الأمر ليس لك.', flags: [MessageFlags.Ephemeral] });
+                return interaction.reply({ content: '❌ هذا الأمر ليس لك.', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             }
 
             if (interaction.customId === 'tree_text_settings') {
@@ -196,7 +196,7 @@ module.exports = {
                     .setRequired(false);
 
                 modal.addComponents(new ActionRowBuilder().addComponents(botInput), new ActionRowBuilder().addComponents(msgInput));
-                await interaction.showModal(modal);
+                await interaction.showModal(modal).catch(()=>{});
                 return;
             }
 
@@ -226,7 +226,7 @@ module.exports = {
                     new ButtonBuilder().setCustomId(`clear_${dbColumn}`).setLabel('🗑️ حذف التحديد الحالي').setStyle(ButtonStyle.Danger)
                 );
 
-                await interaction.update({ components: [selectionRow, controlsRow] });
+                await interaction.update({ components: [selectionRow, controlsRow] }).catch(()=>{});
                 return;
             }
 
@@ -271,10 +271,10 @@ module.exports = {
                         }
                         
                         const updatedEmbed = await generateDashboardEmbed();
-                        await interaction.update({ embeds: [updatedEmbed], components: getMainMenuComponents() });
+                        await interaction.update({ embeds: [updatedEmbed], components: getMainMenuComponents() }).catch(()=>{});
                     } catch (err) {
                         console.error(err);
-                        await interaction.reply({ content: `❌ حدث خطأ أثناء الحفظ.`, flags: [MessageFlags.Ephemeral] });
+                        await interaction.reply({ content: `❌ حدث خطأ أثناء الحفظ.`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                     }
                     return;
                 }
@@ -282,7 +282,7 @@ module.exports = {
 
             if (interaction.isButton()) {
                 if (interaction.customId === 'back_to_main') {
-                    await interaction.update({ components: getMainMenuComponents() });
+                    await interaction.update({ components: getMainMenuComponents() }).catch(()=>{});
                     return;
                 }
 
@@ -297,7 +297,7 @@ module.exports = {
                             catch(e) { await db.query(`UPDATE settings SET ${dbColumn} = NULL WHERE guild = $1`, [guildId]).catch(()=>{}); }
                         }
                         const updatedEmbed = await generateDashboardEmbed();
-                        await interaction.update({ embeds: [updatedEmbed], components: getMainMenuComponents() });
+                        await interaction.update({ embeds: [updatedEmbed], components: getMainMenuComponents() }).catch(()=>{});
                     } catch (e) {
                         console.error(e);
                     }
@@ -305,7 +305,7 @@ module.exports = {
                 }
 
                 if (interaction.customId === 'send_guild_board') {
-                    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+                    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
                     let settingsRes;
                     try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guildId]); }
@@ -313,13 +313,13 @@ module.exports = {
                     
                     const settings = settingsRes.rows[0];
                     if (!settings || (!settings.guildboardchannelid && !settings.guildBoardChannelID)) {
-                        return interaction.editReply({ content: '❌ يجب عليك تحديد **روم لوحة النقابة (الثابتة)** أولاً لكي أرسلها!' });
+                        return interaction.editReply({ content: '❌ يجب عليك تحديد **روم لوحة النقابة (الثابتة)** أولاً لكي أرسلها!' }).catch(()=>{});
                     }
 
                     const boardChID = settings.guildboardchannelid || settings.guildBoardChannelID;
                     const targetChannel = interaction.guild.channels.cache.get(boardChID);
                     if (!targetChannel) {
-                        return interaction.editReply({ content: '❌ الروم المحدد غير موجود أو البوت لا يملك صلاحية الوصول إليه.' });
+                        return interaction.editReply({ content: '❌ الروم المحدد غير موجود أو البوت لا يملك صلاحية الوصول إليه.' }).catch(()=>{});
                     }
 
                     try {
@@ -385,7 +385,6 @@ module.exports = {
                             return { title, emoji, displayName: 'مغامر مجهول', avatarUrl: null, valueText: `${parseInt(dataObj[valueKey] || dataObj[valueKey.toLowerCase()] || 0).toLocaleString()} ${suffix}` };
                         }
 
-                        // 🔥 التعديل الجوهري للأسماء هنا لكي تطبع في اللوحة بنجاح 🔥
                         const kingsArray = [
                             await getKingInfo(casinoData, 'totalProfit', 'مورا', 'ملك الكازينو', '🎰'),
                             await getKingInfo(abyssData, 'dungeon_floor', 'طابق', 'ملك الهاوية', '🌑'),
@@ -444,10 +443,10 @@ module.exports = {
                             await db.query(`UPDATE settings SET guildboardmessageid = $1, kingsboardmessageid = $2 WHERE guild = $3`, [boardMsg.id, kingsMsg.id, guildId]).catch(()=>{});
                         }
 
-                        await interaction.editReply({ content: `✅ **تم تحديث وإرسال اللوحات بنجاح في <#${targetChannel.id}>!**` });
+                        await interaction.editReply({ content: `✅ **تم تحديث وإرسال اللوحات بنجاح في <#${targetChannel.id}>!**` }).catch(()=>{});
                     } catch (err) {
                         console.error("Board Send Error:", err);
-                        await interaction.editReply({ content: '❌ حدث خطأ أثناء إرسال الصور.' });
+                        await interaction.editReply({ content: '❌ حدث خطأ أثناء إرسال الصور.' }).catch(()=>{});
                     }
                 }
             }
@@ -477,11 +476,11 @@ module.exports = {
                             `, [guildId, botId, msgId]).catch(()=>{});
                         }
                         
-                        await modalInteraction.reply({ content: '✅ تم حفظ إعدادات رسالة وبوت الشجرة بنجاح.', flags: [MessageFlags.Ephemeral] });
+                        await modalInteraction.reply({ content: '✅ تم حفظ إعدادات رسالة وبوت الشجرة بنجاح.', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                         const updatedEmbed = await generateDashboardEmbed();
                         dashboardMsg.edit({ embeds: [updatedEmbed] }).catch(()=>{});
                     } catch (e) {
-                        await modalInteraction.reply({ content: '❌ حدث خطأ في الحفظ.', flags: [MessageFlags.Ephemeral] });
+                        await modalInteraction.reply({ content: '❌ حدث خطأ في الحفظ.', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                     }
                 }
             });
