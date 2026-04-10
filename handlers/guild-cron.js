@@ -4,8 +4,9 @@ const { EmbedBuilder, Colors } = require('discord.js');
 function startGuildCrons(client, db) {
     if (!db) return;
 
+    // 🔥 التصفير اليومي (الساعة 23:59 بتوقيت السعودية) 🔥
     cron.schedule('59 23 * * *', async () => {
-        console.log("[Guild Cron] Starting Daily Reset for Kings...");
+        console.log("[Guild Cron] Starting Daily Reset for Kings & Badges...");
         const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date());
         const guilds = client.guilds.cache;
 
@@ -15,7 +16,23 @@ function startGuildCrons(client, db) {
             catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guild.id]).catch(()=>({rows:[]})); }
             const settings = settingsRes.rows[0];
             
-            const announceChannelId = settings ? (settings.guildAnnounceChannelID || settings.guildannouncechannelid) : null;
+            if (!settings) return;
+
+            // 🛡️ سحب رتبة الختم اليومي من جميع الأعضاء بصمت 🛡️
+            const roleDailyBadgeId = settings.roleDailyBadge || settings.roledailybadge;
+            if (roleDailyBadgeId) {
+                try {
+                    const role = guild.roles.cache.get(roleDailyBadgeId);
+                    if (role && guild.members.me.permissions.has('ManageRoles')) {
+                        const membersWithRole = role.members;
+                        for (const [memberId, member] of membersWithRole) {
+                            member.roles.remove(roleDailyBadgeId).catch(()=>{});
+                        }
+                    }
+                } catch (err) { console.error("[Guild Cron] Failed to remove daily badges:", err); }
+            }
+
+            const announceChannelId = settings.guildAnnounceChannelID || settings.guildannouncechannelid;
             if (!announceChannelId) return;
 
             const announceChannel = guild.channels.cache.get(announceChannelId);
@@ -115,8 +132,9 @@ function startGuildCrons(client, db) {
         });
     }, { timezone: "Asia/Riyadh" });
 
+    // 🔥 التصفير الأسبوعي (يوم الجمعة الساعة 23:59 بتوقيت السعودية) 🔥
     cron.schedule('59 23 * * 5', async () => {
-        console.log("[Guild Cron] Starting Silent Weekly Elite Tax...");
+        console.log("[Guild Cron] Starting Silent Weekly Elite Tax & Badges Reset...");
         
         const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
         const diff = now.getDate() - (now.getDay() + 2) % 7; 
@@ -126,6 +144,27 @@ function startGuildCrons(client, db) {
         const guilds = client.guilds.cache;
 
         guilds.forEach(async (guild) => {
+            let settingsRes;
+            try { settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]); }
+            catch(e) { settingsRes = await db.query(`SELECT * FROM settings WHERE guild = $1`, [guild.id]).catch(()=>({rows:[]})); }
+            const settings = settingsRes.rows[0];
+
+            // 🛡️ سحب رتبة الختم الأسبوعي من جميع الأعضاء بصمت 🛡️
+            if (settings) {
+                const roleWeeklyBadgeId = settings.roleWeeklyBadge || settings.roleweeklybadge;
+                if (roleWeeklyBadgeId) {
+                    try {
+                        const role = guild.roles.cache.get(roleWeeklyBadgeId);
+                        if (role && guild.members.me.permissions.has('ManageRoles')) {
+                            const membersWithRole = role.members;
+                            for (const [memberId, member] of membersWithRole) {
+                                member.roles.remove(roleWeeklyBadgeId).catch(()=>{});
+                            }
+                        }
+                    } catch (err) { console.error("[Guild Cron] Failed to remove weekly badges:", err); }
+                }
+            }
+
             let elitesRes;
             try { elitesRes = await db.query(`SELECT * FROM user_reputation WHERE "guildID" = $1 AND "rep_points" >= 100`, [guild.id]); }
             catch(e) { elitesRes = await db.query(`SELECT * FROM user_reputation WHERE guildid = $1 AND rep_points >= 100`, [guild.id]).catch(()=>({rows:[]})); }
