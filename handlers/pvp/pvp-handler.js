@@ -4,6 +4,11 @@ const botAI = require('./pvp-ai.js');
 const { calculateMoraBuff } = require('../../streak-handler.js'); 
 const { triggerAnnouncer, initAnnouncer } = require('./pvp-announcer.js'); // 🔥 استدعاء المعلق المنفصل 🔥
 
+// Wrapper to safely fire announcer without risking unhandled rejections
+function fireTriggerAnnouncer(battleState, eventText) {
+    triggerAnnouncer(battleState, eventText).catch(err => console.error('[Announcer Trigger Error]', err));
+}
+
 async function processMonsterTurn(battleState, db) {
     const monsterId = "monster";
     const playerId = battleState.turn[1];
@@ -17,7 +22,7 @@ async function processMonsterTurn(battleState, db) {
     battleState.log.push(...logEntries);
 
     if (monster.hp <= 0) {
-        triggerAnnouncer(battleState, `الوحش ${monster.name} سقط ميتاً أخيراً!`);
+        fireTriggerAnnouncer(battleState, `الوحش ${monster.name} سقط ميتاً أخيراً!`);
         await core.endBattle(battleState, playerId, db, "win");
         return;
     }
@@ -71,7 +76,7 @@ async function processMonsterTurn(battleState, db) {
                     player.hp -= damageTaken;
                     if (damageTaken > 0) {
                         battleState.log.push(`🦑 **${monster.name}** هاجمك وألحق **${damageTaken}** ضرر!`);
-                        if (damageTaken > player.maxHp * 0.20) triggerAnnouncer(battleState, `الوحش ${monster.name} سدد ضربة ساحقة للاعب أفقدته ${damageTaken} نقطة صحة دفعة واحدة!`);
+                        if (damageTaken > player.maxHp * 0.20) fireTriggerAnnouncer(battleState, `الوحش ${monster.name} سدد ضربة ساحقة للاعب أفقدته ${damageTaken} نقطة صحة دفعة واحدة!`);
                     }
                 }
             }
@@ -80,7 +85,7 @@ async function processMonsterTurn(battleState, db) {
 
     if (player.hp <= 0) {
         player.hp = 0;
-        triggerAnnouncer(battleState, `اللاعب سقط ضحية للوحش ${monster.name} ومات!`);
+        fireTriggerAnnouncer(battleState, `اللاعب سقط ضحية للوحش ${monster.name} ومات!`);
         await core.endBattle(battleState, monsterId, db, "win");
         return;
     }
@@ -153,28 +158,36 @@ async function handleVotingAndBetting(i, client, db) {
             battleState.log.push(`⏱️ تم تحديد وقت المباراة: **${finalTime} دقائق**`);
 
             battleState.bettingTimer = setTimeout(async () => {
-                const bState = core.activePvpBattles.get(i.channel.id);
-                if (bState && bState.bettingPool.isOpen) {
-                    bState.bettingPool.isOpen = false;
-                    bState.log.push(`🔒 أُغلقت شباك المراهنات!`);
-                    await core.updateSpectatorEmbed(bState);
-                    const { embeds, components, files } = await core.buildBattleEmbed(bState);
-                    if (bState.message) await bState.message.edit({ embeds, components, files }).catch(()=>{});
+                try {
+                    const bState = core.activePvpBattles.get(i.channel.id);
+                    if (bState && bState.bettingPool.isOpen) {
+                        bState.bettingPool.isOpen = false;
+                        bState.log.push(`🔒 أُغلقت شباك المراهنات!`);
+                        await core.updateSpectatorEmbed(bState);
+                        const { embeds, components, files } = await core.buildBattleEmbed(bState);
+                        if (bState.message) await bState.message.edit({ embeds, components, files }).catch(()=>{});
+                    }
+                } catch (err) {
+                    console.error('[BettingTimer Error]', err);
                 }
             }, battleState.durationMs * 0.33);
 
             battleState.timeoutTimer = setTimeout(async () => {
-                const bState = core.activePvpBattles.get(i.channel.id);
-                if (bState && bState.status === 'active') {
-                    const player1 = bState.players.get(p1Id);
-                    const player2 = bState.players.get(p2Id);
-                    
-                    let winnerId = p1Id;
-                    if (player2.hp > player1.hp) winnerId = p2Id;
-                    else if (player1.hp === player2.hp) winnerId = Math.random() > 0.5 ? p1Id : p2Id;
+                try {
+                    const bState = core.activePvpBattles.get(i.channel.id);
+                    if (bState && bState.status === 'active') {
+                        const player1 = bState.players.get(p1Id);
+                        const player2 = bState.players.get(p2Id);
 
-                    triggerAnnouncer(bState, `انتهى الوقت المحدد للمباراة! حان وقت التقييم!`);
-                    await core.endBattle(bState, winnerId, db, "timeout");
+                        let winnerId = p1Id;
+                        if (player2.hp > player1.hp) winnerId = p2Id;
+                        else if (player1.hp === player2.hp) winnerId = Math.random() > 0.5 ? p1Id : p2Id;
+
+                        fireTriggerAnnouncer(bState, `انتهى الوقت المحدد للمباراة! حان وقت التقييم!`);
+                        await core.endBattle(bState, winnerId, db, "timeout");
+                    }
+                } catch (err) {
+                    console.error('[TimeoutTimer Error]', err);
                 }
             }, battleState.durationMs);
 
@@ -190,7 +203,7 @@ async function handleVotingAndBetting(i, client, db) {
             // تفعيل المعلق لاختيار اسمه والترحيب
             const p1NameClean = core.cleanDisplayName(i.guild.members.cache.get(p1Id)?.displayName || "مقاتل 1");
             const p2NameClean = battleState.isBotMatch ? 'الزعيم موركس' : core.cleanDisplayName(i.guild.members.cache.get(p2Id)?.displayName || "مقاتل 2");
-            initAnnouncer(battleState, p1NameClean, p2NameClean);
+            initAnnouncer(battleState, p1NameClean, p2NameClean).catch(err => console.error('[Announcer Init Error]', err));
         }
     }
 }
@@ -347,14 +360,14 @@ async function handlePvpSkillSelect(i, client, db) {
 
         if (attacker.hp <= 0) {
             attacker.hp = 0;
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} سقط صريعاً بسبب تأثيرات النزيف أو السموم!`);
+            fireTriggerAnnouncer(battleState, `اللاعب ${attackerName} سقط صريعاً بسبب تأثيرات النزيف أو السموم!`);
             await core.endBattle(battleState, defenderId, db, "win", calculateMoraBuff);
             return;
         }
 
         if (skipTurn) {
             battleState.log.push(`⚡ **${attackerName}** مشلول ولا يستطيع الحركة!`);
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} متجمد في مكانه كالصنم! الشلل يمنعه من الحركة!`);
+            fireTriggerAnnouncer(battleState, `اللاعب ${attackerName} متجمد في مكانه كالصنم! الشلل يمنعه من الحركة!`);
             battleState.turn = [defenderId, attackerId];
             const { embeds, components, files } = await core.buildBattleEmbed(battleState);
             await battleState.message.edit({ embeds, components, files }).catch(() => {});
@@ -377,7 +390,7 @@ async function handlePvpSkillSelect(i, client, db) {
             const selfDmg = Math.floor(weaponDmg * 0.5);
             attacker.hp -= selfDmg;
             battleState.log.push(`😵 **${attackerName}** في حالة ارتباك وضرب نفسه! (-${selfDmg})`);
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`);
+            fireTriggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`);
         } else {
             const skills = attacker.skills || {};
             const skill = Object.values(skills).find(s => s.id === skillId);
@@ -386,7 +399,7 @@ async function handlePvpSkillSelect(i, client, db) {
                 const actionLog = core.applySkillEffect(battleState, attackerId, skill);
                 battleState.log.push(actionLog);
                 
-                triggerAnnouncer(battleState, `اللاعب ${attackerName} استخدم مهارته الخاصة "${skill.name}"! ${actionLog}`);
+                fireTriggerAnnouncer(battleState, `اللاعب ${attackerName} استخدم مهارته الخاصة "${skill.name}"! ${actionLog}`);
 
                 if (!isPvE && battleState.stats && battleState.stats[attackerId]) battleState.stats[attackerId].skillsUsed += 1;
             }
@@ -396,7 +409,7 @@ async function handlePvpSkillSelect(i, client, db) {
             defender.hp = 0;
             const { embeds, components, files } = await core.buildBattleEmbed(battleState);
             await battleState.message.edit({ embeds, components, files }).catch(() => {});
-            triggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`);
+            fireTriggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`);
             await core.endBattle(battleState, attackerId, db, "win", calculateMoraBuff);
             return;
         }
@@ -463,14 +476,14 @@ async function handlePvpTurn(i, client, db) {
 
         if (attacker.hp <= 0) {
             attacker.hp = 0;
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} سقط صريعاً بسبب تأثيرات النزيف أو السموم!`);
+            fireTriggerAnnouncer(battleState, `اللاعب ${attackerName} سقط صريعاً بسبب تأثيرات النزيف أو السموم!`);
             await core.endBattle(battleState, defenderId, db, "win", calculateMoraBuff);
             return;
         }
 
         if (skipTurn) {
             battleState.log.push(`⚡ **${attackerName}** مشلول ولا يستطيع الحركة!`);
-            triggerAnnouncer(battleState, `اللاعب ${attackerName} متجمد في مكانه كالصنم! الشلل يمنعه من الحركة!`);
+            fireTriggerAnnouncer(battleState, `اللاعب ${attackerName} متجمد في مكانه كالصنم! الشلل يمنعه من الحركة!`);
             battleState.turn = [defenderId, attackerId];
             const { embeds, components, files } = await core.buildBattleEmbed(battleState);
             await i.editReply({ embeds, components, files });
@@ -482,7 +495,7 @@ async function handlePvpTurn(i, client, db) {
         }
 
         if (i.customId === 'pvp_action_forfeit') {
-            triggerAnnouncer(battleState, `يا للعار! اللاعب ${attackerName} ينسحب من المعركة كالجبناء!`);
+            fireTriggerAnnouncer(battleState, `يا للعار! اللاعب ${attackerName} ينسحب من المعركة كالجبناء!`);
             await core.endBattle(battleState, defenderId, db, "forfeit", calculateMoraBuff);
             return;
         }
@@ -500,20 +513,20 @@ async function handlePvpTurn(i, client, db) {
                 const selfDmg = Math.floor(weaponDmg * 0.5);
                 attacker.hp -= selfDmg;
                 battleState.log.push(`😵 **${attackerName}** في حالة ارتباك وضرب نفسه! (-${selfDmg})`);
-                triggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`);
+                fireTriggerAnnouncer(battleState, `اللاعب ${attackerName} ارتبك وضرب نفسه! يا للغباء يفقد ${selfDmg} من صحته!`);
             } else if (!attacker.weapon || attacker.weapon.currentLevel === 0) {
                 battleState.log.push(`❌ ${attackerName} يحاول الهجوم بلا سلاح!`);
             } else {
                 if (attacker.effects.blind > 0 && Math.random() < 0.5) {
                     battleState.log.push(`🌫️ **${attackerName}** أخطأ الهجوم بسبب العمى!`);
-                    triggerAnnouncer(battleState, `اللاعب ${attackerName} يضرب الهواء كالأعمى ولا يصيب شيئاً!`);
+                    fireTriggerAnnouncer(battleState, `اللاعب ${attackerName} يضرب الهواء كالأعمى ولا يصيب شيئاً!`);
                 } else {
                     const attackerHpBefore = attacker.hp;
                     const dmg = core.calculateDamage(attacker, defender);
 
                     if (defender.effects.evasion > 0) {
                         battleState.log.push(`👻 **${attackerName}** هاجم، لكن **${defenderName}** راوغ ببراعة!`);
-                        triggerAnnouncer(battleState, `مراوغة أسطورية من ${defenderName}! هجوم ${attackerName} ذهب في الهواء!`);
+                        fireTriggerAnnouncer(battleState, `مراوغة أسطورية من ${defenderName}! هجوم ${attackerName} ذهب في الهواء!`);
                     } else {
                         if (defender.effects.rebound_active > 0) {
                             const reflected = attackerHpBefore - attacker.hp;
@@ -525,10 +538,10 @@ async function handlePvpTurn(i, client, db) {
 
                         if (dmg > 0) {
                             battleState.log.push(`⚔️ **${attackerName}** هاجم وألحق **${dmg}** ضرر!`);
-                            triggerAnnouncer(battleState, `اللاعب ${attackerName} ضرب خصمه بقوة وسلب منه ${dmg} نقطة صحة!`);
+                            fireTriggerAnnouncer(battleState, `اللاعب ${attackerName} ضرب خصمه بقوة وسلب منه ${dmg} نقطة صحة!`);
                         } else {
                             battleState.log.push(`🛡️ **${defenderName}** امتص الضربة بالكامل!`);
-                            triggerAnnouncer(battleState, `اللاعب ${defenderName} تصدى للضربة ببراعة ولم يتأثر أبداً!`);
+                            fireTriggerAnnouncer(battleState, `اللاعب ${defenderName} تصدى للضربة ببراعة ولم يتأثر أبداً!`);
                         }
                     }
                 }
@@ -539,7 +552,7 @@ async function handlePvpTurn(i, client, db) {
             defender.hp = 0;
             const { embeds, components, files } = await core.buildBattleEmbed(battleState);
             await i.editReply({ embeds, components, files });
-            triggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`);
+            fireTriggerAnnouncer(battleState, `الضربة القاضية من ${attackerName}! سقط الخصم أرضاً وانتهت المعركة!`);
             await core.endBattle(battleState, attackerId, db, "win", calculateMoraBuff);
             return;
         }

@@ -38,6 +38,7 @@ async function getWeaponData(db, member) {
     const userRace = await getUserRace(member, db);
     if (!userRace) return null;
     const raceName = userRace.raceName || userRace.racename;
+    if (!raceName) return null;
     const weaponConfig = weaponsConfig.find(w => w.race.toLowerCase() === raceName.toLowerCase());
     if (!weaponConfig) return null;
     
@@ -88,7 +89,7 @@ async function getAllSkillData(db, member) {
     let currentRaceSkillId = null;
     if (userRace) {
         const raceName = userRace.raceName || userRace.racename;
-        currentRaceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
+        if (raceName) currentRaceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
     }
 
     if (userSkillsData) {
