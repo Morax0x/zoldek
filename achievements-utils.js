@@ -13,120 +13,122 @@ try {
 
 const ROWS_PER_PAGE_ACH = 5;
 
+// 🔥 أداة استعلام آمنة لتجنب كراش قاعدة البيانات بسبب اختلاف الحروف (Capital/Small) 🔥
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { res = await db.query(qPg, params); } 
+    catch(e) { res = { rows: [] }; }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg.toLowerCase();
+    if (fallbackQuery !== qPg.toLowerCase() || qPg.includes('"')) {
+        fallbackQuery = qPg.replace(/"/g, '').toLowerCase();
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    return { rows: [] };
+};
+
 async function checkAchievements(client, member, levelData, totalStats) {
     const db = client.sql;
-    if (!db) return;
+    if (!db || !member || !member.guild) return;
 
-    await db.query(`CREATE TABLE IF NOT EXISTS achievement_tracking ("id" TEXT PRIMARY KEY, "count" INTEGER)`);
+    await db.query(`CREATE TABLE IF NOT EXISTS achievement_tracking ("id" TEXT PRIMARY KEY, "count" INTEGER)`).catch(()=>{});
 
     const guildID = member.guild.id;
     const userID = member.id;
 
-    let streakData = null;
-    try {
-        const streakRes = await db.query(`SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, [guildID, userID]);
-        streakData = streakRes.rows[0];
-    } catch(e) {
-        const streakRes = await db.query(`SELECT * FROM streaks WHERE guildid = $1 AND userid = $2`, [guildID, userID]).catch(()=>({rows:[]}));
-        streakData = streakRes.rows[0];
-    }
+    const streakRes = await safeQuery(db, `SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, [guildID, userID]);
+    let streakData = streakRes.rows[0];
     
-    let mediaStreakData = null;
-    try {
-        const mediaStreakRes = await db.query(`SELECT * FROM media_streaks WHERE "guildID" = $1 AND "userID" = $2`, [guildID, userID]);
-        mediaStreakData = mediaStreakRes.rows[0];
-    } catch(e) {
-        const mediaStreakRes = await db.query(`SELECT * FROM media_streaks WHERE guildid = $1 AND userid = $2`, [guildID, userID]).catch(()=>({rows:[]}));
-        mediaStreakData = mediaStreakRes.rows[0];
-    }
+    const mediaStreakRes = await safeQuery(db, `SELECT * FROM media_streaks WHERE "guildID" = $1 AND "userID" = $2`, [guildID, userID]);
+    let mediaStreakData = mediaStreakRes.rows[0];
 
     const currentStats = {
-        level: levelData ? levelData.level : 1,
-        mora: levelData ? levelData.mora : 0,
-        messages: levelData ? levelData.messages : 0, 
+        level: levelData ? (Number(levelData.level) || 1) : 1,
+        mora: levelData ? (Number(levelData.mora) || 0) : 0,
+        messages: levelData ? (Number(levelData.messages) || 0) : 0, 
         ...(totalStats || {}),
-        streak: streakData ? (streakData.streakcount || streakData.streakCount) : 0,
-        highestStreak: streakData ? (streakData.higheststreak || streakData.highestStreak) : 0,
-        highestMediaStreak: mediaStreakData ? (mediaStreakData.higheststreak || mediaStreakData.highestStreak) : 0,
+        streak: streakData ? (Number(streakData.streakCount || streakData.streakcount) || 0) : 0,
+        highestStreak: streakData ? (Number(streakData.highestStreak || streakData.higheststreak) || 0) : 0,
+        highestMediaStreak: mediaStreakData ? (Number(mediaStreakData.highestStreak || mediaStreakData.higheststreak) || 0) : 0,
         has_caesar_role: member.roles.cache.has(questsConfig.special_roles?.caesar_role) ? 1 : 0,
         has_race_role: 0, 
         has_tree_role: member.roles.cache.has(questsConfig.special_roles?.tree_role) ? 1 : 0,
     };
 
     for (const achievement of questsConfig.achievements) {
-        
         let targetValue = achievement.goal;
-        let currentValue = currentStats[achievement.stat] || 0;
+        let currentValue = Number(currentStats[achievement.stat]) || 0;
 
         if (achievement.stat === 'total_boosts') {
             const trackingId = `${userID}-${guildID}-${achievement.id}`;
-            
-            const trackerRes = await db.query(`SELECT count FROM achievement_tracking WHERE "id" = $1`, [trackingId]).catch(()=>({rows:[]}));
+            const trackerRes = await safeQuery(db, `SELECT count FROM achievement_tracking WHERE "id" = $1`, [trackingId]);
             let tracker = trackerRes.rows[0];
-            let lastRewardedCount = tracker ? tracker.count : 0;
+            let lastRewardedCount = tracker ? (Number(tracker.count) || 0) : 0;
 
             if (currentValue > lastRewardedCount) {
+                // تسليم الجائزة التلقائي
                 await grantAchievementReward(client, member, achievement, db, true);
-                await db.query(`INSERT INTO achievement_tracking ("id", "count") VALUES ($1, $2) ON CONFLICT ("id") DO UPDATE SET "count" = EXCLUDED."count"`, [trackingId, currentValue]).catch(()=>{});
-                try {
-                    await db.query(`INSERT INTO user_achievements ("userID", "guildID", "achievementID", "timestamp") VALUES ($1, $2, $3, $4)`, [userID, guildID, achievement.id, Date.now()]);
-                } catch(e) {
-                    await db.query(`INSERT INTO user_achievements (userid, guildid, achievementid, timestamp) VALUES ($1, $2, $3, $4)`, [userID, guildID, achievement.id, Date.now()]).catch(()=>{});
-                }
+                
+                try { await db.query(`INSERT INTO achievement_tracking ("id", "count") VALUES ($1, $2) ON CONFLICT ("id") DO UPDATE SET "count" = EXCLUDED."count"`, [trackingId, currentValue]); } catch(e){}
+                try { await db.query(`INSERT INTO user_achievements ("userID", "guildID", "achievementID", "timestamp") VALUES ($1, $2, $3, $4)`, [userID, guildID, achievement.id, Date.now()]); } catch(e){}
             }
             continue;
         }
 
-        let hasAch = null;
-        try {
-            const hasAchRes = await db.query(`SELECT 1 FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2 AND "achievementID" = $3`, [userID, guildID, achievement.id]);
-            hasAch = hasAchRes.rows[0];
-        } catch (e) {
-            const hasAchRes = await db.query(`SELECT 1 FROM user_achievements WHERE userid = $1 AND guildid = $2 AND achievementid = $3`, [userID, guildID, achievement.id]).catch(()=>({rows:[]}));
-            hasAch = hasAchRes.rows[0];
-        }
-        
-        if (hasAch) continue; 
+        const hasAchRes = await safeQuery(db, `SELECT 1 FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2 AND "achievementID" = $3`, [userID, guildID, achievement.id]);
+        if (hasAchRes.rows.length > 0) continue; // اللاعب استلمها مسبقاً
 
         if (currentValue >= targetValue) {
+            // 🔥 تسليم الجائزة التلقائي فوراً 🔥
             await grantAchievementReward(client, member, achievement, db, false);
-            try {
-                await db.query(`INSERT INTO user_achievements ("userID", "guildID", "achievementID", "timestamp") VALUES ($1, $2, $3, $4)`, [userID, guildID, achievement.id, Date.now()]);
-            } catch(e) {
-                await db.query(`INSERT INTO user_achievements (userid, guildid, achievementid, timestamp) VALUES ($1, $2, $3, $4)`, [userID, guildID, achievement.id, Date.now()]).catch(()=>{});
-            }
+            try { await db.query(`INSERT INTO user_achievements ("userID", "guildID", "achievementID", "timestamp") VALUES ($1, $2, $3, $4)`, [userID, guildID, achievement.id, Date.now()]); } catch(e){}
         }
     }
 }
 
 async function grantAchievementReward(client, member, achievement, db, isRepeatable = false) {
-    let xpReward = achievement.reward.xp || 0; 
-    let moraReward = achievement.reward.mora || 0;
-    let roleReward = achievement.reward.role || null;
+    let xpReward = Number(achievement.reward?.xp) || 0; 
+    let moraReward = Number(achievement.reward?.mora) || 0;
+    let roleReward = achievement.reward?.role || null;
+    let repReward = Number(achievement.repReward) || 0;
 
-    if (addXPAndCheckLevel) {
+    // 1. تسليم المورا والإكس بي بأمان باستخدام الدالة المركزية
+    if (addXPAndCheckLevel && (xpReward > 0 || moraReward > 0)) {
         await addXPAndCheckLevel(client, member, db, xpReward, moraReward, false);
-    } else {
-        let userData = await client.getLevel(member.id, member.guild.id);
-        if (userData) {
-            userData.xp += xpReward;
-            userData.totalxp = (userData.totalxp || userData.totalXP || 0) + xpReward;
-            userData.totalXP = userData.totalxp;
-            userData.mora += moraReward;
-            await client.setLevel(userData);
+    }
+
+    // 2. تسليم السمعة (Reputation)
+    if (repReward > 0) {
+        try {
+            await db.query(`
+                INSERT INTO user_reputation ("userID", "guildID", "rep_points") 
+                VALUES ($1, $2, $3) 
+                ON CONFLICT("userID", "guildID") DO UPDATE SET "rep_points" = COALESCE(user_reputation."rep_points", 0) + $4
+            `, [member.id, member.guild.id, repReward, repReward]);
+        } catch (e) {
+            await db.query(`
+                INSERT INTO user_reputation (userid, guildid, rep_points) 
+                VALUES ($1, $2, $3) 
+                ON CONFLICT(userid, guildid) DO UPDATE SET rep_points = COALESCE(user_reputation.rep_points, 0) + $4
+            `, [member.id, member.guild.id, repReward, repReward]).catch(()=>{});
         }
     }
 
+    // 3. تسليم الرتبة
     if (roleReward) {
         try { await member.roles.add(roleReward); } catch (e) {}
     }
 
-    const settingsRes = await db.query(`SELECT "achievementChannelID" FROM settings WHERE "guild" = $1`, [member.guild.id]).catch(()=>({rows:[]}));
+    // 4. إرسال رسالة الإعلان في قناة الإنجازات
+    const settingsRes = await safeQuery(db, `SELECT "achievementChannelID" FROM settings WHERE "guild" = $1`, [member.guild.id]);
     let settings = settingsRes.rows[0];
-    if(!settings) {
-        const fallbackRes = await db.query(`SELECT achievementchannelid FROM settings WHERE guild = $1`, [member.guild.id]).catch(()=>({rows:[]}));
-        settings = fallbackRes.rows[0];
-    }
     
     if (settings && (settings.achievementchannelid || settings.achievementChannelID)) {
         const channelId = settings.achievementchannelid || settings.achievementChannelID;
@@ -136,12 +138,13 @@ async function grantAchievementReward(client, member, achievement, db, isRepeata
             const EMOJI_MORA = '<:mora:1435647151349698621>';
 
             let desc = `**الإنجـاز:** ${achievement.name}\n` +
-                        `**المتطلب:** ${achievement.description}\n` +
-                        `────────────────────\n` +
-                        `🎁 **الـجـوائـز:**\n`;
+                       `**المتطلب:** ${achievement.description}\n` +
+                       `────────────────────\n` +
+                       `🎁 **الـجـوائـز التلقائية:**\n`;
 
             if (xpReward > 0) desc += `• ${xpReward} ${EMOJI_XP}\n`;
-            if (moraReward > 0) desc += `• ${moraReward} ${EMOJI_MORA}\n`;
+            if (moraReward > 0) desc += `• ${moraReward.toLocaleString()} ${EMOJI_MORA}\n`;
+            if (repReward > 0) desc += `• +${repReward} 🌟 نقطة سمعة\n`;
             if (roleReward) desc += `• رتبة: <@&${roleReward}>\n`;
 
             if (isRepeatable) {
@@ -156,35 +159,23 @@ async function grantAchievementReward(client, member, achievement, db, isRepeata
                 .setThumbnail("https://i.postimg.cc/k49M41bX/trophy.png")
                 .setTimestamp();
 
-            await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
+            await channel.send({ content: `<@${member.id}>`, embeds: [embed] }).catch(()=>{});
         }
     }
 }
 
 async function getAchievementPageData(db, member, levelData, totalStats, completedAchievements, page = 1) {
-    await db.query(`CREATE TABLE IF NOT EXISTS achievement_tracking ("id" TEXT PRIMARY KEY, "count" INTEGER)`);
+    await db.query(`CREATE TABLE IF NOT EXISTS achievement_tracking ("id" TEXT PRIMARY KEY, "count" INTEGER)`).catch(()=>{});
 
     const achievements = questsConfig.achievements;
      
-    let streakData = null;
-    try {
-        const streakRes = await db.query(`SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, [member.guild.id, member.id]);
-        streakData = streakRes.rows[0];
-    } catch(e) {
-        const streakRes = await db.query(`SELECT * FROM streaks WHERE guildid = $1 AND userid = $2`, [member.guild.id, member.id]).catch(()=>({rows:[]}));
-        streakData = streakRes.rows[0];
-    }
+    const streakRes = await safeQuery(db, `SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, [member.guild.id, member.id]);
+    let streakData = streakRes.rows[0];
     
-    let mediaStreakData = null;
-    try {
-        const mediaStreakRes = await db.query(`SELECT * FROM media_streaks WHERE "guildID" = $1 AND "userID" = $2`, [member.guild.id, member.id]);
-        mediaStreakData = mediaStreakRes.rows[0];
-    } catch(e) {
-        const mediaStreakRes = await db.query(`SELECT * FROM media_streaks WHERE guildid = $1 AND userid = $2`, [member.guild.id, member.id]).catch(()=>({rows:[]}));
-        mediaStreakData = mediaStreakRes.rows[0];
-    }
+    const mediaStreakRes = await safeQuery(db, `SELECT * FROM media_streaks WHERE "guildID" = $1 AND "userID" = $2`, [member.guild.id, member.id]);
+    let mediaStreakData = mediaStreakRes.rows[0];
 
-    const trackingRes = await db.query(`SELECT "id", "count" FROM achievement_tracking WHERE "id" LIKE $1`, [`${member.id}-${member.guild.id}-%`]).catch(()=>({rows:[]}));
+    const trackingRes = await safeQuery(db, `SELECT "id", "count" FROM achievement_tracking WHERE "id" LIKE $1`, [`${member.id}-${member.guild.id}-%`]);
     const trackingData = trackingRes.rows;
 
     const perPage = ROWS_PER_PAGE_ACH;
