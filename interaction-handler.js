@@ -176,7 +176,6 @@ module.exports = (client, db, antiRolesCache) => {
                     return;
                 }
 
-                // 🔥 إصلاح أزرار تنبيه الـ AFK هنا 🔥
                 if (id.startsWith('notify_afk_')) {
                     const targetID = id.split('_')[2];
                     
@@ -318,7 +317,6 @@ module.exports = (client, db, antiRolesCache) => {
                     return;
                 }
 
-                // 🔥 إصلاح المودال الخاص بإرسال الرسالة للـ AFK 🔥
                 if (i.customId.startsWith('modal_afk_msg_')) {
                     const targetID = i.customId.split('_')[3];
                     const content = i.fields.getTextInputValue('msg_content');
@@ -410,14 +408,16 @@ async function handleMarketInteraction(interaction, client, db) {
 
         if (isNaN(quantity) || quantity <= 0) return interaction.editReply({ content: '❌ يرجى إدخال رقم صحيح وموجب.', flags: [MessageFlags.Ephemeral] });
 
-        let marketItem = null;
-        try { marketItem = db.prepare("SELECT * FROM market_items WHERE id = ?").get(assetId); } catch(e){}
+        let marketItemRes;
+        try { marketItemRes = await db.query(`SELECT * FROM market_items WHERE "id" = $1`, [assetId]); }
+        catch(e) { marketItemRes = await db.query(`SELECT * FROM market_items WHERE id = $1`, [assetId]).catch(()=>({rows:[]})); }
+        let marketItem = marketItemRes?.rows?.[0];
 
         let currentPrice = 0;
         let itemName = assetId;
 
         if (marketItem) {
-            currentPrice = Number(marketItem.currentPrice) || 0;
+            currentPrice = Number(marketItem.currentPrice || marketItem.currentprice) || 0;
             itemName = marketItem.name;
         } else {
             const configItem = marketConfig.find(i => i.id === assetId);
@@ -435,8 +435,11 @@ async function handleMarketInteraction(interaction, client, db) {
 
         if (userMora < totalCost) return interaction.editReply({ content: `🚫 ليس لديك رصيد كافٍ! التكلفة: **${totalCost.toLocaleString()}**` });
 
-        let portfolioItem = null;
-        try { portfolioItem = db.prepare("SELECT quantity, purchasePrice FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(user.id, guild.id, assetId); } catch(e){}
+        let portfolioItemRes;
+        try { portfolioItemRes = await db.query(`SELECT "quantity", "purchasePrice" FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guild.id, assetId]); }
+        catch(e) { portfolioItemRes = await db.query(`SELECT quantity, purchasePrice as "purchasePrice" FROM user_portfolio WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guild.id, assetId]).catch(()=>({rows:[]})); }
+        let portfolioItem = portfolioItemRes?.rows?.[0];
+        
         let newPurchasePrice = currentPrice;
 
         if (portfolioItem) {
@@ -449,15 +452,18 @@ async function handleMarketInteraction(interaction, client, db) {
         }
 
         try {
-            db.prepare("UPDATE levels SET mora = mora - ? WHERE user = ? AND guild = ?").run(totalCost, user.id, guild.id);
+            try { await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [totalCost, user.id, guild.id]); }
+            catch(e) { await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [totalCost, user.id, guild.id]).catch(()=>{}); }
             
             userData.mora = userMora - totalCost;
             try { await client.setLevel(userData); } catch(e){}
 
             if (portfolioItem) {
-                db.prepare("UPDATE user_portfolio SET quantity = quantity + ?, purchasePrice = ? WHERE userID = ? AND guildID = ? AND itemID = ?").run(quantity, newPurchasePrice, user.id, guild.id, assetId);
+                try { await db.query(`UPDATE user_portfolio SET "quantity" = "quantity" + $1, "purchasePrice" = $2 WHERE "userID" = $3 AND "guildID" = $4 AND "itemID" = $5`, [quantity, newPurchasePrice, user.id, guild.id, assetId]); }
+                catch(e) { await db.query(`UPDATE user_portfolio SET quantity = quantity + $1, purchasePrice = $2 WHERE userid = $3 AND guildid = $4 AND itemid = $5`, [quantity, newPurchasePrice, user.id, guild.id, assetId]).catch(()=>{}); }
             } else {
-                db.prepare("INSERT INTO user_portfolio (userID, guildID, itemID, quantity, purchasePrice) VALUES (?, ?, ?, ?, ?)").run(user.id, guild.id, assetId, quantity, newPurchasePrice);
+                try { await db.query(`INSERT INTO user_portfolio ("userID", "guildID", "itemID", "quantity", "purchasePrice") VALUES ($1, $2, $3, $4, $5)`, [user.id, guild.id, assetId, quantity, newPurchasePrice]); }
+                catch(e) { await db.query(`INSERT INTO user_portfolio (userid, guildid, itemid, quantity, purchasePrice) VALUES ($1, $2, $3, $4, $5)`, [user.id, guild.id, assetId, quantity, newPurchasePrice]).catch(()=>{}); }
             }
 
             const embed = new EmbedBuilder()
@@ -480,16 +486,21 @@ async function handleMarketInteraction(interaction, client, db) {
 
         if (isNaN(quantity) || quantity <= 0) return interaction.editReply({ content: '❌ يرجى إدخال رقم صحيح وموجب.' });
 
-        let portfolioItem = null;
-        try { portfolioItem = db.prepare("SELECT quantity FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(user.id, guild.id, assetId); } catch(e){}
+        let portfolioItemRes;
+        try { portfolioItemRes = await db.query(`SELECT "quantity" FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guild.id, assetId]); }
+        catch(e) { portfolioItemRes = await db.query(`SELECT quantity FROM user_portfolio WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guild.id, assetId]).catch(()=>({rows:[]})); }
+        let portfolioItem = portfolioItemRes?.rows?.[0];
 
         if (!portfolioItem || parseInt(portfolioItem.quantity) < quantity) {
             return interaction.editReply({ content: `🚫 لا تملك هذه الكمية للبيع! لديك: **${portfolioItem ? portfolioItem.quantity : 0}**` });
         }
 
-        let marketItem = null;
-        try { marketItem = db.prepare("SELECT * FROM market_items WHERE id = ?").get(assetId); } catch(e){}
-        let currentPrice = marketItem ? Number(marketItem.currentPrice) : 0;
+        let marketItemRes;
+        try { marketItemRes = await db.query(`SELECT * FROM market_items WHERE "id" = $1`, [assetId]); }
+        catch(e) { marketItemRes = await db.query(`SELECT * FROM market_items WHERE id = $1`, [assetId]).catch(()=>({rows:[]})); }
+        let marketItem = marketItemRes?.rows?.[0];
+        
+        let currentPrice = marketItem ? Number(marketItem.currentPrice || marketItem.currentprice) : 0;
         
         if (currentPrice === 0 || isNaN(currentPrice)) {
             const configItem = marketConfig.find(i => i.id === assetId);
@@ -503,15 +514,18 @@ async function handleMarketInteraction(interaction, client, db) {
         if (!userData) userData = { ...client.defaultData, user: user.id, guild: guild.id };
 
         try {
-            db.prepare("UPDATE levels SET mora = mora + ? WHERE user = ? AND guild = ?").run(totalEarned, user.id, guild.id);
+            try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [totalEarned, user.id, guild.id]); }
+            catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [totalEarned, user.id, guild.id]).catch(()=>{}); }
             
             userData.mora = Number(userData.mora) + totalEarned;
             try { await client.setLevel(userData); } catch(e){}
 
             if (parseInt(portfolioItem.quantity) === quantity) {
-                db.prepare("DELETE FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").run(user.id, guild.id, assetId);
+                try { await db.query(`DELETE FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [user.id, guild.id, assetId]); }
+                catch(e) { await db.query(`DELETE FROM user_portfolio WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [user.id, guild.id, assetId]).catch(()=>{}); }
             } else {
-                db.prepare("UPDATE user_portfolio SET quantity = quantity - ? WHERE userID = ? AND guildID = ? AND itemID = ?").run(quantity, user.id, guild.id, assetId);
+                try { await db.query(`UPDATE user_portfolio SET "quantity" = "quantity" - $1 WHERE "userID" = $2 AND "guildID" = $3 AND "itemID" = $4`, [quantity, user.id, guild.id, assetId]); }
+                catch(e) { await db.query(`UPDATE user_portfolio SET quantity = quantity - $1 WHERE userid = $2 AND guildid = $3 AND itemid = $4`, [quantity, user.id, guild.id, assetId]).catch(()=>{}); }
             }
 
             const embed = new EmbedBuilder()
@@ -593,10 +607,15 @@ async function handleGiveawayBuilderButtons(i, client, db) {
 
         const gMessage = await targetChannel.send({ embeds: [embed], components: [row] });
         
+        // 🔥 حل المشكلة: إدخال القيفاواي إلى الداتابيز باستخدام النظام الصحيح 🔥
         try {
-            db.prepare("INSERT INTO active_giveaways (messageID, guildID, channelID, prize, endsAt, winnerCount, xpReward, moraReward, isFinished) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)").run(gMessage.id, i.guild.id, targetChannel.id, data.prize, endsAt, winnerCount, data.xpReward || 0, data.moraReward || 0);
+            await db.query(`INSERT INTO active_giveaways ("messageID", "guildID", "channelID", "prize", "endsAt", "winnerCount", "xpReward", "moraReward", "isFinished") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)`, [gMessage.id, i.guild.id, targetChannel.id, data.prize, endsAt, winnerCount, data.xpReward || 0, data.moraReward || 0]);
         } catch (e) {
-            console.error("[Giveaway Insert Error]:", e);
+            try {
+                await db.query(`INSERT INTO active_giveaways (messageid, guildid, channelid, prize, endsat, winnercount, xpreward, morareward, isfinished) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)`, [gMessage.id, i.guild.id, targetChannel.id, data.prize, endsAt, winnerCount, data.xpReward || 0, data.moraReward || 0]);
+            } catch(e2) {
+                console.error("[Giveaway Insert Error]:", e2);
+            }
         }
 
         const safeDuration = Math.min(durationMs, 2147483647);
@@ -606,40 +625,64 @@ async function handleGiveawayBuilderButtons(i, client, db) {
         await i.message.edit({ content: "✅ تم إرسال القيفاواي بنجاح!", embeds: [], components: [] }).catch(() => {});
         await i.editReply("✅ تم الإرسال!");
 
+    // 🔥 حل المشكلة: تسجيل مشاركة القيفاواي بالنظام الصحيح للداتابيز 🔥
     } else if (id === 'g_enter') {
         if (!i.replied && !i.deferred) await i.deferUpdate().catch(() => {});
         const giveawayID = i.message.id;
         const userID = i.user.id;
         
         let existingEntry = null;
-        try { existingEntry = db.prepare("SELECT 1 FROM giveaway_entries WHERE giveawayID = ? AND userID = ?").get(giveawayID, userID); } catch(e){}
+        try {
+            const res = await db.query(`SELECT 1 FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [giveawayID, userID]);
+            existingEntry = res.rows[0];
+        } catch(e) {
+            try {
+                const res = await db.query(`SELECT 1 FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [giveawayID, userID]);
+                existingEntry = res.rows[0];
+            } catch(err) {}
+        }
         
         let replyMessage = "";
         if (existingEntry) {
-            try { db.prepare("DELETE FROM giveaway_entries WHERE giveawayID = ? AND userID = ?").run(giveawayID, userID); } catch(e){}
+            try { await db.query(`DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [giveawayID, userID]); } catch(e){
+                try { await db.query(`DELETE FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [giveawayID, userID]); } catch(e){}
+            }
             replyMessage = "✅ تـم الـغـاء الـمـشاركـة";
         } else {
             const weight = await getUserWeight(i.member, db).catch(() => 1);
-            try { db.prepare("INSERT INTO giveaway_entries (giveawayID, userID, weight) VALUES (?, ?, ?)").run(giveawayID, userID, weight); } catch(e){}
+            try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [giveawayID, userID, weight]); } catch(e){
+                try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [giveawayID, userID, weight]); } catch(e){}
+            }
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح دخـلت بـ: ${weight} تذكـرة`;
         }
         await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
+    // 🔥 حل المشكلة: تسجيل مشاركة الدروب (Drops) بالنظام الصحيح للداتابيز 🔥
     } else if (id === 'g_enter_drop') {
         if (!i.replied && !i.deferred) await i.deferUpdate().catch(() => {});
         const messageID = i.message.id;
         const userID = i.user.id;
         try {
-            const giveaway = db.prepare("SELECT * FROM active_giveaways WHERE messageID = ? AND isFinished = 0").get(messageID);
-            if (!giveaway || (giveaway.endsAt && giveaway.endsAt < Date.now())) return i.followUp({ content: "❌ هذا القيفاواي انتهى.", flags: [MessageFlags.Ephemeral] });
+            let giveawayRes;
+            try { giveawayRes = await db.query(`SELECT * FROM active_giveaways WHERE "messageID" = $1 AND "isFinished" = 0`, [messageID]); }
+            catch(e) { giveawayRes = await db.query(`SELECT * FROM active_giveaways WHERE messageid = $1 AND isfinished = 0`, [messageID]); }
+            const giveaway = giveawayRes?.rows?.[0];
             
-            const existing = db.prepare("SELECT 1 FROM giveaway_entries WHERE giveawayID = ? AND userID = ?").get(messageID, userID);
+            if (!giveaway || (giveaway.endsAt && giveaway.endsAt < Date.now()) || (giveaway.endsat && giveaway.endsat < Date.now())) return i.followUp({ content: "❌ هذا القيفاواي انتهى.", flags: [MessageFlags.Ephemeral] });
+            
+            let existingRes;
+            try { existingRes = await db.query(`SELECT 1 FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [messageID, userID]); }
+            catch(e) { existingRes = await db.query(`SELECT 1 FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [messageID, userID]); }
+            const existing = existingRes?.rows?.[0];
+            
             if (existing) return i.followUp({ content: "⚠️ أنت مسجل بالفعل.", flags: [MessageFlags.Ephemeral] });
 
             let weight = 1;
             try { weight = await getUserWeight(i.member, db); } catch (err) {}
 
-            db.prepare("INSERT INTO giveaway_entries (giveawayID, userID, weight) VALUES (?, ?, ?)").run(messageID, userID, weight);
+            try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [messageID, userID, weight]); }
+            catch(e) { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [messageID, userID, weight]); }
+            
             return i.followUp({ content: `✅ تم التسجيل بنجاح (تذاكر: ${weight})!`, flags: [MessageFlags.Ephemeral] });
         } catch (error) {
             return i.followUp({ content: "❌ حدث خطأ.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
