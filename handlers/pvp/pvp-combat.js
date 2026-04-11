@@ -1,21 +1,48 @@
 const { cleanDisplayName, getBalancedPvPMultiplier } = require('./pvp-utils.js');
 
 function calculateDamage(attacker, defender, multiplier = 1) {
-    if (!attacker || !defender) return 0;
+    if (!attacker || !defender) return { finalDmg: 0, isCrit: false, lifestealAmount: 0 };
     if (!attacker.effects) attacker.effects = {};
     if (!defender.effects) defender.effects = {};
 
-    let baseDmg = attacker.weapon ? attacker.weapon.currentDamage : 15;
+    // 1. حساب الضرر الأساسي
+    let baseDmg = attacker.damage || attacker.atk || (attacker.weapon ? attacker.weapon.currentDamage : 15);
     
     if (attacker.effects.buff > 0) baseDmg *= (1 + attacker.effects.buff);
     if (attacker.effects.weaken > 0) baseDmg *= (1 - attacker.effects.weaken);
 
-    let finalDmg = Math.floor(baseDmg * multiplier);
+    // 2. حساب الكريت
+    let isCrit = false;
+    let critChance = attacker.critChance !== undefined ? (attacker.critChance / 100) : 0.15;
+    if (critChance > 0.75) critChance = 0.75; // سقف الكريت
 
-    if (defender.effects.evasion > 0) {
-        return 0;
+    if (Math.random() < critChance) {
+        isCrit = true;
+        baseDmg = Math.floor(baseDmg * 1.5);
     }
 
+    // 3. تخفيف الضرر بناءً على دفاع الخصم (Armor Mitigation)
+    const defenderDef = defender.defense || 0;
+    let defMitigation = Math.min(0.60, defenderDef / (defenderDef + 300)); 
+    let damageReduction = defMitigation;
+
+    if (defender.effects.shield > 0) {
+        // الدرع المؤقت من المهارات يمتص الضرر
+    }
+    // وضعية الدفاع اليدوي
+    if (defender.defending) damageReduction += 0.4;
+    if (damageReduction > 0.9) damageReduction = 0.9;
+
+    let rawDmg = Math.floor((baseDmg * multiplier) * (1 - damageReduction));
+
+    // 4. المراوغة
+    if (defender.effects.evasion > 0 || (defender.effects && Array.isArray(defender.effects) && defender.effects.some(e => e.type === 'evasion'))) {
+        return { finalDmg: 0, isCrit: false, lifestealAmount: 0, isEvasion: true };
+    }
+
+    let finalDmg = rawDmg;
+
+    // 5. استهلاك الدرع المؤقت
     if (defender.effects.shield > 0) {
         if (defender.effects.shield >= finalDmg) {
             defender.effects.shield -= finalDmg;
@@ -26,13 +53,22 @@ function calculateDamage(attacker, defender, multiplier = 1) {
         }
     }
 
+    // 6. الانعكاس (Rebound)
     if (defender.effects.rebound_active > 0) {
         const reflectedDmg = Math.floor(finalDmg * defender.effects.rebound_active);
         attacker.hp -= reflectedDmg;
         finalDmg -= reflectedDmg;
     }
 
-    return Math.max(0, finalDmg);
+    finalDmg = Math.max(1, finalDmg); // أقل ضرر هو 1 إذا لم يراوغ
+
+    // 7. حساب سرقة الحياة (Lifesteal)
+    let lifestealAmount = 0;
+    if (attacker.lifesteal > 0 && finalDmg > 0) {
+        lifestealAmount = Math.floor(finalDmg * (attacker.lifesteal / 100));
+    }
+
+    return { finalDmg, isCrit, lifestealAmount };
 }
 
 function applySkillEffect(battleState, attackerId, skill) {
@@ -56,7 +92,7 @@ function applySkillEffect(battleState, attackerId, skill) {
     const statType = skill.stat_type;
     const skillLevel = skill.currentLevel || 1;
 
-    let baseAtk = attacker.weapon ? attacker.weapon.currentDamage : 15;
+    let baseAtk = attacker.damage || attacker.atk || (attacker.weapon ? attacker.weapon.currentDamage : 15);
     if (attacker.effects.buff > 0) baseAtk *= (1 + attacker.effects.buff);
     if (attacker.effects.weaken > 0) baseAtk *= (1 - attacker.effects.weaken);
 
@@ -319,9 +355,9 @@ function applySkillEffect(battleState, attackerId, skill) {
                     attacker.effects.blind = 0; attacker.effects.blind_turns = 0;
                     return `✨ **${attackerName}** طهر نفسه من اللعنات!`;
                 default:
-                    const d = calculateDamage(attacker, defender, skill.stat_type === '%' ? 1.5 : 1);
-                    defender.hp -= d;
-                    return `💥 **${attackerName}** استخدم ${skill.name} وسبب ${d} ضرر!`;
+                    const { finalDmg, isCrit } = calculateDamage(attacker, defender, skill.stat_type === '%' ? 1.5 : 1);
+                    defender.hp -= finalDmg;
+                    return `💥 **${attackerName}** استخدم ${skill.name} وسبب ${finalDmg} ضرر${isCrit ? ' (كريت!)' : ''}!`;
             }
     }
 }
