@@ -40,8 +40,6 @@ const CARD_X = 50;
 const PADDING = 25;
 const PAGE_MARGIN = 40;
 
-let cachedAssets = null;
-
 async function loadSafeImage(fileName, url) {
     try {
         const localPath = path.join(process.cwd(), 'images', 'ui', fileName);
@@ -314,8 +312,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
 }
 
 async function loadAssets() {
-    if (cachedAssets) return cachedAssets;
-    
     const [bg, mora, xp, rep, uncommon, rare, epic, legendary] = await Promise.all([
         loadSafeImage('wallpaper.png', ASSETS.bg),
         loadSafeImage('icon_mora.png', ASSETS.mora),
@@ -327,8 +323,7 @@ async function loadAssets() {
         loadSafeImage('Legendary.png', ASSETS.legendary)
     ]);
 
-    cachedAssets = { bg, mora, xp, rep, uncommon, rare, epic, legendary };
-    return cachedAssets;
+    return { bg, mora, xp, rep, uncommon, rare, epic, legendary };
 }
 
 async function generateDailyQuestsImage(member, questsData, page = 1) {
