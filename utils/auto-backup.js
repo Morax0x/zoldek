@@ -17,39 +17,56 @@ async function startAutoBackup(client) {
             const backupChannelId = configRes.rows[0]?.value;
             if (!backupChannelId) return; // إذا لم يتم تحديد القناة بعد، توقف بصمت
 
-            // جلب القناة (وإذا لم تكن في الكاش، نقوم بجلبها من الديسكورد مباشرة)
+            // جلب القناة
             const channel = client.channels.cache.get(backupChannelId) || await client.channels.fetch(backupChannelId).catch(() => null);
             if (!channel) return; 
 
-            // 2. تجهيز البيانات
+            // 2. تجهيز الجداول
             const tables = ['levels', 'settings', 'streaks', 'user_reputation', 'user_weapons', 'user_inventory', 'marriages', 'children', 'active_giveaways', 'user_achievements', 'kings_board_tracker', 'user_daily_stats', 'user_weekly_stats'];
-            let backupData = {};
+            
+            const dateStr = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
+            
+            let attachments = [];
+            let totalSizeMB = 0;
+            let batchNumber = 1;
 
+            // 3. سحب البيانات جدولاً بجدول (لتخفيف الضغط على الرام)
             for (const table of tables) {
                 try {
                     const res = await db.query(`SELECT * FROM ${table}`);
-                    backupData[table] = res.rows;
+                    if (!res.rows || res.rows.length === 0) continue; // تخطي الجداول الفارغة
+
+                    // ضغط البيانات بإزالة المسافات الفارغة (بدون null, 2)
+                    const jsonString = JSON.stringify(res.rows); 
+                    const buffer = Buffer.from(jsonString, 'utf-8');
+                    
+                    const sizeMB = buffer.length / (1024 * 1024);
+                    totalSizeMB += sizeMB;
+
+                    const fileName = `Backup_${table}_${dateStr}.json`;
+                    attachments.push(new AttachmentBuilder(buffer, { name: fileName }));
+
+                    // إرسال كل 4 جداول في رسالة منفصلة لتجنب حدود ديسكورد (25MB) وتفريغ الرام
+                    if (attachments.length >= 4) {
+                        await channel.send({ 
+                            content: `📦 **نسخ احتياطي (الدفعة ${batchNumber})**\n⏰ **الوقت:** <t:${Math.floor(Date.now() / 1000)}:F>`, 
+                            files: attachments 
+                        });
+                        attachments = []; // تفريغ المصفوفة من الذاكرة
+                        batchNumber++;
+                    }
                 } catch (e) {
                     // تجاهل الجداول غير الموجودة بصمت
                 } 
             }
 
-            // 3. تحويل البيانات إلى (Buffer) في الذاكرة بدلاً من كتابة ملف حقيقي على السيرفر
-            // هذا يمنع خطأ (Aborted) ويحمي السيرفر من امتلاء المساحة
-            const jsonString = JSON.stringify(backupData, null, 2);
-            const buffer = Buffer.from(jsonString, 'utf-8');
-            const fileSizeInMB = (buffer.length / (1024 * 1024)).toFixed(2);
-
-            const dateStr = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
-            const fileName = `AutoCloudBackup_${dateStr}.json`;
-
-            const attachment = new AttachmentBuilder(buffer, { name: fileName });
-
-            // 4. إرسال الملف السحابي للقناة
-            await channel.send({ 
-                content: `📦 **نسخ احتياطي تلقائي (سحابي)**\n📊 **حجم البيانات:** ${fileSizeInMB} MB\n⏰ **الوقت:** <t:${Math.floor(Date.now() / 1000)}:F>`, 
-                files: [attachment] 
-            });
+            // 4. إرسال ما تبقى من الجداول
+            if (attachments.length > 0) {
+                await channel.send({ 
+                    content: `📦 **الدفعة الأخيرة من النسخ الاحتياطي**\n📊 **إجمالي الحجم التقريبي:** ${totalSizeMB.toFixed(2)} MB\n⏰ **الوقت:** <t:${Math.floor(Date.now() / 1000)}:F>`, 
+                    files: attachments 
+                });
+            }
 
         } catch (err) {
             console.error("[Auto Backup Error]:", err.message);
