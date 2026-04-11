@@ -10,7 +10,7 @@ try {
     } catch(e2) {}
 }
 
-// 🛡️ نظام معالجة استعلامات ذكي ومضاد للكراش  🛡️
+// 🛡️ نظام معالجة استعلامات ذكي ومضاد للكراش (يصلح اختلافات الجداول القديمة تلقائياً) 🛡️
 const executeWithFallbacks = async (db, baseQuery, params, isSelect = false) => {
     if (!db) return isSelect ? { rows: [] } : false;
 
@@ -72,18 +72,21 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     const endsAt = Date.now() + duration;
     
     const embed = new EmbedBuilder()
-        .setTitle("🎉 **GIVEAWAY** 🎉")
+        .setTitle("✥ قـيـفـاواي عـلـى:")
         .setDescription(
-            `**الجائزة:** ${prize}\n` +
-            `**عدد الفائزين:** ${winnerCount}\n` +
-            `**ينتهي:** <t:${Math.floor(endsAt / 1000)}:R> (<t:${Math.floor(endsAt / 1000)}:f>)\n\n` +
-            `**الجوائز الإضافية:**\n` +
-            `💰 مورا: **${moraReward}** | ✨ خبرة: **${xpReward}**\n\n` +
-            `اضغط على الزر بالأسفل للمشاركة! ⤵️`
+            `**${prize}**\n\n` +
+            `✶ عـدد الـمـشاركـيـن: 0\n` +
+            `✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>`
         )
         .setColor(Colors.Blue)
-        .setTimestamp(endsAt)
-        .setFooter({ text: `ينتهي في` });
+        .setTimestamp(endsAt);
+
+    if (moraReward > 0 || xpReward > 0) {
+        embed.addFields(
+            { name: "✬ اكس بي", value: `${xpReward.toLocaleString()}`, inline: true },
+            { name: "✬ مـورا", value: `${moraReward.toLocaleString()}`, inline: true }
+        );
+    }
 
     if (image) embed.setImage(image);
 
@@ -110,13 +113,11 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     return message;
 }
 
-// 🛠️ معالجة مشاركة الأعضاء (تعمل بشكل مثالي ومحمي) 🛠️
 async function handleGiveawayInteraction(client, interaction) {
     try {
         const db = client.sql; 
         if (!db) return interaction.reply({ content: "❌ خطأ في الاتصال بقاعدة البيانات.", flags: [MessageFlags.Ephemeral] });
 
-        // رد مبدئي مخفي لمنع الزر من التعليق
         await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
         const messageID = interaction.message.id;
@@ -141,23 +142,28 @@ async function handleGiveawayInteraction(client, interaction) {
         let replyMessage = "";
 
         if (existingEntry) {
-            // حذف المشاركة
             await executeWithFallbacks(db, 'DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2', [messageID, userID], false);
             replyMessage = "✅ تـم الـغـاء الـمـشاركـة";
         } else {
-            // إضافة مشاركة جديدة
             const weight = await getUserWeight(interaction.member, db);
             await executeWithFallbacks(db, 'INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)', [messageID, userID, weight], false);
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة`;
         }
 
-        // تحديث الزر بعدد المشاركين الفعلي
+        // تحديث الزر والإيمبد بعدد المشاركين الفعلي
         try {
             const countRes = await executeWithFallbacks(db, 'SELECT COUNT(*) as count FROM giveaway_entries WHERE "giveawayID" = $1', [messageID], true);
             const countObj = countRes.rows[0] || {};
             const count = countObj.count || countObj.COUNT || countObj['COUNT(*)'] || 0;
 
             const embed = EmbedBuilder.from(interaction.message.embeds[0]);
+            
+            // تحديث عدد المشاركين في الوصف مع الحفاظ على التنسيق
+            if (embed.data.description) {
+                const newDesc = embed.data.description.replace(/✶ عـدد الـمـشاركـيـن: \d+/g, `✶ عـدد الـمـشاركـيـن: ${count}`);
+                embed.setDescription(newDesc);
+            }
+
             const oldButton = interaction.message.components[0].components[0];
             const newButton = ButtonBuilder.from(oldButton).setLabel(`مشاركة (${count})`);
             const newRow = new ActionRowBuilder().addComponents(newButton);
@@ -213,7 +219,10 @@ async function endGiveaway(client, messageID, force = false) {
             if (originalMessage) {
                 const originalEmbed = originalMessage.embeds[0];
                 const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
-                newEmbed.setTitle(`[انـتـهـى] ${originalEmbed.title || "Giveaway"}`).setColor("Red").setFooter({ text: "انتهى (لا مشاركين)" });
+                newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى:`).setColor(Colors.Red);
+                
+                let newDesc = `**${giveaway.prize}**\n\n✦ الـفـائـز: لا يوجد\n✶ عـدد الـمـشاركـيـن: 0`;
+                newEmbed.setDescription(newDesc);
                 
                 const disabledRow = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('g_ended').setLabel('انتهى').setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🏁')
@@ -270,23 +279,27 @@ async function endGiveaway(client, messageID, force = false) {
             }
         }
 
-        const announcementEmbed = new EmbedBuilder().setTitle(`✥ انـتـهى الـقـيفـاواي`).setColor("DarkGrey");
-        const winnerLabel = winnerIDs.length > 1 ? "الـفـائـزون:" : "الـفـائـز:";
+        const announcementEmbed = new EmbedBuilder().setTitle(`✥ انـتـهى الـقـيفـاواي`).setColor(Colors.DarkGrey);
+        const winnerLabel = winnerIDs.length > 1 ? "✦ الـفـائـزون:" : "✦ الـفـائـز:";
         
-        let winDescription = `✦ **${winnerLabel}** ${winnerString}\n✦ الـجـائـزة: **${giveaway.prize}**`;
-        if (moraReward > 0) winDescription += `\n✦ مـورا: **${moraReward.toLocaleString()}**`;
-        if (xpReward > 0) winDescription += `\n✬ اكس بي: **${xpReward.toLocaleString()}**`;
-        
+        let winDescription = `${winnerLabel} ${winnerString}\n✦ الـجـائـزة: **${giveaway.prize}**`;
         announcementEmbed.setDescription(winDescription);
+
+        if (moraReward > 0 || xpReward > 0) {
+            announcementEmbed.addFields(
+                { name: "✬ اكس بي", value: `${xpReward.toLocaleString()}`, inline: true },
+                { name: "✬ مـورا", value: `${moraReward.toLocaleString()}`, inline: true }
+            );
+        }
+        
         await channel.send({ content: winnerString, embeds: [announcementEmbed] }).catch(()=>{});
 
         if (originalMessage) {
             const originalEmbed = originalMessage.embeds[0];
             const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
-            newEmbed.setTitle(`[انـتـهـى] ${originalEmbed.title || "Giveaway"}`).setColor("DarkGrey").setFooter({ text: "انتهى" });
+            newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى:`).setColor(Colors.DarkGrey);
             
-            let newDesc = originalEmbed.description.replace(/.*ينتهي.*<t:\d+:R>.*\n?/i, "");
-            newDesc += `\n\n**${winnerLabel}** ${winnerString}\n**عدد المشاركين:** ${entries.length}`;
+            let newDesc = `**${giveaway.prize}**\n\n${winnerLabel} ${winnerString}\n✶ عـدد الـمـشاركـيـن: ${entries.length}`;
             newEmbed.setDescription(newDesc);
 
             const disabledRow = new ActionRowBuilder().addComponents(
@@ -342,59 +355,42 @@ async function createRandomDropGiveaway(client, guild) {
         const channel = guild.channels.cache.get(settings.dropGiveawayChannelID || settings.dropgiveawaychannelid);
         if (!channel) return false;
 
-        const DEFAULTS = {
-            dropTitle: "🎉 **GIVEAWAY DROP** 🎉",
-            dropDescription: `**الجائزة:** جوائز عشوائية قيمة\n` +
-                             `**عدد الفائزين:** {winners}\n` +
-                             `**ينتهي:** {time} ({time_full})\n\n` +
-                             `**الجوائز:**\n` +
-                             `💰 مورا: **{mora}** | ✨ خبرة: **{xp}**\n\n` +
-                             `اضغط على الزر بالأسفل للمشاركة! ⤵️`,
-            dropColor: "Gold",
-            dropFooter: "ينتهي في",
-            dropButtonLabel: "مشاركة (0)",
-            dropButtonEmoji: "🎉",
-            dropMessageContent: "✨ **قيفاواي مفاجئ ظهر!** ✨"
-        };
-
         const moraReward = Math.floor(Math.random() * 3001) + 500; 
         const xpReward = Math.floor(Math.random() * 1201) + 300;     
         
         const winnerCount = Math.floor(Math.random() * 3) + 1;        
         const durationMs = 5 * 60 * 1000; 
         const endsAt = Date.now() + durationMs;
-        const endsAtTimestamp = Math.floor(endsAt / 1000);
 
-        const prize = `🎁 ${moraReward.toLocaleString()} Mora & ${xpReward.toLocaleString()} XP`;
+        const prize = `جوائز عشوائية قيمة`;
 
-        const title = settings.dropTitle || settings.droptitle || DEFAULTS.dropTitle;
-        
-        const description = (settings.dropDescription || settings.dropdescription || DEFAULTS.dropDescription)
-            .replace(/{prize}/g, prize)
-            .replace(/{winners}/g, winnerCount)
-            .replace(/{time}/g, `<t:${endsAtTimestamp}:R>`)
-            .replace(/{time_full}/g, `<t:${endsAtTimestamp}:f>`)
-            .replace(/{mora}/g, moraReward.toLocaleString())
-            .replace(/{xp}/g, xpReward.toLocaleString());
+        // ترتيب وتنسيق القيفاواي العشوائي ليكون مطابقاً للتصميم القديم
+        const description = `**${prize}**\n\n` +
+                            `✶ عـدد الـمـشاركـيـن: 0\n` +
+                            `✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>\n\n` +
+                            `اضغط على الزر بالأسفل للمشاركة! ⤵️`;
 
         const embed = new EmbedBuilder()
-            .setTitle(title)
+            .setTitle("🎉 **GIVEAWAY DROP** 🎉")
             .setDescription(description)
-            .setColor(settings.dropColor || settings.dropcolor || DEFAULTS.dropColor)
+            .setColor(settings.dropColor || settings.dropcolor || "Gold")
             .setImage("https://i.postimg.cc/mgffs90m/giv.png")  
             .setTimestamp(endsAt)
-            .setFooter({ text: settings.dropFooter || settings.dropfooter || DEFAULTS.dropFooter });
+            .addFields(
+                { name: "✬ اكس بي", value: `${xpReward.toLocaleString()}`, inline: true },
+                { name: "✬ مـورا", value: `${moraReward.toLocaleString()}`, inline: true }
+            );
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('g_enter') 
-                .setLabel(settings.dropButtonLabel || settings.dropbuttonlabel || DEFAULTS.dropButtonLabel)
+                .setLabel("مشاركة (0)")
                 .setStyle(ButtonStyle.Primary)
-                .setEmoji(settings.dropButtonEmoji || settings.dropbuttonemoji || DEFAULTS.dropButtonEmoji)
+                .setEmoji("🎉")
         );
 
         const message = await channel.send({ 
-            content: settings.dropMessageContent || settings.dropmessagecontent || DEFAULTS.dropMessageContent,
+            content: "✨ **قيفاواي مفاجئ ظهر!** ✨",
             embeds: [embed], 
             components: [row] 
         }).catch(() => null);
