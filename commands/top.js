@@ -255,7 +255,7 @@ module.exports = {
     aliases: ["توب", "المتصدرين", "topmora", "topstreak", "اغنى", "اقوى", "topweek", "توب-الاسبوع", "t", "lb"],
     category: "Leveling",
     cooldown: 10,
-    description: "يعرض لوحات الصدارة كصورة.",
+    description: "يعرض لوحات الصدارة",
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
