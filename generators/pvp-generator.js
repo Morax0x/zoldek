@@ -1,5 +1,6 @@
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
+const fs = require('fs');
 
 try {
     GlobalFonts.registerFromPath(path.join(process.cwd(), 'fonts', 'bein-ar-normal.ttf'), 'Bein');
@@ -46,7 +47,6 @@ const WEAPON_FILES = {
     'Ghoul': 'weapon_ghoul_plague_crusher.png'
 };
 
-// 🔥 تم إضافة مصطلحات الوحوش لضمان التعريب الكامل 🔥
 const RACE_AR = {
     'Human': 'بشري', 'Dragon': 'تنين', 'Elf': 'آلف', 'Dark Elf': 'آلف الظلام',
     'Seraphim': 'سيرافيم', 'Demon': 'شيطان', 'Vampire': 'مصاص دماء',
@@ -54,21 +54,19 @@ const RACE_AR = {
     'Monster': 'وحش أعماق', 'Beast': 'وحش كاسر', 'Boss': 'زعيم', 'Kraken': 'كراكن'
 };
 
-const imageCache = new Map();
 const shieldCache = new Map();
-const CACHE_MAX_SIZE = 60;
 
-async function getCachedImage(url) {
+// 🛡️ تحميل الصور بأمان بدون تخزينها في RAM للوقاية من الانفجار 🛡️
+async function getSafeImage(url, fileName) {
     if (!url) return null;
-    if (imageCache.has(url)) return imageCache.get(url);
     try {
-        const img = await loadImage(url);
-        if (imageCache.size >= CACHE_MAX_SIZE) {
-            const firstKey = imageCache.keys().next().value;
-            imageCache.delete(firstKey);
+        if (fileName) {
+            const localPath = path.join(process.cwd(), 'images', 'pvp', fileName);
+            if (fs.existsSync(localPath)) return await loadImage(localPath);
+            const uiPath = path.join(process.cwd(), 'images', 'ui', fileName);
+            if (fs.existsSync(uiPath)) return await loadImage(uiPath);
         }
-        imageCache.set(url, img);
-        return img;
+        return await loadImage(url);
     } catch (e) { return null; }
 }
 
@@ -368,7 +366,6 @@ async function getSkillIdFromLog(logLine, players) {
     return null;
 }
 
-// 🔥 دوال مساعدة لترجمة وضبط بيانات الوحوش 🔥
 function getRawRace(player) {
     if (player.isMonster) return player.raceName || player.race || 'Monster';
     return player.raceName || player.race || player.weapon?.raceName || 'Human';
@@ -408,18 +405,18 @@ async function generatePvPImage(battleState) {
         if (!p2.effects?.shield || p2.effects.shield <= 0) p2MaxShield = 0;
         shieldCache.set(p2Id, p2MaxShield);
 
-        // 🔥 ضبط صور الوحوش الأسطورية (monster.png) 🔥
         const fallbackPlayer = 'https://i.postimg.cc/WzRGhgJ9/mwraks.png';
         const fallbackMonster = `${R2_URL}/monster.png`;
 
         const p1Url = p1.isMonster ? (p1.image || fallbackMonster) : (p1.member?.user?.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true }) || fallbackPlayer);
         const p2Url = p2.isMonster ? (p2.image || fallbackMonster) : (p2.member?.user?.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true }) || fallbackPlayer);
 
+        // تحميل الصور بأمان وبدون كاش لتجنب الانفجار (OOM)
         const [bgImg, p1Avatar, p2Avatar, vsPanelImg] = await Promise.all([
-            getCachedImage(`${R2_URL}/pvp_arena_bg.png`),
-            loadImage(p1Url).catch(() => null),
-            loadImage(p2Url).catch(() => null),
-            getCachedImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/pvp_log_panel.png')
+            getSafeImage(`${R2_URL}/pvp_arena_bg.png`, 'pvp_arena_bg.png'),
+            getSafeImage(p1Url, null),
+            getSafeImage(p2Url, null),
+            getSafeImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/pvp_log_panel.png', 'pvp_log_panel.png')
         ]);
 
         if (bgImg) {
@@ -491,7 +488,6 @@ async function generatePvPImage(battleState) {
         const p1RaceText = getRaceName(p1);
         const p2RaceText = getRaceName(p2);
 
-        // 🔥 ضبط السلاح ليكون معرباً ومناسباً للوحوش 🔥
         const p1WeaponText = p1.isMonster ? (p1.weapon?.name || 'مخالب وأنياب') : (p1.weapon?.name || 'بدون سلاح');
         const p2WeaponText = p2.isMonster ? (p2.weapon?.name || 'مخالب وأنياب') : (p2.weapon?.name || 'بدون سلاح');
 
@@ -644,7 +640,7 @@ async function generatePvPImage(battleState) {
             if (vfxType === 'use_skill_icon') {
                 const logSkillId = await getSkillIdFromLog(lastLogLine, players);
                 if (logSkillId && SKILL_IMAGES[logSkillId]) {
-                    const skillVfxImg = await getCachedImage(`${R2_SKILLS}/${SKILL_IMAGES[logSkillId]}`);
+                    const skillVfxImg = await getSafeImage(`${R2_SKILLS}/${SKILL_IMAGES[logSkillId]}`, SKILL_IMAGES[logSkillId]);
                     if (skillVfxImg) {
                         ctx.save();
                         const vfxShift = targetPanelX === p1PanelX ? 40 : -40;
@@ -661,7 +657,7 @@ async function generatePvPImage(battleState) {
                     }
                 }
             } else if (VFX_FILES[vfxType]) {
-                const vfxImg = await getCachedImage(`${R2_VFX}/${VFX_FILES[vfxType]}`);
+                const vfxImg = await getSafeImage(`${R2_VFX}/${VFX_FILES[vfxType]}`, VFX_FILES[vfxType]);
                 if (vfxImg) {
                     ctx.save();
                     ctx.globalCompositeOperation = 'screen';
@@ -794,11 +790,11 @@ async function generatePvPImage(battleState) {
                     if (attacker) {
                         const rawRace = getRawRace(attacker);
                         if (WEAPON_FILES[rawRace]) {
-                            iconToDraw = await getCachedImage(`${R2_WEAPON}/${WEAPON_FILES[rawRace]}`);
+                            iconToDraw = await getSafeImage(`${R2_WEAPON}/${WEAPON_FILES[rawRace]}`, WEAPON_FILES[rawRace]);
                         }
                     }
                 } else if (logSkillId && SKILL_IMAGES[logSkillId]) {
-                    iconToDraw = await getCachedImage(`${R2_SKILLS}/${SKILL_IMAGES[logSkillId]}`);
+                    iconToDraw = await getSafeImage(`${R2_SKILLS}/${SKILL_IMAGES[logSkillId]}`, SKILL_IMAGES[logSkillId]);
                 }
                 
                 if (iconToDraw) {
@@ -829,10 +825,10 @@ async function generatePvPImage(battleState) {
                 const attacker = casterIsP1 ? p1 : p2;
                 const rawRace = getRawRace(attacker);
                 if (WEAPON_FILES[rawRace]) {
-                    bigImgToDraw = await getCachedImage(`${R2_WEAPON}/${WEAPON_FILES[rawRace]}`);
+                    bigImgToDraw = await getSafeImage(`${R2_WEAPON}/${WEAPON_FILES[rawRace]}`, WEAPON_FILES[rawRace]);
                 }
             } else if (SKILL_IMAGES[bigSkillId]) {
-                bigImgToDraw = await getCachedImage(`${R2_SKILLS}/${SKILL_IMAGES[bigSkillId]}`);
+                bigImgToDraw = await getSafeImage(`${R2_SKILLS}/${SKILL_IMAGES[bigSkillId]}`, SKILL_IMAGES[bigSkillId]);
             }
 
             if (bigImgToDraw) {
