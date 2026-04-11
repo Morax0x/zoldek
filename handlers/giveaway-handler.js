@@ -10,7 +10,7 @@ try {
     } catch(e2) {}
 }
 
-// 🛡️ نظام معالجة استعلامات ذكي ومضاد للكراش (يصلح اختلافات الجداول القديمة تلقائياً) 🛡️
+// 🛡️ نظام معالجة استعلامات ذكي ومضاد للكراش  🛡️
 const executeWithFallbacks = async (db, baseQuery, params, isSelect = false) => {
     if (!db) return isSelect ? { rows: [] } : false;
 
