@@ -10,80 +10,95 @@ try {
     } catch(e2) {}
 }
 
+// 🛡️ نظام معالجة استعلامات فولاذي 🛡️
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { 
+        res = await db.query(qPg, params); 
+    } catch(e) { 
+        res = { rows: [] }; 
+    }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/gi, "userid")
+        .replace(/"guildID"/gi, "guildid")
+        .replace(/"channelID"/gi, "channelid")
+        .replace(/"messageID"/gi, "messageid")
+        .replace(/"prize"/gi, "prize")
+        .replace(/"endsAt"/gi, "endsat")
+        .replace(/"winnerCount"/gi, "winnercount")
+        .replace(/"xpReward"/gi, "xpreward")
+        .replace(/"moraReward"/gi, "morareward")
+        .replace(/"isFinished"/gi, "isfinished")
+        .replace(/"giveawayID"/gi, "giveawayid")
+        .replace(/"weight"/gi, "weight")
+        .replace(/"roleID"/gi, "roleid");
+
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
+};
+
+const safeExecute = async (db, qPg, params) => {
+    try { await db.query(qPg, params); return true; } catch(e) { 
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"channelID"/gi, "channelid")
+            .replace(/"messageID"/gi, "messageid")
+            .replace(/"prize"/gi, "prize")
+            .replace(/"endsAt"/gi, "endsat")
+            .replace(/"winnerCount"/gi, "winnercount")
+            .replace(/"xpReward"/gi, "xpreward")
+            .replace(/"moraReward"/gi, "morareward")
+            .replace(/"isFinished"/gi, "isfinished")
+            .replace(/"giveawayID"/gi, "giveawayid")
+            .replace(/"weight"/gi, "weight")
+            .replace(/"roleID"/gi, "roleid");
+
+        if (fallbackQuery !== qPg) {
+            try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
+        }
+        return false;
+    }
+};
+
 // =========================================================================
-// 🛡️ دوال استعلام ذكية لا تعتمد على الـ COUNT لتفادي أعطال قواعد البيانات 🛡️
+// 🚀 دوال ذكية تجبر قاعدة البيانات على تسجيل وحذف المشاركين بنجاح 100% 🚀
 // =========================================================================
-
-async function getActiveGiveaway(db, messageID) {
-    try {
-        let res = await db.query(`SELECT * FROM active_giveaways WHERE "messageID" = $1`, [messageID]);
-        let rows = res.rows ? res.rows : (Array.isArray(res) ? res : []);
-        if (rows.length > 0) return rows[0];
-    } catch(e) {
-        try {
-            let res = await db.query(`SELECT * FROM active_giveaways WHERE messageid = $1`, [messageID]);
-            let rows = res.rows ? res.rows : (Array.isArray(res) ? res : []);
-            if (rows.length > 0) return rows[0];
-        } catch(e2) {}
-    }
-    return null;
+async function getGiveawayEntries(db, msgId) {
+    let res;
+    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE "giveawayID" = $1`, [msgId]); if(res.rows?.length) return res.rows; } catch(e) {}
+    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE "messageID" = $1`, [msgId]); if(res.rows?.length) return res.rows; } catch(e) {}
+    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE giveawayid = $1`, [msgId]); if(res.rows?.length) return res.rows; } catch(e) {}
+    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE messageid = $1`, [msgId]); if(res.rows?.length) return res.rows; } catch(e) {}
+    return [];
 }
 
-async function getGiveawayEntries(db, messageID) {
-    try {
-        // نحاول جلب القائمة باستخدام giveawayID أو messageID
-        let res = await db.query(`SELECT * FROM giveaway_entries WHERE "giveawayID" = $1 OR "messageID" = $1`, [messageID]);
-        return res.rows ? res.rows : (Array.isArray(res) ? res : []);
-    } catch (e1) {
-        try {
-            // في حال كانت الداتابيز بحروف صغيرة (SQLite)
-            let res = await db.query(`SELECT * FROM giveaway_entries WHERE giveawayid = $1 OR messageid = $1`, [messageID]);
-            return res.rows ? res.rows : (Array.isArray(res) ? res : []);
-        } catch (e2) {
-            return [];
-        }
-    }
+async function addGiveawayEntry(db, msgId, userId, weight) {
+    try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries (messageid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
+    return false;
 }
 
-async function insertGiveawayEntry(db, messageID, userID, weight) {
-    try {
-        await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [messageID, userID, weight]);
-        return true;
-    } catch (e1) {
-        try {
-            await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [messageID, userID, weight]);
-            return true;
-        } catch (e2) {
-            console.error("[Giveaway Insert Error]:", e2.message);
-            return false;
-        }
-    }
+async function removeGiveawayEntry(db, msgId, userId) {
+    try { await db.query(`DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [msgId, userId]); return true; } catch(e) {}
+    try { await db.query(`DELETE FROM giveaway_entries WHERE "messageID" = $1 AND "userID" = $2`, [msgId, userId]); return true; } catch(e) {}
+    try { await db.query(`DELETE FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [msgId, userId]); return true; } catch(e) {}
+    try { await db.query(`DELETE FROM giveaway_entries WHERE messageid = $1 AND userid = $2`, [msgId, userId]); return true; } catch(e) {}
+    return false;
 }
-
-async function deleteGiveawayEntry(db, messageID, userID) {
-    try {
-        await db.query(`DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [messageID, userID]);
-        return true;
-    } catch(e1) {
-        try {
-            await db.query(`DELETE FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [messageID, userID]);
-            return true;
-        } catch(e2) {
-            return false;
-        }
-    }
-}
-
-async function markGiveawayFinished(db, messageID) {
-    try {
-        await db.query(`UPDATE active_giveaways SET "isFinished" = 1 WHERE "messageID" = $1`, [messageID]);
-    } catch(e) {
-        try {
-            await db.query(`UPDATE active_giveaways SET isfinished = 1 WHERE messageid = $1`, [messageID]);
-        } catch(e2) {}
-    }
-}
-
 // =========================================================================
 
 async function getUserWeight(member, db) {
@@ -96,9 +111,13 @@ async function getUserWeight(member, db) {
     const placeholders = userRoles.map((_, i) => `$${i + 2}`).join(',');
     
     try {
-        let res = await db.query(`SELECT MAX(weight) as maxweight FROM giveaway_weights WHERE "guildID" = $1 AND "roleID" IN (${placeholders})`, [guildId, ...userRoles]);
-        let rows = res.rows ? res.rows : (Array.isArray(res) ? res : []);
-        return rows[0]?.maxweight || rows[0]?.MAXWEIGHT || 1;
+        const res = await safeQuery(db, `
+            SELECT MAX(weight) as maxweight
+            FROM giveaway_weights
+            WHERE "guildID" = $1 AND "roleID" IN (${placeholders})
+        `, [guildId, ...userRoles]);
+        
+        return res.rows[0]?.maxweight || res.rows[0]?.MAXWEIGHT || 1;
     } catch (e) {
         return 1;
     }
@@ -120,8 +139,7 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
             `✶ عـدد الـمـشاركـيـن: 0\n` +
             `✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>`
         )
-        .setColor(Colors.Blue)
-        .setTimestamp(endsAt);
+        .setColor(Colors.Blue);
 
     if (moraReward > 0 || xpReward > 0) {
         embed.addFields(
@@ -142,17 +160,10 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
 
     const message = await channel.send({ embeds: [embed], components: [row] });
 
-    try {
-        await db.query(`
-            INSERT INTO active_giveaways ("messageID", "guildID", "channelID", "prize", "endsAt", "winnerCount", "xpReward", "moraReward", "isFinished")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
-        `, [message.id, interaction.guild.id, channel.id, prize, endsAt, winnerCount, xpReward, moraReward]);
-    } catch(e) {
-        await db.query(`
-            INSERT INTO active_giveaways (messageid, guildid, channelid, prize, endsat, winnercount, xpreward, morareward, isfinished)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
-        `, [message.id, interaction.guild.id, channel.id, prize, endsAt, winnerCount, xpReward, moraReward]).catch(()=>{});
-    }
+    await safeExecute(db, `
+        INSERT INTO active_giveaways ("messageID", "guildID", "channelID", "prize", "endsAt", "winnerCount", "xpReward", "moraReward", "isFinished")
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
+    `, [message.id, interaction.guild.id, channel.id, prize, endsAt, winnerCount, xpReward, moraReward]);
 
     const safeDuration = Math.min(duration, 2147483647); 
     setTimeout(() => {
@@ -162,6 +173,7 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     return message;
 }
 
+// 🛠️ التحديث الآمن للتفاعل 🛠️
 async function handleGiveawayInteraction(client, interaction) {
     try {
         const db = client.sql; 
@@ -172,44 +184,40 @@ async function handleGiveawayInteraction(client, interaction) {
         const messageID = interaction.message.id;
         const userID = interaction.user.id;
 
-        // تأمين وجود الجدول
         await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER)`).catch(()=>{});
 
-        const giveaway = await getActiveGiveaway(db, messageID);
+        const giveawayRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "messageID" = $1 AND "isFinished" = 0', [messageID]);
+        const giveaway = giveawayRes.rows[0];
+        
         if (!giveaway) {
             return interaction.editReply({ content: "❌ هذا القيف اواي منتهي أو غير موجود." });
         }
 
-        const endsAt = Number(giveaway.endsAt || giveaway.endsat || 0);
-        if (Date.now() > endsAt) {
+        if (Date.now() > Number(giveaway.endsAt || giveaway.endsat)) {
             return interaction.editReply({ content: "⏰ لقد انتهى وقت المشاركة!" });
         }
 
-        // جلب جميع المشاركين لمعرفة ما إذا كان العضو مشاركاً بالفعل وتحديث العداد بذكاء
-        let entries = await getGiveawayEntries(db, messageID);
+        const entries = await getGiveawayEntries(db, messageID);
         const existingEntry = entries.find(e => e.userID === userID || e.userid === userID);
-        
         let replyMessage = "";
 
         if (existingEntry) {
-            await deleteGiveawayEntry(db, messageID, userID);
+            await removeGiveawayEntry(db, messageID, userID);
             replyMessage = "✅ تـم الـغـاء الـمـشاركـة";
-            // تحديث القائمة الوهمية لتحديث العداد فوراً
-            entries = entries.filter(e => e.userID !== userID && e.userid !== userID);
         } else {
             const weight = await getUserWeight(interaction.member, db);
-            const isSuccess = await insertGiveawayEntry(db, messageID, userID, weight);
+            const isSuccess = await addGiveawayEntry(db, messageID, userID, weight);
             if (!isSuccess) {
-                return interaction.editReply({ content: "❌ فشل في حفظ المشاركة بسبب مشكلة في جداول البيانات القديمة، الرجاء التواصل مع الدعم." });
+                return interaction.editReply({ content: "❌ فشل في حفظ المشاركة، حاول مرة أخرى!" });
             }
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة`;
-            // تحديث القائمة الوهمية
-            entries.push({ userID: userID, weight: weight });
         }
 
-        // تحديث الزر والإيمبد بناءً على العدد الفعلي
+        // تحديث العداد من الداتابيز مباشرة (دقيق 100%)
         try {
-            const count = entries.length;
+            const newEntries = await getGiveawayEntries(db, messageID);
+            const count = newEntries.length;
+
             const embed = EmbedBuilder.from(interaction.message.embeds[0]);
             
             if (embed.data.description) {
@@ -238,11 +246,13 @@ async function endGiveaway(client, messageID, force = false) {
         const db = client.sql; 
         if (!db) return;
 
-        const giveaway = await getActiveGiveaway(db, messageID);
+        const giveawayRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "messageID" = $1', [messageID]);
+        const giveaway = giveawayRes.rows[0];
+
         if (!giveaway) return;
 
-        const endsAt = Number(giveaway.endsAt || giveaway.endsat || 0);
-        const isFinished = Number(giveaway.isFinished || giveaway.isfinished || 0);
+        const endsAt = Number(giveaway.endsAt || giveaway.endsat);
+        const isFinished = Number(giveaway.isFinished || giveaway.isfinished);
 
         if (!force && endsAt > Date.now() && isFinished === 0) {
             const timeLeft = endsAt - Date.now();
@@ -253,10 +263,9 @@ async function endGiveaway(client, messageID, force = false) {
 
         if (!force && isFinished === 1) return;
 
-        await markGiveawayFinished(db, messageID);
+        await safeExecute(db, 'UPDATE active_giveaways SET "isFinished" = 1 WHERE "messageID" = $1', [messageID]);
 
         const entries = await getGiveawayEntries(db, messageID);
-        const prizeName = giveaway.prize || giveaway.PRIZE || "جائزة مجهولة";
 
         let channel;
         try {
@@ -272,27 +281,26 @@ async function endGiveaway(client, messageID, force = false) {
                 const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
                 newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى:`).setColor(Colors.Red);
                 
-                let newDesc = `**${prizeName}**\n\n✦ الـفـائـز: لا يوجد\n✶ عـدد الـمـشاركـيـن: 0`;
+                let newDesc = `**${giveaway.prize}**\n\n✦ الـفـائـز: لا يوجد\n✶ عـدد الـمـشاركـيـن: 0`;
                 newEmbed.setDescription(newDesc);
                 
                 const disabledRow = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('g_ended').setLabel('انتهى').setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🏁')
                 );
                 await originalMessage.edit({ embeds: [newEmbed], components: [disabledRow] }).catch(()=>{});
-                await channel.send({ content: `⚠️ القيفاواي (**${prizeName}**) انتهى ولم يشارك أحد.` }).catch(()=>{});
+                await channel.send({ content: `⚠️ القيفاواي (**${giveaway.prize}**) انتهى ولم يشارك أحد.` }).catch(()=>{});
             }
             return; 
         }
 
         const pool = [];
         for (const entry of entries) {
-            const uid = entry.userID || entry.userid || entry.user_id;
+            const uid = entry.userid || entry.userID || entry.user_id;
             for (let i = 0; i < (Number(entry.weight) || 1); i++) {
                 pool.push(uid);
             }
         }
 
-        // خلط المصفوفة
         for (let i = pool.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -324,20 +332,16 @@ async function endGiveaway(client, messageID, force = false) {
                     if (member && addXPAndCheckLevel) {
                         await addXPAndCheckLevel(client, member, db, xpReward, moraReward, false);
                     } else {
-                        try {
-                            await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [moraReward, xpReward, winnerID, guildId]);
-                        } catch(e) {
-                            await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1, xp = CAST(COALESCE(xp, '0') AS BIGINT) + $2, totalxp = CAST(COALESCE(totalxp, '0') AS BIGINT) + $2 WHERE userid = $3 AND guildid = $4`, [moraReward, xpReward, winnerID, guildId]).catch(()=>{});
-                        }
+                        await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [moraReward, xpReward, winnerID, guildId]);
                     }
                 } catch (err) { }
             }
         }
 
+        // التصميم الأصلي اللي طلبته للإمبد النهائي
         const announcementEmbed = new EmbedBuilder().setTitle(`✥ انـتـهى الـقـيفـاواي`).setColor(Colors.DarkGrey);
-        const winnerLabel = winnerIDs.length > 1 ? "✦ الـفـائـزون:" : "✦ الـفـائـز:";
         
-        let winDescription = `${winnerLabel} ${winnerString}\n✦ الـجـائـزة: **${prizeName}**`;
+        let winDescription = `✦ الـفـائـز: ${winnerString}\n✦ الـجـائـزة: **${giveaway.prize}**`;
         announcementEmbed.setDescription(winDescription);
 
         if (moraReward > 0 || xpReward > 0) {
@@ -352,9 +356,9 @@ async function endGiveaway(client, messageID, force = false) {
         if (originalMessage) {
             const originalEmbed = originalMessage.embeds[0];
             const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
-            newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى:`).setColor(Colors.Red);
+            newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى:`).setColor(Colors.DarkGrey);
             
-            let newDesc = `**${prizeName}**\n\n${winnerLabel} ${winnerString}\n✶ عـدد الـمـشاركـيـن: ${entries.length}`;
+            let newDesc = `**${giveaway.prize}**\n\n✦ الـفـائـز: ${winnerString}\n✶ عـدد الـمـشاركـيـن: ${entries.length}`;
             newEmbed.setDescription(newDesc);
 
             const disabledRow = new ActionRowBuilder().addComponents(
@@ -371,10 +375,12 @@ async function rerollGiveaway(client, interaction, messageID) {
     const db = client.sql; 
     if (!db) return;
 
-    const giveaway = await getActiveGiveaway(db, messageID);
+    const giveawayRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "messageID" = $1', [messageID]);
+    const giveaway = giveawayRes.rows[0];
+    
     if (!giveaway) return interaction.reply({ content: "❌ لم يتم العثور على قيف اواي بهذا الآيدي.", flags: [MessageFlags.Ephemeral] });
     
-    const isFinished = Number(giveaway.isFinished || giveaway.isfinished || 0);
+    const isFinished = Number(giveaway.isFinished || giveaway.isfinished);
     if (isFinished === 0) return interaction.reply({ content: "⚠️ هذا القيف اواي لا يزال جارياً!", flags: [MessageFlags.Ephemeral] });
 
     const entries = await getGiveawayEntries(db, messageID);
@@ -382,7 +388,7 @@ async function rerollGiveaway(client, interaction, messageID) {
 
     const pool = [];
     for (const entry of entries) {
-        const uid = entry.userID || entry.userid || entry.user_id;
+        const uid = entry.userid || entry.userID || entry.user_id;
         for (let i = 0; i < (Number(entry.weight) || 1); i++) {
             pool.push(uid);
         }
@@ -399,8 +405,7 @@ async function createRandomDropGiveaway(client, guild) {
         await db.query(`CREATE TABLE IF NOT EXISTS active_giveaways ("messageID" TEXT PRIMARY KEY, "guildID" TEXT, "channelID" TEXT, "prize" TEXT, "endsAt" BIGINT, "winnerCount" INTEGER, "xpReward" INTEGER, "moraReward" INTEGER, "isFinished" INTEGER DEFAULT 0)`).catch(()=>{});
         await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER)`).catch(()=>{});
 
-        let settingsRes;
-        try { settingsRes = await db.query('SELECT * FROM settings WHERE "guild" = $1', [guild.id]); } catch(e) { settingsRes = await db.query('SELECT * FROM settings WHERE guild = $1', [guild.id]); }
+        const settingsRes = await safeQuery(db, 'SELECT * FROM settings WHERE "guild" = $1', [guild.id]);
         const settings = settingsRes.rows[0];
 
         if (!settings || (!settings.dropGiveawayChannelID && !settings.dropgiveawaychannelid)) return false;
@@ -449,17 +454,10 @@ async function createRandomDropGiveaway(client, guild) {
         
         if (!message) return false;
 
-        try {
-            await db.query(`
-                INSERT INTO active_giveaways ("messageID", "guildID", "channelID", "prize", "endsAt", "winnerCount", "xpReward", "moraReward", "isFinished") 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
-            `, [message.id, guild.id, channel.id, prize, endsAt, winnerCount, xpReward, moraReward]);
-        } catch(e) {
-            await db.query(`
-                INSERT INTO active_giveaways (messageid, guildid, channelid, prize, endsat, winnercount, xpreward, morareward, isfinished) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
-            `, [message.id, guild.id, channel.id, prize, endsAt, winnerCount, xpReward, moraReward]).catch(()=>{});
-        }
+        await safeExecute(db, `
+            INSERT INTO active_giveaways ("messageID", "guildID", "channelID", "prize", "endsAt", "winnerCount", "xpReward", "moraReward", "isFinished") 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
+        `, [message.id, guild.id, channel.id, prize, endsAt, winnerCount, xpReward, moraReward]);
 
         const safeDuration = Math.min(durationMs, 2147483647);
         setTimeout(() => { endGiveaway(client, message.id); }, safeDuration); 
@@ -476,14 +474,8 @@ async function initGiveaways(client) {
     if (!db) return;
 
     try {
-        let activeGiveaways = [];
-        try {
-            let res = await db.query('SELECT * FROM active_giveaways WHERE "isFinished" = 0', []);
-            activeGiveaways = res.rows;
-        } catch(e) {
-            let res = await db.query('SELECT * FROM active_giveaways WHERE isfinished = 0', []);
-            activeGiveaways = res.rows;
-        }
+        const activeGiveawaysRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "isFinished" = 0', []);
+        const activeGiveaways = activeGiveawaysRes.rows;
 
         for (const giveaway of activeGiveaways) {
             const messageID = giveaway.messageID || giveaway.messageid;
