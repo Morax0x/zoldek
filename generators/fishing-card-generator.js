@@ -248,7 +248,7 @@ async function generateFishingCard(tension, distance, statusText, locationId = '
         ctx.fillText(statusText, canvasWidth / 2, 40);
     }
 
-    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
+    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
 module.exports = { generateFishingCard };

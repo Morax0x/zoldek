@@ -212,7 +212,7 @@ async function generateGachaHub(userObj, moraBalance, flavorText, chestCount = 0
     ctx.fillText(flavorText, width/2, height - 45);
     ctx.shadowBlur = 0;
 
-    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
+    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
 async function generateGachaInventory(userObj, freeChests, paidChests) {
@@ -340,7 +340,7 @@ async function generateGachaInventory(userObj, freeChests, paidChests) {
     ctx.font = 'bold 35px "Bein"';
     ctx.fillText(`إجمالي الصناديق المتوفرة: ${freeChests + paidChests}`, width/2, height - 50);
 
-    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
+    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
 async function generateGachaCard(item, rarity) {
@@ -457,7 +457,7 @@ async function generateGachaCard(item, rarity) {
     ctx.lineWidth = 2;
     ctx.strokeRect(15, 15, width - 30, height - 30);
 
-    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
+    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
 async function generateGachaSummary(userObj, resultsArr) {
@@ -643,7 +643,7 @@ async function generateGachaSummary(userObj, resultsArr) {
         ctx.fillText(typeText, cx + cardW/2, cy + 375);
     }
 
-    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
+    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
 module.exports = { generateGachaCard, generateGachaHub, generateGachaInventory, generateGachaSummary };

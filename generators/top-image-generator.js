@@ -167,7 +167,7 @@ async function generateTopImage(pageData, type, page, totalPages, targetUserId, 
         ctx.font = 'bold 35px "Bein", sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(fixAr('لا يـوجـد بـيـانـات لـعـرضـهـا حـالـيـاً ...'), width / 2, height / 2);
-        return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
+        return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
     }
 
     let startY = 160;
@@ -327,7 +327,7 @@ async function generateTopImage(pageData, type, page, totalPages, targetUserId, 
     
     ctx.fillText(fixAr(footerText), width / 2, footerY);
 
-    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
+    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
 module.exports = { generateTopImage };

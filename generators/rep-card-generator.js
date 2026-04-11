@@ -238,7 +238,7 @@ async function generateRepCard(senderAvatar, senderName, receiverAvatar, receive
         ctx.shadowBlur = 0;
     }
 
-    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
+    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
 module.exports = { generateRepCard };
