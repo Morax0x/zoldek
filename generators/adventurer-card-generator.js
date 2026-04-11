@@ -319,7 +319,7 @@ async function generateAdventurerCard(data) {
     ctx.fillText(xpText, barX + (barW / 2), barY + 21);
     ctx.shadowBlur = 0;
 
-    return await canvas.encode('image/png');
+    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
 }
 
 module.exports = { generateAdventurerCard };

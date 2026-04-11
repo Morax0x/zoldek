@@ -263,7 +263,7 @@ async function generateEpicAnnouncement(user, mainTitle, subTitle, description, 
         ctx.fillText(value, (textRightLimit - valueWidth) + (valueWidth / 2), 350);
     }
 
-    return await canvas.encode('image/png');
+    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
 }
 
 module.exports = { generateEpicAnnouncement };

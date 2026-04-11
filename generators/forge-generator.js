@@ -304,7 +304,7 @@ async function generateForgeUI(userObj, view, data) {
         ctx.font = 'bold 38px "Bein"';
         drawAutoScaledArabicText(ctx, data.errorMsg, width/2, panelY + 250, panelW - 100, 38, 18);
         
-        return await canvas.encode('image/png');
+        return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
     }
 
     if (isSuccess) {
@@ -371,7 +371,7 @@ async function generateForgeUI(userObj, view, data) {
             ctx.fillStyle = '#E0E0E0'; ctx.font = 'bold 30px "Bein"';
             ctx.fillText('تمت إضافتها إلى خبرتك الشخصية', width/2, panelY + 320);
         }
-        return await canvas.encode('image/png');
+        return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
     }
 
     if (activeView === 'main' || activeView.endsWith('_home')) {
@@ -590,7 +590,7 @@ async function generateForgeUI(userObj, view, data) {
         ctx.fillText('خبرة شخصية خالصة', xpBoxX + xpBoxW/2, xpBoxY + xpBoxH + 32);
     }
 
-    return await canvas.encode('image/png');
+    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
 }
 
 module.exports = { generateForgeUI };

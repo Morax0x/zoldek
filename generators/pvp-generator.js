@@ -866,7 +866,7 @@ async function generatePvPImage(battleState) {
         ctx.fillRect(0, 0, W, 6);
         ctx.fillRect(0, H - 6, W, 6);
 
-        return await canvas.encode('image/png');
+        return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
     } catch (error) {
         return null;
     }

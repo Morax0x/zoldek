@@ -205,7 +205,7 @@ async function generateMainQuestBoardImage() {
     ctx.fillText(fixAr("🪪 الهوية والرتبة"), 40 + sectionW * 1.5, barY + 130);
     ctx.fillText(fixAr("📜 أدلة السمعة"), 40 + sectionW * 0.5, barY + 130);
 
-    return await canvas.encode('image/png');
+    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
 }
 
 async function generateKingsBoardImage(kingsArray) {
@@ -300,7 +300,7 @@ async function generateKingsBoardImage(kingsArray) {
         ctx.fillText(fixAr(king.valueText), x + 30, y + 75);
     }
 
-    return await canvas.encode('image/png');
+    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
 }
 
 module.exports = { generateMainQuestBoardImage, generateKingsBoardImage };

@@ -417,7 +417,7 @@ async function generateInventoryCard(userDisplayName, categoryTitle, items, page
         ctx.textBaseline = 'middle';
         ctx.fillText('❌ هذا القسم فارغ تماماً', width / 2, emptyBoxY + emptyBoxH / 2);
         ctx.shadowBlur = 0;
-        return await canvas.encode('image/png');
+        return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
     }
 
     for (let i = 0; i < 15; i++) {
@@ -537,7 +537,7 @@ async function generateInventoryCard(userDisplayName, categoryTitle, items, page
             ctx.fillText(qtyText, badgeX, badgeY + 1);
         }
     }
-    return await canvas.encode('image/png');
+    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
 }
 
 async function generateMainHub(arg1, arg2, arg3, arg4, arg5, arg6) {
@@ -720,7 +720,7 @@ async function generateMainHub(arg1, arg2, arg3, arg4, arg5, arg6) {
         ctx.drawImage(bagImg, bagX - 225, bagY - 225, 450, 450); 
         ctx.shadowBlur = 0;
     }
-    return await canvas.encode('image/png');
+    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
 }
 
 async function generateItemDetailsCard(userDisplayName, item) {
@@ -850,7 +850,7 @@ async function generateItemDetailsCard(userDisplayName, item) {
         ctx.fillText(lines[j], textX - 20, descBoxY + 20 + (j * 40));
     }
 
-    return await canvas.encode('image/png');
+    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
 }
 
 // 🌟 دالة رسم الممتلكات المحدثة 🌟
@@ -920,7 +920,7 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         ctx.font = 'bold 40px "Bein"'; 
         ctx.textAlign = 'center';
         ctx.fillText('المحفظة فارغة حالياً', width / 2, height / 2);
-        return await canvas.encode('image/png');
+        return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
     }
 
     let cols, cardW, cardH, gapX, gapY, imgSize, fontTitle, fontText, paddingY;
@@ -1031,7 +1031,7 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         }
     }
 
-    return await canvas.encode('image/png');
+    return await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png'));
 }
 
 module.exports = { resolveItemInfo, getInventoryCategories, generateInventoryCard, generateMainHub, generateItemDetailsCard, generatePortfolioCard };

@@ -608,17 +608,23 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
         }
 
         let imageBuffer = null;
-        try {
-            if (generatePvPResultImage) {
+        if (generatePvPResultImage) {
+            try {
                 imageBuffer = await generatePvPResultImage(battleState, winnerId, gradeText, finalWinnings, chestReward);
+            } catch (e) {
+                console.error("[PvP] generatePvPResultImage threw:", e.message);
             }
-            if (imageBuffer) {
+        }
+        if (imageBuffer) {
+            try {
                 const attachment = new AttachmentBuilder(imageBuffer, { name: 'pvp_result.png' });
-                await battleState.message.channel.send({ files: [attachment] }).catch(console.error);
-            } else { throw new Error("Canvas Image Generation Failed"); }
-        } catch (e) {
-            console.error("Failed to send result image:", e);
-            await battleState.message.channel.send({ content: `**انتهت المعركة!** التقييم: ${gradeText} | الفائز ربح ${finalWinnings} مورا.` }).catch(console.error);
+                await battleState.message.channel.send({ files: [attachment] });
+            } catch (e) {
+                console.error("[PvP] Failed to send result image:", e.message);
+                await battleState.message.channel.send({ content: `**انتهت المعركة!** التقييم: ${gradeText} | الفائز ربح ${finalWinnings} مورا.` }).catch(()=>{});
+            }
+        } else {
+            await battleState.message.channel.send({ content: `**انتهت المعركة!** التقييم: ${gradeText} | الفائز ربح ${finalWinnings} مورا.` }).catch(()=>{});
         }
 
         if (battleState.thread && battleState.mainChannel) {

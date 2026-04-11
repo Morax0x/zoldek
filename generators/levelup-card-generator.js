@@ -160,7 +160,7 @@ async function generateLevelUpCard(member, oldLevel, newLevel) {
     ctx.fillText(`${newLevel}`, arrowX + 50, 205);
     ctx.restore();
 
-    return new AttachmentBuilder(await canvas.encode('image/png'), { name: 'levelup.png' });
+    return new AttachmentBuilder(await canvas.encode ? canvas.encode('image/png') : Promise.resolve(canvas.toBuffer('image/png')), { name: 'levelup.png' });
 }
 
 module.exports = { generateLevelUpCard };
