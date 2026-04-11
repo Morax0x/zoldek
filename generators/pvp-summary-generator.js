@@ -1,5 +1,6 @@
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
+const fs = require('fs');
 
 try {
     GlobalFonts.registerFromPath(path.join(process.cwd(), 'fonts', 'bein-ar-normal.ttf'), 'Bein');
@@ -16,15 +17,17 @@ const RACE_AR = {
     'Spirit': 'روح', 'Dwarf': 'قزم', 'Ghoul': 'غول', 'Hybrid': 'نصف وحش'
 };
 
-const imageCache = new Map();
-
-async function getCachedImage(url) {
+// 🛡️ تحميل الصور بأمان بدون تخزينها في RAM
+async function getSafeImage(url, fileName) {
     if (!url) return null;
-    if (imageCache.has(url)) return imageCache.get(url);
     try {
-        const img = await loadImage(url);
-        imageCache.set(url, img);
-        return img;
+        if (fileName) {
+            const localPath = path.join(process.cwd(), 'images', 'pvp', fileName);
+            if (fs.existsSync(localPath)) return await loadImage(localPath);
+            const uiPath = path.join(process.cwd(), 'images', 'ui', fileName);
+            if (fs.existsSync(uiPath)) return await loadImage(uiPath);
+        }
+        return await loadImage(url);
     } catch (e) { return null; }
 }
 
@@ -109,7 +112,7 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
         const canvas = createCanvas(W, H);
         const ctx = canvas.getContext('2d');
 
-        const bgImg = await getCachedImage(`${R2_URL}/pvp_arena_bg.png`);
+        const bgImg = await getSafeImage(`${R2_URL}/pvp_arena_bg.png`, 'pvp_arena_bg.png');
         if (bgImg) {
             ctx.drawImage(bgImg, 0, 0, W, H);
             ctx.fillStyle = 'rgba(5, 5, 15, 0.75)';
@@ -126,9 +129,9 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
         drawOrnatePanel(ctx, p2PanelX, panelY, panelW, panelH, 0.55, '#ef5350');
 
         const [p1Img, p2Img, vsImg] = await Promise.all([
-            loadImage(challenger.avatar).catch(()=>null),
-            loadImage(opponent.avatar).catch(()=>null),
-            getCachedImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/pvp_log_panel.png')
+            getSafeImage(challenger.avatar, null),
+            getSafeImage(opponent.avatar, null),
+            getSafeImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/pvp_log_panel.png', 'pvp_log_panel.png')
         ]);
 
         drawCircularAvatar(ctx, p1Img, p1PanelX + panelW/2, panelY + 100, 70, '#4fc3f7');
@@ -274,10 +277,10 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
         const p2Url = p2.isMonster ? (p2.image || fallback) : (p2.member?.user?.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true }) || fallback);
 
         const [bgImg, p1Img, p2Img, deathImg] = await Promise.all([
-            getCachedImage(`${R2_URL}/pvp_arena_bg.png`),
-            loadImage(p1Url).catch(() => null),
-            loadImage(p2Url).catch(() => null),
-            getCachedImage(`${R2_VFX}/vfx_death.png`).catch(() => null) 
+            getSafeImage(`${R2_URL}/pvp_arena_bg.png`, 'pvp_arena_bg.png'),
+            getSafeImage(p1Url, null),
+            getSafeImage(p2Url, null),
+            getSafeImage(`${R2_VFX}/vfx_death.png`, 'vfx_death.png') 
         ]);
 
         if (bgImg) {
@@ -417,7 +420,6 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
                     }
                 }
 
-                // 🔥 الطباعة الأفقية الأنيقة للمراهنين 🔥
                 if (winnersList.length > 0) {
                     const netPot = Math.floor(totalBetPool * 0.95);
                     let startY = betAreaY + 115;
@@ -427,12 +429,10 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
                     let lines = [];
                     let currentLine = "";
                     
-                    // نجمع أسماء المراهنين وأرباحهم في سطور لتجنب الخروج من اللوحة
                     winnersList.forEach((win, idx) => {
                         const payout = Math.floor(netPot * (win.amount / totalWinnerBet));
                         const entry = `${win.name} (${payout.toLocaleString()})`;
                         
-                        // فحص عرض السطر لضمان بقائه داخل اللوحة
                         if (ctx.measureText(currentLine + " | " + entry).width > W - 150) {
                             lines.push(currentLine);
                             currentLine = entry;
@@ -442,7 +442,6 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
                     });
                     if (currentLine !== "") lines.push(currentLine);
 
-                    // طباعة السطور المتراصة
                     lines.forEach((line, i) => {
                         ctx.fillText(line, W/2, startY + (i * 28));
                     });
