@@ -351,7 +351,6 @@ module.exports = {
                 
                 if (!role || isNaN(percent)) return reply("❌ يرجى إدخال الرتبة والنسبة المئوية.");
 
-                // 🔥 الحماية الفولاذية: نحذف القديم لو موجود ثم نضيف الجديد بدل ON CONFLICT اللي تسوي مشاكل 🔥
                 if (percent === 0) {
                     await db.query(`DELETE FROM role_mora_buffs WHERE "roleID" = $1 AND "guildID" = $2`, [role.id, guild.id]).catch(()=>{});
                     return reply(`✅ تم إزالة تعزيز المورا لرتبة ${role}.`);
@@ -380,7 +379,8 @@ module.exports = {
                     if (action === 'set') {
                         role = interactionOrMessage.mentions.roles.first();
                         inputDungeon = args[1] ? args[1].toLowerCase() : "";
-                        inputStat = args[2] ? args[2].toLowerCase() : null;
+                        // هنا نعتمد القيمة الخام ونترك الترجمة للـ statMap
+                        inputStat = args[2] ? args[2].toLowerCase() : null; 
                         percent = args[3] ? parseInt(args[3].replace('%', '')) : null;
                     }
                 }
@@ -419,18 +419,21 @@ module.exports = {
                 if (action === 'set') {
                     if (!role) return reply("❌ **طريقة الاستخدام:** يرجى تحديد الرتبة.");
                     
+                    // 🔥 تصحيح الـ stat: أخذنا الإدخال وترجمناه بشكل موحد وآمن 🔥
                     const statMap = { 'هجوم': 'atk', 'atk': 'atk', 'attack': 'atk', 'قوة': 'atk', 'اتش_بي': 'hp', 'hp': 'hp', 'صحة': 'hp', 'health': 'hp', 'حيوية': 'hp', 'دفاع': 'def', 'def': 'def', 'defense': 'def', 'صلابة': 'def', 'درع': 'shield', 'shield': 'shield', 'شفاء': 'lifesteal', 'lifesteal': 'lifesteal', 'امتصاص': 'lifesteal', 'كريت': 'crit', 'crit': 'crit', 'مهارة': 'crit', 'حرجة': 'crit' };
                     const stat = statMap[inputStat];
-                    if (!stat) return reply("❌ **نوع الميزة غير صحيح!** الأنواع: هجوم، صحة، دفاع، درع، شفاء، كريت");
-                    if (!percent || isNaN(percent) || percent < 1 || percent > 100) return reply("❌ **النسبة غير صحيحة!**");
+                    if (!stat) return reply("❌ **نوع الميزة غير صحيح!** الأنواع المتاحة (بالسلاش أو بالأمر العادي): هجوم، صحة، دفاع، درع، شفاء، كريت");
+                    
+                    if (percent === undefined || percent === null || isNaN(percent)) return reply("❌ **النسبة غير صحيحة أو مفقودة!**");
 
-                    // 🔥 الإضافة الجديدة وحماية ON CONFLICT 🔥
                     if (inputDungeon === 'الكل' || inputDungeon === 'all') {
                         const allDungeons = Object.keys(dungeonConfig.themes);
                         for (const dKey of allDungeons) {
                             await db.query(`DELETE FROM race_dungeon_buffs WHERE "guildID" = $1 AND "roleID" = $2 AND "dungeonKey" = $3`, [guild.id, role.id, dKey]).catch(()=>{});
-                            await db.query(`INSERT INTO race_dungeon_buffs ("guildID", "roleID", "dungeonKey", "statType", "buffValue") VALUES ($1, $2, $3, $4, $5)`, [guild.id, role.id, dKey, stat, percent]).catch(()=>{});
+                            if(percent !== 0) await db.query(`INSERT INTO race_dungeon_buffs ("guildID", "roleID", "dungeonKey", "statType", "buffValue") VALUES ($1, $2, $3, $4, $5)`, [guild.id, role.id, dKey, stat, percent]).catch(()=>{});
                         }
+                        
+                        if (percent === 0) return reply(`✅ تم إزالة ميزة ${stat.toUpperCase()} من رتبة ${role} في جميع الدانجونات.`);
                         
                         const embed = new EmbedBuilder().setTitle("✅ تم تفعيل ميزة العرق الشاملة").setColor(Colors.Gold).setDescription(`تم تخصيص الميزة لحاملي رتبة ${role} في **جـمـيـع الدانـجـونـات** 🌍!`)
                             .addFields({ name: '📈 الميزة (Stat)', value: `${getStatIcon(stat)} ${stat.toUpperCase()} +${percent}%`, inline: true })
@@ -445,6 +448,9 @@ module.exports = {
                     }
 
                     await db.query(`DELETE FROM race_dungeon_buffs WHERE "guildID" = $1 AND "roleID" = $2 AND "dungeonKey" = $3`, [guild.id, role.id, dungeonKey]).catch(()=>{});
+                    
+                    if (percent === 0) return reply(`✅ تم إزالة ميزة ${stat.toUpperCase()} من رتبة ${role} في دانجون ${dungeonConfig.themes[dungeonKey].name}.`);
+                    
                     await db.query(`INSERT INTO race_dungeon_buffs ("guildID", "roleID", "dungeonKey", "statType", "buffValue") VALUES ($1, $2, $3, $4, $5)`, [guild.id, role.id, dungeonKey, stat, percent]).catch(()=>{});
                     
                     const dungeonName = dungeonConfig.themes[dungeonKey]?.name || dungeonKey;
