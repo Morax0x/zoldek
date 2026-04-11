@@ -44,8 +44,6 @@ const CARD_X = 50;
 const PADDING = 25;
 const PAGE_MARGIN = 40;
 
-let cachedAssets = null;
-
 async function loadSafeImage(fileName, url) {
     try {
         const localPath = path.join(process.cwd(), 'images', 'ui', fileName);
@@ -125,7 +123,6 @@ function getEmojiUrl(emoji) {
 }
 
 async function loadAssets() {
-    if (cachedAssets) return cachedAssets;
     const [bg, mora, xp, rep, common, uncommon, rare, epic, legendary] = await Promise.all([
         loadSafeImage('wallpaper.png', ASSETS.bg),
         loadSafeImage('icon_mora.png', ASSETS.mora),
@@ -137,8 +134,7 @@ async function loadAssets() {
         loadSafeImage('Epic.png', ASSETS.epic),
         loadSafeImage('Legendary.png', ASSETS.legendary)
     ]);
-    cachedAssets = { bg, mora, xp, rep, common, uncommon, rare, epic, legendary };
-    return cachedAssets;
+    return { bg, mora, xp, rep, common, uncommon, rare, epic, legendary };
 }
 
 // 🎨 رسم البطاقة للقائمة الأساسية
@@ -325,7 +321,6 @@ async function drawAlertNode(ctx, canvasW, canvasH, achData, assets) {
     const cardColor = rarityInfo.color;
     const cardBgImage = assets[rarityInfo.imgKey];
 
-    // مساحة 35 بكسل من كل الجهات لضمان عدم قص الظل المتوهج
     const padding = 35;
     const cardX = padding;
     const cardY = padding;
@@ -333,7 +328,7 @@ async function drawAlertNode(ctx, canvasW, canvasH, achData, assets) {
     const cardH = canvasH - (padding * 2);
 
     ctx.save(); 
-    drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 14); // زوايا حادة وأكثر أناقة
+    drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 14);
     ctx.clip(); 
 
     if (cardBgImage) {
@@ -352,7 +347,6 @@ async function drawAlertNode(ctx, canvasW, canvasH, achData, assets) {
     ctx.beginPath(); ctx.arc(cardX + cardW, cardY, 250, 0, Math.PI * 2); ctx.fill();
     ctx.restore(); 
 
-    // توهج الإطار القوي
     ctx.save();
     drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 14);
     ctx.strokeStyle = cardColor;
@@ -362,7 +356,6 @@ async function drawAlertNode(ctx, canvasW, canvasH, achData, assets) {
     ctx.stroke();
     ctx.restore();
 
-    // الأيقونة الكبيرة
     const iconRadius = 45;
     const iconX = cardX + cardW - 35 - iconRadius;
     const iconY = cardY + (cardH / 2);
@@ -403,26 +396,22 @@ async function drawAlertNode(ctx, canvasW, canvasH, achData, assets) {
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
 
-    // علامة الاكتمال في اليسار
     ctx.fillStyle = cardColor;
     ctx.font = `bold 20px ${FONT_MAIN}`;
     ctx.textAlign = 'left';
     ctx.fillText(`✨ اكـتـمـلـت بـنـجـاح`, cardX + 30, cardY + 25);
 
-    // عنوان المهمة (أكبر من السابق)
     ctx.textAlign = 'right';
     ctx.fillStyle = '#ffffff';
     ctx.font = `bold 32px ${FONT_MAIN}`;
     ctx.fillText(achievement.name || 'مهمة مجهولة', textRightEdge, cardY + 30);
 
-    // وصف المهمة (أوضح ومقروء)
     if (achievement.description) {
         ctx.fillStyle = '#e2e8f5';
         ctx.font = `20px ${FONT_MAIN}`;
         ctx.fillText(achievement.description, textRightEdge, cardY + 75); 
     }
 
-    // كبسولات الجوائز العملاقة
     const rewardsY = cardY + cardH - 35 - 38; 
     let currentChipLeft = cardX + 30; 
 
@@ -494,7 +483,6 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
     return new AttachmentBuilder(canvas.toBuffer('image/png'), { name: `achievements-page-${member.id}-${stats.page}.png` });
 }
 
-// 🚀 توليد إشعار الإنجاز العملاق الشفاف
 async function generateSingleAchievementAlert(member, achievement) {
     const assets = await loadAssets();
     const canvasW = 920;
@@ -502,23 +490,18 @@ async function generateSingleAchievementAlert(member, achievement) {
     const canvas = createCanvas(canvasW, canvasH); 
     const ctx = canvas.getContext('2d');
     
-    // ملاحظة: لا نضع خلفية للكانفاس هنا لكي يندمج التوهج مع ديسكورد مباشرة
-    
     const data = { achievement: achievement, progress: achievement.goal, isDone: true };
     await drawAlertNode(ctx, canvasW, canvasH, data, assets);
     
     return new AttachmentBuilder(canvas.toBuffer('image/png'), { name: `achievement-unlocked-${member.id}-${achievement.id}.png` });
 }
 
-// 🚀 توليد إشعار المهمة العملاق الشفاف
 async function generateQuestAlert(member, quest, questType) {
     const assets = await loadAssets();
     const canvasW = 920;
     const canvasH = 260;
     const canvas = createCanvas(canvasW, canvasH); 
     const ctx = canvas.getContext('2d');
-    
-    // ملاحظة: لا نضع خلفية للكانفاس هنا لكي يندمج التوهج مع ديسكورد مباشرة
     
     const data = { achievement: quest, progress: quest.goal, isDone: true };
     await drawAlertNode(ctx, canvasW, canvasH, data, assets);
