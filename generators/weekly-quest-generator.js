@@ -3,11 +3,9 @@ const { AttachmentBuilder } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
 
-// 🎨 إعدادات الخطوط
 const FONT_MAIN = '"Cairo", "Tahoma", sans-serif'; 
 const FONT_EMOJI = '"Noto Color Emoji", "Apple Color Emoji", sans-serif';
 
-// 🌌 لوحة الألوان الأساسية
 const COLORS = {
     bgDark: '#040508',         
     bgLight: '#0d1326',        
@@ -15,7 +13,6 @@ const COLORS = {
     textMuted: '#9aa5c7',      
 };
 
-// 🔗 روابط الصور المرفوعة (Assets)
 const BASE_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/ui';
 const ASSETS = {
     bg: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/wallpaper.png', 
@@ -28,7 +25,6 @@ const ASSETS = {
     legendary: `${BASE_URL}/Legendary.png`
 };
 
-// 🌌 أنواع الندرة وتوزيع الألوان المتوهجة المطابقة لها
 const RARITIES = [
     { name: 'uncommon', color: '#00FF66', imgKey: 'uncommon' }, 
     { name: 'rare', color: '#00E5FF', imgKey: 'rare' },         
@@ -44,9 +40,6 @@ const CARD_X = 50;
 const PADDING = 25;
 const PAGE_MARGIN = 40;
 
-let cachedAssets = null;
-
-// 🛡️ تحميل الصور بأمان (محلياً ثم عبر الرابط)
 async function loadSafeImage(fileName, url) {
     try {
         const localPath = path.join(process.cwd(), 'images', 'ui', fileName);
@@ -58,7 +51,6 @@ async function loadSafeImage(fileName, url) {
     }
 }
 
-// 🛡️ تحويل الألوان
 function hexToRgba(hex, alpha) {
     if (!hex) return `rgba(255, 255, 255, ${alpha})`;
     let r = parseInt(hex.slice(1, 3), 16) || 0;
@@ -73,7 +65,6 @@ function getWeeklyResetCountdown() {
     const nowUTC = now.getTime() + (now.getTimezoneOffset() * 60000);
     const nowKSA = new Date(nowUTC + (KSA_TIMEZONE_OFFSET * 60000));
     
-    // يوم التصفير الأسبوعي هو الجمعة (بتوقيت السعودية)
     const dayOfWeek = nowKSA.getDay(); 
     const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
     
@@ -158,7 +149,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
     const isDone = progressVal >= goalVal;
     const percent = Math.min(1, Math.max(0, progressVal / goalVal));
     
-    // 🔥 تخصيص الندرة والخلفية
     const rarityInfo = RARITIES[index % RARITIES.length];
     const cardColor = quest.color || rarityInfo.color;
     const cardBgImage = assets[quest.rarity || rarityInfo.imgKey] || assets[rarityInfo.imgKey]; 
@@ -167,7 +157,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
 
     ctx.save();
 
-    // 1. رسم خط الربط
     ctx.beginPath();
     ctx.moveTo(TIMELINE_X, centerY);
     ctx.lineTo(CARD_X + CARD_WIDTH, centerY);
@@ -175,7 +164,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // 2. عقدة الطاقة (Node)
     ctx.shadowBlur = 15;
     ctx.shadowColor = cardColor;
     ctx.beginPath();
@@ -194,7 +182,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
     }
     ctx.shadowBlur = 0;
 
-    // 3. البطاقة (حصر الصورة كخلفية - Texturing)
     ctx.save(); 
     drawRoundedRect(ctx, CARD_X, cardY, CARD_WIDTH, CARD_HEIGHT, 18);
     ctx.clip(); 
@@ -216,7 +203,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
     
     ctx.restore(); 
 
-    // رسم إطار البطاقة والتوهج
     ctx.save();
     drawRoundedRect(ctx, CARD_X, cardY, CARD_WIDTH, CARD_HEIGHT, 18);
     ctx.strokeStyle = isDone ? cardColor : hexToRgba(cardColor, 0.5);
@@ -228,7 +214,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
     ctx.stroke();
     ctx.restore();
 
-    // 4. الأيقونة الكوكبية
     const iconRadius = 38;
     const iconX = CARD_X + CARD_WIDTH - PADDING - iconRadius;
     const iconY = cardY + PADDING + iconRadius - 5;
@@ -265,7 +250,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
         }
     } catch (err) {}
 
-    // 5. النصوص
     const textRightEdge = iconX - iconRadius - PADDING;
 
     ctx.textAlign = 'right';
@@ -281,7 +265,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
         ctx.fillText(quest.description, textRightEdge, cardY + PADDING + 34); 
     }
 
-    // 6. المكافآت مع الأيقونات
     const rewardsY = cardY + PADDING + 64;
     let currentChipLeft = CARD_X + PADDING; 
 
@@ -299,7 +282,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
         currentChipLeft += drawRewardChip(ctx, currentChipLeft, rewardsY, `+${repReward.toLocaleString()}`, '#B530FF', assets.rep);
     }
 
-    // 7. شريط ليزر التقدم
     const barHeight = 12;
     const barWidth = CARD_WIDTH - (PADDING * 2);
     const barX = CARD_X + PADDING;
@@ -339,8 +321,6 @@ async function drawQuestNode(ctx, centerY, questData, index, assets) {
 }
 
 async function loadAssets() {
-    if (cachedAssets) return cachedAssets;
-    
     const [bg, mora, xp, rep, uncommon, rare, epic, legendary] = await Promise.all([
         loadSafeImage('wallpaper.png', ASSETS.bg),
         loadSafeImage('icon_mora.png', ASSETS.mora),
@@ -352,8 +332,7 @@ async function loadAssets() {
         loadSafeImage('Legendary.png', ASSETS.legendary)
     ]);
 
-    cachedAssets = { bg, mora, xp, rep, uncommon, rare, epic, legendary };
-    return cachedAssets;
+    return { bg, mora, xp, rep, uncommon, rare, epic, legendary };
 }
 
 async function generateWeeklyQuestsImage(member, questsData, page = 1) {
