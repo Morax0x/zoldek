@@ -78,18 +78,19 @@ module.exports = {
         const db = interaction.client.sql;
         const guildID = interaction.guild.id;
 
-        // نحفظ البيانات في جدول settings (سنستخدم guildID الحالي كمرجع لحفظ الإعداد العام للبوت)
         try {
+            // 🔥 تحديث الجدول لضمان وجود عمود لون الحالة (لو لم يكن موجوداً) 🔥
+            try { await db.query(`ALTER TABLE settings ADD COLUMN "savedStatusPresence" TEXT DEFAULT 'online'`); } catch(e){}
+
             await db.query(`INSERT INTO settings ("guild") VALUES ($1) ON CONFLICT ("guild") DO NOTHING`, [guildID]);
             
-            // تحديث الأعمدة الخاصة بالحالة
-            // (تأكد أنك قمت بإنشاء هذه الأعمدة في قاعدة البيانات مسبقاً إذا لم تكن موجودة)
             await db.query(`
                 UPDATE settings 
                 SET "savedStatusType" = $1, 
-                    "savedStatusText" = $2 
-                WHERE "guild" = $3
-            `, [typeStr, content, guildID]);
+                    "savedStatusText" = $2,
+                    "savedStatusPresence" = $3
+                WHERE "guild" = $4
+            `, [typeStr, content, statusStr, guildID]);
             
         } catch (e) {
             console.error("Failed to save status to DB:", e);
