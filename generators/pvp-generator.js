@@ -56,17 +56,28 @@ const RACE_AR = {
 
 const shieldCache = new Map();
 
-// 🛡️ تحميل الصور بأمان بدون تخزينها في RAM للوقاية من الانفجار 🛡️
+// 🚀 كاش الصور الثابتة (الخلفيات، VFX، الأسلحة، المهارات) - تُحمَّل مرة واحدة فقط
+// لا نخزّن أفاتار اللاعبين (ديناميكية) لتجنب الانتفاخ في الذاكرة
+const staticImageCache = new Map();
+
 async function getSafeImage(url, fileName) {
     if (!url) return null;
+    // الصور الثابتة: تُعرَّف بوجود fileName — تُخزَّن في الكاش بعد أول تحميل
+    if (fileName && staticImageCache.has(fileName)) return staticImageCache.get(fileName);
     try {
+        let img = null;
         if (fileName) {
             const localPath = path.join(process.cwd(), 'images', 'pvp', fileName);
-            if (fs.existsSync(localPath)) return await loadImage(localPath);
-            const uiPath = path.join(process.cwd(), 'images', 'ui', fileName);
-            if (fs.existsSync(uiPath)) return await loadImage(uiPath);
+            if (fs.existsSync(localPath)) img = await loadImage(localPath);
+            else {
+                const uiPath = path.join(process.cwd(), 'images', 'ui', fileName);
+                if (fs.existsSync(uiPath)) img = await loadImage(uiPath);
+            }
         }
-        return await loadImage(url);
+        if (!img) img = await loadImage(url);
+        // خزّن فقط الصور الثابتة (ذات fileName) وليس أفاتار اللاعبين
+        if (img && fileName) staticImageCache.set(fileName, img);
+        return img;
     } catch (e) { return null; }
 }
 

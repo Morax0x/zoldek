@@ -17,17 +17,25 @@ const RACE_AR = {
     'Spirit': 'روح', 'Dwarf': 'قزم', 'Ghoul': 'غول', 'Hybrid': 'نصف وحش'
 };
 
-// 🛡️ تحميل الصور بأمان بدون تخزينها في RAM
+// 🚀 كاش للصور الثابتة (خلفية الساحة، لوحة الموت) — محمّلة مرة واحدة فقط
+const staticImageCache = new Map();
+
 async function getSafeImage(url, fileName) {
     if (!url) return null;
+    if (fileName && staticImageCache.has(fileName)) return staticImageCache.get(fileName);
     try {
+        let img = null;
         if (fileName) {
             const localPath = path.join(process.cwd(), 'images', 'pvp', fileName);
-            if (fs.existsSync(localPath)) return await loadImage(localPath);
-            const uiPath = path.join(process.cwd(), 'images', 'ui', fileName);
-            if (fs.existsSync(uiPath)) return await loadImage(uiPath);
+            if (fs.existsSync(localPath)) img = await loadImage(localPath);
+            else {
+                const uiPath = path.join(process.cwd(), 'images', 'ui', fileName);
+                if (fs.existsSync(uiPath)) img = await loadImage(uiPath);
+            }
         }
-        return await loadImage(url);
+        if (!img) img = await loadImage(url);
+        if (img && fileName) staticImageCache.set(fileName, img);
+        return img;
     } catch (e) { return null; }
 }
 

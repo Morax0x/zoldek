@@ -27,9 +27,13 @@ try {
 // 🔥 نظام الحماية المطلقة: تمنع تعليق المعركة إذا تأخرت الصورة أو فشلت 🔥
 async function safeBuildBattleEmbed(battleState) {
     try {
+        // نبدأ بناء الصورة ونعطيها 15 ثانية (الأولى بطيئة لأن الكاش فارغ)
+        const buildPromise = core.buildBattleEmbed(battleState);
+        // نمنع unhandled rejection إذا انتهى الـ race قبل اكتمال الصورة
+        buildPromise.catch(() => {});
         const result = await Promise.race([
-            core.buildBattleEmbed(battleState),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Canvas_Timeout")), 6000))
+            buildPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Canvas_Timeout")), 15000))
         ]);
         return result;
     } catch (e) {

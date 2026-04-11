@@ -5,19 +5,44 @@ const { handleLeaderSuccession } = require('../core/battle-utils');
 
 const { snapshotLootAtFloor20, handleMemberRetreat } = require('../core/rewards'); 
 
+// جوائز الطوابق: سمعة وصناديق عند تجاوز مراحل معينة
+const REP_MILESTONES = {
+    20: 1, 30: 1, 35: 1, 40: 1, 45: 1, 50: 1,
+    55: 2, 60: 2, 65: 3, 70: 3, 75: 4,
+    80: 5, 85: 5, 90: 5, 95: 5, 100: 5
+};
+
 async function applyPostBattleUpdates(players, floor, threadChannel, totals) {
     let baseMora = Math.floor(getBaseFloorMora(floor));
-    let floorXp = Math.floor(baseMora * 0.03); 
-      
-    players.forEach(p => { 
-        if (!p.isDead) { 
-            p.loot.mora += baseMora; 
-            p.loot.xp += floorXp; 
-        } 
+    let floorXp = Math.floor(baseMora * 0.03);
+
+    players.forEach(p => {
+        if (!p.isDead) {
+            p.loot.mora += baseMora;
+            p.loot.xp += floorXp;
+        }
     });
 
     totals.coins += baseMora;
     totals.xp += floorXp;
+
+    // إضافة صناديق وسمعة عند الوصول لطوابق المعالم
+    const floorRep = REP_MILESTONES[floor] || 0;
+    const floorChests = floorRep + (floor === 5 || floor === 10 ? 1 : 0);
+    if (floorChests > 0 || floorRep > 0) {
+        players.forEach(p => {
+            if (!p.isDead) {
+                if (!p.loot.chests) p.loot.chests = 0;
+                if (!p.loot.rep) p.loot.rep = 0;
+                p.loot.chests += floorChests;
+                p.loot.rep += floorRep;
+            }
+        });
+        if (!totals.chests) totals.chests = 0;
+        if (!totals.rep) totals.rep = 0;
+        totals.chests += floorChests;
+        totals.rep += floorRep;
+    }
 
     if (floor === 20 || floor === 50) {
         snapshotLootAtFloor20(players);
