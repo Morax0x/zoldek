@@ -4,6 +4,63 @@ const { EmbedBuilder, Colors } = require('discord.js');
 function startGuildCrons(client, db) {
     if (!db) return;
 
+    // 🔥 فحص التنبيهات الخاصة بالـ Disboard Bump كل دقيقة 🔥
+    cron.schedule('* * * * *', async () => {
+        try {
+            // سحب الإعدادات الخاصة بجميع السيرفرات التي لديها موعد نشر لم يكتمل بعد
+            let settingsRes;
+            try { 
+                settingsRes = await db.query(`SELECT "guild", "bumpChannelID", "nextBumpTime", "lastBumperID", "bumpNotifyRoleID" FROM settings WHERE "nextBumpTime" > 0 AND "bumpChannelID" IS NOT NULL`); 
+            } catch(e) { 
+                settingsRes = await db.query(`SELECT guild, bumpchannelid as "bumpChannelID", nextbumptime as "nextBumpTime", lastbumperid as "lastBumperID", bumpnotifyroleid as "bumpNotifyRoleID" FROM settings WHERE nextbumptime > 0 AND bumpchannelid IS NOT NULL`).catch(()=>({rows:[]})); 
+            }
+            
+            const guilds = settingsRes.rows;
+            const now = Date.now();
+
+            for (const row of guilds) {
+                const nextBumpTime = Number(row.nextBumpTime || 0);
+                const guildId = row.guild;
+                const channelId = row.bumpChannelID;
+
+                // إذا حان الوقت
+                if (now >= nextBumpTime) {
+                    try {
+                        const guild = client.guilds.cache.get(guildId);
+                        if (!guild) continue;
+                        
+                        const channel = guild.channels.cache.get(channelId);
+                        if (!channel) continue;
+
+                        const notifyRoleId = row.bumpNotifyRoleID;
+                        const bumperId = row.lastBumperID;
+
+                        let mentions = [];
+                        if (notifyRoleId && guild.roles.cache.has(notifyRoleId)) mentions.push(`<@&${notifyRoleId}>`);
+                        if (bumperId) mentions.push(`<@${bumperId}>`);
+
+                        const mentionString = mentions.length > 0 ? mentions.join(' ') : "حان وقت النشر!";
+
+                        await channel.send({ content: `${mentionString}\n\nحان الوقت لرفع الإمبراطورية مجدداً! اكتب أمر البومب.` }).catch(()=>{});
+                        await channel.setName('˖✶⁺〢🔥・انشر・الان').catch(()=>{});
+
+                        // تصفير العداد لكي لا يرسل التنبيه مرة أخرى
+                        try {
+                            await db.query(`UPDATE settings SET "nextBumpTime" = 0, "lastBumperID" = NULL WHERE "guild" = $1`, [guildId]);
+                        } catch(e) {
+                            await db.query(`UPDATE settings SET nextbumptime = 0, lastbumperid = NULL WHERE guild = $1`, [guildId]).catch(()=>{});
+                        }
+
+                    } catch (e) {
+                        console.error(`[Disboard Bump Cron Error] Guild: ${guildId}`, e);
+                    }
+                }
+            }
+        } catch (e) {
+            // تجاهل الأخطاء
+        }
+    });
+
     // 🔥 التصفير اليومي (الساعة 23:59 بتوقيت السعودية) 🔥
     cron.schedule('59 23 * * *', async () => {
         console.log("[Guild Cron] Starting Daily Reset for Kings & Badges...");
