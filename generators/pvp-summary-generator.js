@@ -129,8 +129,8 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
         drawOrnatePanel(ctx, p2PanelX, panelY, panelW, panelH, 0.55, '#ef5350');
 
         const [p1Img, p2Img, vsImg] = await Promise.all([
-            getSafeImage(challenger.avatar, null),
-            getSafeImage(opponent.avatar, null),
+            getSafeImage(challenger?.avatar, null),
+            getSafeImage(opponent?.avatar, null),
             getSafeImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/pvp_log_panel.png', 'pvp_log_panel.png')
         ]);
 
@@ -138,12 +138,12 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
         drawCircularAvatar(ctx, p2Img, p2PanelX + panelW/2, panelY + 100, 70, '#ef5350');
 
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 26px "Bein"'; ctx.textAlign = 'center';
-        ctx.fillText(challenger.name.replace(/[!.]/g, ''), p1PanelX + panelW/2, panelY + 210);
-        ctx.fillText(opponent.name.replace(/[!.]/g, ''), p2PanelX + panelW/2, panelY + 210);
+        ctx.fillText((challenger?.name || "مقاتل").replace(/[!.]/g, ''), p1PanelX + panelW/2, panelY + 210);
+        ctx.fillText((opponent?.name || "مقاتل").replace(/[!.]/g, ''), p2PanelX + panelW/2, panelY + 210);
 
         ctx.fillStyle = '#c9a84c'; ctx.font = 'bold 18px "Bein"';
-        ctx.fillText(`مستوى: ${challenger.level} | عرق: ${RACE_AR[challenger.race] || challenger.race}`, p1PanelX + panelW/2, panelY + 240);
-        ctx.fillText(`مستوى: ${opponent.level} | عرق: ${RACE_AR[opponent.race] || opponent.race}`, p2PanelX + panelW/2, panelY + 240);
+        ctx.fillText(`مستوى: ${challenger?.level || 1} | عرق: ${RACE_AR[challenger?.race] || challenger?.race || "مجهول"}`, p1PanelX + panelW/2, panelY + 240);
+        ctx.fillText(`مستوى: ${opponent?.level || 1} | عرق: ${RACE_AR[opponent?.race] || opponent?.race || "مجهول"}`, p2PanelX + panelW/2, panelY + 240);
 
         if (vsImg) ctx.drawImage(vsImg, W/2 - 60, panelY + 70, 120, 120);
 
@@ -160,7 +160,7 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
         ctx.fillText('⚔️ تحدي حلبة النزاع ⚔️', W/2, logPanelY + 10);
         ctx.restore();
 
-        const cleanChallengerName = challenger.name.replace(/[!.]/g, '');
+        const cleanChallengerName = (challenger?.name || "مقاتل").replace(/[!.]/g, '');
         ctx.font = 'bold 34px "Bein"';
         const nameWidth = ctx.measureText(cleanChallengerName).width;
         const nameBoxW = Math.max(nameWidth + 80, 240);
@@ -204,7 +204,7 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
             ctx.fillText('الرهان المطلوب', W/2 - boxWidth/2 - 25, bottomBoxesY + 40);
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 42px "Bein"';
-            ctx.fillText(bet.toLocaleString(), W/2 - boxWidth/2 - 25, bottomBoxesY + 95);
+            ctx.fillText((bet || 0).toLocaleString(), W/2 - boxWidth/2 - 25, bottomBoxesY + 95);
             ctx.restore();
 
             ctx.save();
@@ -222,7 +222,7 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
             ctx.fillText('الجائزة الكبرى', W/2 + boxWidth/2 + 25, bottomBoxesY + 40);
             ctx.fillStyle = '#c9a84c';
             ctx.font = 'bold 48px "Bein"';
-            ctx.fillText(totalPot.toLocaleString(), W/2 + boxWidth/2 + 25, bottomBoxesY + 95);
+            ctx.fillText((totalPot || 0).toLocaleString(), W/2 + boxWidth/2 + 25, bottomBoxesY + 95);
             ctx.restore();
         } else {
             let statusText = "";
@@ -258,6 +258,8 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
 
 async function generatePvPResultImage(battleState, winnerId, gradeText, finalMora, chestsEarned) {
     try {
+        if (!battleState || !battleState.players || battleState.players.size < 2) return null;
+
         const W = 1200, H = 900; 
         const canvas = createCanvas(W, H);
         const ctx = canvas.getContext('2d');
@@ -266,6 +268,8 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
         const p2Id = Array.from(battleState.players.keys())[1];
         const p1 = battleState.players.get(p1Id);
         const p2 = battleState.players.get(p2Id);
+
+        if (!p1 || !p2) return null; // حماية إضافية ضد الـ Crash
 
         const p1Dead = p1.hp <= 0;
         const p2Dead = p2.hp <= 0;
@@ -298,17 +302,17 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
         drawCircularAvatar(ctx, p1Img, p1PanelX + panelW/2, panelY + 110, 80, isP1Winner ? '#c9a84c' : '#ef5350', p1Dead, deathImg);
         drawCircularAvatar(ctx, p2Img, p2PanelX + panelW/2, panelY + 110, 80, isP2Winner ? '#c9a84c' : '#ef5350', p2Dead, deathImg);
 
-        const p1Name = p1.isMonster ? (p1.name) : (p1.member?.user?.displayName || p1.member?.user?.username);
-        const p2Name = p2.isMonster ? (p2.name) : (p2.member?.user?.displayName || p2.member?.user?.username);
+        const p1Name = p1.isMonster ? (p1.name || "وحش") : (p1.member?.user?.displayName || p1.member?.user?.username || "مقاتل");
+        const p2Name = p2.isMonster ? (p2.name || "وحش") : (p2.member?.user?.displayName || p2.member?.user?.username || "مقاتل");
 
         ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff'; ctx.font = 'bold 28px "Bein"';
         ctx.fillText(p1Name.replace(/[!.]/g, ''), p1PanelX + panelW/2, panelY + 230);
         ctx.fillText(p2Name.replace(/[!.]/g, ''), p2PanelX + panelW/2, panelY + 230);
 
         ctx.fillStyle = p1Dead ? '#ef5350' : '#2ecc71'; ctx.font = 'bold 22px "Bein"';
-        ctx.fillText(`HP: ${Math.floor(p1.hp)} / ${p1.maxHp}`, p1PanelX + panelW/2, panelY + 270);
+        ctx.fillText(`HP: ${Math.floor(p1.hp || 0)} / ${p1.maxHp || 0}`, p1PanelX + panelW/2, panelY + 270);
         ctx.fillStyle = p2Dead ? '#ef5350' : '#2ecc71';
-        ctx.fillText(`HP: ${Math.floor(p2.hp)} / ${p2.maxHp}`, p2PanelX + panelW/2, panelY + 270);
+        ctx.fillText(`HP: ${Math.floor(p2.hp || 0)} / ${p2.maxHp || 0}`, p2PanelX + panelW/2, panelY + 270);
 
         ctx.fillStyle = '#aaaaac'; ctx.font = 'bold 18px "Bein"';
         ctx.fillText(`الضرر الكلي: ${battleState.stats?.[p1Id]?.damageDealt || 0}`, p1PanelX + panelW/2, panelY + 310);
@@ -320,7 +324,7 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
 
         const logPanelY = 410;
         const logPanelH = 460; 
-        const isGradeF = gradeText.includes('[ F ]');
+        const isGradeF = gradeText && gradeText.includes('[ F ]');
         drawOrnatePanel(ctx, 30, logPanelY, W - 60, logPanelH, 0.7, isGradeF ? '#ef5350' : '#c9a84c');
 
         ctx.save();
@@ -333,7 +337,7 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
         ctx.restore();
 
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 26px "Bein"'; ctx.textAlign = 'center';
-        let displayGrade = gradeText.replace(/[!.]/g, '');
+        let displayGrade = (gradeText || "تقييم غير متوفر").replace(/[!.]/g, '');
         if (displayGrade.includes('-')) {
             const parts = displayGrade.split('-');
             displayGrade = `${parts[1].trim()} - ${parts[0].trim()}`;
@@ -362,10 +366,10 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
             ctx.fillText('استرجاع مبلغ الرهان فقط', winnerCX, logPanelY + 220);
             ctx.fillText('لا يوجد فائز في هذا النزال', loserCX, logPanelY + 175);
         } else {
-            ctx.fillText(`مورا: ${finalMora.toLocaleString()} 💰`, winnerCX, logPanelY + 175);
+            ctx.fillText(`مورا: ${(finalMora || 0).toLocaleString()} 💰`, winnerCX, logPanelY + 175);
             if (chestsEarned > 0) ctx.fillText(`صناديق: ${chestsEarned} 🎁`, winnerCX, logPanelY + 220);
             let buffTextCount = (chestsEarned > 0) ? 265 : 220;
-            if (gradeText.includes('S') || gradeText.includes('A') || gradeText.includes('B')) {
+            if (gradeText && (gradeText.includes('S') || gradeText.includes('A') || gradeText.includes('B'))) {
                 ctx.fillText(`تعزيز: 15% مورا وخبرة ⚡`, winnerCX, logPanelY + buffTextCount);
             }
 
@@ -402,21 +406,23 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
 
                 let winnersList = [];
                 let totalWinnerBet = 0;
-                for (const [uid, betObj] of pool.bets.entries()) {
-                    if (betObj.targetId === winnerId) {
-                        let bettorName = betObj.name;
-                        if (!bettorName && battleState.message) {
-                            const member = battleState.message.guild?.members?.cache.get(uid);
-                            const user = battleState.message.client?.users?.cache.get(uid);
-                            bettorName = member?.displayName || user?.username || "مقاتل";
-                        } else if (!bettorName) {
-                            bettorName = "مقاتل";
+                
+                if (pool && pool.bets) {
+                    for (const [uid, betObj] of pool.bets.entries()) {
+                        if (betObj.targetId === winnerId) {
+                            let bettorName = betObj.name;
+                            if (!bettorName && battleState.message) {
+                                const member = battleState.message.guild?.members?.cache.get(uid);
+                                const user = battleState.message.client?.users?.cache.get(uid);
+                                bettorName = member?.displayName || user?.username || "مقاتل";
+                            } else if (!bettorName) {
+                                bettorName = "مقاتل";
+                            }
+                            
+                            bettorName = bettorName.replace(/[!.]/g, '').substring(0, 12);
+                            winnersList.push({ id: uid, amount: betObj.amount, name: bettorName });
+                            totalWinnerBet += betObj.amount;
                         }
-                        
-                        bettorName = bettorName.replace(/[!.]/g, '').substring(0, 12);
-                        
-                        winnersList.push({ id: uid, amount: betObj.amount, name: bettorName });
-                        totalWinnerBet += betObj.amount;
                     }
                 }
 
@@ -458,7 +464,10 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
         ctx.restore();
 
         return canvas.toBuffer('image/png');
-    } catch (e) { return null; }
+    } catch (e) { 
+        console.error("Generator Error PvP Result:", e);
+        return null; 
+    }
 }
 
 module.exports = { generatePvPChallengeImage, generatePvPResultImage };
