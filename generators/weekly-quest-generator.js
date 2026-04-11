@@ -15,7 +15,8 @@ const COLORS = {
 
 const BASE_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/ui';
 const ASSETS = {
-    bg: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/wallpaper.png', 
+    // 🔥 تم تصحيح رابط الخلفية لسحب الصورة من مجلد images/ui السحابي 🔥
+    bg: `${BASE_URL}/wallpaper.png`, 
     mora: `${BASE_URL}/icon_mora.png`,
     xp: `${BASE_URL}/icon_xp.png`,
     rep: `${BASE_URL}/icon_rep.png`,
