@@ -44,46 +44,80 @@ async function safeUpdateRepAndChests(db, userId, guildId, repReward, earnedChes
             await safeExecute(db, `INSERT INTO user_reputation ("userID", "guildID", "rep_points") VALUES ($1, $2, $3)`, [userId, guildId, repReward]);
         }
     }
+    
+    if (earnedChests > 0) {
+        let allInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        let targetRow = null;
+        if (allInvRes.rows) {
+            targetRow = allInvRes.rows.find(r => {
+                const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+                return idKey && String(r[idKey]).toLowerCase().trim() === 'gacha_chest';
+            });
+        }
+        if (targetRow) {
+            const rowIdKey = Object.keys(targetRow).find(k => k.toLowerCase() === 'id');
+            const targetRowId = targetRow[rowIdKey];
+            await safeExecute(db, `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "id" = $2`, [earnedChests, targetRowId]);
+        } else {
+            await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'gacha_chest', $3)`, [guildId, userId, earnedChests]);
+        }
+    }
 }
 
 async function handleMemberRetreat(member, floor, db, guildId, thread, sessionStartFloor = 1) {
     const earnedMora = Math.floor(member.loot.mora || 0);
     const earnedXp = Math.floor(member.loot.xp || 0);
+    const earnedChests = Math.floor(member.loot.chests || 0);
+    const earnedRep = Math.floor(member.loot.rep || 0);
 
     member.rewardsClaimed = false; 
     member.finalMora = earnedMora;
     member.finalXp = earnedXp;
+    member.finalChests = earnedChests;
+    member.finalRep = earnedRep;
+    
+    // تصفير الحقيبة لكي لا يتضاعف اللوت
     member.loot.mora = 0;
     member.loot.xp = 0;
+    member.loot.chests = 0;
+    member.loot.rep = 0;
     
     member.pendingRetreatSave = true;
 
-    return { mora: earnedMora, xp: earnedXp };
+    return { mora: earnedMora, xp: earnedXp, chests: earnedChests, rep: earnedRep };
 }
 
 async function handleTeamWipe(players, currentFloor, db, guildId, client) {
     const results = [];
     for (const p of players) {
         if (p.rewardsClaimed) continue;
-        let finalMora = 0, finalXp = 0, note = "";
+        let finalMora = 0, finalXp = 0, finalChests = 0, finalRep = 0, note = "";
         let effectiveFloor = Math.max(1, currentFloor - 1);
 
         if (currentFloor > 20) {
             finalMora = p.lootSnapshot20 ? p.lootSnapshot20.mora : 0;
             finalXp = p.lootSnapshot20 ? p.lootSnapshot20.xp : 0;
+            finalChests = p.lootSnapshot20 ? p.lootSnapshot20.chests : 0;
+            finalRep = p.lootSnapshot20 ? p.lootSnapshot20.rep : 0;
             effectiveFloor = 20; 
             note = " (Safe Point F20)";
         } else {
+            // فقدان الغنائم (صناديق وسمعة) عند الموت تحت الطابق 20
             finalMora = Math.floor((p.loot.mora || 0) * 0.5);
             finalXp = Math.floor((p.loot.xp || 0) * 0.5);
-            note = " (Penalty -50%)";
+            finalChests = 0;
+            finalRep = 0;
+            note = " (Penalty -50% & Lost Chests/Rep)";
         }
 
         p.finalMora = finalMora;
         p.finalXp = finalXp;
+        p.finalChests = finalChests;
+        p.finalRep = finalRep;
+        
         p.deathFloor = effectiveFloor; 
         p.pendingWipeSave = true;
-        results.push({ name: p.name, mora: finalMora, xp: finalXp, note: note });
+        results.push({ name: p.name, mora: finalMora, xp: finalXp, chests: finalChests, rep: finalRep, note: note });
     }
     return results;
 }
@@ -94,11 +128,16 @@ async function handleLeaderRetreat(players, db, guildId, client) {
         if (p.rewardsClaimed) continue;
         const earnedMora = Math.floor(p.loot.mora || 0);
         const earnedXp = Math.floor(p.loot.xp || 0);
+        const earnedChests = Math.floor(p.loot.chests || 0);
+        const earnedRep = Math.floor(p.loot.rep || 0);
 
         p.finalMora = earnedMora;
         p.finalXp = earnedXp;
+        p.finalChests = earnedChests;
+        p.finalRep = earnedRep;
+        
         p.pendingRetreatSave = true;
-        results.push({ name: p.name, mora: earnedMora, xp: earnedXp });
+        results.push({ name: p.name, mora: earnedMora, xp: earnedXp, chests: earnedChests, rep: earnedRep });
     }
     return results;
 }
@@ -107,7 +146,9 @@ function snapshotLootAtFloor20(players) {
     players.forEach(p => {
         p.lootSnapshot20 = {
             mora: Math.floor(p.loot.mora || 0),
-            xp: Math.floor(p.loot.xp || 0)
+            xp: Math.floor(p.loot.xp || 0),
+            chests: Math.floor(p.loot.chests || 0),
+            rep: Math.floor(p.loot.rep || 0)
         };
     });
 }
