@@ -114,40 +114,19 @@ async function processMonsterTurn(battleState, db) {
                 }
 
                 if (!isBlindMiss) {
-                    if (player.effects.evasion > 0) {
+                    // تحديث لحساب الضرر ليكون متوافقاً مع النظام الجديد
+                    const { finalDmg, isEvasion } = core.calculateDamage(monster, player);
+
+                    if (isEvasion) {
                         battleState.log.push(`👻 **${monster.name}** هاجم، لكنك راوغت الهجوم ببراعة!`);
+                    } else if (finalDmg > 0) {
+                        player.hp -= finalDmg;
+                        battleState.log.push(`🦑 **${monster.name}** هاجمك وألحق **${finalDmg}** ضرر!`);
+                        if (finalDmg > player.maxHp * 0.20) {
+                            try { triggerAnnouncer(battleState, `الوحش ${monster.name} سدد ضربة ساحقة للاعب أفقدته ${finalDmg} نقطة صحة دفعة واحدة!`); } catch(e){}
+                        }
                     } else {
-                        let damage = monster.weapon.currentDamage;
-                        if (monster.effects.weaken > 0) damage = Math.floor(damage * (1 - monster.effects.weaken));
-
-                        let damageTaken = Math.floor(damage);
-
-                        if (player.effects.shield > 0) {
-                            if (player.effects.shield >= damageTaken) {
-                                player.effects.shield -= damageTaken;
-                                damageTaken = 0;
-                                battleState.log.push(`🛡️ درع اللاعب امتص الهجوم بالكامل!`);
-                            } else {
-                                damageTaken -= player.effects.shield;
-                                player.effects.shield = 0;
-                                battleState.log.push(`🛡️ درع اللاعب تحطم ولكنه خفف الضرر!`);
-                            }
-                        }
-
-                        if (player.effects.rebound_active > 0) {
-                            const reflected = Math.floor(damageTaken * player.effects.rebound_active);
-                            monster.hp -= reflected;
-                            damageTaken -= reflected;
-                            battleState.log.push(`🔄 عكست **${reflected}** ضرر للوحش!`);
-                        }
-
-                        player.hp -= damageTaken;
-                        if (damageTaken > 0) {
-                            battleState.log.push(`🦑 **${monster.name}** هاجمك وألحق **${damageTaken}** ضرر!`);
-                            if (damageTaken > player.maxHp * 0.20) {
-                                try { triggerAnnouncer(battleState, `الوحش ${monster.name} سدد ضربة ساحقة للاعب أفقدته ${damageTaken} نقطة صحة دفعة واحدة!`); } catch(e){}
-                            }
-                        }
+                        battleState.log.push(`🛡️ درعك أو دفاعك امتص هجوم الوحش بالكامل!`);
                     }
                 }
             }
@@ -629,26 +608,32 @@ async function handlePvpTurn(i, client, db) {
                     try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} يضرب الهواء كالأعمى ولا يصيب شيئاً!`); }catch(e){}
                 } else {
                     const attackerHpBefore = attacker.hp;
-                    let dmg = 0;
+                    let result = { finalDmg: 0, isCrit: false, lifestealAmount: 0, isEvasion: false };
+                    
                     try {
-                        dmg = core.calculateDamage(attacker, defender);
+                        result = core.calculateDamage(attacker, defender);
                     } catch(e) { console.error("Calc Dmg Error", e); }
 
-                    if (defender.effects.evasion > 0) {
+                    if (result.isEvasion) {
                         battleState.log.push(`👻 **${attackerName}** هاجم، لكن **${defenderName}** راوغ ببراعة!`);
                         try{ triggerAnnouncer(battleState, `مراوغة أسطورية من ${defenderName}! هجوم ${attackerName} ذهب في الهواء!`); }catch(e){}
                     } else {
-                        if (defender.effects.rebound_active > 0) {
-                            const reflected = attackerHpBefore - attacker.hp;
-                            if (reflected > 0) battleState.log.push(`🔄 **${defenderName}** عكس **${reflected}** من الضرر!`);
+                        // إضافة نظام اللايف ستيل
+                        if (result.lifestealAmount > 0) {
+                            attacker.hp = Math.min(attacker.maxHp, attacker.hp + result.lifestealAmount);
                         }
-                        defender.hp -= dmg;
 
-                        if (!isPvE && battleState.stats && battleState.stats[attackerId]) battleState.stats[attackerId].damageDealt += dmg;
+                        defender.hp -= result.finalDmg;
 
-                        if (dmg > 0) {
-                            battleState.log.push(`⚔️ **${attackerName}** هاجم وألحق **${dmg}** ضرر!`);
-                            try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} ضرب خصمه بقوة وسلب منه ${dmg} نقطة صحة!`); }catch(e){}
+                        if (!isPvE && battleState.stats && battleState.stats[attackerId]) battleState.stats[attackerId].damageDealt += result.finalDmg;
+
+                        if (result.finalDmg > 0) {
+                            let logText = `⚔️ **${attackerName}** هاجم وألحق **${result.finalDmg}** ضرر!`;
+                            if (result.isCrit) logText += ` (كريت!)`;
+                            if (result.lifestealAmount > 0) logText += ` [شفى ${result.lifestealAmount}❤️]`;
+                            
+                            battleState.log.push(logText);
+                            try{ triggerAnnouncer(battleState, `اللاعب ${attackerName} ضرب خصمه بقوة وسلب منه ${result.finalDmg} نقطة صحة!`); }catch(e){}
                         } else {
                             battleState.log.push(`🛡️ **${defenderName}** امتص الضربة بالكامل!`);
                             try{ triggerAnnouncer(battleState, `اللاعب ${defenderName} تصدى للضربة ببراعة ولم يتأثر أبداً!`); }catch(e){}
