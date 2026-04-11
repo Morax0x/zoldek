@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Collection, REST, Routes, Partials, Events } = require("discord.js");
+const { Client, GatewayIntentBits, Collection, REST, Routes, Partials, Events, ActivityType } = require("discord.js");
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
@@ -144,6 +144,42 @@ async function bootstrap() {
 
     client.once(Events.ClientReady, async () => { 
         console.log(`✅ Logged in as ${client.user.username}`);
+        
+        // 🔥 استرجاع حالة البوت فور اشتغاله 🔥
+        try {
+            const settingsRes = await client.sql.query(`SELECT "savedStatusType", "savedStatusText", "savedStatusPresence" FROM settings WHERE "guild" = $1`, [MAIN_GUILD_ID]);
+            const statusData = settingsRes.rows[0];
+            
+            if (statusData && (statusData.savedStatusText || statusData.savedstatustext)) {
+                const typeStr = statusData.savedStatusType || statusData.savedstatustype;
+                const content = statusData.savedStatusText || statusData.savedstatustext;
+                const statusStr = statusData.savedStatusPresence || statusData.savedstatuspresence || 'online';
+                
+                let activityData;
+                if (typeStr === 'Custom') {
+                    activityData = { name: content, type: ActivityType.Custom, state: content };
+                } else if (typeStr === 'Streaming') {
+                    activityData = { name: content, type: ActivityType.Streaming, url: "https://www.twitch.tv/discord" };
+                } else {
+                    let type = ActivityType.Playing;
+                    switch (typeStr) {
+                        case 'Playing': type = ActivityType.Playing; break;
+                        case 'Watching': type = ActivityType.Watching; break;
+                        case 'Listening': type = ActivityType.Listening; break;
+                        case 'Competing': type = ActivityType.Competing; break;
+                    }
+                    activityData = { name: content, type: type };
+                }
+
+                client.user.setPresence({
+                    activities: [activityData],
+                    status: statusStr
+                });
+                console.log(`✅ [Status] Restored: ${typeStr} | ${content} | Color: ${statusStr}`);
+            }
+        } catch (err) {
+            console.error("❌ Failed to restore bot status:", err.message);
+        }
           
         // 🔥 تشغيل المؤقتات (القلب النابض) فوراً بدون أي تأخير 🔥
         try { 
