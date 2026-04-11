@@ -340,7 +340,7 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         ctx.fillText(`صفحة [ ${currentPage + 1} / ${totalPages} ]`, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 22);
     }
 
-    return canvas.toBuffer();
+    return await canvas.encode('image/png');
 };
 
 // 🎨 2. رسم بطاقة التفاصيل
@@ -424,7 +424,7 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
     ctx.font = `bold 26px ${FONT_FAMILY}`;
     ctx.fillText(`الرصيد المملوك في المحفظة: ${userQuantity.toLocaleString()} سهم`, 320, 330);
 
-    return canvas.toBuffer();
+    return await canvas.encode('image/png');
 };
 
 preloadGlobalAssets();

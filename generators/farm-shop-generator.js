@@ -304,7 +304,7 @@ exports.drawFarmShopGrid = async function(items, category, maxCap, currCap) {
         }
     }
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 };
 
 exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, currCap) {
@@ -454,5 +454,5 @@ exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, cur
         currentY += 40;
     }
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 };

@@ -248,7 +248,7 @@ async function generateFishingCard(tension, distance, statusText, locationId = '
         ctx.fillText(statusText, canvasWidth / 2, 40);
     }
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 }
 
 module.exports = { generateFishingCard };

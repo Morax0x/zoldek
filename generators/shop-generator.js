@@ -95,7 +95,7 @@ async function generateGlobalShopBoard(allItems) {
         ctx.fillText(priceText, x + (boxSize / 2), y + 220);
     }
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 }
 
 module.exports = { generateGlobalShopBoard };

@@ -344,5 +344,5 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
     ctx.font = `20px ${FONT_MAIN}`;
     ctx.fillText(`صفحة [ ${page + 1} / ${totalPages} ]`, width / 2, height - 35);
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 };

@@ -252,7 +252,7 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
             ctx.fillText(subText, W/2, logPanelY + 250);
         }
 
-        return canvas.toBuffer('image/png');
+        return await canvas.encode('image/png');
     } catch (e) { return null; }
 }
 
@@ -463,7 +463,7 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
         }
         ctx.restore();
 
-        return canvas.toBuffer('image/png');
+        return await canvas.encode('image/png');
     } catch (e) { 
         console.error("Generator Error PvP Result:", e);
         return null; 

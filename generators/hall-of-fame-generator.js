@@ -116,7 +116,7 @@ async function generateHallOfFame(topUsersData) {
         ctx.font = 'bold 35px "Bein", sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('العرش بانتظارك... لم يصل أحد للنخبة بعد!', canvasWidth / 2, canvasHeight / 2);
-        return canvas.toBuffer('image/png');
+        return await canvas.encode('image/png');
     }
 
     let startY = 190;
@@ -195,7 +195,7 @@ async function generateHallOfFame(topUsersData) {
         ctx.shadowBlur = 0;
     }
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 }
 
 module.exports = { generateHallOfFame };

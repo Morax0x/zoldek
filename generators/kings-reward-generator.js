@@ -100,7 +100,7 @@ async function generateKingsAnnouncementImage(kingsData, dateStr) {
     ctx.font = '25px "Bein", sans-serif';
     ctx.fillText(fixAr('تم توزيع الجوائز والرتب على الملوك تلقائياً'), width / 2, totalHeight - 40);
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 }
 
 module.exports = { generateKingsAnnouncementImage };

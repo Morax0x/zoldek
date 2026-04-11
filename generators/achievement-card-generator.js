@@ -223,7 +223,7 @@ async function generateAchievementCard(userAvatar, userName, achName, achDesc, r
         currentX += chip.fullWidth + 15;
     });
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 }
 
 module.exports = { generateAchievementCard };

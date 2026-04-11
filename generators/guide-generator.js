@@ -249,7 +249,7 @@ async function generateGuideImage(type) {
         currentY += item.calculatedHeight + 25;
     }
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 }
 
 module.exports = { generateGuideImage };

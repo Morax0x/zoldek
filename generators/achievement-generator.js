@@ -481,7 +481,7 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
         currentCenterY += CARD_HEIGHT + 30; 
     }
 
-    return new AttachmentBuilder(canvas.toBuffer('image/png'), { name: `achievements-page-${member.id}-${stats.page}.png` });
+    return new AttachmentBuilder(await canvas.encode('image/png'), { name: `achievements-page-${member.id}-${stats.page}.png` });
 }
 
 async function generateSingleAchievementAlert(member, achievement) {
@@ -494,7 +494,7 @@ async function generateSingleAchievementAlert(member, achievement) {
     const data = { achievement: achievement, progress: achievement.goal, isDone: true };
     await drawAlertNode(ctx, canvasW, canvasH, data, assets);
     
-    return new AttachmentBuilder(canvas.toBuffer('image/png'), { name: `achievement-unlocked-${member.id}-${achievement.id}.png` });
+    return new AttachmentBuilder(await canvas.encode('image/png'), { name: `achievement-unlocked-${member.id}-${achievement.id}.png` });
 }
 
 async function generateQuestAlert(member, quest, questType) {
@@ -507,7 +507,7 @@ async function generateQuestAlert(member, quest, questType) {
     const data = { achievement: quest, progress: quest.goal, isDone: true };
     await drawAlertNode(ctx, canvasW, canvasH, data, assets);
     
-    return new AttachmentBuilder(canvas.toBuffer('image/png'), { name: `quest-unlocked-${member.id}-${quest.id}.png` });
+    return new AttachmentBuilder(await canvas.encode('image/png'), { name: `quest-unlocked-${member.id}-${quest.id}.png` });
 }
 
 module.exports = {

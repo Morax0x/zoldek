@@ -55,7 +55,7 @@ async function generateNotificationControlPanel(member) {
     ctx.strokeStyle = '#ffffff';
     ctx.stroke();
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 }
 
 module.exports = { generateNotificationControlPanel };

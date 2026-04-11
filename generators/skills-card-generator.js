@@ -340,7 +340,7 @@ async function generateSkillsCard(data) {
         }
     }
 
-    return canvas.toBuffer('image/png');
+    return await canvas.encode('image/png');
 }
 
 module.exports = { generateSkillsCard };
