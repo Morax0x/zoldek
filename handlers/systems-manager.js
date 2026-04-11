@@ -166,7 +166,7 @@ module.exports = (client, db) => {
             const questName = quest.name; 
             const reward = quest.reward || { mora: 0, xp: 0 }; 
             
-            // 🔥 التعديل هنا: إضافة السمعة (REP) للنص المطبوع في الديسكورد 🔥
+            // 🔥 التعديل هنا: إضافة السـمعة (REP) للنص المطبوع في الديسكورد 🔥
             let repRewardText = "";
             if (quest.repReward && quest.repReward > 0) {
                 repRewardText = ` | REP: \`${quest.repReward.toLocaleString()}\` 🌟`;
