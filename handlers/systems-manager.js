@@ -151,7 +151,6 @@ module.exports = (client, db) => {
             if (questType === 'weekly' && wNotif !== 0) sendMention = true;
             if (questType === 'achievement' && aNotif !== 0) sendMention = true;
             
-            // 🔥 هنا السر: نستخدم المنشن إذا كان مفعل، وإذا معطل نستخدم الاسم فقط! 🔥
             const userIdentifier = sendMention ? `<@${member.id}>` : `**${member.displayName}**`; 
             
             const settingsRes = await db.query(`SELECT "questChannelID", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [guild.id]).catch(()=>({rows:[]})); 
@@ -166,9 +165,17 @@ module.exports = (client, db) => {
             const canAttachFiles = perms.has(PermissionsBitField.Flags.AttachFiles); 
             const questName = quest.name; 
             const reward = quest.reward || { mora: 0, xp: 0 }; 
+            
+            // 🔥 التعديل هنا: إضافة السمعة (REP) للنص المطبوع في الديسكورد 🔥
+            let repRewardText = "";
+            if (quest.repReward && quest.repReward > 0) {
+                repRewardText = ` | REP: \`${quest.repReward.toLocaleString()}\` 🌟`;
+            }
+            
+            const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` <:mora:1435647151349698621> | XP: \`${reward.xp.toLocaleString()}\` <a:levelup:1437805366048985290>${repRewardText}`; 
+            
             let message = ''; 
             let files = []; 
-            const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` <:mora:1435647151349698621> | XP: \`${reward.xp.toLocaleString()}\` <a:levelup:1437805366048985290>`; 
             
             const pChannel = settings ? settings.lastQuestPanelChannelID : null;
             const panelChannelLink = pChannel ? `\n\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${pChannel}>` : ""; 
@@ -194,7 +201,6 @@ module.exports = (client, db) => {
             } 
             
             message = announcementsTexts.getQuestMessage(questType, userIdentifier, questName, rewardDetails, panelChannelLink, client);
-            // 🔥 إرسال الرسالة مع تحديد ما إذا كان مسموحاً بمنشن اللاعب أم لا 🔥
             await channel.send({ content: message, files: files, allowedMentions: { users: sendMention ? [member.id] : [] } }).catch(()=>{}); 
         } catch (err) {} 
     }
@@ -246,7 +252,6 @@ module.exports = (client, db) => {
                 const pChannel = settings ? settings.lastQuestPanelChannelID : null;
                 const panelChannelLink = pChannel ? `\n\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${pChannel}>` : "";
 
-                // 🔥 تحديد المنشن للوسام بناءً على إعداد المستخدم 🔥
                 const badgeUserIdentifier = bNotif !== 0 ? `<@${member.id}>` : `**${member.displayName}**`;
 
                 if (questType === 'daily') {
