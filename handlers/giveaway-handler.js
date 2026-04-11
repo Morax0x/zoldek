@@ -10,32 +10,67 @@ try {
     } catch(e2) {}
 }
 
-// 🛡️ نظام معالجة استعلامات ذكي لحماية قاعدة البيانات 🛡️
-async function safeQuery(db, qPg, params) {
+// 🛡️ نظام معالجة استعلامات فولاذي 🛡️
+const safeQuery = async (db, qPg, params) => {
+    let res;
     try { 
-        let res = await db.query(qPg, params); 
-        return { rows: Array.isArray(res) ? res : (res?.rows || []) };
+        res = await db.query(qPg, params); 
     } catch(e) { 
-        let fallbackQuery = qPg.replace(/"userID"/gi, "userid").replace(/"guildID"/gi, "guildid").replace(/"channelID"/gi, "channelid").replace(/"messageID"/gi, "messageid").replace(/"prize"/gi, "prize").replace(/"endsAt"/gi, "endsat").replace(/"winnerCount"/gi, "winnercount").replace(/"xpReward"/gi, "xpreward").replace(/"moraReward"/gi, "morareward").replace(/"isFinished"/gi, "isfinished").replace(/"giveawayID"/gi, "giveawayid").replace(/"weight"/gi, "weight").replace(/"roleID"/gi, "roleid");
-        if (fallbackQuery !== qPg) {
-            try { 
-                let res2 = await db.query(fallbackQuery, params); 
-                return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) };
-            } catch(e2) { }
-        }
-        return { rows: [] };
+        res = { rows: [] }; 
     }
-}
 
-async function safeExecute(db, qPg, params) {
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/gi, "userid")
+        .replace(/"guildID"/gi, "guildid")
+        .replace(/"channelID"/gi, "channelid")
+        .replace(/"messageID"/gi, "messageid")
+        .replace(/"prize"/gi, "prize")
+        .replace(/"endsAt"/gi, "endsat")
+        .replace(/"winnerCount"/gi, "winnercount")
+        .replace(/"xpReward"/gi, "xpreward")
+        .replace(/"moraReward"/gi, "morareward")
+        .replace(/"isFinished"/gi, "isfinished")
+        .replace(/"giveawayID"/gi, "giveawayid")
+        .replace(/"weight"/gi, "weight")
+        .replace(/"roleID"/gi, "roleid");
+
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
+};
+
+const safeExecute = async (db, qPg, params) => {
     try { await db.query(qPg, params); return true; } catch(e) { 
-        let fallbackQuery = qPg.replace(/"userID"/gi, "userid").replace(/"guildID"/gi, "guildid").replace(/"channelID"/gi, "channelid").replace(/"messageID"/gi, "messageid").replace(/"prize"/gi, "prize").replace(/"endsAt"/gi, "endsat").replace(/"winnerCount"/gi, "winnercount").replace(/"xpReward"/gi, "xpreward").replace(/"moraReward"/gi, "morareward").replace(/"isFinished"/gi, "isfinished").replace(/"giveawayID"/gi, "giveawayid").replace(/"weight"/gi, "weight").replace(/"roleID"/gi, "roleid");
+        let fallbackQuery = qPg
+            .replace(/"userID"/gi, "userid")
+            .replace(/"guildID"/gi, "guildid")
+            .replace(/"channelID"/gi, "channelid")
+            .replace(/"messageID"/gi, "messageid")
+            .replace(/"prize"/gi, "prize")
+            .replace(/"endsAt"/gi, "endsat")
+            .replace(/"winnerCount"/gi, "winnercount")
+            .replace(/"xpReward"/gi, "xpreward")
+            .replace(/"moraReward"/gi, "morareward")
+            .replace(/"isFinished"/gi, "isfinished")
+            .replace(/"giveawayID"/gi, "giveawayid")
+            .replace(/"weight"/gi, "weight")
+            .replace(/"roleID"/gi, "roleid");
+
         if (fallbackQuery !== qPg) {
             try { await db.query(fallbackQuery, params); return true; } catch(e2) { return false; }
         }
         return false;
     }
-}
+};
 
 async function getUserWeight(member, db) {
     if (!member || !db || !member.guild) return 1;
@@ -110,7 +145,7 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     return message;
 }
 
-// 🛠️ دالة تسجيل المشاركين المباشرة لضمان عدم فشل التفاعل 🛠️
+// 🛠️ دالة التفاعل المعدلة: ضمان تسجيل العضو وتحديث العداد بنجاح 🛠️
 async function handleGiveawayInteraction(client, interaction) {
     try {
         const db = client.sql; 
@@ -121,7 +156,6 @@ async function handleGiveawayInteraction(client, interaction) {
         const messageID = interaction.message.id;
         const userID = interaction.user.id;
 
-        // التحقق من وجود القيفاواي أولاً
         const giveawayRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "messageID" = $1 AND "isFinished" = 0', [messageID]);
         const giveaway = giveawayRes.rows[0];
         
@@ -129,46 +163,42 @@ async function handleGiveawayInteraction(client, interaction) {
             return interaction.editReply({ content: "❌ هذا القيف اواي منتهي أو غير موجود." });
         }
 
-        if (Date.now() > Number(giveaway.endsAt || giveaway.endsat || 0)) {
+        if (Date.now() > Number(giveaway.endsAt || giveaway.endsat)) {
             return interaction.editReply({ content: "⏰ لقد انتهى وقت المشاركة!" });
         }
 
-        // التحقق إن كان العضو مشاركاً بالفعل وتحديث مشاركته بذكاء
-        const entriesRes = await safeQuery(db, `SELECT * FROM giveaway_entries WHERE "giveawayID" = $1 OR giveawayid = $1`, [messageID]);
-        const entries = entriesRes.rows;
+        const existingEntryRes = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2', [messageID, userID]);
+        const existingEntry = existingEntryRes.rows[0];
         
-        const existingEntry = entries.find(e => e.userID === userID || e.userid === userID);
         let replyMessage = "";
-        let newCount = entries.length;
 
         if (existingEntry) {
-            // إذا كان مشاركاً، نقوم بإلغاء مشاركته بقوة
-            try { await db.query(`DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [messageID, userID]); }
-            catch(e) { await db.query(`DELETE FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [messageID, userID]).catch(()=>{}); }
-            
+            await safeExecute(db, 'DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2', [messageID, userID]);
             replyMessage = "✅ تـم الـغـاء الـمـشاركـة";
-            newCount -= 1; // ننقص العداد يدوياً
         } else {
-            // إذا لم يكن مشاركاً، نضيفه بقوة
             const weight = await getUserWeight(interaction.member, db);
-            try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [messageID, userID, weight]); }
-            catch(e) { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [messageID, userID, weight]).catch(()=>{}); }
+            const isSuccess = await safeExecute(db, 'INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)', [messageID, userID, weight]);
             
+            if (!isSuccess) {
+                return interaction.editReply({ content: "❌ حدث خطأ داخلي أثناء تسجيل مشاركتك." });
+            }
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة`;
-            newCount += 1; // نزيد العداد يدوياً
         }
 
-        // تحديث رسالة الإيمبد والزر
+        // جلب العدد الحقيقي من الداتابيز لضمان الدقة
         try {
+            const countRes = await safeQuery(db, 'SELECT COUNT(*) as count FROM giveaway_entries WHERE "giveawayID" = $1', [messageID]);
+            const count = parseInt(countRes.rows[0]?.count || countRes.rows[0]?.COUNT || 0, 10);
+
             const embed = EmbedBuilder.from(interaction.message.embeds[0]);
             
             if (embed.data.description) {
-                const newDesc = embed.data.description.replace(/✶ عـدد الـمـشاركـيـن: \d+/g, `✶ عـدد الـمـشاركـيـن: ${newCount}`);
+                const newDesc = embed.data.description.replace(/✶ عـدد الـمـشاركـيـن: \d+/g, `✶ عـدد الـمـشاركـيـن: ${count}`);
                 embed.setDescription(newDesc);
             }
 
             const oldButton = interaction.message.components[0].components[0];
-            const newButton = ButtonBuilder.from(oldButton).setLabel(`مشاركة (${newCount})`);
+            const newButton = ButtonBuilder.from(oldButton).setLabel(`مشاركة (${count})`);
             const newRow = new ActionRowBuilder().addComponents(newButton);
             
             await interaction.message.edit({ embeds: [embed], components: [newRow] }).catch(()=>{});
@@ -207,7 +237,7 @@ async function endGiveaway(client, messageID, force = false) {
 
         await safeExecute(db, 'UPDATE active_giveaways SET "isFinished" = 1 WHERE "messageID" = $1', [messageID]);
 
-        const entriesRes = await safeQuery(db, `SELECT * FROM giveaway_entries WHERE "giveawayID" = $1 OR giveawayid = $1`, [messageID]);
+        const entriesRes = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "giveawayID" = $1', [messageID]);
         const entries = entriesRes.rows;
 
         let channel;
@@ -327,7 +357,7 @@ async function rerollGiveaway(client, interaction, messageID) {
     const isFinished = Number(giveaway.isFinished || giveaway.isfinished);
     if (isFinished === 0) return interaction.reply({ content: "⚠️ هذا القيف اواي لا يزال جارياً!", flags: [MessageFlags.Ephemeral] });
 
-    const entriesRes = await safeQuery(db, `SELECT * FROM giveaway_entries WHERE "giveawayID" = $1 OR giveawayid = $1`, [messageID]);
+    const entriesRes = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "giveawayID" = $1', [messageID]);
     const entries = entriesRes.rows;
     if (entries.length === 0) return interaction.reply({ content: "❌ لا يوجد مشاركين لعمل سحب عليهم.", flags: [MessageFlags.Ephemeral] });
 
