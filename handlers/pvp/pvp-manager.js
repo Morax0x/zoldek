@@ -4,6 +4,8 @@ const { cleanDisplayName } = require('./pvp-utils.js');
 const { getWeaponData, getAllSkillData, getUserRace } = require('./pvp-data.js');
 const { buildBattleEmbed, updateSpectatorEmbed } = require('./pvp-ui.js');
 const { generatePvPResultImage } = require('../../generators/pvp-summary-generator.js'); 
+const { calculateWeaponStats } = require('../combat/weapon-calculator.js');
+const { applyEquippedSkills } = require('../combat/skill-calculator.js');
 
 let updateGuildStat;
 try { ({ updateGuildStat } = require('../guild-board-handler.js')); } catch (e) {}
@@ -15,7 +17,7 @@ const defEffects = () => ({ shield: 0, buff: 0, buff_turns: 0, weaken: 0, weaken
 
 function calculateCP(player) {
     if (!player) return 0;
-    let cp = ((player.maxHp || 0) * 0.5) + ((player.weapon?.currentDamage || 0) * 10);
+    let cp = ((player.maxHp || 0) * 0.5) + ((player.damage || player.weapon?.currentDamage || 0) * 10);
     let skillScore = 0;
     if (player.skills) {
         Object.values(player.skills).forEach(s => {
@@ -23,6 +25,61 @@ function calculateCP(player) {
         });
     }
     return cp + skillScore;
+}
+
+// 🔥 دالة لتجهيز الإحصائيات الكاملة للاعب (نفس نظام الدانجون) 🔥
+async function buildFullPlayerStats(db, member, levelData, isBotMatch = false, botOverrides = null) {
+    if (isBotMatch && botOverrides) {
+        return {
+            hp: botOverrides.hp,
+            maxHp: botOverrides.hp,
+            level: botOverrides.level,
+            raceName: botOverrides.raceName,
+            damage: botOverrides.weapon.currentDamage,
+            defense: 50,
+            speed: 10,
+            critChance: 15,
+            lifesteal: 0,
+            weapon: botOverrides.weapon,
+            skills: botOverrides.skills
+        };
+    }
+
+    const invRes = await db.query(`SELECT "equippedWeapon", "equippedSkills" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [member.id, member.guild.id]).catch(()=>({rows:[]}));
+    const inv = invRes.rows[0] || {};
+    
+    const weaponId = inv.equippedWeapon || inv.equippedweapon;
+    let equippedSkillsArray = [];
+    try {
+        const rawSkills = inv.equippedSkills || inv.equippedskills;
+        if (typeof rawSkills === 'string') equippedSkillsArray = JSON.parse(rawSkills);
+        else if (Array.isArray(rawSkills)) equippedSkillsArray = rawSkills;
+    } catch(e) {}
+
+    let baseStats = calculateWeaponStats(weaponId);
+    let finalStats = applyEquippedSkills(baseStats, equippedSkillsArray);
+
+    const level = Number(levelData.level || 0);
+    const maxHp = BASE_HP + (level * HP_PER_LEVEL);
+    
+    const userRace = await getUserRace(member, db);
+    const raceName = userRace ? (userRace.raceName || userRace.racename) : 'Human';
+    const skills = await getAllSkillData(db, member);
+    const weapon = await getWeaponData(db, member);
+
+    return {
+        hp: maxHp,
+        maxHp: maxHp,
+        level: level,
+        raceName: raceName,
+        damage: finalStats.damage,
+        defense: finalStats.defense || 0,
+        speed: finalStats.speed || 10,
+        critChance: finalStats.critChance || 15,
+        lifesteal: finalStats.lifesteal || 0,
+        weapon: finalStats, // نمرر الـ finalStats كأنه السلاح الفعلي
+        skills: skills
+    };
 }
 
 async function startPvpBattle(i, client, db, challengerMember, opponentMember, bet, isBotMatch = false) {
@@ -34,46 +91,38 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
         await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora",'0') AS BIGINT) - $1) WHERE "user" = $2 AND "guild" = $3`, [bet, challengerMember.id, i.guild.id]).catch(()=>{});
         if (client.updateLevelField) client.updateLevelField(challengerMember.id, i.guild.id, { mora: newChalMora });
 
-        let oMaxHp = 0; let raceNameO = 'Human'; let weaponOpponent = null; let skillsOpponent = {};
-        let opponentLevel = 0;
+        let p1Stats = await buildFullPlayerStats(db, challengerMember, challengerData);
+        let p2Stats;
 
         if (isBotMatch) {
-            oMaxHp = 5000;
-            opponentLevel = 100;
-            raceNameO = 'Dragon';
-            weaponOpponent = { name: "سلاح الزعيم", currentDamage: 850, currentLevel: 30, raceName: "Dragon" };
-            skillsOpponent = {
-                'race_dragon_skill': { id: 'race_dragon_skill', name: 'أنفاس نارية', stat_type: 'TrueDMG_Burn', effectValue: 500, currentLevel: 20 },
-                'skill_healing': { id: 'skill_healing', name: 'علاج أسطوري', stat_type: '%', effectValue: 40, currentLevel: 20 },
-                'skill_shielding': { id: 'skill_shielding', name: 'درع الزعيـم', stat_type: '%', effectValue: 50, currentLevel: 20 },
-                'skill_buffing': { id: 'skill_buffing', name: 'طاقة مطلقة', stat_type: '%', effectValue: 60, currentLevel: 20 }
+            const botOverrides = {
+                hp: 5000, level: 100, raceName: 'Dragon',
+                weapon: { name: "سلاح الزعيم", currentDamage: 850, currentLevel: 30, raceName: "Dragon" },
+                skills: {
+                    'race_dragon_skill': { id: 'race_dragon_skill', name: 'أنفاس نارية', stat_type: 'TrueDMG_Burn', effectValue: 500, currentLevel: 20 },
+                    'skill_healing': { id: 'skill_healing', name: 'علاج أسطوري', stat_type: '%', effectValue: 40, currentLevel: 20 },
+                    'skill_shielding': { id: 'skill_shielding', name: 'درع الزعيـم', stat_type: '%', effectValue: 50, currentLevel: 20 },
+                    'skill_buffing': { id: 'skill_buffing', name: 'طاقة مطلقة', stat_type: '%', effectValue: 60, currentLevel: 20 }
+                }
             };
+            p2Stats = await buildFullPlayerStats(db, opponentMember, {}, true, botOverrides);
         } else {
             const getLevelResOpponent = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [opponentMember.id, i.guild.id]).catch(() => ({rows:[]}));
             let opponentData = getLevelResOpponent.rows[0] || { user: opponentMember.id, guild: i.guild.id, level: 0, mora: 0, bank: 0 };
+            
             const newOppMora = Math.max(0, Number(opponentData.mora) - bet);
             await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora",'0') AS BIGINT) - $1) WHERE "user" = $2 AND "guild" = $3`, [bet, opponentMember.id, i.guild.id]).catch(()=>{});
             if (client.updateLevelField) client.updateLevelField(opponentMember.id, i.guild.id, { mora: newOppMora });
-            opponentLevel = Number(opponentData.level);
-            oMaxHp = BASE_HP + (opponentLevel * HP_PER_LEVEL);
-            weaponOpponent = await getWeaponData(db, opponentMember);
-            skillsOpponent = await getAllSkillData(db, opponentMember);
-            const userRaceO = await getUserRace(opponentMember, db);
-            raceNameO = userRaceO ? (userRaceO.raceName || userRaceO.racename) : 'Human';
+            
+            p2Stats = await buildFullPlayerStats(db, opponentMember, opponentData);
         }
-        
-        const cMaxHp = BASE_HP + (Number(challengerData.level) * HP_PER_LEVEL);
-        const weaponChallenger = await getWeaponData(db, challengerMember);
-        const skillsChallenger = await getAllSkillData(db, challengerMember);
-        const userRaceC = await getUserRace(challengerMember, db);
-        const raceNameC = userRaceC ? (userRaceC.raceName || userRaceC.racename) : 'Human';
 
         const now = Date.now();
         const cWoundRes = await db.query(`SELECT 1 FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded' AND "expiresAt" > $3`, [challengerMember.id, i.guild.id, now]).catch(()=>({rows:[]}));
         const oWoundRes = isBotMatch ? { rows: [] } : await db.query(`SELECT 1 FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded' AND "expiresAt" > $3`, [opponentMember.id, i.guild.id, now]).catch(()=>({rows:[]}));
 
-        let cHp = cWoundRes.rows.length > 0 ? Math.floor(cMaxHp * 0.5) : cMaxHp;
-        let oHp = oWoundRes.rows.length > 0 ? Math.floor(oMaxHp * 0.5) : oMaxHp;
+        if (cWoundRes.rows.length > 0) p1Stats.hp = Math.floor(p1Stats.maxHp * 0.5);
+        if (oWoundRes.rows.length > 0) p2Stats.hp = Math.floor(p2Stats.maxHp * 0.5);
 
         const challengerName = cleanDisplayName(challengerMember?.displayName || challengerMember?.user?.username || 'مقاتل');
         const opponentName = isBotMatch ? "الزعيم موركس" : cleanDisplayName(opponentMember?.displayName || opponentMember?.user?.username || 'مقاتل');
@@ -133,8 +182,8 @@ async function startPvpBattle(i, client, db, challengerMember, opponentMember, b
             mainChannel: i.channel, thread: thread,
             skillCooldowns: { [challengerMember.id]: {}, [opponentMember.id]: {} },
             players: new Map([
-                [challengerMember.id, { member: challengerMember, hp: cHp, maxHp: cMaxHp, level: Number(challengerData.level), raceName: raceNameC, weapon: weaponChallenger, skills: skillsChallenger, effects: defEffects() }],
-                [opponentMember.id, { member: opponentMember, isBot: isBotMatch, name: opponentName, hp: oHp, maxHp: oMaxHp, level: opponentLevel, raceName: raceNameO, weapon: weaponOpponent, skills: skillsOpponent, effects: defEffects() }]
+                [challengerMember.id, { member: challengerMember, ...p1Stats, effects: defEffects() }],
+                [opponentMember.id, { member: opponentMember, isBot: isBotMatch, name: opponentName, ...p2Stats, effects: defEffects() }]
             ])
         };
 
@@ -230,26 +279,23 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
         const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [playerMember.id, interaction.guild.id]).catch(()=>({rows:[]}));
         let playerData = getLevelRes.rows[0] || { user: playerMember.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0 };
 
-        const pMaxHp = BASE_HP + (Number(playerData.level) * HP_PER_LEVEL);
-        let finalPlayerWeapon = await getWeaponData(db, playerMember);
-        if (!finalPlayerWeapon || finalPlayerWeapon.currentLevel === 0) {
-            finalPlayerWeapon = playerWeaponOverride || { name: "سكين صيد", currentDamage: 15 };
+        let p1Stats = await buildFullPlayerStats(db, playerMember, playerData);
+        
+        if (playerWeaponOverride && p1Stats.weapon.currentLevel === 0) {
+            p1Stats.weapon = playerWeaponOverride;
+            p1Stats.damage = playerWeaponOverride.currentDamage;
         }
 
-        const mMaxHp = Math.floor(pMaxHp * 0.8);
-        const mDamage = Math.floor(finalPlayerWeapon.currentDamage * 0.9);
+        const mMaxHp = Math.floor(p1Stats.maxHp * 0.8);
+        const mDamage = Math.floor(p1Stats.damage * 0.9);
         
-        const skillsPlayer = await getAllSkillData(db, playerMember);
-        const userRaceP = await getUserRace(playerMember, db);
-        const rawRaceP = userRaceP ? (userRaceP.raceName || userRaceP.racename) : 'Human';
-
         const RACE_AR = {
             'Human': 'بشري', 'Dragon': 'تنين', 'Elf': 'آلف', 'Dark Elf': 'آلف الظلام',
             'Seraphim': 'سيرافيم', 'Demon': 'شيطان', 'Vampire': 'مصاص دماء',
             'Spirit': 'روح', 'Dwarf': 'قزم', 'Ghoul': 'غول', 'Hybrid': 'نصف وحش'
         };
 
-        const translatedRaceP = RACE_AR[rawRaceP] || rawRaceP;
+        const translatedRaceP = RACE_AR[p1Stats.raceName] || p1Stats.raceName;
         const translatedMonsterRace = RACE_AR[monsterData?.race] || monsterData?.race || 'وحش أعماق';
         const monsterImage = monsterData?.image || 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/monster.png';
         const playerName = cleanDisplayName(playerMember?.displayName || playerMember?.user?.username || 'صياد');
@@ -286,8 +332,8 @@ async function startPveBattle(interaction, client, db, playerMember, monsterData
             skillCooldowns: { [playerMember.id]: {}, "monster": {} },
             thread: thread, mainChannel: interaction.channel && !interaction.channel.isThread() ? interaction.channel : null,
             players: new Map([
-                [playerMember.id, { isMonster: false, member: playerMember, hp: pMaxHp, maxHp: pMaxHp, level: Number(playerData.level), raceName: translatedRaceP, weapon: finalPlayerWeapon, skills: skillsPlayer, effects: defEffects() }],
-                ["monster", { isMonster: true, name: monsterData?.name || 'وحش', image: monsterImage, raceName: translatedMonsterRace, hp: mMaxHp, maxHp: mMaxHp, level: monsterData?.level || '؟', weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
+                [playerMember.id, { isMonster: false, member: playerMember, ...p1Stats, raceName: translatedRaceP, effects: defEffects() }],
+                ["monster", { isMonster: true, name: monsterData?.name || 'وحش', image: monsterImage, raceName: translatedMonsterRace, hp: mMaxHp, maxHp: mMaxHp, level: monsterData?.level || '؟', damage: mDamage, weapon: { currentDamage: mDamage }, skills: {}, effects: defEffects() }]
             ])
         };
 
