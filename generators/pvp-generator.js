@@ -601,9 +601,10 @@ async function generatePvPImage(battleState) {
         const drawMiniStats = (player, x, y, align) => {
             ctx.textAlign = align;
             ctx.font = 'bold 16px "Bein"';
-            const dmg = player.weapon?.currentDamage || 0;
+            // 🔥 الإصلاح هنا: نقرأ الدمج الفعلي (player.damage) بدلاً من دمج السلاح المباشر
+            const dmg = player.damage || player.weapon?.currentDamage || 0;
             ctx.fillStyle = '#e74c3c';
-            ctx.fillText(`هجوم ${dmg}`, x, y);
+            ctx.fillText(`هجوم ${Math.floor(dmg)}`, x, y);
         };
 
         drawMiniStats(p1, p1PanelX + 30, panelY + 325, 'left');
