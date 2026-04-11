@@ -4,8 +4,6 @@ const { cleanDisplayName } = require('./pvp-utils.js');
 const { getWeaponData, getAllSkillData, getUserRace } = require('./pvp-data.js');
 const { buildBattleEmbed, updateSpectatorEmbed } = require('./pvp-ui.js');
 const { generatePvPResultImage } = require('../../generators/pvp-summary-generator.js'); 
-const { calculateWeaponStats } = require('../combat/weapon-calculator.js');
-const { applyEquippedSkills } = require('../combat/skill-calculator.js');
 
 let updateGuildStat;
 try { ({ updateGuildStat } = require('../guild-board-handler.js')); } catch (e) {}
@@ -27,7 +25,7 @@ function calculateCP(player) {
     return cp + skillScore;
 }
 
-// 🔥 دالة لتجهيز الإحصائيات الكاملة للاعب (نفس نظام الدانجون) 🔥
+// 🔥 دالة لتجهيز الإحصائيات الكاملة للاعب تم تصحيحها لتعمل بسلاسة 🔥
 async function buildFullPlayerStats(db, member, levelData, isBotMatch = false, botOverrides = null) {
     if (isBotMatch && botOverrides) {
         return {
@@ -45,39 +43,35 @@ async function buildFullPlayerStats(db, member, levelData, isBotMatch = false, b
         };
     }
 
-    const invRes = await db.query(`SELECT "equippedWeapon", "equippedSkills" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [member.id, member.guild.id]).catch(()=>({rows:[]}));
-    const inv = invRes.rows[0] || {};
-    
-    const weaponId = inv.equippedWeapon || inv.equippedweapon;
-    let equippedSkillsArray = [];
-    try {
-        const rawSkills = inv.equippedSkills || inv.equippedskills;
-        if (typeof rawSkills === 'string') equippedSkillsArray = JSON.parse(rawSkills);
-        else if (Array.isArray(rawSkills)) equippedSkillsArray = rawSkills;
-    } catch(e) {}
-
-    let baseStats = calculateWeaponStats(weaponId);
-    let finalStats = applyEquippedSkills(baseStats, equippedSkillsArray);
-
     const level = Number(levelData.level || 0);
     const maxHp = BASE_HP + (level * HP_PER_LEVEL);
     
     const userRace = await getUserRace(member, db);
     const raceName = userRace ? (userRace.raceName || userRace.racename) : 'Human';
+    
+    // سحب البيانات من الداتابيز بطريقة آمنة
     const skills = await getAllSkillData(db, member);
     const weapon = await getWeaponData(db, member);
 
+    let finalDamage = weapon ? weapon.currentDamage : 15;
+    let finalDefense = 0;
+    let finalSpeed = 10;
+    let finalCritChance = 15;
+    let finalLifesteal = 0;
+
+    // مستقبلاً لو أردت إضافة عتاد يزيد الكريت أو اللايف ستيل يتم إضافته هنا
+    
     return {
         hp: maxHp,
         maxHp: maxHp,
         level: level,
         raceName: raceName,
-        damage: finalStats.damage,
-        defense: finalStats.defense || 0,
-        speed: finalStats.speed || 10,
-        critChance: finalStats.critChance || 15,
-        lifesteal: finalStats.lifesteal || 0,
-        weapon: finalStats, // نمرر الـ finalStats كأنه السلاح الفعلي
+        damage: finalDamage,
+        defense: finalDefense,
+        speed: finalSpeed,
+        critChance: finalCritChance,
+        lifesteal: finalLifesteal,
+        weapon: weapon || { currentDamage: 15, currentLevel: 0 },
         skills: skills
     };
 }
