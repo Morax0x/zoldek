@@ -82,7 +82,13 @@ module.exports = {
                 targetRole = interactionOrMessage.options.getRole('role');
                 targetWeight = interactionOrMessage.options.getInteger('amount');
             }
-            await interactionOrMessage.deferReply({ ephemeral: true }); 
+            
+            // 🔥 هنا نحدد الإخفاء: كل شيء مخفي ما عدا أمر `start` يكون ظاهر بالكامل 🔥
+            if (subcommand !== 'start') {
+                await interactionOrMessage.deferReply({ ephemeral: true }); 
+            } else {
+                await interactionOrMessage.deferReply({ ephemeral: false }); 
+            }
         } else {
             const cmdName = interactionOrMessage.content.split(' ')[0].toLowerCase().slice(1);
             if (cmdName.includes('giveaway') || cmdName.includes('قيف') || cmdName.includes('g-admin')) subcommand = 'start';
@@ -221,7 +227,7 @@ module.exports = {
                             }
                         }
                     } catch (error) {
-                        if (error.code === 10062) return; // Ignore Unknown Interaction errors
+                        if (error.code === 10062) return; 
                         console.error("[Giveaway Collector Error]:", error);
                     }
                 });
