@@ -39,38 +39,51 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
     let retreatState = { range_30_40: false, range_41_50: false, range_51_70: false, range_71_90: false };
 
     let players = [];
+    
+    // 🔥 تم إضافة الصناديق والسمعة لمتغيرات التخزين للحفاظ عليها 🔥
     let totalAccumulatedCoins = 0;
     let totalAccumulatedXP = 0;
+    let totalAccumulatedChests = 0;
+    let totalAccumulatedRep = 0;
     let resumedMonsterData = null;
 
     if (resumeData) {
         players = resumeData.players;
         merchantState = resumeData.merchantState || merchantState;
         retreatState = resumeData.retreatState || retreatState; 
+        
+        // استعادة الغنائم القديمة بما فيها الصناديق والسمعة!
         totalAccumulatedCoins = resumeData.loot.coins || 0;
         totalAccumulatedXP = resumeData.loot.xp || 0;
+        totalAccumulatedChests = resumeData.loot.chests || 0;
+        totalAccumulatedRep = resumeData.loot.rep || 0;
+        
         startFloor = resumeData.floor; 
         retreatedPlayers = resumeData.retreatedPlayers || [];
         isTrapActive = resumeData.isTrapActive || false;
         resumedMonsterData = resumeData.monsterData || null;
 
-        // 🔥 إعادة إنعاش الغنائم في كائنات اللاعبين الفردية حتى لا تضيع 🔥
+        // 🔥 إعادة إنعاش جميع الغنائم في كائنات اللاعبين الفردية 🔥
         const activePlayerCount = players.filter(p => !p.isDead).length;
-        if (activePlayerCount > 0 && totalAccumulatedCoins > 0) {
+        if (activePlayerCount > 0) {
             const individualMora = Math.floor(totalAccumulatedCoins / activePlayerCount);
             const individualXp = Math.floor(totalAccumulatedXP / activePlayerCount);
+            const individualChests = Math.floor(totalAccumulatedChests / activePlayerCount);
+            const individualRep = Math.floor(totalAccumulatedRep / activePlayerCount);
             
             players.forEach(p => {
                 if (!p.isDead) {
-                    if (!p.loot) p.loot = { mora: 0, xp: 0 };
+                    if (!p.loot) p.loot = { mora: 0, xp: 0, chests: 0, rep: 0 };
                     p.loot.mora = individualMora;
                     p.loot.xp = individualXp;
+                    p.loot.chests = individualChests;
+                    p.loot.rep = individualRep;
                 }
             });
         }
         
         const dioEmbed = new EmbedBuilder()
-            .setDescription(`**زا واردوو!** ديو اعـاد الزمن جاري استكمال المعركة من الطابق: **${startFloor}**`)
+            .setDescription(`**زا واردوو!** ديو اعـاد الزمن جاري استكمال المعركة من الطابق: **${startFloor}**\n(تم إنقاذ الصناديق والسمعة والمورا بنجاح! 📦)`)
             .setImage('https://i.postimg.cc/VvsFq67N/dio-da.gif')
             .setColor(Colors.Gold);
 
@@ -133,7 +146,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             await saveDungeonState(db, threadChannel.id, guild.id, hostId, {
                 floor: targetFloor, 
                 players, merchantState, retreatState, retreatedPlayers, isTrapActive,
-                loot: { coins: totalAccumulatedCoins, xp: totalAccumulatedXP },
+                loot: { coins: totalAccumulatedCoins, xp: totalAccumulatedXP, chests: totalAccumulatedChests, rep: totalAccumulatedRep },
                 themeName: theme.name, monsterData: null 
             });
             continue; 
@@ -218,9 +231,10 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             }
         }
 
+        // حفظ الدانجون مع الصناديق والسمعة
         await saveDungeonState(db, threadChannel.id, guild.id, hostId, {
             floor, players, merchantState, retreatedPlayers, isTrapActive, retreatState, 
-            loot: { coins: totalAccumulatedCoins, xp: totalAccumulatedXP },
+            loot: { coins: totalAccumulatedCoins, xp: totalAccumulatedXP, chests: totalAccumulatedChests, rep: totalAccumulatedRep },
             themeName: theme.name, monsterData: monster 
         });
 
@@ -317,7 +331,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
 
                 try {
                     await battleMsg.edit({ 
-                        content: `**💀 سقط ${monster.name} مضرّجاً بدمائه!**`, 
+                        content: `**💀 سقط ${monster.name} مضرّجاً بدمائـه!**`, 
                         embeds: [generateBattleEmbed(players, monster, floor, theme, log, [], '#000000')], 
                         components: [] 
                     }).catch(()=>{}); 
@@ -374,29 +388,52 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         if (floor === maxFloors) {
             const moraxMora = getBaseFloorMora(100);
             const moraxXp = Math.floor(moraxMora * 0.10); 
+            const moraxChests = 5; // جوائز إضافية
+            const moraxRep = 100;
 
             totalAccumulatedCoins += moraxMora;
             totalAccumulatedXP += moraxXp;
+            totalAccumulatedChests += moraxChests;
+            totalAccumulatedRep += moraxRep;
 
             players.forEach(p => { 
                 if (!p.isDead) { 
                     p.loot.mora += moraxMora; 
                     p.loot.xp += moraxXp; 
+                    p.loot.chests = (p.loot.chests || 0) + moraxChests;
+                    p.loot.rep = (p.loot.rep || 0) + moraxRep;
                 } 
             });
             break; 
         }
           
-        const lootTotals = { coins: totalAccumulatedCoins, xp: totalAccumulatedXP };
+        const lootTotals = { 
+            coins: totalAccumulatedCoins, 
+            xp: totalAccumulatedXP,
+            chests: totalAccumulatedChests,
+            rep: totalAccumulatedRep
+        };
+
         await applyPostBattleUpdates(players, floor, threadChannel, lootTotals);
-        totalAccumulatedCoins = lootTotals.coins;
-        totalAccumulatedXP = lootTotals.xp;
+        totalAccumulatedCoins = lootTotals.coins || totalAccumulatedCoins;
+        totalAccumulatedXP = lootTotals.xp || totalAccumulatedXP;
+
+        // 🔥 حماية إضافية: إعادة جمع الصناديق والسمعة مباشرة من جيوب اللاعبين لضمان الدقة 100% 🔥
+        totalAccumulatedChests = 0;
+        totalAccumulatedRep = 0;
+        players.forEach(p => {
+            if (!p.isDead && p.loot) {
+                totalAccumulatedChests += (p.loot.chests || 0);
+                totalAccumulatedRep += (p.loot.rep || 0);
+            }
+        });
 
         const restImage = theme.rest_image || dungeonConfig.themes[theme.name]?.rest_image || 'https://i.postimg.cc/KcJ6gtzV/22.jpg';
 
         const restContext = {
             floor, players, retreatState, retreatedPlayers, 
             totalAccumulatedCoins, totalAccumulatedXP, 
+            totalAccumulatedChests, totalAccumulatedRep, // تم الإضافة هنا للحماية
             threadChannel, db, guild, log,
             theme, 
             restImage 
@@ -407,7 +444,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         if (decision === 'time' || decision === 'end_error') { 
             await deleteDungeonState(db, threadChannel.id); 
             players.forEach(p => { p.isDead = true; p.hp = 0; p.deathFloor = floor; });
-            await threadChannel.send(`💀 **انتهى الوقت!** ابتلع ظلام الدانجون الفريق بأكمله...`).catch(()=>{});
+            await threadChannel.send(`💀 **انتهى الوقت!** ابتلع ظلام الدانجون الفريق بأكملــه...`).catch(()=>{});
             statusCollector.stop(); 
             await handleTeamWipe(players, floor, db, guild.id);
             await sendEndMessage(mainChannel, threadChannel, players, retreatedPlayers, floor, "lose", db, guild.id, hostId, activeDungeonRequests, client);
@@ -417,7 +454,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             await deleteDungeonState(db, threadChannel.id);
             statusCollector.stop();
             
-            await threadChannel.send(`⛺ **تم نصب الخيام بنجاح!**\nتم حفظ تقدمكم عند الطابق **${floor + 1}**. سيتم الآن توزيع الغنائم وإغلاق البوابة.`).catch(()=>{});
+            await threadChannel.send(`⛺ **تم نصب الخيام بنجاح!**\nتم حفظ تقدمكم عند الطابق **${floor + 1}**. سيتم الآن توزيع الغنائم وإغلاق البوابة..`).catch(()=>{});
 
             await handleLeaderRetreat(players, db, guild.id);
             await sendEndMessage(mainChannel, threadChannel, players, retreatedPlayers, floor, "camp", db, guild.id, hostId, activeDungeonRequests, client);
@@ -437,7 +474,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
                 trapStartFloor = floor;
                 floor = trapResult.newFloor - 1; 
             } else {
-                await threadChannel.send(`⚔️ **يتوغل الفريق بالدانجون نحو طوابق أعمق...**`).catch(()=>{});
+                await threadChannel.send(`⚔️ **يتوغل الفريق بالدانجون نحو طوابق أعمـق...**`).catch(()=>{});
                 
                 const eventResult = await handleRandomEvents(floor, lastEventFloor, lastEventType, threadChannel, players, db, guild.id, merchantState, isTrapActive);
                 if (eventResult.type !== lastEventType) {
@@ -453,7 +490,6 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         await deleteDungeonState(db, threadChannel.id);
         statusCollector.stop(); 
 
-        // 🔥 تم حماية الصورة هنا! 
         const bossImage = (dungeonConfig.final_boss && dungeonConfig.final_boss.image) 
             ? dungeonConfig.final_boss.image 
             : 'https://i.postimg.cc/WzRGhgJ9/mwraks.png';
