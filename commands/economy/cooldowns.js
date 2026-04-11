@@ -92,7 +92,7 @@ module.exports = {
             .setRequired(false)),
 
     name: 'gametime',
-    aliases: ['وقت', 'وقت الالعاب', 'cooldown', 'cd'],
+    aliases: ['وقت', 'وقت الالعاب', 'cooldown', 'time'],
     category: "Economy",
     description: 'يعرض الوقت المتبقي لاستخدام أوامر الاقتصاد.',
 
