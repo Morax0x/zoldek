@@ -9,10 +9,7 @@ const aiLimitHandler = require('../utils/aiLimitHandler');
 const { updateGuildStat } = require('../handlers/kings-stats-handler.js');
 
 let addXPAndCheckLevel;
-try {
-    ({ addXPAndCheckLevel } = require('../handlers/handler-utils.js'));
-} catch (e) {}
-
+try { ({ addXPAndCheckLevel } = require('../handlers/handler-utils.js')); } catch (e) {}
 let handleNewSuggestion;
 try { ({ handleNewSuggestion } = require('../handlers/suggestion-handler.js')); } catch (e) { }
 
@@ -20,10 +17,8 @@ const DISBOARD_BOT_ID = '302050872383242240';
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 const paymentCooldowns = new Set();
-
 const ghostModeUsers = new Set();
 const chatterBadgeCache = new Set();
-
 const settingsCache = new Map();
 let lastSettingsUpdate = 0;
 
@@ -105,12 +100,52 @@ module.exports = {
 
         if (!client.talkedRecently) client.talkedRecently = new Collection(); 
 
-        if (message.author.bot && message.author.id !== DISBOARD_BOT_ID) return;
+        // 🔥 معالجة البومب من دسبورد 🔥
+        if (message.author.bot && message.author.id === DISBOARD_BOT_ID) {
+            const settings = await getSettings(db, message.guild.id);
+            if (settings && (settings.bumpChannelID || settings.bumpchannelid) && message.channel.id !== (settings.bumpChannelID || settings.bumpchannelid)) return;
+
+            let bumperID = null;
+            if (message.interaction && message.interaction.commandName === 'bump') bumperID = message.interaction.user.id;
+            else if (message.embeds.length > 0) {
+                const desc = message.embeds[0].description || "";
+                if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
+                    const match = desc.match(/<@!?(\d+)>/); 
+                    if (match && match[1]) bumperID = match[1];
+                }
+            }
+
+            if (bumperID) {
+                recordBump(client, message.guild.id, bumperID); 
+                message.react('👊').catch(() => {});
+                
+                const nextBumpTime = Date.now() + 7200000; // ساعتين من الآن
+                const nextBumpTimeSec = Math.floor(nextBumpTime / 1000);
+                
+                // حفظ موعد النشر وصاحبه في الداتابيز لكي يعمل الـ Cron Jobs
+                try {
+                    await db.query(`
+                        UPDATE settings SET "nextBumpTime" = $1, "lastBumperID" = $2 WHERE "guild" = $3
+                    `, [nextBumpTime, bumperID, message.guild.id]).catch(() => {
+                        db.query(`UPDATE settings SET nextBumpTime = $1, lastBumperID = $2 WHERE guild = $3`, [nextBumpTime, bumperID, message.guild.id]).catch(()=>{});
+                    });
+                } catch(e) {}
+
+                message.channel.send({
+                    content: `بُورك النشــر، وسُمــع الــنداء \nعــدّاد المــجد بدأ مــن جــديــد <:2cenema:1428340793676009502>\n\n- النشر التالي بعد: <t:${nextBumpTimeSec}:R>`,
+                    files: ["https://i.postimg.cc/1XTvpgMV/image.gif"]
+                }).catch(() => {});
+                message.channel.setName('˖✶⁺〢🍀・الـنـشـر').catch(err => {});
+            }
+            return;
+        }
+
+        if (message.author.bot) return;
 
         const settings = await getSettings(db, message.guild.id);
         let Prefix = settings?.prefix || "-";
 
-        if (!message.author.bot && settings && (settings.suggestionChannelID || settings.suggestionchannelid) && message.channel.id === (settings.suggestionChannelID || settings.suggestionchannelid)) {
+        if (settings && (settings.suggestionChannelID || settings.suggestionchannelid) && message.channel.id === (settings.suggestionChannelID || settings.suggestionchannelid)) {
             if (handleNewSuggestion) {
                 await handleNewSuggestion(message, client, db);
             }
@@ -267,33 +302,6 @@ module.exports = {
                 });
             }
         } catch (err) {}
-
-        if (message.author.id === DISBOARD_BOT_ID) {
-            if (settings && (settings.bumpChannelID || settings.bumpchannelid) && message.channel.id !== (settings.bumpChannelID || settings.bumpchannelid)) return;
-
-            let bumperID = null;
-            if (message.interaction && message.interaction.commandName === 'bump') bumperID = message.interaction.user.id;
-            else if (message.embeds.length > 0) {
-                const desc = message.embeds[0].description || "";
-                if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
-                    const match = desc.match(/<@!?(\d+)>/); 
-                    if (match && match[1]) bumperID = match[1];
-                }
-            }
-
-            if (bumperID) {
-                recordBump(client, message.guild.id, bumperID); 
-                message.react('👊').catch(() => {});
-                const nextBumpTime = Date.now() + 7200000;
-                const nextBumpTimeSec = Math.floor(nextBumpTime / 1000);
-                message.channel.send({
-                    content: `بُورك النشــر، وسُمــع الــنداء \nعــدّاد المــجد بدأ مــن جــديــد <:2cenema:1428340793676009502>\n\n- النشر التالي بعد: <t:${nextBumpTimeSec}:R>`,
-                    files: ["https://i.postimg.cc/1XTvpgMV/image.gif"]
-                }).catch(() => {});
-                message.channel.setName('˖✶⁺〢🍀・الـنـشـر').catch(err => {});
-            }
-            return;
-        }
 
         const mentionRegex = new RegExp(`^<@!?${client.user.id}>( |)$`);
         if (mentionRegex.test(message.content)) {
@@ -474,8 +482,6 @@ module.exports = {
                  }
              }
         }
-
-        if (message.author.bot) return;
 
         if (db) {
             try {
