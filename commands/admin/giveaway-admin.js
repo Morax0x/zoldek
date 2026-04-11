@@ -1,4 +1,4 @@
-const { PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType } = require("discord.js");
+const { PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require("discord.js");
 const { startGiveaway, endGiveaway } = require('../../handlers/giveaway-handler.js'); 
 const { getKSADateString } = require('../../streak-handler.js'); 
 
@@ -83,7 +83,6 @@ module.exports = {
                 targetWeight = interactionOrMessage.options.getInteger('amount');
             }
             
-            // 🔥 هنا نحدد الإخفاء: كل شيء مخفي ما عدا أمر `start` يكون ظاهر بالكامل 🔥
             if (subcommand !== 'start') {
                 await interactionOrMessage.deferReply({ ephemeral: true }); 
             } else {
@@ -107,7 +106,6 @@ module.exports = {
                 return await interactionOrMessage.reply(payload);
             } catch (e) {
                 if (e.code === 10062) return;
-                console.error(e);
             }
         };
 
@@ -217,10 +215,11 @@ module.exports = {
                         else if (i.customId === 'g_builder_send') {
                             if (!i.deferred && !i.replied) await i.deferUpdate().catch(()=>{}); 
                             try {
+                                // 🔥 إصلاح الخلل هنا: إرسال القيفاواي لمرة واحدة، ثم إيقاف الـ Collector مباشرة لتفادي التكرار 🔥
+                                collector.stop('sent');
                                 await startGiveaway(client, i, giveawayData.targetChannel, giveawayData.durationMs, giveawayData.winnerCount, giveawayData.prize, giveawayData.xpReward, giveawayData.moraReward, giveawayData.image);
                                 const successEmbed = new EmbedBuilder().setColor("Green").setTitle("✅ تم إرسال القيفاواي").setDescription(`تم بدء القيفاواي بنجاح في <#${giveawayData.targetChannel.id}>!\n\nسيتم حفظه في قاعدة البيانات، ولن يتأثر بإعادة تشغيل البوت.`);
                                 await i.editReply({ embeds: [successEmbed], components: [] }).catch(()=>{});
-                                collector.stop();
                             } catch (error) {
                                 console.error(error);
                                 await i.followUp({ content: "❌ حدث خطأ أثناء بدء القيفاواي.", ephemeral: true }).catch(()=>{});
@@ -228,7 +227,6 @@ module.exports = {
                         }
                     } catch (error) {
                         if (error.code === 10062) return; 
-                        console.error("[Giveaway Collector Error]:", error);
                     }
                 });
 
@@ -247,11 +245,11 @@ module.exports = {
             if (subcommand === 'end') {
                 if (!targetMessageId) return reply("❌ يرجى وضع آيدي رسالة القيفاواي.");
                 
-                const gRes = await db.query(`SELECT * FROM active_giveaways WHERE "messageID" = $1`, [targetMessageId]);
-                const giveaway = gRes.rows[0];
+                const dbRes = await client.sql.query(`SELECT * FROM active_giveaways WHERE "messageID" = $1 OR messageid = $1`, [targetMessageId]).catch(()=>({rows:[]}));
+                const giveaway = dbRes.rows[0];
 
                 if (!giveaway) return reply("❌ لم يتم العثور على قيفاواي بهذا الآيدي.");
-                if (giveaway.isFinished === 1 || giveaway.isfinished === 1) return reply("⚠️ هذا القيفاواي منتهي بالفعل.");
+                if (Number(giveaway.isFinished || giveaway.isfinished) === 1) return reply("⚠️ هذا القيفاواي منتهي بالفعل.");
 
                 await endGiveaway(client, targetMessageId, true); 
                 return reply(`✅ تم إنهاء القيفاواي (ID: ${targetMessageId}) واختيار الفائزين بنجاح!`);
@@ -263,15 +261,16 @@ module.exports = {
             if (subcommand === 'reroll') {
                 if (targetMessageId) {
                     try {
-                        await endGiveaway(client, targetMessageId, true); 
-                        return reply(`✅ تم طلب إعادة السحب للقيفاواي: ${targetMessageId}`);
+                        const { rerollGiveaway } = require('../../handlers/giveaway-handler.js');
+                        await rerollGiveaway(client, interactionOrMessage, targetMessageId);
+                        return;
                     } catch (err) {
                         return reply(`❌ حدث خطأ. تأكد من الآيدي وأن القيفاواي مسجل في قاعدة البيانات.`);
                     }
                 }
 
                 const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-                const gRes = await db.query(`SELECT * FROM active_giveaways WHERE ("isFinished" = 1 OR "endsAt" <= $1) AND "endsAt" > $2 ORDER BY "endsAt" DESC LIMIT 25`, [Date.now(), sevenDaysAgo]);
+                const gRes = await db.query(`SELECT * FROM active_giveaways WHERE ("isFinished" = 1 OR "endsAt" <= $1) AND "endsAt" > $2 ORDER BY "endsAt" DESC LIMIT 25`, [Date.now(), sevenDaysAgo]).catch(()=>({rows:[]}));
                 const giveawaysList = gRes.rows;
 
                 if (giveawaysList.length === 0) return reply("❌ لا يوجد أي قيفاوايز حديثة لعمل ريرول لها.\nجرب وضع الآيدي يدوياً.");
@@ -313,7 +312,6 @@ module.exports = {
             }
 
         } catch (err) {
-            console.error("Giveaway Admin Error:", err);
             return reply("❌ حدث خطأ داخلي.");
         }
     }
