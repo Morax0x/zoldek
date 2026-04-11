@@ -59,6 +59,18 @@ module.exports = {
                 .addStringOption(opt => opt.setName('footer').setDescription('النص الذي يظهر أسفل الإيمبد.').setRequired(false))
                 .addStringOption(opt => opt.setName('copy_id').setDescription('آيدي رسالة لنسخ محتواها إلى الوصف.').setRequired(false))
             )
+            // 🔥 الأمر الجديد لتعديل الإيمبد الخاص بالقائمة 🔥
+            .addSubcommand(sub => sub
+                .setName('edit')
+                .setDescription('تعديل إيمبد قائمة رتب موجودة.')
+                .addStringOption(opt => opt.setName('msg_id').setDescription('آيدي رسالة القائمة.').setRequired(true))
+                .addStringOption(opt => opt.setName('title').setDescription('عنوان الإيمبد الجديد.').setRequired(false))
+                .addStringOption(opt => opt.setName('desc').setDescription('وصف الإيمبد الجديد.').setRequired(false))
+                .addStringOption(opt => opt.setName('color').setDescription('لون الإيمبد كـ هيكس كود.').setRequired(false))
+                .addStringOption(opt => opt.setName('image').setDescription('رابط صورة الإيمبد (اكتب remove للحذف).').setRequired(false))
+                .addStringOption(opt => opt.setName('footer').setDescription('النص أسفل الإيمبد (اكتب remove للحذف).').setRequired(false))
+                .addStringOption(opt => opt.setName('copy_id').setDescription('آيدي رسالة لنسخ محتواها إلى الوصف.').setRequired(false))
+            )
             .addSubcommand(sub => sub
                 .setName('add_option')
                 .setDescription('إضافة خيار رول جديد في قائمة موجودة.')
@@ -312,6 +324,57 @@ module.exports = {
                 }
 
                 return interaction.editReply({ content: `✅ تم إنشاء الإيمبد في ${channel}. آيدي الرسالة: \`${sentMessage.id}\`` });
+            }
+
+            // 🔥 --- تعديل قائمة (الإيمبد) --- 🔥
+            else if (subcommand === 'edit') {
+                const messageId = interaction.options.getString('msg_id');
+                const title = interaction.options.getString('title');
+                const descriptionInput = interaction.options.getString('desc');
+                const colorInput = interaction.options.getString('color');
+                const imageUrl = interaction.options.getString('image');
+                const footerText = interaction.options.getString('footer');
+                const copyId = interaction.options.getString('copy_id');
+
+                const mRes = await db.query(`SELECT * FROM role_menus_master WHERE "message_id" = $1`, [messageId]);
+                if (mRes.rows.length === 0) return interaction.editReply('❌ الرسالة ليست مسجلة كقائمة رتب.');
+
+                const messageToEdit = await interaction.channel.messages.fetch(messageId).catch(() => null);
+                if (!messageToEdit) return interaction.editReply('❌ لا يمكن العثور على الرسالة في هذه القناة.');
+
+                const oldEmbed = messageToEdit.embeds[0];
+                if (!oldEmbed) return interaction.editReply('❌ الرسالة لا تحتوي على إيمبد لتعديله.');
+
+                let finalDescription = descriptionInput !== null ? descriptionInput : oldEmbed.description;
+
+                if (copyId) {
+                    try {
+                        const msgToCopy = await interaction.channel.messages.fetch(copyId);
+                        const copiedContent = msgToCopy.content || msgToCopy.embeds[0]?.description || null;
+                        if (copiedContent !== null) finalDescription = copiedContent;
+                    } catch {
+                        return interaction.editReply({ content: '❌ لم أستطع العثور على الرسالة بالـ ID للنسخ.' });
+                    }
+                }
+
+                const newEmbed = EmbedBuilder.from(oldEmbed);
+                
+                if (title !== null) newEmbed.setTitle(title);
+                if (finalDescription !== null) newEmbed.setDescription(finalDescription);
+                if (colorInput !== null) newEmbed.setColor(colorInput);
+                
+                if (imageUrl !== null) {
+                    if (imageUrl.toLowerCase() === 'remove') newEmbed.setImage(null);
+                    else newEmbed.setImage(imageUrl);
+                }
+
+                if (footerText !== null) {
+                    if (footerText.toLowerCase() === 'remove') newEmbed.setFooter(null);
+                    else newEmbed.setFooter({ text: footerText });
+                }
+
+                await messageToEdit.edit({ embeds: [newEmbed] });
+                return interaction.editReply(`✅ تم تعديل الإيمبد بنجاح.`);
             }
 
             // --- إضافة خيار ---
