@@ -16,12 +16,10 @@ function calculateSkillRawValue(skillConfig, currentLevel) {
         const valueAt15 = base + (inc * 14);
         const targetValueAt30 = isPercentage ? 70 : 200; 
         const levelsRemaining = 15;
-        // حساب مقدار الزيادة الثابت لكل ليفل
-        const dynamicIncrement = Math.max((targetValueAt30 - valueAt15) / levelsRemaining, (isPercentage ? 0.5 : 5));
+        const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
         
         let finalValue = valueAt15 + (dynamicIncrement * (level - 15));
-        
-        // 🔥 تم فك الحصار! سقف الكاب ملغى لكي تستمر المهارات بالتطور إلى الأبد 🔥
+        if (level >= 30) return targetValueAt30;
         return Math.floor(finalValue);
     }
 }
@@ -52,11 +50,9 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
     const hpBasedSkills = ['Reflect_Tank', 'Cleanse_Buff_Shield'];
       
     if (skill.id.includes('heal') || skill.id.includes('shield') || hpBasedSkills.includes(skill.stat_type)) {
-        skillPower = Math.floor((attacker.maxHp || 100) * (rawValue / 100));
+        skillPower = Math.floor(attacker.maxHp * (rawValue / 100));
     } else {
-        // 🔥 توحيد القوة: المهارة الهجومية تعتمد على قوة السلاح والعتاد الحالية + المهارة 🔥
-        const baseAttackPower = attacker.damage || attacker.atk || (attacker.weapon ? attacker.weapon.currentDamage : 15);
-        skillPower = Math.floor((baseAttackPower * 0.5) + (rawValue * GLOBAL_SKILL_MULTIPLIER));
+        skillPower = Math.floor(rawValue * GLOBAL_SKILL_MULTIPLIER);
     }
 
     if (!skill.id.includes('heal') && !skill.id.includes('shield')) {
@@ -67,9 +63,6 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
                 if (e.type === 'atk_buff' || e.type === 'buff') buffMultiplier += e.val;
                 if (e.type === 'weaken') buffMultiplier -= e.val;
             });
-        } else if (attacker.effects && !Array.isArray(attacker.effects)) {
-            if (attacker.effects.buff > 0) buffMultiplier += attacker.effects.buff;
-            if (attacker.effects.weaken > 0) buffMultiplier -= attacker.effects.weaken;
         }
         
         skillPower = Math.floor(skillPower * buffMultiplier);
@@ -77,46 +70,24 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
       
     skillPower = Math.floor(skillPower * multiplier);
 
-    // 🔥 نظام التخفيف الدفاعي ضد مهارات الخصم (Armor Mitigation) 🔥
-    let defMitigation = 0;
-    if (!skill.id.includes('heal') && !skill.id.includes('shield') && !skill.id.includes('buff') && !skill.id.includes('cleanse')) {
-        const defenderDef = defender.defense || 0;
-        defMitigation = Math.min(0.60, defenderDef / (defenderDef + 300));
-        
-        let extraReduction = 0;
-        if (defender.defending) extraReduction += 0.4;
-        
-        if (defender.effects && Array.isArray(defender.effects)) {
-            defender.effects.forEach(e => { if (e.type === 'def_buff' || e.type === 'dmg_reduce') extraReduction += e.val; });
-        } else if (defender.effects && !Array.isArray(defender.effects)) {
-            if (defender.effects.dmg_reduce > 0) extraReduction += defender.effects.dmg_reduce;
-        }
-        
-        let totalReduction = Math.min(0.9, defMitigation + extraReduction);
-        skillPower = Math.floor(skillPower * (1 - totalReduction));
-        if (skillPower < 1) skillPower = 1;
-    }
-
     switch (skill.stat_type) {
         
         case 'Gamble_Dmg': {
             if (Math.random() < 0.5) {
                 const minDmg = 777;
                 const maxDmg = 2222;
-                let dmgAmount = Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
-                dmgAmount = Math.floor(dmgAmount * (1 - defMitigation)); // يتأثر بالدفاع
+                const dmgAmount = Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
                 
                 result.damage = dmgAmount;
                 result.log = `🎲 **${getName(attacker)}** نجحت مقامرته! الأرقام تطابقت بضرر **${dmgAmount}**!`;
             } else {
                 const minFail = 100;
                 const maxFail = 200;
-                let failDmg = Math.floor(Math.random() * (maxFail - minFail + 1)) + minFail;
-                failDmg = Math.floor(failDmg * (1 - defMitigation));
+                const failDmg = Math.floor(Math.random() * (maxFail - minFail + 1)) + minFail;
                 
                 result.damage = failDmg;
                 
-                const selfDmgAmount = Math.floor((attacker.hp || 100) * 0.03);
+                const selfDmgAmount = Math.floor(attacker.hp * 0.03);
                 result.selfDamage = selfDmgAmount;
                 
                 result.log = `🎲 **${getName(attacker)}** خسر الرهان... خدش الخصم بـ **${failDmg}** وأذى نفسه بـ **${selfDmgAmount}**!`;
@@ -125,10 +96,9 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         }
 
         case 'Buff_All': {
-            let buffVal = rawValue / 100;
-            if (buffVal > 1.0) buffVal = 1.0; 
+            const buffVal = rawValue / 100;
             result.selfEffects.push({ type: 'atk_buff', val: buffVal, turns: 3 });
-            result.log = `📢 **${getName(attacker)}** أطلق صيحة الحرب! زاد هـجومـه ${Math.floor(buffVal*100)}%!`;
+            result.log = `📢 **${getName(attacker)}** أطلق صيحة الحرب! زاد هـجومـه ${rawValue}%!`;
             break;
         }
 
@@ -156,24 +126,22 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
                 let buffPercent = rawValue / 100;
                 if (buffPercent > 1.0) buffPercent = 1.0; 
                 result.selfEffects.push({ type: 'atk_buff', val: buffPercent, turns: 3 });
-                result.log = `💪 **${getName(attacker)}** غضب ورفع قوته بنسبة ${Math.floor(buffPercent*100)}%!`;
+                result.log = `💪 **${getName(attacker)}** غضب ورفع قوته بنسبة ${rawValue}%!`;
             }
             else if (skill.id === 'skill_poison') {
                 result.damage = skillPower;
-                result.effectsApplied.push({ type: 'poison', val: 100 + Math.floor(skill.currentLevel * 10), turns: 3 });
+                result.effectsApplied.push({ type: 'poison', val: 100, turns: 3 });
                 result.log = `☠️ **${getName(attacker)}** سمم خصمه!`;
             }
             else if (skill.id === 'skill_rebound') {
-                let reboundVal = rawValue / 100;
-                if (reboundVal > 1.0) reboundVal = 1.0;
+                const reboundVal = rawValue / 100;
                 result.selfEffects.push({ type: 'reflect', val: reboundVal, turns: 3 });
-                result.log = `🔄 **${getName(attacker)}** جهز درع الانعكاس (${Math.floor(reboundVal*100)}%)!`;
+                result.log = `🔄 **${getName(attacker)}** جهز درع الانعكاس (${rawValue}%)!`;
             }
             else if (skill.id === 'skill_weaken') {
-                let weakenVal = rawValue / 100;
-                if (weakenVal > 0.8) weakenVal = 0.8;
+                const weakenVal = rawValue / 100;
                 result.effectsApplied.push({ type: 'weaken', val: weakenVal, turns: 3 });
-                result.log = `📉 **${getName(attacker)}** أضعف هجوم خصمه بنسبة ${Math.floor(weakenVal*100)}%!`;
+                result.log = `📉 **${getName(attacker)}** أضعف هجوم خصمه بنسبة ${rawValue}%!`;
             }
             else if (skill.id === 'skill_dispel') {
                 result.effectsApplied.push({ type: 'dispel' });
@@ -181,12 +149,12 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
             }
             else if (skill.id === 'skill_cleanse') {
                 result.selfEffects.push({ type: 'cleanse' });
-                result.heal = Math.floor((attacker.maxHp || 100) * 0.1);
+                result.heal = Math.floor(attacker.maxHp * 0.1);
                 result.log = `✨ **${getName(attacker)}** طهر نفسه من اللعنات!`;
             }
             else if (skill.stat_type === 'TrueDMG_Burn') { 
                 result.damage = skillPower;
-                result.effectsApplied.push({ type: 'burn', val: 100 + Math.floor(skill.currentLevel * 5), turns: 3 });
+                result.effectsApplied.push({ type: 'burn', val: 100, turns: 3 });
                 
                 if (Math.random() < 0.10) { 
                     result.effectsApplied.push({ type: 'stun', val: true, turns: 1 });
@@ -217,7 +185,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
 
                 if (Math.random() < 0.20) {
                     if (Math.random() < 0.5) {
-                        result.effectsApplied.push({ type: 'poison', val: Math.floor((skillPower*2) * 0.3), turns: 3 });
+                        result.effectsApplied.push({ type: 'poison', val: Math.floor(skillPower * 0.3), turns: 3 });
                         msgDetails.push("☠️ تسمم");
                     } else {
                         result.effectsApplied.push({ type: 'confusion', val: 0.5, turns: 2 });
@@ -233,13 +201,12 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
                 result.log = `🗡️ **${getName(attacker)}** سبب ضرراً وأربك الخصم!`;
             }
             else if (skill.stat_type === 'Sacrifice_Crit') { 
-                result.selfDamage = Math.floor((attacker.maxHp || 100) * 0.10);
+                result.selfDamage = Math.floor(attacker.maxHp * 0.10);
                 result.damage = Math.floor(skillPower * 1.2); 
                 result.log = `👹 **${getName(attacker)}** ضحى بدمه لضربة مدمرة (${result.damage})!`;
             }
             else if (skill.stat_type === 'Scale_MissingHP_Heal') { 
-                const maxHp = attacker.maxHp || 100;
-                const missingHpPercent = Math.max(0, (maxHp - (attacker.hp || 0))) / maxHp;
+                const missingHpPercent = (attacker.maxHp - attacker.hp) / attacker.maxHp;
                 const bonusDmg = Math.floor(skillPower * missingHpPercent * 0.8);
                 
                 result.damage = skillPower + bonusDmg;
@@ -276,19 +243,19 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
                 result.damage = Math.floor(skillPower * variance);
                 const rand = Math.random();
                 let msg = "سم";
-                if (rand < 0.25) { result.effectsApplied.push({ type: 'burn', val: 100 + Math.floor(skill.currentLevel * 5), turns: 3 }); msg="حرق"; }
+                if (rand < 0.25) { result.effectsApplied.push({ type: 'burn', val: 100, turns: 3 }); msg="حرق"; }
                 else if (rand < 0.50) { result.effectsApplied.push({ type: 'weaken', val: 0.3, turns: 2 }); msg="إضعاف"; }
                 else if (rand < 0.75) { result.effectsApplied.push({ type: 'confusion', val: true, turns: 2 }); msg="ارتباك"; }
-                else { result.effectsApplied.push({ type: 'poison', val: 100 + Math.floor(skill.currentLevel * 5), turns: 3 }); }
+                else { result.effectsApplied.push({ type: 'poison', val: 100, turns: 3 }); }
                 result.log = `🌀 **${getName(attacker)}** أطلق فوضى (${msg})!`;
             }
             else if (skill.stat_type === 'Execute_Heal') { 
                 result.damage = skillPower;
-                result.effectsApplied.push({ type: 'poison', val: 100 + Math.floor(skill.currentLevel * 5), turns: 3 });
+                result.effectsApplied.push({ type: 'poison', val: 100, turns: 3 });
                 
-                if ((defender.hp || 0) < (defender.maxHp || 100) * 0.20) {
+                if (defender.hp < defender.maxHp * 0.20) {
                     result.damage *= 2; 
-                    result.heal = Math.floor((attacker.maxHp || 100) * 0.25);
+                    result.heal = Math.floor(attacker.maxHp * 0.25);
                     result.log = `🧟 **${getName(attacker)}** شم رائحة الموت ونهش خصمه! (ضرر مضاعف)`;
                 } else {
                     result.log = `🧟 **${getName(attacker)}** مزق خصمه وسبب نزيفاً!`;
@@ -318,11 +285,10 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         case 'Cleanse_Buff_Shield': {
             result.selfEffects.push({ type: 'cleanse' });
             
-            let buffPercent = rawValue / 100;
-            if (buffPercent > 1.0) buffPercent = 1.0;
+            const buffPercent = rawValue / 100;
             result.selfEffects.push({ type: 'atk_buff', val: buffPercent, turns: 2 });
             
-            const shieldAmount = Math.floor(((attacker.maxHp || 100) * 0.15) + (skillPower * 0.2)); 
+            const shieldAmount = Math.floor((attacker.maxHp * 0.15) + (skillPower * 0.2)); 
             result.shield = shieldAmount;
             
             result.log = `⚔️ **${getName(attacker)}** استخدم تكتيك القائد (تطهير + درع + تعزيز)!`;
@@ -358,7 +324,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         }
         
         case 'Reflect_Tank': {
-            const tankPower = Math.floor((attacker.maxHp || 100) * 0.2); 
+            const tankPower = Math.floor(attacker.maxHp * 0.2); 
             result.shield = tankPower;
             result.selfEffects.push({ type: 'tank_reflect', val: 0.4, turns: 2 });
             result.log = `🛡️ **${getName(attacker)}** تحصن بالجبل!`;
