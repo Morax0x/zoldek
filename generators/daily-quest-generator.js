@@ -1,4 +1,4 @@
-const { createCanvas, loadImage } = require('canvas'); 
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { AttachmentBuilder } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
@@ -388,7 +388,7 @@ async function generateDailyQuestsImage(member, questsData, page = 1) {
             currentCenterY += CARD_HEIGHT + 30; 
         }
 
-        const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `daily-quests-${member?.id || 'user'}-p${page}.png` });
+        const attachment = new AttachmentBuilder(await canvas.encode('png'), { name: `daily-quests-${member?.id || 'user'}-p${page}.png` });
 
         return { attachment, totalPages };
     } catch (err) {

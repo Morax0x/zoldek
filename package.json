@@ -4,7 +4,7 @@
   "description": "An advanced RPG, Economy, and AI-powered Discord bot tailored for the Empire. Features custom Canvas cards, dungeons, market systems, and more.",
   "main": "index.js",
   "scripts": {
-    "start": "pm2-runtime start index.js --name emorax"
+    "start": "node index.js"
   },
   "engines": {
     "node": ">=18.0.0"

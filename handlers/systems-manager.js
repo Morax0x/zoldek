@@ -79,8 +79,8 @@ module.exports = (client, db) => {
                 let channelDataRes = await db.query(`SELECT "channel" FROM channel WHERE "guild" = $1`, [guild.id]).catch(()=>({rows:[]}));
                 let channelData = channelDataRes.rows[0];
                 if (channelData && channelData.channel && channelData.channel !== 'Default') {
-                    const fetchedChannel = guild.channels.cache.get(channelData.channel);
-                    if (fetchedChannel) channelToSend = fetchedChannel;
+                    channelToSend = guild.channels.cache.get(channelData.channel)
+                                 || await guild.channels.fetch(channelData.channel).catch(() => null);
                 }
             } catch(e) {}
 
@@ -89,12 +89,15 @@ module.exports = (client, db) => {
 
             if (!channelToSend) {
                 if (messageOrInteraction && messageOrInteraction.channel) {
-                    if (c2 && c1 && messageOrInteraction.channel.id === c2) {
+                    const ch = messageOrInteraction.channel;
+                    // Never send to system channel (where Discord posts boost notifications)
+                    if (guild.systemChannelId && ch.id === guild.systemChannelId) return;
+                    if (c2 && c1 && ch.id === c2) {
                           const mainCasino = guild.channels.cache.get(c1);
                           if (mainCasino) channelToSend = mainCasino;
-                          else channelToSend = messageOrInteraction.channel;
+                          else channelToSend = ch;
                     } else {
-                        channelToSend = messageOrInteraction.channel;
+                        channelToSend = ch;
                     }
                 } else return;
             }

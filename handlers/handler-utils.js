@@ -112,17 +112,34 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
          catch(e) { channelRes = await db.query(`SELECT * FROM channel WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
          
          let channelLevel = channelRes.rows[0];
-         
-         let channelToSend = interaction.channel;
+
+         let channelToSend = null;
          if (channelLevel && channelLevel.channel !== "Default") {
-               channelToSend = interaction.guild.channels.cache.get(channelLevel.channel) || interaction.channel;
+               channelToSend = interaction.guild.channels.cache.get(channelLevel.channel)
+                             || await interaction.guild.channels.fetch(channelLevel.channel).catch(() => null);
+         }
+         if (!channelToSend) {
+             const fallback = interaction.channel;
+             // Never fall back to system channel (boost notifications channel)
+             if (interaction.guild?.systemChannelId && fallback?.id === interaction.guild.systemChannelId) return;
+             channelToSend = fallback;
          }
          if (!channelToSend) return;
 
          const permissionFlags = channelToSend.permissionsFor(interaction.guild.members.me);
          if (!permissionFlags || !permissionFlags.has(PermissionsBitField.Flags.SendMessages) || !permissionFlags.has(PermissionsBitField.Flags.ViewChannel)) return;
 
-         const card = await generateLevelUpCard(member, oldLevel, newLevel, { mora: 0, hp: 0 });
+         let card = null;
+         try {
+             const cardPromise = generateLevelUpCard(member, oldLevel, newLevel, { mora: 0, hp: 0 });
+             cardPromise.catch(() => {});
+             card = await Promise.race([
+                 cardPromise,
+                 new Promise((_, reject) => setTimeout(() => reject(new Error('CardTimeout')), 15000))
+             ]);
+         } catch(e) {
+             console.error('[LevelUp] Card generation failed:', e.message);
+         }
 
          let isMentionOn = 1;
          try {
@@ -144,7 +161,11 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
              contentMsg += `\n★  فتـحـت ميزة جديـدة راجع قنـاة المستويات !`;
          }
 
-         await channelToSend.send({ content: contentMsg, files: [card] });
+         if (card) {
+             await channelToSend.send({ content: contentMsg, files: [card] });
+         } else {
+             await channelToSend.send({ content: contentMsg });
+         }
 
     } catch (err) {
          console.error(`[LevelUp Error]: ${err.message}`);
@@ -152,8 +173,9 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
              let backupMsg = `╭⭒★︰ <a:wi:1435572304988868769> ${member} <a:wii:1435572329039007889>\n` +
                              `✶ مبارك صعودك في سُلّم الإمبراطورية\n` +
                              `★ فقد كـسرت حـاجـز الـمستوى〃${oldLevel}〃وبلغـت المسـتـوى الـ 〃${newLevel}〃`;
-             let channelToSend = interaction.channel;
-             await channelToSend.send(backupMsg).catch(()=>{});
+             const fallback = interaction.channel;
+             if (interaction.guild?.systemChannelId && fallback?.id === interaction.guild.systemChannelId) return;
+             await fallback?.send(backupMsg).catch(()=>{});
          } catch(e) {}
     }
 }

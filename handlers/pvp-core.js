@@ -105,15 +105,11 @@ async function getWeaponData(db, member) {
     let damage = 15;
 
     try {
-        let buffRes = await db.query(`SELECT "multiplier" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'hidden_weapon'`, [member.id, member.guild.id]);
-        if (buffRes.rows.length === 0) {
-            buffRes = await db.query(`SELECT multiplier FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'hidden_weapon'`, [member.id, member.guild.id]).catch(()=>({rows:[]}));
-        }
-        
+        const buffRes = await db.query(`SELECT "multiplier" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'hidden_weapon'`, [member.id, member.guild.id]);
         if (buffRes.rows.length > 0) {
             const hiddenLevel = Number(buffRes.rows[0].multiplier || buffRes.rows[0].Multiplier);
             if (hiddenLevel > 0) {
-                level = hiddenLevel; 
+                level = hiddenLevel;
             }
         }
     } catch(e) {}
@@ -157,14 +153,10 @@ async function getAllSkillData(db, member) {
                 }
 
                 try {
-                    let sBuffRes = await db.query(`SELECT "multiplier" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = $3`, [member.id, member.guild.id, `hidden_skill_${skillId}`]);
-                    if (sBuffRes.rows.length === 0) {
-                        sBuffRes = await db.query(`SELECT multiplier FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = $3`, [member.id, member.guild.id, `hidden_skill_${skillId}`]).catch(()=>({rows:[]}));
-                    }
-                    
+                    const sBuffRes = await db.query(`SELECT "multiplier" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = $3`, [member.id, member.guild.id, `hidden_skill_${skillId}`]);
                     if (sBuffRes.rows.length > 0) {
                         const hiddenSkillLevel = Number(sBuffRes.rows[0].multiplier || sBuffRes.rows[0].Multiplier);
-                        if (hiddenSkillLevel > 0) skillLvl = hiddenSkillLevel; 
+                        if (hiddenSkillLevel > 0) skillLvl = hiddenSkillLevel;
                     }
                 } catch(e) {}
                 
