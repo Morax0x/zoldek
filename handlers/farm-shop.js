@@ -14,16 +14,6 @@ const farmAnimals = loadJson('farm-animals.json');
 const seedsData = loadJson('seeds.json'); 
 const feedItems = loadJson('feed-items.json');
 
-// 🔥 إضافة عنصر العامل يدوياً 🔥
-const guardItem = {
-    id: "farm_guard",
-    name: "عامل مزرعة (30 يوم)",
-    description: "يقوم بحصاد محاصيلك وتخزينها تلقائياً عند نضوجها لكي لا تفسد.",
-    price: 25000, 
-    emoji: "👨‍🌾",
-    size: 0 // لا يأخذ مساحة
-};
-
 let drawFarmShopGrid, drawFarmShopDetail;
 try {
     const genPath = path.join(process.cwd(), 'generators', 'farm-shop-generator.js');
@@ -115,7 +105,6 @@ async function buildShopGrid(user, client, db, category) {
     if (category === 'animals') itemsList = farmAnimals;
     else if (category === 'seeds') itemsList = seedsData;
     else if (category === 'feed') itemsList = feedItems;
-    else if (category === 'services') itemsList = [guardItem]; // تصنيف جديد للخدمات
 
     let currentCap = 0, maxCap = 0;
     if (category === 'animals') {
@@ -130,22 +119,22 @@ async function buildShopGrid(user, client, db, category) {
         }
     }
 
-    // لتجنب خطأ المولد إذا لم يكن يدعم services
-    let buffer = null;
-    if (category !== 'services') {
-        buffer = await drawFarmShopGrid(itemsList, category, maxCap, currentCap);
-    }
+    const buffer = await drawFarmShopGrid(itemsList, category, maxCap, currentCap);
     const attachment = buffer ? new AttachmentBuilder(buffer, { name: 'farm_shop.png' }) : null;
 
-    const categoryRow1 = new ActionRowBuilder();
-    const categoryRow2 = new ActionRowBuilder();
+    const categoryRow = new ActionRowBuilder();
 
-    if (category !== 'animals') categoryRow1.addComponents(new ButtonBuilder().setCustomId('shop_cat_animals').setLabel('حيوانات').setStyle(ButtonStyle.Secondary).setEmoji('🐄'));
-    if (category !== 'seeds') categoryRow1.addComponents(new ButtonBuilder().setCustomId('shop_cat_seeds').setLabel('بذور').setStyle(ButtonStyle.Secondary).setEmoji('🌱'));
-    if (category !== 'feed') categoryRow1.addComponents(new ButtonBuilder().setCustomId('shop_cat_feed').setLabel('أعلاف').setStyle(ButtonStyle.Secondary).setEmoji('🌾'));
-    if (category !== 'services') categoryRow1.addComponents(new ButtonBuilder().setCustomId('shop_cat_services').setLabel('خدمات').setStyle(ButtonStyle.Secondary).setEmoji('👨‍🌾'));
+    if (category !== 'animals') {
+        categoryRow.addComponents(new ButtonBuilder().setCustomId('shop_cat_animals').setLabel('حيوانات').setStyle(ButtonStyle.Secondary).setEmoji('🐄'));
+    }
+    if (category !== 'seeds') {
+        categoryRow.addComponents(new ButtonBuilder().setCustomId('shop_cat_seeds').setLabel('بذور').setStyle(ButtonStyle.Secondary).setEmoji('🌱'));
+    }
+    if (category !== 'feed') {
+        categoryRow.addComponents(new ButtonBuilder().setCustomId('shop_cat_feed').setLabel('أعلاف').setStyle(ButtonStyle.Secondary).setEmoji('🌾'));
+    }
 
-    categoryRow2.addComponents(new ButtonBuilder().setCustomId('nav_land').setEmoji('↩️').setStyle(ButtonStyle.Danger));
+    categoryRow.addComponents(new ButtonBuilder().setCustomId('nav_land').setEmoji('↩️').setStyle(ButtonStyle.Danger));
 
     const selectOptions = itemsList.map(item => ({
         label: item.name,
@@ -161,15 +150,7 @@ async function buildShopGrid(user, client, db, category) {
             .addOptions(selectOptions)
     );
 
-    const components = categoryRow1.components.length > 0 ? [categoryRow1, categoryRow2, selectMenuRow] : [categoryRow2, selectMenuRow];
-    
-    // عرض إيمبد بسيط لقسم الخدمات لأن المولد قد لا يدعمه
-    let embeds = [];
-    if (category === 'services') {
-        embeds = [new EmbedBuilder().setTitle('👨‍🌾 خدمات المزرعة').setDescription('قم بتعيين عمال وأدوات أوتوماتيكية لمزرعتك.').setColor(Colors.Green)];
-    }
-
-    const payload = { content: '', components: components, embeds: embeds };
+    const payload = { content: '', components: [categoryRow, selectMenuRow], embeds: [] };
     if (attachment) payload.files = [attachment];
 
     return payload;
@@ -199,17 +180,6 @@ async function buildDetailView(item, userId, guildId, db, category, client) {
             if (fa) currentCap += (fa.size || 1) * (Number(row.quantity || row.Quantity) || 1);
         }
         isFull = (currentCap + (item.size || 1)) > maxCap;
-    } else if (category === 'services') {
-        // التحقق من العامل في Levels
-        let lvlRes = await execSafe(db, `SELECT "hasGuard", "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT hasguard, guardexpires FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
-        if (lvlRes.rows.length > 0) {
-            const hasGuard = Number(lvlRes.rows[0].hasGuard || lvlRes.rows[0].hasguard || 0);
-            const expires = Number(lvlRes.rows[0].guardExpires || lvlRes.rows[0].guardexpires || 0);
-            if (hasGuard === 1 && expires > Date.now()) {
-                userQuantity = 1;
-                isFull = true; // لا يمكن شراء أكثر من عامل واحد في نفس الوقت
-            }
-        }
     } else {
         let invCheckRes;
         try { invCheckRes = await executeDB(db, `SELECT "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, item.id]); }
@@ -219,10 +189,7 @@ async function buildDetailView(item, userId, guildId, db, category, client) {
         isFull = userQuantity >= MAX_FARM_LIMIT;
     }
 
-    let buffer = null;
-    if (category !== 'services') {
-        buffer = await drawFarmShopDetail(item, category, userQuantity, maxCap, currentCap);
-    }
+    const buffer = await drawFarmShopDetail(item, category, userQuantity, maxCap, currentCap);
     const attachment = buffer ? new AttachmentBuilder(buffer, { name: 'farm_shop_detail.png' }) : null;
 
     const actionRow1 = new ActionRowBuilder().addComponents(
@@ -236,24 +203,14 @@ async function buildDetailView(item, userId, guildId, db, category, client) {
             .setCustomId(`sell_btn_farm|${category}|${item.id}`)
             .setLabel(`بيع (نصف السعر) 💰`)
             .setStyle(ButtonStyle.Danger)
-            .setDisabled(userQuantity === 0 || category === 'services') // لا يمكن بيع الخدمات
+            .setDisabled(userQuantity === 0)
     );
 
     const actionRow2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('farm_shop_back').setLabel('العودة للمتجر').setStyle(ButtonStyle.Secondary).setEmoji('↩️')
     );
 
-    let embeds = [];
-    if (category === 'services') {
-        embeds = [
-            new EmbedBuilder()
-                .setTitle(`👨‍🌾 ${item.name}`)
-                .setDescription(`${item.description}\n\n💰 **السعر:** ${item.price.toLocaleString()} مورا\n\n📌 حالتك: ${isFull ? "متوفر حالياً ويعمل" : "لا تملك هذا العامل"}`)
-                .setColor(isFull ? Colors.Green : Colors.Gold)
-        ];
-    }
-
-    const payload = { content: '', components: [actionRow1, actionRow2], embeds: embeds };
+    const payload = { content: '', components: [actionRow1, actionRow2], embeds: [] };
     if (attachment) payload.files = [attachment];
 
     return payload;
@@ -267,7 +224,7 @@ async function handleShopInteraction(i, client, db, user, guild, shopState) {
 
         user.guildId = guild.id; 
         const data = await buildShopGrid(user, client, db, category);
-        return await i.editReply({ files: data.files || [], embeds: data.embeds || [], components: data.components, content: data.content }).catch(()=>{});
+        return await i.editReply({ files: data.files || [], embeds: [], components: data.components, content: data.content }).catch(()=>{});
     }
 
     if (i.isStringSelectMenu() && i.customId === 'farm_select_item') {
@@ -278,7 +235,6 @@ async function handleShopInteraction(i, client, db, user, guild, shopState) {
         if (category === 'animals') item = farmAnimals.find(a => String(a.id) === String(itemId));
         else if (category === 'seeds') item = seedsData.find(s => String(s.id) === String(itemId));
         else if (category === 'feed') item = feedItems.find(f => String(f.id) === String(itemId));
-        else if (category === 'services' && String(guardItem.id) === String(itemId)) item = guardItem;
 
         if (!item) return await i.followUp({ content: '❌ العنصر غير موجود.', flags: [MessageFlags.Ephemeral] });
 
@@ -286,13 +242,13 @@ async function handleShopInteraction(i, client, db, user, guild, shopState) {
         shopState.currentCategory = category;
 
         const data = await buildDetailView(item, user.id, guild.id, db, category, client);
-        return await i.editReply({ files: data.files || [], embeds: data.embeds || [], components: data.components, content: data.content }).catch(()=>{});
+        return await i.editReply({ files: data.files || [], embeds: [], components: data.components, content: data.content }).catch(()=>{});
     }
 
     if (i.customId === 'farm_shop_back') {
         await i.deferUpdate().catch(()=>{});
         const data = await buildShopGrid(user, client, db, shopState.currentCategory || 'animals');
-        return await i.editReply({ files: data.files || [], embeds: data.embeds || [], components: data.components, content: data.content }).catch(()=>{});
+        return await i.editReply({ files: data.files || [], embeds: [], components: data.components, content: data.content }).catch(()=>{});
     }
 
     if (i.isButton() && (i.customId.startsWith('buy_btn_farm|') || i.customId.startsWith('sell_btn_farm|'))) {
@@ -303,33 +259,8 @@ async function handleShopInteraction(i, client, db, user, guild, shopState) {
         if (category === 'animals') itemData = farmAnimals.find(a => String(a.id) === String(itemId));
         else if (category === 'seeds') itemData = seedsData.find(s => String(s.id) === String(itemId));
         else if (category === 'feed') itemData = feedItems.find(f => String(f.id) === String(itemId));
-        else if (category === 'services' && String(guardItem.id) === String(itemId)) itemData = guardItem;
 
         if (!itemData) return await i.reply({ content: '❌ العنصر غير موجود!', flags: [MessageFlags.Ephemeral] });
-
-        // تجاوز المودال إذا كان العنصر service، يتم شراؤه كعنصر واحد مباشرة
-        if (category === 'services' && action === 'buy') {
-            await i.deferReply({ flags: [MessageFlags.Ephemeral] }); 
-            const totalPrice = itemData.price;
-            let deducted = await deductMora(client, db, i.user.id, i.guild.id, totalPrice);
-            if (!deducted) {
-                return await i.editReply(`❌ رصيدك (الكاش + البنك) غير كافي! تحتاج **${totalPrice.toLocaleString()}** مورا.`);
-            }
-
-            const expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000); // 30 يوماً
-            await execSafe(db, 
-                `UPDATE levels SET "hasGuard" = 1, "guardExpires" = $1 WHERE "user" = $2 AND "guild" = $3`,
-                `UPDATE levels SET hasguard = 1, guardexpires = $1 WHERE userid = $2 AND guildid = $3`,
-                [expiresAt, i.user.id, i.guild.id]
-            );
-
-            // تحديث العرض فوراً
-            buildDetailView(itemData, i.user.id, i.guild.id, db, category, client).then(newData => {
-                i.message.edit({ files: newData.files || [], components: newData.components, embeds: newData.embeds || [], content: newData.content || '' }).catch(()=>{});
-            });
-
-            return await i.editReply(`✅ اشتريت **${itemData.name}** بنجاح!\nالتكلفة: ${totalPrice.toLocaleString()} مورا\nسيعمل لمدة 30 يوماً.`);
-        }
 
         const modal = new ModalBuilder()
             .setCustomId(`farm_${action}_modal|${category}|${itemData.id}`)
@@ -371,6 +302,7 @@ async function handleFarmShopModal(i, client, db) {
         if (action === 'buy') {
             const totalPrice = itemData.price * quantity;
 
+            // 🔥 استخدام نظام الخصم الذكي لحماية الذاكرة المؤقتة والداتابيز 🔥
             let deducted = await deductMora(client, db, i.user.id, i.guild.id, totalPrice);
             
             if (!deducted) {
@@ -391,6 +323,7 @@ async function handleFarmShopModal(i, client, db) {
                 const spaceNeeded = quantity * (itemData.size || 1);
 
                 if (currentCap + spaceNeeded > cap) {
+                    // إرجاع الفلوس لو المساحة ما تكفي
                     await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]));
                     if (client && typeof client.getLevel === 'function') {
                         let u = await client.getLevel(i.user.id, i.guild.id);
@@ -406,6 +339,7 @@ async function handleFarmShopModal(i, client, db) {
                 let currQty = invCheckRes?.rows?.[0] ? Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity || 0) : 0;
 
                 if (currQty + quantity > MAX_FARM_LIMIT) {
+                    // إرجاع الفلوس للمستخدم
                     await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]));
                     if (client && typeof client.getLevel === 'function') {
                         let u = await client.getLevel(i.user.id, i.guild.id);
@@ -442,6 +376,7 @@ async function handleFarmShopModal(i, client, db) {
                     }
                 }
             } catch (insertError) {
+                // إرجاع الفلوس في حال فشل إعطاء العنصر
                 await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]));
                 if (client && typeof client.getLevel === 'function') {
                     let u = await client.getLevel(i.user.id, i.guild.id);
@@ -504,6 +439,7 @@ async function handleFarmShopModal(i, client, db) {
                     }
                 }
 
+                // إضافة الفلوس للذاكرة والداتابيز معاً
                 try {
                     await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalGain, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalGain, i.user.id, i.guild.id]));
                     if (client && typeof client.getLevel === 'function') {
