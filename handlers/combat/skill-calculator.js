@@ -111,8 +111,24 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
     const multiplier = isOwner ? 10 : 1;
     const rawValue   = calculateSkillRawValue(skill, skill.currentLevel);
 
+    // 🐾 غريزة نصف الوحش: نسخ عشوائي لأي مهارة عرق أخرى
+    let activeStatType = skill.stat_type;
+    let isHybrid = false;
+
+    if (activeStatType === 'Chaos_RNG') {
+        isHybrid = true;
+        const allRaceSkills = [
+            'TrueDMG_Burn', 'Stun_Vulnerable', 'Confusion', 'Sacrifice_Crit',
+            'Scale_MissingHP_Heal', 'Spirit_RNG', 'Execute_Heal', 'Lifesteal_Overheal',
+            'Reflect_Tank', 'Cleanse_Buff_Shield'
+        ];
+        activeStatType = pickOne(allRaceSkills);
+    }
+
     let skillPower = 0;
-    if (skill.id.includes('heal') || skill.id.includes('shield')) {
+    const hpBasedSkills = ['Reflect_Tank', 'Cleanse_Buff_Shield'];
+
+    if (skill.id.includes('heal') || skill.id.includes('shield') || hpBasedSkills.includes(activeStatType)) {
         skillPower = Math.floor(attacker.maxHp * (rawValue / 100));
     } else {
         skillPower = Math.floor(rawValue * GLOBAL_SKILL_MULTIPLIER);
@@ -131,11 +147,11 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
 
     skillPower = Math.floor(skillPower * multiplier);
 
-    switch (skill.stat_type) {
+    switch (activeStatType) {
 
     // ── مهارات الأعراق بهويات مميزة ──────────────────────────────────────────
 
-    // 🐲 التنين (نار وتدمير دفاع)
+    // 🐲 التنين
     case 'TrueDMG_Burn': {
         result.damage = Math.floor(skillPower * 1.2);
         const fx = [];
@@ -149,7 +165,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // 🧝‍♂️ الآلف (قنص دقيق يعمي ويشل)
+    // 🧝‍♂️ الآلف
     case 'Stun_Vulnerable': {
         const agile = roll(0.20);
         result.damage = agile ? Math.floor(skillPower * 1.5) : skillPower;
@@ -164,7 +180,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // 🧝‍♀️ آلف الظلام (تلاعب بالعقول وسموم)
+    // 🧝‍♀️ آلف الظلام
     case 'Confusion': {
         const isConfused = defender.effects && defender.effects.some(e => e.type === 'confusion');
         result.damage = isConfused ? Math.floor(skillPower * 1.5) : skillPower;
@@ -179,7 +195,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // 👹 الشيطان (تدمير وحشي على حساب نفسه)
+    // 👹 الشيطان
     case 'Sacrifice_Crit': {
         result.damage     = Math.floor(skillPower * 1.3);
         result.selfDamage = Math.floor(attacker.maxHp * 0.10);
@@ -194,7 +210,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // 🦅 السيرافيم (نور مقدس للشفاء والصمت)
+    // 🦅 السيرافيم
     case 'Scale_MissingHP_Heal': {
         const missingPct = Math.max(0, (attacker.maxHp - attacker.hp) / attacker.maxHp);
         result.damage = Math.floor(skillPower * (1 + missingPct * 0.8));
@@ -212,7 +228,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // 👻 الروح (تشتيت وإرهاق للروح)
+    // 👻 الروح
     case 'Spirit_RNG': {
         result.damage = Math.floor(skillPower * 1.15);
         const fx = [];
@@ -226,22 +242,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // 🐾 نصف الوحش (هجوم وحشي ممزق)
-    case 'Chaos_RNG': {
-        const variance = 0.8 + Math.random() * 0.4;
-        result.damage = Math.floor(skillPower * variance);
-        const fx = [];
-
-        if (roll(0.50)) { result.effectsApplied.push(makeTargetEffect('bleed'));     fx.push(label('bleed')); }
-        if (roll(0.40)) { result.effectsApplied.push(makeTargetEffect('stun'));      fx.push(label('stun')); }
-
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['confusion', 'weaken']));
-
-        result.log = `🐾 **${getName(attacker)}** هجم بغريزة الوحش! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
-        break;
-    }
-
-    // 🧟 الغول (أمراض وتعفن)
+    // 🧟 الغول
     case 'Execute_Heal': {
         const isExecute = defender.hp < defender.maxHp * 0.20;
         result.damage = isExecute ? Math.floor(skillPower * 2) : skillPower;
@@ -256,7 +257,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // 🧛 مصاص الدماء (استنزاف دماء مستمر)
+    // 🧛 مصاص الدماء
     case 'Lifesteal_Overheal': {
         result.damage = skillPower;
         result.heal   = Math.floor(skillPower * 0.25); 
@@ -271,7 +272,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // 🛡️ القزم (دبابة وانعكاس ضرر بضرر مطرقة عالي)
+    // 🛡️ القزم
     case 'Reflect_Tank': {
         result.damage = Math.floor(skillPower * 1.4);
         const fx = [];
@@ -285,14 +286,21 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // ⚔️ البشري (تكتيك ونقاط ضعف بضرر حقيقي)
+    // ⚔️ البشري (ميزات ضرر إضافية)
     case 'Cleanse_Buff_Shield': {
-        result.damage     = skillPower;
+        let dmg = Math.floor(skillPower * 1.2);
         result.trueDamage = true;   
         const fx = ['⚔️ ضرر حقيقي'];
 
+        if (roll(0.30)) {
+            dmg = Math.floor(dmg * 1.5);
+            fx.push('💥 نصل الإعدام');
+        }
+        
+        result.damage = dmg;
+
         if (roll(0.50)) { result.selfEffects.push({ type: 'cleanse' });                         fx.push(label('cleanse')); }
-        if (roll(0.50)) { result.selfEffects.push({ type: 'atk_buff', val: 0.3, turns: 3 });    fx.push(label('atk_buff')); }
+        if (roll(0.50)) { result.selfEffects.push({ type: 'atk_buff', val: 0.4, turns: 3 });    fx.push(label('atk_buff')); }
 
         if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['vulnerable', 'weaken']));
 
@@ -371,6 +379,10 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         result.damage = skillPower;
         result.log = `💥 **${getName(attacker)}** استخدم ${skill.name} وسبب ${result.damage} ضرر!`;
         break;
+    }
+
+    if (isHybrid) {
+        result.log = `🐾 **(غريزة الوحش)** ` + result.log;
     }
 
     return result;
