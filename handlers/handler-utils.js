@@ -17,14 +17,20 @@ function calculateRequiredXP(level) {
 async function getFreeBalance(member, db) {
     if (!db) return 0;
     
-    const levelDataRes = await db.query(`SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [member.id, member.guild.id]);
+    let levelDataRes;
+    try { levelDataRes = await db.query(`SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [member.id, member.guild.id]); }
+    catch(e) { levelDataRes = await db.query(`SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [member.id, member.guild.id]).catch(()=>({rows:[]})); }
+    
     const levelData = levelDataRes.rows[0];
     const currentMora = levelData ? (Number(levelData.mora) || 0) : 0;
     const currentBank = levelData ? (Number(levelData.bank) || 0) : 0;
     
     const totalWealth = currentMora + currentBank;
 
-    const loanDataRes = await db.query(`SELECT "remainingAmount" FROM user_loans WHERE "userID" = $1 AND "guildID" = $2`, [member.id, member.guild.id]);
+    let loanDataRes;
+    try { loanDataRes = await db.query(`SELECT "remainingAmount" FROM user_loans WHERE "userID" = $1 AND "guildID" = $2`, [member.id, member.guild.id]); }
+    catch(e) { loanDataRes = await db.query(`SELECT remainingamount as "remainingAmount" FROM user_loans WHERE userid = $1 AND guildid = $2`, [member.id, member.guild.id]).catch(()=>({rows:[]})); }
+    
     const loanData = loanDataRes.rows[0];
     const debt = loanData ? Number(loanData.remainingAmount) : 0;
 
@@ -92,7 +98,7 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
 
         if (client.setLevel) await client.setLevel(userData);
 
-        // 🔥 لن نزعج اللاعب بصورة التلفيل إلا إذا كان يتحدث في الشات 🔥
+        // إرسال الإشعار عند التلفيل فقط في حال كان التلفيل ناتج عن رسالة
         if (leveledUp && isMessageEvent) {
             const mockInteraction = { guild: member.guild, channel: member.guild.systemChannel || member.guild.channels.cache.first() };
             if (generateLevelUpCard) {
@@ -104,23 +110,26 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
     }
 }
 
-// 🔥 4. دالة إرسال التلفيل بالصورة الفخمة 🔥
+// 🔥 4. دالة إرسال التلفيل بالصورة الفخمة (تم إصلاح استعلام القناة) 🔥
 async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpData, db) {
      try {
+         // 🔥 التعديل هنا: جلب القناة من جدول settings بدلاً من channel 🔥
          let channelRes;
-         try { channelRes = await db.query(`SELECT * FROM channel WHERE "guild" = $1`, [interaction.guild.id]); }
-         catch(e) { channelRes = await db.query(`SELECT * FROM channel WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
+         try { channelRes = await db.query(`SELECT "levelChannel" FROM settings WHERE "guild" = $1`, [interaction.guild.id]); }
+         catch(e) { channelRes = await db.query(`SELECT levelchannel as "levelChannel" FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
          
-         let channelLevel = channelRes.rows[0];
+         let savedChannelId = channelRes.rows[0]?.levelChannel || channelRes.rows[0]?.levelchannel;
 
          let channelToSend = null;
-         if (channelLevel && channelLevel.channel !== "Default") {
-               channelToSend = interaction.guild.channels.cache.get(channelLevel.channel)
-                             || await interaction.guild.channels.fetch(channelLevel.channel).catch(() => null);
+         if (savedChannelId && savedChannelId !== "Default") {
+               channelToSend = interaction.guild.channels.cache.get(savedChannelId)
+                             || await interaction.guild.channels.fetch(savedChannelId).catch(() => null);
          }
+         
+         // إذا لم يتم تحديد قناة خاصة بالتلفيل، أرسل الرسالة في نفس القناة التي تمت فيها الرسالة
          if (!channelToSend) {
              const fallback = interaction.channel;
-             // Never fall back to system channel (boost notifications channel)
+             // منع الإرسال في قناة السيستم في حال كانت هي المحددة كـ fallback بشكل خاطئ
              if (interaction.guild?.systemChannelId && fallback?.id === interaction.guild.systemChannelId) return;
              channelToSend = fallback;
          }
@@ -152,9 +161,27 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
 
          const userReference = isMentionOn ? member.toString() : `**${member.displayName}**`;
          
-         let contentMsg = `╭⭒★︰ <a:wi:1435572304988868769> ${userReference} <a:wii:1435572329039007889>\n` +
+         // استخراج الرسالة المخصصة من الداتابيز (إذا وجدت)
+         let customDescRes;
+         try { customDescRes = await db.query(`SELECT "lvlUpDesc" FROM settings WHERE "guild" = $1`, [interaction.guild.id]); }
+         catch(e) { customDescRes = await db.query(`SELECT lvlupdesc as "lvlUpDesc" FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
+         
+         let rawDesc = customDescRes.rows[0]?.lvlUpDesc || customDescRes.rows[0]?.lvlupdesc;
+         let contentMsg = "";
+
+         if (rawDesc) {
+             // استبدال المتغيرات المخصصة
+             contentMsg = rawDesc
+                .replace(/{member}/gi, userReference)
+                .replace(/{level}/gi, newLevel)
+                .replace(/{level_old}/gi, oldLevel)
+                .replace(/\\n/g, '\n');
+         } else {
+             // الرسالة الافتراضية
+             contentMsg = `╭⭒★︰ <a:wi:1435572304988868769> ${userReference} <a:wii:1435572329039007889>\n` +
                           `✶ مبارك صعودك في سُلّم الإمبراطورية\n` +
                           `★ فقد كـسرت حـاجـز الـمستوى〃${oldLevel}〃وبلغـت المسـتـوى الـ 〃${newLevel}〃 <a:MugiStronk:1438795606872166462> وتعاظم شأنك بين جموع الرعية فامضِ قُدمًا نحو المجد  <:2KazumaSalut:1437129108806176768>`;
+         }
          
          const milestones = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 99];
          if (milestones.includes(Number(newLevel))) {
