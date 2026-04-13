@@ -420,7 +420,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     }
                 }
             }
-            // 🔥 التصحيح الذهبي لشراء عامل المزرعة: السماح بعاملين نشطين كحد أقصى بمدة 3 أيام للعامل 🔥
+            // 🔥 التصحيح: إضافة مدة عامل المزرعة، والحد الأقصى هو عاملين (6 أيام) 🔥
             else if (itemData.id === 'farm_worker_3d') {
                 const durationMs = 3 * 24 * 60 * 60 * 1000; 
                 let rLvl = await execSafe(db, `SELECT "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT guardexpires FROM levels WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
@@ -428,6 +428,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 let newExpiresAt = Date.now() + durationMs;
                 if (rLvl.rows.length > 0) {
                     const expMs = Number(rLvl.rows[0].guardExpires || rLvl.rows[0].guardexpires || 0);
+                    // إذا كان لديه وقت متبقي، أضف 3 أيام فوقه
                     if (expMs > Date.now()) newExpiresAt = expMs + durationMs;
                 }
 
@@ -651,7 +652,7 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
                 
                 if (hasGuard === 1 && expiresAtMs > Date.now()) {
                     const remainingDays = (expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000);
-                    // المنع إذا كان الوقت المتبقي أكبر من أو يساوي 3 أيام
+                    // 🔥 المنع إذا كان الوقت المتبقي 3 أيام أو أكثر (ما يعني أنه اشترى 2 أصلاً) 🔥
                     if (remainingDays >= 3) {
                         return await i.editReply({ content: `🚫 **العامل متوفر ومكتفي بالوقت!**\nلديك بالفعل عاملان نشطان (الحد الأقصى)، سيستمران بالعمل لمدة ${Math.ceil(remainingDays)} أيام القادمة.` });
                     }
