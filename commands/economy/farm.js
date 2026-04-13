@@ -151,7 +151,6 @@ module.exports = {
             let currentCapacityUsed = 0;
             const animalsMap = new Map();
 
-            // حتى لو كانت فارغة سنقوم بإنشاء خريطة فارغة وتمريرها للمولد
             if (userAnimals && userAnimals.length > 0) {
                 for (const row of userAnimals) {
                     const animalId = row.animalID || row.animalid;
@@ -212,7 +211,6 @@ module.exports = {
             const currentItems = processedAnimals.slice(start, end);
 
             let files = [];
-            // 🔥 الآن سيعمل المولد حتى لو كانت الحظيرة فارغة ليعرض صورة مناسبة 🔥
             if (drawFarmAnimalsGrid) {
                 const buffer = await drawFarmAnimalsGrid(targetUser, currentItems, page, totalPages, maxCapacity, currentCapacityUsed, totalFarmIncome);
                 if(buffer) files.push(new AttachmentBuilder(buffer, { name: 'farm_animals.png' }));
@@ -261,7 +259,6 @@ module.exports = {
             let files = [];
             let fallbackContent = '';
 
-            // 🔥 الآن سيعمل المولد حتى لو كان المخزن فارغاً ليعرض صورة متناسقة 🔥
             if (generateInventoryCard) {
                 const cleanUser = cleanEmojis(targetUser.username);
                 const buffer = await generateInventoryCard(cleanUser, 'المخزن الزراعي', slice, page + 1, totalPages, -1);
@@ -385,7 +382,7 @@ module.exports = {
                         user.guildId = guild.id;
                         const data = await farmShop.getShopMenu(user, client, db);
                         await i.editReply({ 
-                            embeds: [], 
+                            embeds: data.embeds || [], 
                             components: data.components || [], 
                             files: data.files || [], 
                             attachments: [], 
@@ -395,6 +392,7 @@ module.exports = {
                         await i.followUp({ content: `❌ **خطأ برمجي أثناء فتح المتجر:**\n\`${err.message}\``, flags: [MessageFlags.Ephemeral] }).catch(() => {});
                     }
                 }
+                // 🔥 توجيه جميع تفاعلات المتجر للمتجر مباشرة 🔥
                 else if (farmShop && (i.customId === 'shop_cat_select' || i.customId.startsWith('shop_cat_') || i.customId === 'farm_select_item' || i.customId === 'farm_shop_back' || i.customId.startsWith('buy_btn_farm|') || i.customId.startsWith('sell_btn_farm|'))) {
                     if (farmShop.handleShopInteraction) {
                         await farmShop.handleShopInteraction(i, client, db, user, guild, shopState);
@@ -490,7 +488,7 @@ module.exports = {
                                 await db.query(`UPDATE user_farm SET lastfedtimestamp = $1 WHERE userid = $2 AND guildid = $3 AND animalid = $4`, [Date.now(), userId, guildId, animalId]).catch(()=>{});
                             }
                             
-                            await subI.reply({ content: `✅ تم إطعام ${totalAnimals} **${animal.name}** بنجاح وتجديد طاقته!` }).catch(() => {});
+                            await subI.reply({ content: `✅ تم إطعام ${totalAnimals} **${animal.name}** بنجاح وتجديد طاقته!`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
                             
                             const data = await renderFeedStore(feedPage);
                             const components = [];
