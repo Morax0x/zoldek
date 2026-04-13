@@ -59,8 +59,12 @@ function buildProgressBar(progress, goal, length = 10) {
 async function buildDailyEmbed(sql, member, dailyStats, page = 1) {
     const { generateDailyQuestsImage } = require('../generators/daily-quest-generator.js'); 
 
-    const dateStr = getTodayDateString();
-    const completedRes = await sql.query(`SELECT * FROM user_quest_claims WHERE "userID" = $1 AND "guildID" = $2 AND "dateStr" = $3`, [member.id, member.guild.id, dateStr]);
+    let completedRes;
+    try {
+        completedRes = await sql.query(`SELECT * FROM user_quest_claims WHERE "userID" = $1 AND "guildID" = $2 AND "dateStr" = $3`, [member.id, member.guild.id, getTodayDateString()]);
+    } catch(e) {
+        completedRes = await sql.query(`SELECT * FROM user_quest_claims WHERE userid = $1 AND guildid = $2 AND datestr = $3`, [member.id, member.guild.id, getTodayDateString()]).catch(()=>({rows:[]}));
+    }
     const completed = completedRes.rows;
 
     let allCompleted = true;
@@ -77,14 +81,29 @@ async function buildDailyEmbed(sql, member, dailyStats, page = 1) {
         };
     });
 
+    const dateStr = getTodayDateString();
     const badgeClaimId = `${member.id}-${member.guild.id}-daily_badge-${dateStr}`;
-    const badgeClaimedRes = await sql.query(`SELECT 1 FROM user_quest_claims WHERE "claimID" = $1`, [badgeClaimId]);
+    let badgeClaimedRes;
+    try {
+        badgeClaimedRes = await sql.query(`SELECT 1 FROM user_quest_claims WHERE "claimID" = $1`, [badgeClaimId]);
+    } catch(e) {
+        badgeClaimedRes = await sql.query(`SELECT 1 FROM user_quest_claims WHERE claimid = $1`, [badgeClaimId]).catch(()=>({rows:[]}));
+    }
     const badgeClaimed = badgeClaimedRes.rows[0];
 
     if (allCompleted && questsData.length > 0 && !badgeClaimed) {
-        await sql.query(`INSERT INTO user_quest_claims ("claimID", "userID", "guildID", "questID", "dateStr") VALUES ($1, $2, $3, $4, $5)`, [badgeClaimId, member.id, member.guild.id, 'daily_badge', dateStr]);
+        try {
+            await sql.query(`INSERT INTO user_quest_claims ("claimID", "userID", "guildID", "questID", "dateStr") VALUES ($1, $2, $3, $4, $5)`, [badgeClaimId, member.id, member.guild.id, 'daily_badge', dateStr]);
+        } catch(e) {
+            await sql.query(`INSERT INTO user_quest_claims (claimid, userid, guildid, questid, datestr) VALUES ($1, $2, $3, $4, $5)`, [badgeClaimId, member.id, member.guild.id, 'daily_badge', dateStr]).catch(()=>{});
+        }
         
-        const settingsRes = await sql.query(`SELECT "questChannelID", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [member.guild.id]);
+        let settingsRes;
+        try {
+            settingsRes = await sql.query(`SELECT "questChannelID", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [member.guild.id]);
+        } catch(e) {
+            settingsRes = await sql.query(`SELECT questchannelid as "questChannelID", lastquestpanelchannelid as "lastQuestPanelChannelID" FROM settings WHERE guild = $1`, [member.guild.id]).catch(()=>({rows:[]}));
+        }
         const settings = settingsRes.rows[0];
         
         if (settings && (settings.questChannelID || settings.questchannelid)) {
@@ -101,18 +120,20 @@ async function buildDailyEmbed(sql, member, dailyStats, page = 1) {
 
     const { attachment, totalPages } = await generateDailyQuestsImage(member, questsData, page);
 
-    const imageEmbed = new EmbedBuilder()
-        .setColor(Colors.Green)
-        .setImage(`attachment://${attachment.name}`);
-
-    return { embeds: [imageEmbed], files: [attachment], totalPages: totalPages };
+    // 🔥 إرسال الصورة بشكل مباشر بدون إيمبد 🔥
+    return { embeds: [], files: [attachment], totalPages: totalPages };
 }
 
 async function buildWeeklyEmbed(sql, member, weeklyStats, page = 1) {
     const { generateWeeklyQuestsImage } = require('../generators/weekly-quest-generator.js');
 
     const weekStartDateStr = getWeekStartDateString();
-    const completedRes = await sql.query(`SELECT * FROM user_quest_claims WHERE "userID" = $1 AND "guildID" = $2 AND "dateStr" = $3`, [member.id, member.guild.id, weekStartDateStr]);
+    let completedRes;
+    try {
+        completedRes = await sql.query(`SELECT * FROM user_quest_claims WHERE "userID" = $1 AND "guildID" = $2 AND "dateStr" = $3`, [member.id, member.guild.id, weekStartDateStr]);
+    } catch(e) {
+        completedRes = await sql.query(`SELECT * FROM user_quest_claims WHERE userid = $1 AND guildid = $2 AND datestr = $3`, [member.id, member.guild.id, weekStartDateStr]).catch(()=>({rows:[]}));
+    }
     const completed = completedRes.rows;
 
     let allCompleted = true;
@@ -130,13 +151,27 @@ async function buildWeeklyEmbed(sql, member, weeklyStats, page = 1) {
     });
 
     const badgeClaimId = `${member.id}-${member.guild.id}-weekly_badge-${weekStartDateStr}`;
-    const badgeClaimedRes = await sql.query(`SELECT 1 FROM user_quest_claims WHERE "claimID" = $1`, [badgeClaimId]);
+    let badgeClaimedRes;
+    try {
+        badgeClaimedRes = await sql.query(`SELECT 1 FROM user_quest_claims WHERE "claimID" = $1`, [badgeClaimId]);
+    } catch(e) {
+        badgeClaimedRes = await sql.query(`SELECT 1 FROM user_quest_claims WHERE claimid = $1`, [badgeClaimId]).catch(()=>({rows:[]}));
+    }
     const badgeClaimed = badgeClaimedRes.rows[0];
 
     if (allCompleted && questsData.length > 0 && !badgeClaimed) {
-        await sql.query(`INSERT INTO user_quest_claims ("claimID", "userID", "guildID", "questID", "dateStr") VALUES ($1, $2, $3, $4, $5)`, [badgeClaimId, member.id, member.guild.id, 'weekly_badge', weekStartDateStr]);
+        try {
+            await sql.query(`INSERT INTO user_quest_claims ("claimID", "userID", "guildID", "questID", "dateStr") VALUES ($1, $2, $3, $4, $5)`, [badgeClaimId, member.id, member.guild.id, 'weekly_badge', weekStartDateStr]);
+        } catch(e) {
+            await sql.query(`INSERT INTO user_quest_claims (claimid, userid, guildid, questid, datestr) VALUES ($1, $2, $3, $4, $5)`, [badgeClaimId, member.id, member.guild.id, 'weekly_badge', weekStartDateStr]).catch(()=>{});
+        }
         
-        const settingsRes = await sql.query(`SELECT "questChannelID", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [member.guild.id]);
+        let settingsRes;
+        try {
+            settingsRes = await sql.query(`SELECT "questChannelID", "lastQuestPanelChannelID" FROM settings WHERE "guild" = $1`, [member.guild.id]);
+        } catch(e) {
+            settingsRes = await sql.query(`SELECT questchannelid as "questChannelID", lastquestpanelchannelid as "lastQuestPanelChannelID" FROM settings WHERE guild = $1`, [member.guild.id]).catch(()=>({rows:[]}));
+        }
         const settings = settingsRes.rows[0];
         
         if (settings && (settings.questChannelID || settings.questchannelid)) {
@@ -153,11 +188,8 @@ async function buildWeeklyEmbed(sql, member, weeklyStats, page = 1) {
 
     const { attachment, totalPages } = await generateWeeklyQuestsImage(member, questsData, page);
 
-    const imageEmbed = new EmbedBuilder()
-        .setColor(Colors.Blue)
-        .setImage(`attachment://${attachment.name}`);
-
-    return { embeds: [imageEmbed], files: [attachment], totalPages: totalPages };
+    // 🔥 إرسال الصورة بشكل مباشر بدون إيمبد 🔥
+    return { embeds: [], files: [attachment], totalPages: totalPages };
 }
 
 async function buildAchievementsEmbed(sql, member, levelData, totalStats, completedAchievements, page = 1) {
@@ -174,11 +206,8 @@ async function buildAchievementsEmbed(sql, member, levelData, totalStats, comple
 
     const attachment = await generateAchievementPageImage(member, achievementsData, stats);
 
-    const imageEmbed = new EmbedBuilder()
-        .setColor(Colors.Purple)
-        .setImage(`attachment://${attachment.name}`);
-
-    return { embeds: [imageEmbed], files: [attachment], totalPages: totalPages };
+    // 🔥 إرسال الصورة بشكل مباشر بدون إيمبد 🔥
+    return { embeds: [], files: [attachment], totalPages: totalPages };
 }
 
 module.exports = {
@@ -197,12 +226,17 @@ module.exports = {
         const weekStartDateStr = getWeekStartDateString();
         const totalStatsId = `${userId}-${guildId}`;
 
-        const levelData = message.client.getLevel.get(userId, guildId) || { ...message.client.defaultData, user: userId, guild: guildId };
-        const dailyStats = message.client.getDailyStats.get(`${userId}-${guildId}-${dateStr}`) || {};
-        const weeklyStats = message.client.getWeeklyStats.get(`${userId}-${guildId}-${weekStartDateStr}`) || {};
-        const totalStats = message.client.getTotalStats.get(totalStatsId) || {};
+        const levelData = message.client.getLevel?.get(userId, guildId) || { ...message.client.defaultData, user: userId, guild: guildId };
+        const dailyStats = message.client.getDailyStats?.get(`${userId}-${guildId}-${dateStr}`) || {};
+        const weeklyStats = message.client.getWeeklyStats?.get(`${userId}-${guildId}-${weekStartDateStr}`) || {};
+        const totalStats = message.client.getTotalStats?.get(totalStatsId) || {};
         
-        const completedAchievementsRes = await sql.query(`SELECT * FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        let completedAchievementsRes;
+        try {
+            completedAchievementsRes = await sql.query(`SELECT * FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        } catch(e) {
+            completedAchievementsRes = await sql.query(`SELECT * FROM user_achievements WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}));
+        }
         const completedAchievements = completedAchievementsRes.rows;
 
         let currentPage = 1;
@@ -270,7 +304,9 @@ module.exports = {
         const collector = msg.createMessageComponentCollector({ filter, time: 120000 });
 
         collector.on('collect', async i => {
-            await i.deferUpdate();
+            // 🔥 هنا يتم تفادي مهلة الـ 3 ثواني باحترافية عالية 🔥
+            await i.deferUpdate().catch(()=>{});
+            
             let newDisplay;
             let newComponents;
 
@@ -284,7 +320,7 @@ module.exports = {
             currentTotalPages = newDisplay.totalPages; 
             newComponents = generateButtons(currentView, currentPage, currentTotalPages); 
 
-            await i.editReply({ embeds: newDisplay.embeds, files: newDisplay.files, components: [newComponents] });
+            await i.editReply({ embeds: newDisplay.embeds, files: newDisplay.files, components: [newComponents] }).catch(()=>{});
         });
 
         collector.on('end', () => {
