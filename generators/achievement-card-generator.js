@@ -9,7 +9,8 @@ const FONT_EMOJI = '"Noto Color Emoji", "Apple Color Emoji", sans-serif';
 
 const BASE_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/ui';
 const ASSETS = {
-    bg: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/wallpaper.png',
+    // 🔥 تم تصحيح رابط الخلفية هنا 🔥
+    bg: `${BASE_URL}/wallpaper.png`,
     mora: `${BASE_URL}/icon_mora.png`,
     xp: `${BASE_URL}/icon_xp.png`,
     rep: `${BASE_URL}/icon_rep.png`,
@@ -148,14 +149,16 @@ async function generateAchievementCard(userAvatar, userName, achName, achDesc, r
     const avatarY = 120;
 
     try {
-        const img = await loadImage(userAvatar);
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(WIDTH / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.clip();
-        ctx.drawImage(img, avatarX, avatarY, avatarSize, avatarSize);
-        ctx.restore();
+        if (userAvatar) {
+            const img = await loadImage(userAvatar);
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(WIDTH / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(img, avatarX, avatarY, avatarSize, avatarSize);
+            ctx.restore();
+        }
     } catch (e) {}
 
     ctx.beginPath();
@@ -169,11 +172,11 @@ async function generateAchievementCard(userAvatar, userName, achName, achDesc, r
 
     ctx.fillStyle = '#ffffff';
     ctx.font = `bold 36px ${FONT_MAIN}`;
-    ctx.fillText(achName, WIDTH / 2, 275);
+    ctx.fillText(achName || 'إنجاز', WIDTH / 2, 275);
 
     ctx.fillStyle = '#c2cadb';
     ctx.font = `20px ${FONT_MAIN}`;
-    ctx.fillText(achDesc, WIDTH / 2, 320);
+    ctx.fillText(achDesc || '', WIDTH / 2, 320);
 
     const chips = [];
     if (rewardMora > 0) chips.push({ text: `${rewardMora.toLocaleString()}`, color: '#FFD700', icon: assets.mora });
