@@ -420,9 +420,9 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     }
                 }
             }
-            // 🔥 التصحيح الذهبي لشراء عامل المزرعة: حفظ في جدول levels وتجنب user_buffs كلياً 🔥
+            // 🔥 التصحيح الذهبي لشراء عامل المزرعة: السماح بعاملين نشطين كحد أقصى بمدة 3 أيام للعامل 🔥
             else if (itemData.id === 'farm_worker_3d') {
-                const durationMs = 3 * 24 * 60 * 60 * 1000; // 3 أيام أو حسب رغبتك
+                const durationMs = 3 * 24 * 60 * 60 * 1000; 
                 let rLvl = await execSafe(db, `SELECT "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT guardexpires FROM levels WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
                 
                 let newExpiresAt = Date.now() + durationMs;
@@ -466,7 +466,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             
             let successMsg = `📦 **العنصر:** ${itemData.name || 'Unknown'}\n💰 **التكلفة:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
             if (discountUsed > 0) successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
-            if (itemData.id === 'farm_worker_3d') successMsg += `\n👨‍🌾 **عامل المزرعة بدأ العمل!** سيقوم بحصاد المحاصيل وإطعام الحيوانات.`;
+            if (itemData.id === 'farm_worker_3d') successMsg += `\n👨‍🌾 **عامل المزرعة بدأ العمل!** سيقوم بحصاد المحاصيل وإطعام الحيوانات (أضيف لك 3 أيام).`;
             if (itemData.id === 'change_race') successMsg += `\n🧬 **تم مسح عرقك القديم بنجاح!** و تم تطبيق عقوبة النقصان.`;
             
             const successEmbed = new EmbedBuilder()
@@ -648,10 +648,13 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
             if (rLvl.rows.length > 0) {
                 const expiresAtMs = Number(rLvl.rows[0].guardExpires || rLvl.rows[0].guardexpires || 0);
                 const hasGuard = Number(rLvl.rows[0].hasGuard || rLvl.rows[0].hasguard || 0);
-                const remainingDays = Math.ceil((expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000));
                 
-                if (hasGuard === 1 && expiresAtMs > Date.now() && remainingDays >= 30) {
-                    return await i.editReply({ content: `🚫 **العامل متوفر ومكتفي بالوقت!**\nعامل المزرعة يعمل بالفعل ولا حاجة لتجديد عقده الآن (المتبقي: ${remainingDays} أيام).` });
+                if (hasGuard === 1 && expiresAtMs > Date.now()) {
+                    const remainingDays = (expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000);
+                    // المنع إذا كان الوقت المتبقي أكبر من أو يساوي 3 أيام
+                    if (remainingDays >= 3) {
+                        return await i.editReply({ content: `🚫 **العامل متوفر ومكتفي بالوقت!**\nلديك بالفعل عاملان نشطان (الحد الأقصى)، سيستمران بالعمل لمدة ${Math.ceil(remainingDays)} أيام القادمة.` });
+                    }
                 }
             }
         }
