@@ -91,6 +91,7 @@ async function renderLand(interaction, client, db) {
         getGrowthMultiplier(db, userId, guildId),
         getLandPlots(client, userId, guildId),
         db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]).catch(() => db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}))),
+        // 🔥 جلب بيانات العامل من جدول levels 🔥
         db.query(`SELECT "hasGuard", "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(() => db.query(`SELECT hasguard, guardexpires FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}))),
         getFarmAsset('grass'), getFarmAsset('tilled'), getFarmAsset('lock'), getFarmAsset('withered'), getFarmAsset('sprout'),
         getFarmAsset('border_top'), getFarmAsset('border_bottom'), getFarmAsset('border_left'), getFarmAsset('border_right'),
@@ -127,6 +128,7 @@ async function renderLand(interaction, client, db) {
 
                 if (remaining > 0 && remaining < minRemainingTime) minRemainingTime = remaining;
                 
+                // التحقق مما إذا كان المحصول جاهزاً لنطلب صورته
                 if (age >= growthMs && age < (growthMs + (seed.wither_time_hours * 3600000))) {
                     neededCrops.add(seed.id);
                 }
@@ -134,6 +136,7 @@ async function renderLand(interaction, client, db) {
         }
     }
 
+    // 🚀 تحميل صور المحاصيل المطلوبة فقط دفعة واحدة (إذا لم تكن محملة أصلاً)
     await Promise.all(Array.from(neededCrops).map(id => getFarmAsset(id)));
 
     const totalWidth = (GRID_COLS * TILE_SIZE) + (TILE_SIZE * 2);
@@ -200,7 +203,7 @@ async function renderLand(interaction, client, db) {
                         if (images.withered) ctx.drawImage(images.withered, x, y, TILE_SIZE, TILE_SIZE);
                         witheredCount++;
                     } else if (age >= growthMs) {
-                        const cropImg = await getFarmAsset(seed.id); 
+                        const cropImg = await getFarmAsset(seed.id); // 🚀 يستدعيها من الرام بصفر ثانية
                         if (cropImg) ctx.drawImage(cropImg, x, y, TILE_SIZE, TILE_SIZE);
                         readyCount++;
                     } else {
@@ -241,6 +244,7 @@ async function renderLand(interaction, client, db) {
         addButton(new ButtonBuilder().setCustomId(`land_clean_all_${userId}`).setLabel('تنظيـف').setStyle(ButtonStyle.Danger).setEmoji('🚿'));
     }
 
+    // 🔥 تعديل عرض الوقت ونسبة النمو لتظهر في زر واحد فقط وتكون مرتبطة ببعضها 🔥
     if (minRemainingTime !== Infinity) {
         const hours = Math.floor(minRemainingTime / (1000 * 60 * 60));
         const minutes = Math.floor((minRemainingTime % (1000 * 60 * 60)) / (1000 * 60));
@@ -285,16 +289,12 @@ async function handleLandInteractions(i, client, db) {
     
     if (!i.customId.startsWith('land_') && !i.customId.startsWith('farm_plant_modal_')) return;
 
-    if (!i.deferred && !i.replied && !i.customId.startsWith('farm_plant_modal_') && !i.customId.startsWith('land_start_plant_') && !i.customId.startsWith('land_plant_select_seed_')) {
-        await i.deferUpdate().catch(()=>{});
-    }
-
     const parts = i.customId.split('_');
     const ownerId = parts[parts.length - 1]; 
     const baseAction = parts.slice(0, parts.length - 1).join('_'); 
 
     if (i.user.id !== ownerId) {
-        return await i.followUp({ 
+        return await i.reply({ 
             content: `🚫 **هذه المزرعة ليست لك!**\nاستخدم أمر \`/مزرعتي\` لعرض مزرعتك الخاصة.`, 
             flags: [MessageFlags.Ephemeral] 
         }).catch(()=>{});
@@ -304,35 +304,50 @@ async function handleLandInteractions(i, client, db) {
     const guildId = i.guild.id;
 
     if (farmLocks.has(userId) && baseAction !== 'land_start_plant') {
-        return await i.followUp({ content: "⏳ يرجى الانتظار، هنالك عملية قيد التنفيذ في مزرعتك.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+        return await i.reply({ content: "⏳ يرجى الانتظار، هنالك عملية قيد التنفيذ في مزرعتك.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
     }
     
     if (baseAction !== 'land_start_plant') {
         farmLocks.set(userId, true);
     }
 
-    const updateView = async () => {
-        const data = await renderLand(i, client, db);
-        
-        const currentComponents = i.message.components;
-        let navRow = null;
-        if (currentComponents && currentComponents.length > 0) {
-            navRow = currentComponents[currentComponents.length - 1]; 
+    // 🚀 دالة التحديث المباشرة للرسالة 🚀
+    const updateView = async (interactionToReply = null) => {
+        try {
+            const data = await renderLand(i, client, db);
+            
+            const currentComponents = i.message.components;
+            let navRow = null;
+            if (currentComponents && currentComponents.length > 0) {
+                navRow = currentComponents[currentComponents.length - 1]; 
+            }
+
+            const finalComponents = data.components ? [...data.components] : [];
+            if (navRow && navRow.components[0].customId === 'nav_land') finalComponents.push(navRow);
+
+            if (interactionToReply) {
+                await interactionToReply.editReply({ 
+                    content: data.content, 
+                    components: finalComponents, 
+                    files: data.files,
+                    embeds: [] 
+                }).catch(()=>{});
+            } else {
+                await i.message.edit({
+                    content: data.content,
+                    components: finalComponents,
+                    files: data.files,
+                    embeds: []
+                }).catch(()=>{});
+            }
+        } catch (e) {
+            console.error("Update View Error:", e);
         }
-
-        const finalComponents = data.components ? [...data.components] : [];
-        if (navRow) finalComponents.push(navRow);
-
-        await i.editReply({ 
-            content: data.content, 
-            components: finalComponents, 
-            files: data.files,
-            embeds: [] 
-        }).catch(()=>{});
     };
 
     try {
         if (baseAction === 'land_plow_one') {
+            await i.deferUpdate().catch(()=>{});
             let maxPlots = await getLandPlots(client, userId, guildId);
             if (maxPlots >= 30) maxPlots = 36;
             
@@ -373,6 +388,7 @@ async function handleLandInteractions(i, client, db) {
         }
 
         if (baseAction === 'land_plow_all') {
+            await i.deferUpdate().catch(()=>{});
             let maxPlots = await getLandPlots(client, userId, guildId);
             if (maxPlots >= 30) maxPlots = 36;
 
@@ -402,6 +418,7 @@ async function handleLandInteractions(i, client, db) {
             if (Number(userData.mora || 0) < totalCost) return await i.followUp({ content: `❌ **رصيدك غير كافي!** تحتاج **${totalCost}** ${EMOJI_MORA}`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             
             try {
+                // ✅ GREATEST لمنع الرصيد السالب + RETURNING لتحديث الكاش
                 const plowRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora", '0') AS BIGINT) - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [totalCost, userId, guildId]);
                 userData.mora = plowRes.rows[0] ? String(plowRes.rows[0].mora) : String(Math.max(0, Number(userData.mora || 0) - totalCost));
                 if (typeof client.setLevel === 'function') await client.setLevel(userData);
@@ -538,29 +555,13 @@ async function handleLandInteractions(i, client, db) {
                 } catch(err) { await db.query("ROLLBACK").catch(()=>{}); }
             }
 
-            // 🔥 جعل رسالة التأكيد مخفية (Ephemeral)
             await i.editReply({ content: `✅ **تم زراعة ${countToPlant}x ${seed.name}**`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
             try {
                 const mainMsg = await i.channel.messages.fetch(msgId).catch(() => null);
                 if (mainMsg) {
-                    const newData = await renderLand(i, client, db);
-                    
-                    const currentComponents = mainMsg.components;
-                    let navRow = null;
-                    if (currentComponents && currentComponents.length > 0) {
-                        navRow = currentComponents[currentComponents.length - 1]; 
-                    }
-
-                    const finalComponents = newData.components ? [...newData.components] : [];
-                    if (navRow) finalComponents.push(navRow);
-
-                    await mainMsg.edit({
-                        content: newData.content,
-                        embeds: [], 
-                        components: finalComponents,
-                        files: newData.files
-                    }).catch(()=>{});
+                    const mockInteraction = { message: mainMsg, user: i.user, member: i.member, guild: i.guild, editReply: (opts) => mainMsg.edit(opts) };
+                    await updateView(mockInteraction);
                 }
             } catch (err) {}
             
@@ -568,6 +569,7 @@ async function handleLandInteractions(i, client, db) {
         }
 
         if (baseAction === 'land_harvest_all') {
+            await i.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             const [growthMultiplier, plantedPlotsRes] = await Promise.all([
                 getGrowthMultiplier(db, userId, guildId),
                 db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userId, guildId]).catch(() => db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userId, guildId]).catch(()=>({rows:[]})))
@@ -595,7 +597,7 @@ async function handleLandInteractions(i, client, db) {
                 }
             }
 
-            if (harvestedCount === 0) return await i.followUp({ content: "🚫 لا يوجد حصاد جاهز.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            if (harvestedCount === 0) return await i.editReply({ content: "🚫 لا يوجد حصاد جاهز." }).catch(()=>{});
 
             try {
                 await db.query("BEGIN");
@@ -627,13 +629,13 @@ async function handleLandInteractions(i, client, db) {
                 updateGuildStat(client, guildId, userId, 'crops_harvested', totalRevenue).catch(()=>{});
             }
 
-            // 🔥 جعل رسالة تأكيد الحصاد مخفية (Ephemeral)
-            await i.followUp({ content: `🌾 **تم حصاد ${harvestedCount} محاصيل!**\n💰 الأرباح: **+${totalRevenue.toLocaleString()}** مورا\n✨ الخبرة: **+${totalXP}** XP`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            await i.editReply({ content: `🌾 **تم حصاد ${harvestedCount} محاصيل!**\n💰 الأرباح: **+${totalRevenue.toLocaleString()}** مورا\n✨ الخبرة: **+${totalXP}** XP` }).catch(()=>{});
             await updateView();
             return;
         }
 
         if (baseAction === 'land_clean_all') {
+            await i.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             const [growthMultiplier, plantedPlotsRes] = await Promise.all([
                 getGrowthMultiplier(db, userId, guildId),
                 db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2 AND "status" = 'planted'`, [userId, guildId]).catch(() => db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2 AND status = 'planted'`, [userId, guildId]).catch(()=>({rows:[]})))
@@ -671,8 +673,7 @@ async function handleLandInteractions(i, client, db) {
                 } catch(err) { await db.query("ROLLBACK").catch(()=>{}); }
             }
 
-            // 🔥 جعل رسالة التنظيف مخفية (Ephemeral)
-            await i.followUp({ content: `🚿 **تم تنظيف ${plotsToReset.length} أراضي ذابلة.**`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            await i.editReply({ content: `🚿 **تم تنظيف ${plotsToReset.length} أراضي ذابلة.**` }).catch(()=>{});
             await updateView();
             return;
         }
