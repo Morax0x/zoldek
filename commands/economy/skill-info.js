@@ -14,26 +14,83 @@ const SKILL_TIPS = new Map([
     ['skill_dispel', 'استخدمها إذا كان خصمك يستخدم "درع" أو "تعزيز" لإزالة تأثيراتها عنه.'],
     ['skill_cleanse', 'استخدمها لإزالة التأثيرات السلبية عنك مثل "السم" أو "الإضعاف".'],
     ['skill_poison', 'استخدمها في بداية القتال. تسبب ضرراً بسيطاً فورياً، وضرر مستمر كل دور.'],
-    ['skill_gamble', 'للمخاطرين فقط! قد تسبب ضرراً هائلاً، أو ضرراً ضعيفاً جداً. تعتمد على الحظ.'],
-    ['race_dragon_skill', 'هجوم ناري قوي يسبب ضرراً حقيقياً يتجاهل أي درع لدى الخصم.'],
-    ['race_human_skill', 'مهارة دفاعية وهجومية. تمنحك درعاً وتعزيزاً للضرر في نفس الوقت.'],
-    ['race_seraphim_skill', 'هجوم يسرق الحياة. يسبب ضرراً للخصم ويعالجك بنسبة كبيرة من صحتك الكاملة.'],
-    ['race_demon_skill', 'هجوم انتحاري. يسبب ضرراً هائلاً للخصم، لكنه يخصم 10% من صحتك الحالية.'],
-    ['race_elf_skill', 'هجوم سريع يضرب مرتين متتاليتين، مسبباً ضرراً مزدوجاً في دور واحد.'],
-    ['race_dark_elf_skill', 'يسبب ضرراً فورياً ويضع أقوى سم في اللعبة على الخصم.'],
-    ['race_vampire_skill', 'هجوم يسرق الحياة بناءً على الضرر المُسبب. كلما كان هجومك أقوى، زاد شفاؤك.'],
-    ['race_hybrid_skill', 'مهارة متقلبة. تمنحك تأثير عشوائي (درع، أو تعزيز، أو شفاء).'],
-    ['race_spirit_skill', 'هجوم طيفي عشوائي قد يشل الخصم أو يسرق قوته أو يجعلك تعكس الضرر.'],
-    ['race_dwarf_skill', 'يمنحك درعاً قوياً جداً يقلل الضرر بنسبة كبيرة، لكنه يستهلك دورك (لا يمكنك الهجوم).'],
-    ['race_ghoul_skill', 'هجوم متوسط يلحق ضرراً بالخصم ويقوم بإضعافه في نفس الوقت.']
+    ['skill_gamble', 'للمخاطرين فقط! قد تسبب ضرراً هائلاً، أو ضرراً ضعيفاً جداً. تعتمد على الحظ.']
 ]);
+
+const RACE_MECHANICS = {
+    'race_dragon_skill': {
+        trait: 'ضرر ناري مباشر هائل.',
+        specials: '🔥 حرق (50%)\n🤫 صمت (30%)\n🎯 هشاشة (20%)',
+        fallback: '📉 إضعاف أو 😵 شلل'
+    },
+    'race_human_skill': {
+        trait: 'نصل الحقيقة (ضرر حقيقي يتجاهل دروع ودفاع الخصم).',
+        specials: '✨ تطهير نفسك (50%)\n💪 تعزيز هجومك (50%)\n🤫 صمت للخصم (40%)',
+        fallback: '🎯 هشاشة أو 📉 إضعاف'
+    },
+    'race_seraphim_skill': {
+        trait: 'ضرر انتقامي (يزداد الضرر كلما نقصت صحتك).',
+        specials: '💖 شفاء نفسك (50%)\n🤫 صمت (40%)\n🎯 هشاشة (30%)',
+        fallback: '🔥 حرق أو 📉 إضعاف'
+    },
+    'race_demon_skill': {
+        trait: 'ضرر انفجاري مرعب (تضحي بـ 10% من صحتك القصوى لاستخدامه).',
+        specials: '🎯 هشاشة (50%)\n🔥 حرق (50%)\n🤫 صمت (30%)',
+        fallback: '☠️ سم أو 🌀 ارتباك'
+    },
+    'race_elf_skill': {
+        trait: 'ضرر رشيق (فرصة 20% لتسديد ضربة خارقة بضرر 1.5x).',
+        specials: '😵 شلل (40%)\n📉 إضعاف (50%)\n🤫 صمت (30%)',
+        fallback: '🌀 ارتباك أو 👁️ عمى'
+    },
+    'race_dark_elf_skill': {
+        trait: 'ضرر اغتيال (يزداد الضرر مع ارتباك الخصم).',
+        specials: '🌀 ارتباك (50%)\n🤫 صمت (40%)\n☠️ سم (40%)',
+        fallback: '😵 شلل أو 🩸 نزيف'
+    },
+    'race_vampire_skill': {
+        trait: 'ضرر امتصاص (يعالجك دائماً بنسبة 25% من الضرر المُسبب).',
+        specials: '🦇 خفاش طفيلي (50%)\n🩸 نزيف (50%)\n🤫 صمت (20%)',
+        fallback: '📉 إضعاف أو 🌀 ارتباك'
+    },
+    'race_hybrid_skill': {
+        trait: 'ضرر غريزي متذبذب (بين 80% إلى 120% في كل هجمة).',
+        specials: '😵 شلل (30%)\n🌀 ارتباك (40%)\n🩸 نزيف (40%)',
+        fallback: '🎲 تأثير سلبي عشوائي من القائمة العامة'
+    },
+    'race_spirit_skill': {
+        trait: 'ضرر طيفي (يتجاهل 15% من الدفاع ويضرب بـ 1.15x).',
+        specials: '👻 مراوغة تامة (30%)\n🤫 صمت (50%)\n🔄 انعكاس (30%)',
+        fallback: '🌀 ارتباك أو 😵 شلل'
+    },
+    'race_dwarf_skill': {
+        trait: 'ضرر المطرقة (يضرب بقوة أساسية x1.4).',
+        specials: '🤬 استفزاز (50%)\n🌵 أشواك (50%)\n🔄 انعكاس (40%)',
+        fallback: '😵 شلل أو 📉 إضعاف'
+    },
+    'race_ghoul_skill': {
+        trait: 'ضرر إعدام (يتضاعف الضرر x2 إذا كان دم الخصم أقل من 20%).',
+        specials: '☠️ سم (50%)\n📉 إضعاف (50%)\n🤫 صمت (30%)',
+        fallback: '🌀 ارتباك أو 🩸 نزيف'
+    }
+};
+
+const EFFECT_GLOSSARY = `
+**دليل حالات التأثير في المعركة:**
+🤫 **صمت:** يمنع الخصم من استخدام "المهارات" ويجبره على الهجوم العادي.
+🦇 **خفاش:** طفيلي يسحب 5% من دم الخصم لـ 5 جولات ويعالجك.
+🤬 **استفزاز:** يجبر الزعيم على ترك زملائك ومهاجمتك أنت فقط.
+🌵 **أشواك:** يعكس ضرراً ثابتاً للمهاجم في كل مرة يضربك.
+🎯 **هشاشة:** يكسر الدفاع ليزيد الضرر المتلقى بنسبة 30%.
+🌀 **ارتباك:** يجعل الخصم يهاجم نفسه بنسبة من ضرره.
+👻 **مراوغة:** تفادي الهجوم القادم بنسبة 100%.
+✦ **التأثير المضمون:** إذا خانك الحظ وفشلت جميع نسب مهارة العرق سيقوم النظام تلقائياً بتطبيق تأثير مضمون كي لا تضيع ضربتك!`;
 
 const ID_TO_IMAGE = {
     'book_general_1': 'gen_book_tactic.png', 'book_general_2': 'gen_book_combat.png', 'book_general_3': 'gen_book_arts.png', 'book_general_4': 'gen_book_war.png', 'book_general_5': 'gen_book_wisdom.png',
     'book_race_1': 'race_book_stone.png', 'book_race_2': 'race_book_ancestor.png', 'book_race_3': 'race_book_secrets.png', 'book_race_4': 'race_book_covenant.png', 'book_race_5': 'race_book_pact.png'
 };
 
-// 🔥 دالة سحب صورة كتاب المهارة من R2 🔥
 function getSkillImageURL(skillId) {
     if (!skillId) return null;
     const isRaceSkill = skillId.startsWith('race_');
@@ -49,7 +106,6 @@ function getSkillImageURL(skillId) {
     return null;
 }
 
-// 🔥 دالة الحسبة الموحدة للمهارات المطابقة للمحرك القتالي 🔥
 function getSkillDisplayValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -140,13 +196,11 @@ module.exports = {
         );
 
         if (!skill) {
-            return replyError('❌ لم أتمكن من العثور على مهارة بهذا الاسم. جرب كتابة الاسم العربي (مثل: شفاء).');
+            return replyError('❌ لم أتمكن من العثور على مهارة بهذا الاسم. جرب البحث بالاسم (مثل: مهارة شفاء).');
         }
 
-        const tip = SKILL_TIPS.get(skill.id) || "لا توجد نصيحة خاصة لهذه المهارة.";
         const isRaceSkill = skill.id.startsWith('race_');
 
-        // حساب القيم الموحدة بناءً على النظام الجديد
         const isPercentage = skill.stat_type === '%' || skill.id.includes('heal') || skill.id.includes('shield');
         const statSymbol = isPercentage ? '%' : '';
         
@@ -154,7 +208,6 @@ module.exports = {
         let valAt15 = getSkillDisplayValue(skill, 15);
         let valAt30 = getSkillDisplayValue(skill, 30);
         
-        // توضيح للضرر الفعلي للمهارات الهجومية (الـ 200 تنضرب في 5 في القتال)
         let dmgNote = "";
         if (!isPercentage) {
             valAt1 = valAt1 * 5;
@@ -175,12 +228,29 @@ module.exports = {
 
         const embed = new EmbedBuilder()
             .setTitle(`${skill.emoji || '✨'} ${skill.name} ${isRaceSkill ? '(خاص بالعرق)' : ''}`)
-            .setColor(isRaceSkill ? Colors.Blue : Colors.Gold)
-            .addFields(
+            .setColor(isRaceSkill ? Colors.Blue : Colors.Gold);
+
+        if (!isRaceSkill) {
+            embed.addFields(
                 { name: "✶ الـوصـف والـقـدرات", value: skill.description || "لا يوجد وصف." },
                 { name: "📊 إحصائيات المهارة والمستويات", value: description },
-                { name: "✥ نصيحة للاستعمال", value: tip }
+                { name: "✥ نصيحة للاستعمال", value: SKILL_TIPS.get(skill.id) || "لا توجد نصيحة خاصة لهذه المهارة." }
             );
+        } else {
+            const mech = RACE_MECHANICS[skill.id];
+            if (mech) {
+                embed.addFields(
+                    { name: "📊 إحصائيات المهارة والمستويات", value: description },
+                    { name: "⚔️ الميكانيكية التكتيكية للعرق", value: `**ميزة الضرر:**\n${mech.trait}\n\n**التأثيرات الخاصة (تُحسب بالترتيب):**\n${mech.specials}\n\n**التأثير المضمون (في حال فشلت جميع النسب):**\n${mech.fallback}` },
+                    { name: "📖 دليل التأثيرات", value: EFFECT_GLOSSARY }
+                );
+            } else {
+                embed.addFields(
+                    { name: "✶ الـوصـف والـقـدرات", value: skill.description || "لا يوجد وصف." },
+                    { name: "📊 إحصائيات المهارة", value: description }
+                );
+            }
+        }
 
         if (skillImage) {
             embed.setThumbnail(skillImage);
