@@ -8,6 +8,14 @@ function getTacticalTargets(players, count, monster) {
     let alive = players.filter(p => !p.isDead && !p.isPermDead);
     if (alive.length === 0) return [];
 
+    // 1. إجبار استهداف من فعل الاستفزاز (Taunt) الجديد (خاصية الأقزام)
+    const tauntingPlayers = alive.filter(p => p.effects.some(e => e.type === 'taunt' || e.type === 'titan'));
+    if (tauntingPlayers.length > 0) {
+        // إذا كان هناك أكثر من لاعب مستفز، نختار واحداً عشوائياً، وإلا نأخذ الأول
+        return [tauntingPlayers[Math.floor(Math.random() * tauntingPlayers.length)]];
+    }
+
+    // 2. إجبار التحديد في حال وضع الوحش تركيزه على لاعب
     if (monster.targetFocusId) {
         const tauntedTarget = alive.find(p => p.id === monster.targetFocusId);
         if (tauntedTarget) {
@@ -15,6 +23,7 @@ function getTacticalTargets(players, count, monster) {
         }
     }
 
+    // 3. الذكاء الاصطناعي الطبيعي للاستهداف
     let prioritized = alive.sort((a, b) => {
         const aKillable = a.hp <= monster.atk * 1.5 ? 20 : 0;
         const bKillable = b.hp <= monster.atk * 1.5 ? 20 : 0;
@@ -22,8 +31,8 @@ function getTacticalTargets(players, count, monster) {
         const aIsPriest = a.class === 'Priest' ? 10 : 0;
         const bIsPriest = b.class === 'Priest' ? 10 : 0;
 
-        const aThreat = a.atk * (a.effects.some(e => e.type === 'atk_buff') ? 1.5 : 1);
-        const bThreat = b.atk * (b.effects.some(e => e.type === 'atk_buff') ? 1.5 : 1);
+        const aThreat = a.atk * (a.effects.some(e => e.type === 'atk_buff' || e.type === 'buff') ? 1.5 : 1);
+        const bThreat = b.atk * (b.effects.some(e => e.type === 'atk_buff' || e.type === 'buff') ? 1.5 : 1);
         const threatScore = (bThreat - aThreat) / 1000; 
 
         const aReflect = a.effects.some(e => e.type === 'reflect' || e.type === 'tank_reflect') ? -100 : 0;
@@ -32,11 +41,8 @@ function getTacticalTargets(players, count, monster) {
         const aInvisible = a.effects.some(e => e.type === 'evasion' || e.type === 'invisibility') ? -5000 : 0;
         const bInvisible = b.effects.some(e => e.type === 'evasion' || e.type === 'invisibility') ? -5000 : 0;
 
-        const aTaunt = a.effects.some(e => e.type === 'titan') ? 50 : 0;
-        const bTaunt = b.effects.some(e => e.type === 'titan') ? 50 : 0;
-
-        const scoreA = aKillable + aIsPriest + aReflect + aTaunt + aInvisible;
-        const scoreB = bKillable + bIsPriest + bReflect + bTaunt + bInvisible;
+        const scoreA = aKillable + aIsPriest + aReflect + aInvisible;
+        const scoreB = bKillable + bIsPriest + bReflect + bInvisible;
 
         return (scoreB + threatScore) - (scoreA);
     });
@@ -65,7 +71,11 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
     const activeLightning = monster.effects.find(e => e.type === 'lightning_weaken');
     const lightningVal = activeLightning ? activeLightning.val : 0;
 
-    // 🔥 1. فحص حالات السيطرة (CC) قبل الخصم من عداد الأدوار لضمان عملها 🔥
+    // فحص الهشاشة (Vulnerable) لزيادة ضرر السم والحرق وغيرها على الوحش
+    const isVulnerable = monster.effects.some(e => e.type === 'vulnerable');
+    const vulnMultiplier = isVulnerable ? 1.3 : 1.0; 
+
+    // 🔥 1. فحص حالات السيطرة (CC) ────────────────────────────────────────────────
     let skipTurn = false;
     let skipReason = "";
 
@@ -80,14 +90,15 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
         const conf = monster.effects.find(e => (e.type || "").toLowerCase() === 'confusion');
         const confChance = conf.val === true ? 0.5 : (conf.val || 0.5);
         if (Math.random() < confChance) {
-            const selfDmg = Math.floor(monster.atk * 0.5) || 1;
+            let selfDmg = Math.floor(monster.atk * 0.5) || 1;
+            selfDmg = Math.floor(selfDmg * vulnMultiplier); // تأثر بـ الهشاشة
             monster.hp = Math.max(0, monster.hp - selfDmg);
             skipTurn = true;
             skipReason = `🌀 **${monster.name}** في حالة فوضى وارتباك وضرب نفسه! (-${selfDmg})`;
         }
     }
 
-    // 🔥 2. المحرك الفولاذي لمعالجة تأثيرات الضرر والنزيف 🔥
+    // 🔥 2. المحرك الفولاذي لمعالجة تأثيرات الضرر المستمر (DOT) ───────────────────
     if (monster.effects) {
         monster.effects = monster.effects.filter(e => {
             let dmgVal = 0;
@@ -95,6 +106,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
             let icon = "";
             const safeType = (e.type || "").toLowerCase();
 
+            // معالجة السم، الحرق، والنزيف
             if (safeType === 'burn' || safeType === 'poison' || safeType === 'bleed') {
                 let rawVal = e.val || e.damage || e.value || 0; 
                 
@@ -104,6 +116,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
                     dmgVal = Math.floor(monster.maxHp * rawVal);
                 }
                 
+                dmgVal = Math.floor(dmgVal * vulnMultiplier); // زيادة الضرر إذا كان هشاً
                 dmgVal = applyLocalCap(dmgVal, damageCap);
                 
                 if (dmgVal > 0) {
@@ -119,22 +132,43 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
                 }
             }
             
+            // معالجة طفيلي مصاص الدماء (Bat)
+            if (safeType === 'bat') {
+                let batDmg = Math.floor(monster.maxHp * (e.val || 0.05));
+                batDmg = Math.floor(batDmg * vulnMultiplier);
+                batDmg = applyLocalCap(batDmg, damageCap);
+
+                if (batDmg > 0) {
+                    monster.hp = Math.max(0, monster.hp - batDmg);
+                    
+                    // إيجاد مصاص الدماء الذي ألقى المهارة لعلاجه (أول لاعب مصاص دماء حي)
+                    let vampirePlayer = players.find(p => !p.isDead && !p.isPermDead && p.race === 'vampire');
+                    if (vampirePlayer) {
+                        vampirePlayer.hp = Math.min(vampirePlayer.maxHp, vampirePlayer.hp + batDmg);
+                        log.push(`🦇 خفافيش مصاص الدماء سحبت دماء **${monster.name}** (-${batDmg}) وعالجت ${vampirePlayer.name}!`);
+                    } else {
+                        log.push(`🦇 خفافيش مصاص الدماء سحبت دماء **${monster.name}** (-${batDmg})!`);
+                    }
+                }
+            }
+            
             if (e.turns !== undefined && e.turns !== null) {
                 e.turns--;
                 return e.turns > 0;
             } else {
-                return false;
+                return false; // إذا لم يكن هناك دور محدد، احذفه
             }
         });
     }
 
     if (monster.hp <= 0) { monster.hp = 0; return false; }
 
-    // 🔥 3. هجوم المرافقين (Summons) 🔥
+    // 🔥 3. هجوم المرافقين (Summons) ───────────────────────────────────────────────
     players.forEach(p => {
         if (!p.isDead && !p.isPermDead && p.summon && p.summon.active) {
             const atkRatio = p.summon.atkRatio || 0.7;
             let petDmg = Math.floor(p.atk * atkRatio) || 1;
+            petDmg = Math.floor(petDmg * vulnMultiplier);
             petDmg = applyLocalCap(petDmg, damageCap);
 
             monster.hp = Math.max(0, Math.floor(monster.hp - petDmg));
@@ -147,6 +181,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
                 p.summon.active = false; 
                 const explodeRatio = p.summon.explodeRatio || 1.2;
                 let explosionDmg = Math.floor(p.atk * explodeRatio) || 1;
+                explosionDmg = Math.floor(explosionDmg * vulnMultiplier);
                 explosionDmg = applyLocalCap(explosionDmg, damageCap);
                 monster.hp = Math.max(0, Math.floor(monster.hp - explosionDmg));
                 p.totalDamage += explosionDmg;
@@ -158,7 +193,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
 
     if (monster.hp <= 0) { monster.hp = 0; return false; }
 
-    // 🔥 4. تطبيق تخطي الدور إذا كان الوحش مصاباً بالشلل أو الارتباك 🔥
+    // 🔥 4. تطبيق تخطي الدور ─────────────────────────────────────────────────────
     if (skipTurn) {
         log.push(skipReason);
         monster.memory.comboStep = 0;
@@ -168,41 +203,50 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
         return true;
     }
 
-    // 🔥 5. منطق هجوم الوحش الطبيعي 🔥
+    // 🔥 5. منطق هجوم الوحش الطبيعي ───────────────────────────────────────────────
     const alive = players.filter(p => !p.isDead && !p.isPermDead);
     if (alive.length === 0) return false;
 
     let skillUsed = false;
 
-    const cleanName = monster.name.split(' (')[0]; 
-    const specialSkill = MONSTER_SKILLS[cleanName];
-    if (specialSkill) {
-        let chance = specialSkill.chance;
-        if (monster.hp < monster.maxHp * 0.5) chance += 0.2; 
-        if (Math.random() < chance) {
-            specialSkill.execute(monster, players, log);
-            skillUsed = true;
-        }
-    }
+    // فحص الصمت للوحوش (إذا أردنا أن تتأثر الوحوش بالصمت، نمنعها من استخدام مهاراتها الخاصة)
+    const isSilenced = monster.effects && monster.effects.some(e => e.type === 'silence');
 
-    if (!skillUsed && !specialSkill) {
-        let allowSkills = false;
-        if (floor < 20) allowSkills = false;
-        else if (floor < 40) { if (Math.random() < 0.15) allowSkills = true; }
-        else { if (Math.random() < 0.30) allowSkills = true; }
-
-        if (allowSkills) {
-            const randomGeneric = GENERIC_MONSTER_SKILLS[Math.floor(Math.random() * GENERIC_MONSTER_SKILLS.length)];
-            if (randomGeneric) {
-                randomGeneric.execute(monster, players, log);
-                if (isNaN(monster.shield)) monster.shield = 0;
-                monster.shield = Math.floor(monster.shield);
+    if (!isSilenced) {
+        const cleanName = monster.name.split(' (')[0]; 
+        const specialSkill = MONSTER_SKILLS[cleanName];
+        if (specialSkill) {
+            let chance = specialSkill.chance;
+            if (monster.hp < monster.maxHp * 0.5) chance += 0.2; 
+            if (Math.random() < chance) {
+                specialSkill.execute(monster, players, log);
                 skillUsed = true;
             }
         }
+
+        if (!skillUsed && !specialSkill) {
+            let allowSkills = false;
+            if (floor < 20) allowSkills = false;
+            else if (floor < 40) { if (Math.random() < 0.15) allowSkills = true; }
+            else { if (Math.random() < 0.30) allowSkills = true; }
+
+            if (allowSkills) {
+                const randomGeneric = GENERIC_MONSTER_SKILLS[Math.floor(Math.random() * GENERIC_MONSTER_SKILLS.length)];
+                if (randomGeneric) {
+                    randomGeneric.execute(monster, players, log);
+                    if (isNaN(monster.shield)) monster.shield = 0;
+                    monster.shield = Math.floor(monster.shield);
+                    skillUsed = true;
+                }
+            }
+        }
+    } else {
+        // إذا كان صامتاً، يفقد شحن الكومبو الخاص به
+        monster.memory.comboStep = 0; 
     }
 
-    if (!skillUsed && monster.memory.comboStep === 1) {
+    // هجمات الكومبو المبرمجة مسبقاً (تُلغى إذا كان الوحش صامتاً)
+    if (!skillUsed && !isSilenced && monster.memory.comboStep === 1) {
         if (monster.memory.lastMove === 'oil') {
             alive.forEach(p => {
                 if (p.effects.some(e => e.type === 'evasion' || e.type === 'invisibility')) return;
@@ -229,7 +273,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
         monster.memory.lastMove = null;
     }
 
-    if (!skillUsed && floor >= 25 && monster.hp < monster.maxHp * 0.25 && monster.memory.healsUsed < 2) {
+    if (!skillUsed && !isSilenced && floor >= 25 && monster.hp < monster.maxHp * 0.25 && monster.memory.healsUsed < 2) {
         if (Math.random() < 0.5) {
             let healPercent = 0.02 + ((floor - 20) * 0.001);
             healPercent = Math.min(healPercent, 0.10); 
@@ -241,6 +285,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
         }
     }
 
+    // الهجوم العادي (Basic Attack)
     if (!skillUsed) {
         let targetCount = 1;
         if (floor >= 30) targetCount = 2;
@@ -254,6 +299,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
             let hitLog = [];
             
             targets.forEach(target => {
+                // فحص المراوغة (Evasion)
                 if (target.effects.some(e => e.type === 'evasion' || e.type === 'invisibility')) {
                     hitLog.push(`${target.name}: 👻 اختفاء (Miss)`);
                     return; 
@@ -271,15 +317,27 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
 
                 if (target.defending) dmg = Math.floor(dmg * 0.5);
                 
+                // 🌵 فحص الأشواك (Thorns) للوحش المهاجم
+                const thornsEffect = target.effects.find(e => e.type === 'thorns');
+                let thornsDmg = 0;
+                if (thornsEffect) {
+                    thornsDmg = Math.floor(dmg * (thornsEffect.val || 0.3));
+                    thornsDmg = Math.floor(thornsDmg * vulnMultiplier); // الأشواك تزيد مع الهشاشة
+                    monster.hp = Math.max(0, Math.floor(monster.hp - thornsDmg));
+                }
+
+                // 🔄 فحص الانعكاس (Reflect)
                 const reflectEffect = target.effects.find(e => e.type === 'reflect' || e.type === 'tank_reflect');
                 let reflectedDmg = 0;
                 
                 if (reflectEffect) {
                     reflectedDmg = Math.floor(dmg * (reflectEffect.val || 0.5)); 
-                    dmg = Math.floor(dmg - reflectedDmg);
+                    reflectedDmg = Math.floor(reflectedDmg * vulnMultiplier); // الانعكاس يزيد مع الهشاشة
+                    dmg = Math.floor(dmg - reflectedDmg); // تقليل الضرر المتلقى
                     monster.hp = Math.max(0, Math.floor(monster.hp - reflectedDmg));
                 }
 
+                // تطبيق الضرر النهائي على اللاعب
                 const takenDmg = applyDamageToPlayer(target, dmg);
                 
                 let status = `-${takenDmg}`;
@@ -288,6 +346,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
                 if (lightningVal > 0) status += " (⚡ضعف)";
                 if (weakenEffect) status += " (📉مُضعف)";
                 if (reflectedDmg > 0) status += ` (عكس ${reflectedDmg})`;
+                if (thornsDmg > 0) status += ` (أشواك 🌵 ${thornsDmg})`;
 
                 hitLog.push(`${target.name}: ${status}`);
             });
@@ -305,6 +364,7 @@ async function processMonsterTurn(monster, players, log, turnCount, battleMsg, f
     if (monster.hp < 0) monster.hp = 0;
     if (isNaN(monster.hp)) monster.hp = 0;
 
+    // 🔥 6. معالجة وفيات اللاعبين ────────────────────────────────────────────────
     const deadJustNow = players.filter(p => p.hp <= 0 && !p.isDead && !p.isPermDead);
     
     for (const p of deadJustNow) {
