@@ -91,7 +91,6 @@ async function renderLand(interaction, client, db) {
         getGrowthMultiplier(db, userId, guildId),
         getLandPlots(client, userId, guildId),
         db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]).catch(() => db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}))),
-        // 🔥 جلب بيانات العامل من جدول levels بدلاً من user_buffs 🔥
         db.query(`SELECT "hasGuard", "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(() => db.query(`SELECT hasguard, guardexpires FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}))),
         getFarmAsset('grass'), getFarmAsset('tilled'), getFarmAsset('lock'), getFarmAsset('withered'), getFarmAsset('sprout'),
         getFarmAsset('border_top'), getFarmAsset('border_bottom'), getFarmAsset('border_left'), getFarmAsset('border_right'),
@@ -108,7 +107,7 @@ async function renderLand(interaction, client, db) {
     const userPlots = userPlotsRes.rows;
 
     let canPlow = false, hasTilled = false, readyCount = 0, witheredCount = 0, minRemainingTime = Infinity, totalPlowCost = 0;
-    const neededCrops = new Set(); // لاستخراج الصور المطلوبة بدون تكرار
+    const neededCrops = new Set(); 
 
     for (let i = 1; i <= unlockedPlots; i++) {
         const p = userPlots.find(x => Number(x.plotID || x.plotid) === i);
@@ -128,7 +127,6 @@ async function renderLand(interaction, client, db) {
 
                 if (remaining > 0 && remaining < minRemainingTime) minRemainingTime = remaining;
                 
-                // التحقق مما إذا كان المحصول جاهزاً لنطلب صورته
                 if (age >= growthMs && age < (growthMs + (seed.wither_time_hours * 3600000))) {
                     neededCrops.add(seed.id);
                 }
@@ -136,7 +134,6 @@ async function renderLand(interaction, client, db) {
         }
     }
 
-    // 🚀 تحميل صور المحاصيل المطلوبة فقط دفعة واحدة (إذا لم تكن محملة أصلاً)
     await Promise.all(Array.from(neededCrops).map(id => getFarmAsset(id)));
 
     const totalWidth = (GRID_COLS * TILE_SIZE) + (TILE_SIZE * 2);
@@ -203,7 +200,7 @@ async function renderLand(interaction, client, db) {
                         if (images.withered) ctx.drawImage(images.withered, x, y, TILE_SIZE, TILE_SIZE);
                         witheredCount++;
                     } else if (age >= growthMs) {
-                        const cropImg = await getFarmAsset(seed.id); // 🚀 يستدعيها من الرام بصفر ثانية
+                        const cropImg = await getFarmAsset(seed.id); 
                         if (cropImg) ctx.drawImage(cropImg, x, y, TILE_SIZE, TILE_SIZE);
                         readyCount++;
                     } else {
@@ -244,7 +241,6 @@ async function renderLand(interaction, client, db) {
         addButton(new ButtonBuilder().setCustomId(`land_clean_all_${userId}`).setLabel('تنظيـف').setStyle(ButtonStyle.Danger).setEmoji('🚿'));
     }
 
-    // 🔥 تعديل عرض الوقت ونسبة النمو لتظهر في زر واحد فقط وتكون مرتبطة ببعضها 🔥
     if (minRemainingTime !== Infinity) {
         const hours = Math.floor(minRemainingTime / (1000 * 60 * 60));
         const minutes = Math.floor((minRemainingTime % (1000 * 60 * 60)) / (1000 * 60));
@@ -259,7 +255,6 @@ async function renderLand(interaction, client, db) {
         addButton(new ButtonBuilder().setCustomId('info_growth_time').setLabel(label).setStyle(ButtonStyle.Secondary).setDisabled(true));
     }
 
-    // 🔥 عرض بيانات العامل الصحيحة من جدول Levels 🔥
     const levelData = levelDataRes.rows[0];
     if (levelData) {
         const hasGuard = Number(levelData.hasGuard || levelData.hasguard || 0);
@@ -407,7 +402,6 @@ async function handleLandInteractions(i, client, db) {
             if (Number(userData.mora || 0) < totalCost) return await i.followUp({ content: `❌ **رصيدك غير كافي!** تحتاج **${totalCost}** ${EMOJI_MORA}`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             
             try {
-                // ✅ GREATEST لمنع الرصيد السالب + RETURNING لتحديث الكاش
                 const plowRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora", '0') AS BIGINT) - $1) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [totalCost, userId, guildId]);
                 userData.mora = plowRes.rows[0] ? String(plowRes.rows[0].mora) : String(Math.max(0, Number(userData.mora || 0) - totalCost));
                 if (typeof client.setLevel === 'function') await client.setLevel(userData);
@@ -544,7 +538,8 @@ async function handleLandInteractions(i, client, db) {
                 } catch(err) { await db.query("ROLLBACK").catch(()=>{}); }
             }
 
-            await i.editReply(`✅ **تم زراعة ${countToPlant}x ${seed.name}**`).catch(()=>{});
+            // 🔥 جعل رسالة التأكيد مخفية (Ephemeral)
+            await i.editReply({ content: `✅ **تم زراعة ${countToPlant}x ${seed.name}**`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
             try {
                 const mainMsg = await i.channel.messages.fetch(msgId).catch(() => null);
@@ -622,7 +617,6 @@ async function handleLandInteractions(i, client, db) {
             if (addXPAndCheckLevel && totalXP > 0) {
                  await addXPAndCheckLevel(client, i.member, db, totalXP, totalRevenue, false).catch(()=>{});
             } else {
-                 // ✅ RETURNING لتحديث كاش اللاعب بعد إضافة أرباح الحصاد
                  try {
                      const harvestRes = await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4 RETURNING "mora"`, [totalRevenue, totalXP, userId, guildId]);
                      if (client.updateLevelField && harvestRes.rows[0]) client.updateLevelField(userId, guildId, { mora: Number(harvestRes.rows[0].mora) });
@@ -633,7 +627,8 @@ async function handleLandInteractions(i, client, db) {
                 updateGuildStat(client, guildId, userId, 'crops_harvested', totalRevenue).catch(()=>{});
             }
 
-            await i.followUp({ content: `🌾 **تم حصاد ${harvestedCount} محاصيل!**\n💰 الأرباح: **+${totalRevenue.toLocaleString()}** مورا\n✨ الخبرة: **+${totalXP}** XP` }).catch(()=>{});
+            // 🔥 جعل رسالة تأكيد الحصاد مخفية (Ephemeral)
+            await i.followUp({ content: `🌾 **تم حصاد ${harvestedCount} محاصيل!**\n💰 الأرباح: **+${totalRevenue.toLocaleString()}** مورا\n✨ الخبرة: **+${totalXP}** XP`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             await updateView();
             return;
         }
@@ -676,6 +671,7 @@ async function handleLandInteractions(i, client, db) {
                 } catch(err) { await db.query("ROLLBACK").catch(()=>{}); }
             }
 
+            // 🔥 جعل رسالة التنظيف مخفية (Ephemeral)
             await i.followUp({ content: `🚿 **تم تنظيف ${plotsToReset.length} أراضي ذابلة.**`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             await updateView();
             return;
