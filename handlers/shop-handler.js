@@ -420,25 +420,49 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     }
                 }
             }
-            // 🔥 التصحيح: إضافة مدة عامل المزرعة، والحد الأقصى هو عاملين (6 أيام) 🔥
+            // 🔥 عامل المزرعة — يكتب في levels (للعرض) و user_buffs (للمنطق) 🔥
             else if (itemData.id === 'farm_worker_3d') {
-                const durationMs = 3 * 24 * 60 * 60 * 1000; 
+                const durationMs = 3 * 24 * 60 * 60 * 1000;
+
+                // --- 1. حساب وقت الانتهاء الجديد من levels (للعرض في farm-land) ---
                 let rLvl = await execSafe(db, `SELECT "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT guardexpires FROM levels WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
-                
+
                 let newExpiresAt = Date.now() + durationMs;
                 if (rLvl.rows.length > 0) {
                     const expMs = Number(rLvl.rows[0].guardExpires || rLvl.rows[0].guardexpires || 0);
-                    // إذا كان لديه وقت متبقي، أضف 3 أيام فوقه
                     if (expMs > Date.now()) newExpiresAt = expMs + durationMs;
                 }
 
-                let upd = await execSafe(db, 
+                // تحديث levels للعرض
+                let upd = await execSafe(db,
                     `UPDATE levels SET "hasGuard" = 1, "guardExpires" = $1 WHERE "user" = $2 AND "guild" = $3`,
                     `UPDATE levels SET hasguard = 1, guardexpires = $1 WHERE userid = $2 AND guildid = $3`,
                     [newExpiresAt, interaction.user.id, interaction.guild.id]
                 );
-
                 if (upd.error) success = false;
+
+                // --- 2. تحديث user_buffs (للمنطق في farm-handler) ---
+                if (success) {
+                    let wBuf = await execSafe(db,
+                        `SELECT "id", "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                        `SELECT id, expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                        [interaction.user.id, interaction.guild.id]
+                    );
+                    if (wBuf.rows.length > 0) {
+                        const bId = wBuf.rows[0].id || wBuf.rows[0].ID;
+                        await execSafe(db,
+                            `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`,
+                            `UPDATE user_buffs SET expiresat = $1 WHERE id = $2`,
+                            [newExpiresAt, bId]
+                        );
+                    } else {
+                        await execSafe(db,
+                            `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                            `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                            [interaction.user.id, interaction.guild.id, newExpiresAt]
+                        );
+                    }
+                }
             }
             else if (itemData.id === 'change_race') {
                 let allRaceRolesRes = await execSafe(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid, racename FROM race_roles WHERE guildid = $1`, [interaction.guild.id]);
@@ -649,12 +673,12 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
             if (rLvl.rows.length > 0) {
                 const expiresAtMs = Number(rLvl.rows[0].guardExpires || rLvl.rows[0].guardexpires || 0);
                 const hasGuard = Number(rLvl.rows[0].hasGuard || rLvl.rows[0].hasguard || 0);
-                
+
                 if (hasGuard === 1 && expiresAtMs > Date.now()) {
                     const remainingDays = (expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000);
-                    // 🔥 المنع إذا كان الوقت المتبقي 3 أيام أو أكثر (ما يعني أنه اشترى 2 أصلاً) 🔥
-                    if (remainingDays >= 3) {
-                        return await i.editReply({ content: `🚫 **العامل متوفر ومكتفي بالوقت!**\nلديك بالفعل عاملان نشطان (الحد الأقصى)، سيستمران بالعمل لمدة ${Math.ceil(remainingDays)} أيام القادمة.` });
+                    // الحد الأقصى 2 عامل = 6 أيام إجمالية
+                    if (remainingDays >= 6) {
+                        return await i.editReply({ content: `🚫 **الحد الأقصى من العمال!**\nلديك بالفعل **2 عاملان نشطان** (الحد الأقصى)، سيستمران بالعمل لمدة **${Math.ceil(remainingDays)} يوماً** القادمة.` });
                     }
                 }
             }
