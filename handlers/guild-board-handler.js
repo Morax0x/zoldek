@@ -121,28 +121,38 @@ function chunkButtons(buttons) {
     return rows;
 }
 
+// 🔥 تم إصلاح هذه الدالة لتقرأ الإنجازات من الداتابيز بأمان، وتدعم التقليب 🔥
 async function buildMyAchievementsEmbed(interaction, db, page = 1) {
     try {
-        const completedRes = await db.query(`SELECT * FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]);
+        let completedRes;
+        try { 
+            completedRes = await db.query(`SELECT * FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]); 
+        } catch(e) { 
+            completedRes = await db.query(`SELECT * FROM user_achievements WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]).catch(()=>({rows:[]})); 
+        }
+        
         const completed = completedRes.rows;
         if (completed.length === 0) {
             return { 
-                embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], 
-                components: [], totalPages: 1 
+                embed: new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png'), 
+                components: [], 
+                totalPages: 1 
             };
         }
-        const completedIDs = new Set(completed.map(c => c.achievementID));
+
+        const completedIDs = new Set(completed.map(c => c.achievementID || c.achievementid));
         const completedDetails = questsConfig.achievements.filter(ach => completedIDs.has(ach.id)); 
         const perPage = 10;
         const totalPages = Math.ceil(completedDetails.length / perPage) || 1;
         page = Math.max(1, Math.min(page, totalPages)); 
-        const start = (page - 1) * perPage; const end = start + perPage;
+        const start = (page - 1) * perPage; 
+        const end = start + perPage;
         const achievementsToShow = completedDetails.slice(start, end); 
 
         const embed = new EmbedBuilder()
             .setTitle('🎖️ إنجازاتي المكتملة') 
             .setColor(Colors.DarkRed)
-            .setAuthor({ name: interaction.member.displayName, iconURL: interaction.user.displayAvatarURL() })
+            .setAuthor({ name: interaction.member.displayName || interaction.user.username, iconURL: interaction.user.displayAvatarURL() })
             .setFooter({ text: `صفحة ${page} / ${totalPages} (الإجمالي: ${completedDetails.length})` }) 
             .setTimestamp()
             .setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png');
@@ -152,9 +162,11 @@ async function buildMyAchievementsEmbed(interaction, db, page = 1) {
             description += `${ach.emoji || '🏆'} **${ach.name}**\n> ${ach.description}\n> *المكافأة: ${EMOJI_MORA} \`${ach.reward.mora}\` | ${EMOJI_STAR}XP: \`${ach.reward.xp}\`*\n\n`;
         }
         embed.setDescription(description);
-        return { embeds: [embed], totalPages: totalPages }; 
+        
+        return { embed: embed, totalPages: totalPages, currentPage: page }; 
     } catch (err) {
-        return { embeds: [new EmbedBuilder().setTitle(' خطأ').setDescription('حدث خطأ.').setColor(Colors.Red)], totalPages: 1 };
+        console.error("MyAchievements Error:", err);
+        return { embed: new EmbedBuilder().setTitle(' خطأ').setDescription('حدث خطأ.').setColor(Colors.Red), totalPages: 1 };
     }
 }
 
@@ -227,7 +239,6 @@ async function handleQuestPanel(i, client, db) {
          return i.editReply({ content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حاليا!**", embeds: [], components: [] }).catch(()=>{});
     }
 
-    // 🔥 تحديث قسم الإشعارات ليعمل بالعكس بشكل سليم 🔥
     if (section === 'notifications') {
         const notifDataRes = await db.query(`SELECT * FROM quest_notifications WHERE "id" = $1`, [id]).catch(()=>({rows:[]}));
         let notifData = notifDataRes.rows[0];
@@ -239,7 +250,6 @@ async function handleQuestPanel(i, client, db) {
             } catch(e) {}
         }
 
-        // قراءة آمنة للحروف (سواء كبيرة أو صغيرة)
         let dNotif = Number(notifData.dailyNotif ?? notifData.dailynotif ?? 1);
         let wNotif = Number(notifData.weeklyNotif ?? notifData.weeklynotif ?? 1);
         let aNotif = Number(notifData.achievementsNotif ?? notifData.achievementsnotif ?? 1);
@@ -294,19 +304,19 @@ async function handleQuestPanel(i, client, db) {
         return i.editReply({ embeds: [], components: [notifButtonsRow1, notifButtonsRow2], files: [attachment] }).catch(()=>{});
     }
 
-    const levelDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
+    const levelDataRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(()=>({rows:[]}));
     let levelData = levelDataRes.rows[0] || { user: userId, guild: guildId, level: 1, mora: 0, bank: 0, xp: 0 };
 
-    const dailyStatsRes = await db.query(`SELECT * FROM user_daily_stats WHERE "id" = $1`, [`${userId}-${guildId}-${todayStr}`]);
+    const dailyStatsRes = await db.query(`SELECT * FROM user_daily_stats WHERE "id" = $1`, [`${userId}-${guildId}-${todayStr}`]).catch(()=>({rows:[]}));
     let dailyStats = dailyStatsRes.rows[0] || {};
     
-    const weeklyStatsRes = await db.query(`SELECT * FROM user_weekly_stats WHERE "id" = $1`, [`${userId}-${guildId}-${weekStr}`]);
+    const weeklyStatsRes = await db.query(`SELECT * FROM user_weekly_stats WHERE "id" = $1`, [`${userId}-${guildId}-${weekStr}`]).catch(()=>({rows:[]}));
     let weeklyStats = weeklyStatsRes.rows[0] || {};
     
-    const totalStatsRes = await db.query(`SELECT * FROM user_total_stats WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    const totalStatsRes = await db.query(`SELECT * FROM user_total_stats WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]).catch(()=>({rows:[]}));
     let totalStats = totalStatsRes.rows[0] || {};
     
-    const completedAchievementsRes = await db.query(`SELECT * FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    const completedAchievementsRes = await db.query(`SELECT * FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]).catch(()=>({rows:[]}));
     const completedAchievements = completedAchievementsRes.rows;
 
     let embeds = []; let files = []; let totalPages = 1; let data; let buttons = [];
@@ -335,7 +345,7 @@ async function handleQuestPanel(i, client, db) {
     else if (section === 'adventurer_card') {
         try {
             const pvpCore = require('./pvp-core.js'); 
-            const repDataRes = await db.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+            const repDataRes = await db.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]).catch(()=>({rows:[]}));
             const repData = repDataRes.rows[0] || { rep_points: 0 };
             const points = Number(repData.rep_points) || 0;
             const rankInfo = getRepRankInfo(points);
@@ -348,7 +358,7 @@ async function handleQuestPanel(i, client, db) {
             const maxHp = 100 + (Number(levelData.level) * 4);
 
             const { calculateBuffMultiplier, calculateMoraBuff } = require("../streak-handler.js");
-            const streakDataRes = await db.query(`SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, [guildId, userId]);
+            const streakDataRes = await db.query(`SELECT * FROM streaks WHERE "guildID" = $1 AND "userID" = $2`, [guildId, userId]).catch(()=>({rows:[]}));
             const streakData = streakDataRes.rows[0];
             const streakCount = streakData ? (Number(streakData.streakCount) || 0) : 0;
             let hasItemShields = streakData ? (Number(streakData.hasItemShield) || 0) : 0;
@@ -364,19 +374,19 @@ async function handleQuestPanel(i, client, db) {
 
             let ranks = { level: "0", mora: "0", streak: "0", power: "0" };
             if (userId !== OWNER_ID) {
-                const allScoresRes = await db.query(`SELECT "user" as userID FROM levels WHERE "guild" = $1 AND "user" != $2 ORDER BY "totalXP" DESC`, [guildId, OWNER_ID]);
+                const allScoresRes = await db.query(`SELECT "user" as userID FROM levels WHERE "guild" = $1 AND "user" != $2 ORDER BY "totalXP" DESC`, [guildId, OWNER_ID]).catch(()=>({rows:[]}));
                 const allScores = allScoresRes.rows;
                 let rLvl = allScores.findIndex(s => s.userid === userId || s.userID === userId) + 1;
                 ranks.level = rLvl > 0 ? rLvl.toString() : "0";
 
-                const allMoraRes = await db.query(`SELECT "user" as userID FROM levels WHERE "guild" = $1 AND "user" != $2 ORDER BY ("mora" + "bank") DESC`, [guildId, OWNER_ID]);
+                const allMoraRes = await db.query(`SELECT "user" as userID FROM levels WHERE "guild" = $1 AND "user" != $2 ORDER BY ("mora" + "bank") DESC`, [guildId, OWNER_ID]).catch(()=>({rows:[]}));
                 const allMora = allMoraRes.rows;
                 let rMora = allMora.findIndex(s => s.userid === userId || s.userID === userId) + 1;
                 ranks.mora = rMora > 0 ? rMora.toString() : "0";
 
-                const allStreaksRes = await db.query(`SELECT "userID" FROM streaks WHERE "guildID" = $1 AND "userID" != $2 ORDER BY "streakCount" DESC`, [guildId, OWNER_ID]);
+                const allStreaksRes = await db.query(`SELECT "userID" FROM streaks WHERE "guildID" = $1 AND "userID" != $2 ORDER BY "streakCount" DESC`, [guildId, OWNER_ID]).catch(()=>({rows:[]}));
                 const allStreaks = allStreaksRes.rows;
-                let rStreak = allStreaks.findIndex(s => s.userID === userId) + 1;
+                let rStreak = allStreaks.findIndex(s => s.userID === userId || s.userid === userId) + 1;
                 ranks.streak = rStreak > 0 ? rStreak.toString() : "0";
 
                 let rPower = await calculateStrongestRank(db, guildId, userId);
@@ -415,7 +425,10 @@ async function handleQuestPanel(i, client, db) {
     } 
     else if (section === 'hall_of_fame') {
         try {
-            const topUsersRes = await db.query(`SELECT "userID", "rep_points" as rp FROM user_reputation WHERE "guildID" = $1 AND "rep_points" > 0 AND "userID" != $2 ORDER BY rp DESC LIMIT 10`, [guildId, OWNER_ID]);
+            let topUsersRes;
+            try { topUsersRes = await db.query(`SELECT "userID", "rep_points" as rp FROM user_reputation WHERE "guildID" = $1 AND "rep_points" > 0 AND "userID" != $2 ORDER BY rp DESC LIMIT 10`, [guildId, OWNER_ID]); }
+            catch(e) { topUsersRes = await db.query(`SELECT userid as "userID", rep_points as rp FROM user_reputation WHERE guildid = $1 AND rep_points > 0 AND userid != $2 ORDER BY rp DESC LIMIT 10`, [guildId, OWNER_ID]).catch(()=>({rows:[]})); }
+            
             const topUsers = topUsersRes.rows;
             
             let topUsersData = [];
@@ -457,7 +470,7 @@ async function handleQuestPanel(i, client, db) {
         
         files = data.files || [];
         totalPages = data.totalPages || 1;
-        currentPage = Math.max(1, Math.min(currentPage, totalPages)); 
+        currentPage = data.currentPage || Math.max(1, Math.min(currentPage, totalPages)); 
     }
 
     let components = [];
