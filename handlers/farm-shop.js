@@ -283,7 +283,8 @@ async function handleFarmShopModal(i, client, db) {
     if (!i.customId.startsWith('farm_buy_modal|') && !i.customId.startsWith('farm_sell_modal|')) return false;
 
     try {
-        await i.deferReply({ flags: [MessageFlags.Ephemeral] }); 
+        // 🔥 إزالة Ephemeral لكي تظهر الرسالة للجميع 🔥
+        await i.deferReply(); 
         
         const action = i.customId.startsWith('farm_buy_') ? 'buy' : 'sell';
         const [_, category, itemId] = i.customId.split('|');
@@ -302,7 +303,6 @@ async function handleFarmShopModal(i, client, db) {
         if (action === 'buy') {
             const totalPrice = itemData.price * quantity;
 
-            // 🔥 استخدام نظام الخصم الذكي لحماية الذاكرة المؤقتة والداتابيز 🔥
             let deducted = await deductMora(client, db, i.user.id, i.guild.id, totalPrice);
             
             if (!deducted) {
@@ -323,7 +323,6 @@ async function handleFarmShopModal(i, client, db) {
                 const spaceNeeded = quantity * (itemData.size || 1);
 
                 if (currentCap + spaceNeeded > cap) {
-                    // إرجاع الفلوس لو المساحة ما تكفي
                     await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]));
                     if (client && typeof client.getLevel === 'function') {
                         let u = await client.getLevel(i.user.id, i.guild.id);
@@ -339,7 +338,6 @@ async function handleFarmShopModal(i, client, db) {
                 let currQty = invCheckRes?.rows?.[0] ? Number(invCheckRes.rows[0].quantity || invCheckRes.rows[0].Quantity || 0) : 0;
 
                 if (currQty + quantity > MAX_FARM_LIMIT) {
-                    // إرجاع الفلوس للمستخدم
                     await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]));
                     if (client && typeof client.getLevel === 'function') {
                         let u = await client.getLevel(i.user.id, i.guild.id);
@@ -376,7 +374,6 @@ async function handleFarmShopModal(i, client, db) {
                     }
                 }
             } catch (insertError) {
-                // إرجاع الفلوس في حال فشل إعطاء العنصر
                 await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalPrice, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalPrice, i.user.id, i.guild.id]));
                 if (client && typeof client.getLevel === 'function') {
                     let u = await client.getLevel(i.user.id, i.guild.id);
@@ -385,7 +382,7 @@ async function handleFarmShopModal(i, client, db) {
                 return await i.editReply('❌ حدث خطأ داخلي أثناء تسليم العنصر، تم إرجاع أموالك.');
             }
 
-            await i.editReply(`✅ اشتريت **${quantity.toLocaleString()}x ${itemData.name}** بنجاح!\nالتكلفة: ${totalPrice.toLocaleString()} مورا`);
+            await i.editReply(`✅ <@${i.user.id}> اشتريت **${quantity.toLocaleString()}x ${itemData.name}** بنجاح!\nالتكلفة: ${totalPrice.toLocaleString()} مورا`);
 
         } else if (action === 'sell') {
             const sellPrice = Math.floor(itemData.price * 0.5); 
@@ -439,7 +436,6 @@ async function handleFarmShopModal(i, client, db) {
                     }
                 }
 
-                // إضافة الفلوس للذاكرة والداتابيز معاً
                 try {
                     await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalGain, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalGain, i.user.id, i.guild.id]));
                     if (client && typeof client.getLevel === 'function') {
