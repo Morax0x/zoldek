@@ -40,7 +40,6 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
 
     let players = [];
     
-    // 🔥 تم إضافة الصناديق والسمعة لمتغيرات التخزين للحفاظ عليها 🔥
     let totalAccumulatedCoins = 0;
     let totalAccumulatedXP = 0;
     let totalAccumulatedChests = 0;
@@ -52,7 +51,6 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         merchantState = resumeData.merchantState || merchantState;
         retreatState = resumeData.retreatState || retreatState; 
         
-        // استعادة الغنائم القديمة بما فيها الصناديق والسمعة!
         totalAccumulatedCoins = resumeData.loot.coins || 0;
         totalAccumulatedXP = resumeData.loot.xp || 0;
         totalAccumulatedChests = resumeData.loot.chests || 0;
@@ -63,7 +61,6 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         isTrapActive = resumeData.isTrapActive || false;
         resumedMonsterData = resumeData.monsterData || null;
 
-        // 🔥 إعادة إنعاش جميع الغنائم في كائنات اللاعبين الفردية 🔥
         const activePlayerCount = players.filter(p => !p.isDead).length;
         if (activePlayerCount > 0) {
             const individualMora = Math.floor(totalAccumulatedCoins / activePlayerCount);
@@ -139,7 +136,6 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             try {
                 await threadChannel.send(`⏩ **انتقال سريع!** تم القفز من الطابق ${oldFloor} إلى ${targetFloor}.`);
             } catch (err) {
-                console.log("Error sending message:", err.message);
                 break; 
             }
             
@@ -175,7 +171,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
                 p.startingShield = 0; 
                 
                 p.effects = p.effects.filter(e => 
-                    ['poison', 'atk_buff', 'def_buff', 'weakness', 'titan', 'burn', 'stun', 'rebound_active', 'rebound', 'confusion'].includes(e.type)
+                    ['poison', 'atk_buff', 'def_buff', 'weakness', 'titan', 'burn', 'stun', 'rebound_active', 'rebound', 'confusion', 'bat', 'silence', 'thorns', 'taunt', 'vulnerable', 'bleed', 'blind', 'evasion', 'reflect', 'tank_reflect'].includes(e.type)
                 );
                 
                 p.defending = false; 
@@ -231,7 +227,6 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             }
         }
 
-        // حفظ الدانجون مع الصناديق والسمعة
         await saveDungeonState(db, threadChannel.id, guild.id, hostId, {
             floor, players, merchantState, retreatedPlayers, isTrapActive, retreatState, 
             loot: { coins: totalAccumulatedCoins, xp: totalAccumulatedXP, chests: totalAccumulatedChests, rep: totalAccumulatedRep },
@@ -252,7 +247,6 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
                 components: generateBattleRows() 
             });
         } catch (err) {
-            console.log("Dungeon Stop: Thread likely deleted.");
             break;
         }
 
@@ -388,7 +382,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         if (floor === maxFloors) {
             const moraxMora = getBaseFloorMora(100);
             const moraxXp = Math.floor(moraxMora * 0.10); 
-            const moraxChests = 5; // جوائز إضافية
+            const moraxChests = 5;
             const moraxRep = 100;
 
             totalAccumulatedCoins += moraxMora;
@@ -418,7 +412,6 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         totalAccumulatedCoins = lootTotals.coins || totalAccumulatedCoins;
         totalAccumulatedXP = lootTotals.xp || totalAccumulatedXP;
 
-        // 🔥 حماية إضافية: إعادة جمع الصناديق والسمعة مباشرة من جيوب اللاعبين لضمان الدقة 100% 🔥
         totalAccumulatedChests = 0;
         totalAccumulatedRep = 0;
         players.forEach(p => {
@@ -433,7 +426,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         const restContext = {
             floor, players, retreatState, retreatedPlayers, 
             totalAccumulatedCoins, totalAccumulatedXP, 
-            totalAccumulatedChests, totalAccumulatedRep, // تم الإضافة هنا للحماية
+            totalAccumulatedChests, totalAccumulatedRep,
             threadChannel, db, guild, log,
             theme, 
             restImage 
@@ -505,9 +498,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
 
         try {
             await threadChannel.send({ content: `🎉 ${mentions}`, embeds: [winEmbed] });
-        } catch (err) {
-            console.log("⚠️ تعذر إرسال رسالة الفوز (الثريد محذوف).");
-        }
+        } catch (err) {}
 
         await handleLeaderRetreat(alivePlayers, db, guild.id);
         await sendEndMessage(mainChannel, threadChannel, players, retreatedPlayers, 100, "win", db, guild.id, hostId, activeDungeonRequests, client);
