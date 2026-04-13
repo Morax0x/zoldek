@@ -1,4 +1,4 @@
-const { EmbedBuilder, Colors } = require("discord.js");
+const { EmbedBuilder } = require("discord.js");
 
 function startStatusMonitor(threadChannel, players) {
     const statusKeywords = ['كشف', 'هيل', 'هيلي', 'دم', 'دمي', 'HP', 'كم دمي', 'وضعي'];
@@ -46,8 +46,39 @@ function startStatusMonitor(threadChannel, players) {
         if (player.shield > 0) {
             msgContent += `\n🛡️ **الدرع:** ${player.shield}`;
         }
+
+        // 🔥 إضافة كاشف حالات التأثير (Status Effects) 🔥
+        if (player.effects && player.effects.length > 0) {
+            let activeEffects = [];
+            player.effects.forEach(e => {
+                const type = (e.type || "").toLowerCase();
+                const turns = e.turns ? `(${e.turns} جولات)` : '';
+                
+                switch(type) {
+                    case 'silence': activeEffects.push(`🔇 صمت ${turns}`); break;
+                    case 'bat': activeEffects.push(`🦇 طفيلي خفاش ${turns}`); break;
+                    case 'taunt': activeEffects.push(`🤬 استفزاز ${turns}`); break;
+                    case 'thorns': activeEffects.push(`🌵 أشواك ${turns}`); break;
+                    case 'vulnerable': activeEffects.push(`🎯 هشاشة ${turns}`); break;
+                    case 'burn': activeEffects.push(`🔥 حرق ${turns}`); break;
+                    case 'poison': activeEffects.push(`☠️ سم ${turns}`); break;
+                    case 'bleed': activeEffects.push(`🩸 نزيف ${turns}`); break;
+                    case 'weaken': activeEffects.push(`📉 إضعاف ${turns}`); break;
+                    case 'stun': activeEffects.push(`😵 شلل ${turns}`); break;
+                    case 'confusion': activeEffects.push(`🌀 ارتباك ${turns}`); break;
+                    case 'blind': activeEffects.push(`👁️ عمى ${turns}`); break;
+                    case 'reflect': case 'tank_reflect': activeEffects.push(`🔄 انعكاس ${turns}`); break;
+                    case 'evasion': activeEffects.push(`👻 مراوغة ${turns}`); break;
+                    case 'atk_buff': case 'buff': activeEffects.push(`💪 تعزيز هجوم ${turns}`); break;
+                }
+            });
+            
+            if (activeEffects.length > 0) {
+                msgContent += `\n\n**✨ الحالات الفعالة:**\n${activeEffects.join(' | ')}`;
+            }
+        }
         
-        msgContent += `\n💀 **سجل الموت:** ${deaths}/3 (متبقي ${livesLeft} فرص قبل التحلل)`;
+        msgContent += `\n\n💀 **سجل الموت:** ${deaths}/3 (متبقي ${livesLeft} فرص قبل التحلل)`;
 
         await m.reply({ content: msgContent }).catch(()=>{});
     });
