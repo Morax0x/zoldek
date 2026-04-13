@@ -238,7 +238,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
 
         if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['weaken', 'stun']));
 
-        result.log = `🐲 **${getName(attacker)}** سكب نيران الأجداد! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
+        result.log = `🐲 **${getName(attacker)}** نفـث النـيران! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
         break;
     }
 
