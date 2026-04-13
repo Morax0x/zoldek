@@ -17,7 +17,6 @@ const COLORS = {
 
 const BASE_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/ui';
 const ASSETS = {
-    // 🔥 تم تصحيح رابط الخلفية لسحب الصورة من مجلد images/ui السحابي 🔥
     bg: `${BASE_URL}/wallpaper.png`, 
     mora: `${BASE_URL}/icon_mora.png`,
     xp: `${BASE_URL}/icon_xp.png`,
@@ -44,6 +43,9 @@ const CARD_HEIGHT = 170;
 const CARD_X = 50; 
 const PADDING = 25;
 const PAGE_MARGIN = 40;
+
+// 🔥 تم إضافة كاش الصور لجعل اللوحة تفتح بسرعة البرق 🔥
+let cachedAssets = null;
 
 async function loadSafeImage(fileName, url) {
     try {
@@ -124,6 +126,8 @@ function getEmojiUrl(emoji) {
 }
 
 async function loadAssets() {
+    if (cachedAssets) return cachedAssets; // 🔥 إرجاع البيانات المحفوظة مباشرة! 🔥
+    
     const [bg, mora, xp, rep, common, uncommon, rare, epic, legendary] = await Promise.all([
         loadSafeImage('wallpaper.png', ASSETS.bg),
         loadSafeImage('icon_mora.png', ASSETS.mora),
@@ -135,7 +139,9 @@ async function loadAssets() {
         loadSafeImage('Epic.png', ASSETS.epic),
         loadSafeImage('Legendary.png', ASSETS.legendary)
     ]);
-    return { bg, mora, xp, rep, common, uncommon, rare, epic, legendary };
+    
+    cachedAssets = { bg, mora, xp, rep, common, uncommon, rare, epic, legendary };
+    return cachedAssets;
 }
 
 // 🎨 رسم البطاقة للقائمة الأساسية
@@ -481,7 +487,9 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
         currentCenterY += CARD_HEIGHT + 30; 
     }
 
-    return new AttachmentBuilder(await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'), { name: `achievements-page-${member.id}-${stats.page}.png` });
+    // 🔥 إصلاح خطأ الـ Promise Hang الحرج هنا 🔥
+    const buffer = canvas.encode ? await canvas.encode('png') : canvas.toBuffer('image/png');
+    return new AttachmentBuilder(buffer, { name: `achievements-page-${member.id}-${stats.page}.png` });
 }
 
 async function generateSingleAchievementAlert(member, achievement) {
@@ -494,7 +502,9 @@ async function generateSingleAchievementAlert(member, achievement) {
     const data = { achievement: achievement, progress: achievement.goal, isDone: true };
     await drawAlertNode(ctx, canvasW, canvasH, data, assets);
     
-    return new AttachmentBuilder(await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'), { name: `achievement-unlocked-${member.id}-${achievement.id}.png` });
+    // 🔥 إصلاح خطأ الـ Promise Hang الحرج هنا 🔥
+    const buffer = canvas.encode ? await canvas.encode('png') : canvas.toBuffer('image/png');
+    return new AttachmentBuilder(buffer, { name: `achievement-unlocked-${member.id}-${achievement.id}.png` });
 }
 
 async function generateQuestAlert(member, quest, questType) {
@@ -507,7 +517,9 @@ async function generateQuestAlert(member, quest, questType) {
     const data = { achievement: quest, progress: quest.goal, isDone: true };
     await drawAlertNode(ctx, canvasW, canvasH, data, assets);
     
-    return new AttachmentBuilder(await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'), { name: `quest-unlocked-${member.id}-${quest.id}.png` });
+    // 🔥 إصلاح خطأ الـ Promise Hang الحرج هنا 🔥
+    const buffer = canvas.encode ? await canvas.encode('png') : canvas.toBuffer('image/png');
+    return new AttachmentBuilder(buffer, { name: `quest-unlocked-${member.id}-${quest.id}.png` });
 }
 
 module.exports = {
