@@ -27,7 +27,6 @@ const MAX_FARM_LIMIT = 1000;
 
 const activeShopUsers = new Set();
 
-// 🔥 فضح الأخطاء في الكونسل لسهولة التتبع 🔥
 async function execSafe(db, queryPg, queryLite, params = []) {
     try {
         let res = await db.query(queryPg, params);
@@ -420,35 +419,38 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     }
                 }
             }
-            // عامل المزرعة — يُخزَّن في user_buffs فقط (مستقل تماماً عن نظام الحارس)
+            // 🔥 الحل الآمن لمشكلة تحديث/إدراج عامل المزرعة 🔥
             else if (itemData.id === 'farm_worker_3d') {
                 const durationMs = 3 * 24 * 60 * 60 * 1000;
                 const nowMs = Date.now();
 
-                // قراءة الوقت المتبقي الحالي (إن وُجد) لإضافة 3 أيام فوقه
                 let wBuf = await execSafe(db,
-                    `SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
-                    `SELECT expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                    `SELECT "id", "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                    `SELECT id, expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
                     [interaction.user.id, interaction.guild.id]
                 );
 
                 let newExpiresAt = nowMs + durationMs;
-                const existingExp = Number(wBuf.rows[0]?.expiresAt || wBuf.rows[0]?.expiresat || 0);
-                if (existingExp > nowMs) newExpiresAt = existingExp + durationMs;
-
-                // حذف القديم ثم إدراج جديد (نفس نمط XP buff) لتجنب تعارض المفتاح الرئيسي
-                await execSafe(db,
-                    `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
-                    `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
-                    [interaction.user.id, interaction.guild.id]
-                );
-
-                let ins = await execSafe(db,
-                    `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                    `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                    [interaction.user.id, interaction.guild.id, newExpiresAt]
-                );
-                if (ins.error) success = false;
+                
+                if (wBuf.rows.length > 0) {
+                    const existingExp = Number(wBuf.rows[0].expiresAt || wBuf.rows[0].expiresat || 0);
+                    if (existingExp > nowMs) newExpiresAt = existingExp + durationMs;
+                    
+                    const bufId = wBuf.rows[0].id || wBuf.rows[0].ID;
+                    let upd = await execSafe(db,
+                        `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`,
+                        `UPDATE user_buffs SET expiresat = $1 WHERE id = $2`,
+                        [newExpiresAt, bufId]
+                    );
+                    if (upd.error) success = false;
+                } else {
+                    let ins = await execSafe(db,
+                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        [interaction.user.id, interaction.guild.id, newExpiresAt]
+                    );
+                    if (ins.error) success = false;
+                }
             }
             else if (itemData.id === 'change_race') {
                 let allRaceRolesRes = await execSafe(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid, racename FROM race_roles WHERE guildid = $1`, [interaction.guild.id]);
@@ -664,7 +666,6 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
                 const expiresAtMs = Number(wBuf.rows[0].expiresAt || wBuf.rows[0].expiresat || 0);
                 if (expiresAtMs > Date.now()) {
                     const remainingDays = (expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000);
-                    // الحد الأقصى 2 عامل = 6 أيام إجمالية
                     if (remainingDays >= 6) {
                         return await i.editReply({ content: `🚫 **الحد الأقصى من العمال!**\nلديك بالفعل **2 عاملان نشطان** (الحد الأقصى)، سيستمران بالعمل لمدة **${Math.ceil(remainingDays)} يوماً** القادمة.` });
                     }
