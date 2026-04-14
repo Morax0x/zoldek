@@ -62,8 +62,9 @@ async function applyDynamicBuffs(member, player, currentThemeKey, guildId, db) {
 
                     case 'def':
                     case 'defense':
-                        player.def += multiplier; 
-                        player.defense = player.def; 
+                        // 🔥 تم الإصلاح: وضع الدفاع كدرع مقاومة دائم لأن دفاع اللاعب الأساسي 0 🔥
+                        if (!player.effects) player.effects = [];
+                        player.effects.push({ type: 'def_buff', val: multiplier, turns: 999, floors: 999 });
                         buffMsgArray.push(`🛡️ +${Math.floor(val)}% دفاع`);
                         break;
 
@@ -71,7 +72,7 @@ async function applyDynamicBuffs(member, player, currentThemeKey, guildId, db) {
                         const shieldBonus = Math.floor(player.maxHp * multiplier);
                         player.shield += shieldBonus;
                         player.startingShield = (player.startingShield || 0) + shieldBonus;
-                        buffMsgArray.push(`💠 +${shieldBonus} درع`);
+                        buffMsgArray.push(`💠 +${Math.floor(val)}% درع`);
                         break;
 
                     case 'lifesteal':
@@ -81,7 +82,8 @@ async function applyDynamicBuffs(member, player, currentThemeKey, guildId, db) {
 
                     case 'crit':
                     case 'critrate':
-                        player.critRate += multiplier;
+                        // 🔥 تم الإصلاح: تجميع الكريت كنسبة صحيحة ليقرأها ملف القتال بدقة 🔥
+                        player.critRate += val;
                         buffMsgArray.push(`✨ +${Math.floor(val)}% كريت`);
                         break;
                 }
@@ -117,6 +119,7 @@ async function setupPlayers(guild, partyIDs, partyClasses, sql, OWNER_ID, themeK
             playerData.shieldFloorsCount = 0; 
             playerData.summon = null; 
 
+            // 🔥 يتم تطبيق البفات الديناميكية هنا قبل المعركة 🔥
             const raceBuffMsg = await applyDynamicBuffs(m, playerData, themeKey, guild.id, sql);
             if (raceBuffMsg) {
                 playerData.raceBuffText = raceBuffMsg;
