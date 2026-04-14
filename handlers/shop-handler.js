@@ -423,37 +423,32 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             // عامل المزرعة — يُخزَّن في user_buffs فقط (مستقل تماماً عن نظام الحارس)
             else if (itemData.id === 'farm_worker_3d') {
                 const durationMs = 3 * 24 * 60 * 60 * 1000;
+                const nowMs = Date.now();
 
-                // جلب السجل الحالي من user_buffs لمعرفة الوقت المتبقي
+                // قراءة الوقت المتبقي الحالي (إن وُجد) لإضافة 3 أيام فوقه
                 let wBuf = await execSafe(db,
-                    `SELECT "id", "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
-                    `SELECT id, expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                    `SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                    `SELECT expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
                     [interaction.user.id, interaction.guild.id]
                 );
 
-                const now = Date.now();
-                let newExpiresAt = now + durationMs;
-                if (wBuf.rows.length > 0) {
-                    const existingExp = Number(wBuf.rows[0].expiresAt || wBuf.rows[0].expiresat || 0);
-                    if (existingExp > now) newExpiresAt = existingExp + durationMs;
-                }
+                let newExpiresAt = nowMs + durationMs;
+                const existingExp = Number(wBuf.rows[0]?.expiresAt || wBuf.rows[0]?.expiresat || 0);
+                if (existingExp > nowMs) newExpiresAt = existingExp + durationMs;
 
-                if (wBuf.rows.length > 0) {
-                    const bId = wBuf.rows[0].id || wBuf.rows[0].ID;
-                    let upd = await execSafe(db,
-                        `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`,
-                        `UPDATE user_buffs SET expiresat = $1 WHERE id = $2`,
-                        [newExpiresAt, bId]
-                    );
-                    if (upd.error) success = false;
-                } else {
-                    let ins = await execSafe(db,
-                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                        [interaction.user.id, interaction.guild.id, newExpiresAt]
-                    );
-                    if (ins.error) success = false;
-                }
+                // حذف القديم ثم إدراج جديد (نفس نمط XP buff) لتجنب تعارض المفتاح الرئيسي
+                await execSafe(db,
+                    `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                    `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                    [interaction.user.id, interaction.guild.id]
+                );
+
+                let ins = await execSafe(db,
+                    `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                    `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                    [interaction.user.id, interaction.guild.id, newExpiresAt]
+                );
+                if (ins.error) success = false;
             }
             else if (itemData.id === 'change_race') {
                 let allRaceRolesRes = await execSafe(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid, racename FROM race_roles WHERE guildid = $1`, [interaction.guild.id]);
