@@ -4,7 +4,7 @@ const path = require('path');
 try {
     GlobalFonts.registerFromPath(path.join(__dirname, '../fonts/bein-ar-normal.ttf'), 'Bein');
 } catch (e) {
-    console.log("⚠️ لم يتم العثور على خط Bein، سيتم استخدام الخط الافتراضي.");
+    console.log("⚠️ لم يتم العثور على خـط Bein، سيتم استخدام الخط الافتراضي.");
 }
 
 function drawRandomPolygon(ctx, cx, cy, radius, sides) {
