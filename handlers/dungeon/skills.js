@@ -208,8 +208,8 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
 
     const isOwner = player.id === OWNER_ID;
     
-    // 🔥 تنفيذ المهارة الفعلي (الذي يعالج الكريت والشفاء) 🔥
-    const result = skillCalculator.executeSkill(player, defender || monster, skill, isOwner);
+    // 🔥 تم الإصلاح هنا: تمرير monster بدلاً من المتغير الخاطئ defender 🔥
+    const result = skillCalculator.executeSkill(player, monster, skill, isOwner);
 
     if (result.effectsApplied && result.effectsApplied.length > 0) {
         const userSkillEntry = player.skills ? player.skills[skill.id] : null;
@@ -237,7 +237,6 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
           
         checkBossPhase(monster, log);
 
-        // إذا كان هناك ختم في الضرر وأيضاً إذا كان هناك لوق يجب تحديثه 
         if (originalDmg > result.damage && result.log) {
             if (!result.log.includes("(مختوم)")) result.log += " (مختوم)";
         }
