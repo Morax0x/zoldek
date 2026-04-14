@@ -133,10 +133,9 @@ async function checkFarmIncome(client, db) {
 
             const payoutID = `${userID}-${guildID}`;
             
-            const [lastPayoutDataRes, workerBuffRes, levelDataRes] = await Promise.all([
+            const [lastPayoutDataRes, workerBuffRes] = await Promise.all([
                 safeQuery(db, `SELECT "lastPayoutDate" FROM farm_last_payout WHERE "id" = $1`, [payoutID]),
-                safeQuery(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userID, guildID, now]),
-                safeQuery(db, `SELECT "hasGuard", "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID])
+                safeQuery(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userID, guildID, now])
             ]);
 
             const growthMultiplier = await getGrowthMultiplier(db, userID, guildID);
@@ -144,22 +143,7 @@ async function checkFarmIncome(client, db) {
             const lastPayoutData = lastPayoutDataRes.rows[0];
             const payoutTime = lastPayoutData ? Number(lastPayoutData.lastPayoutDate || lastPayoutData.lastpayoutdate || 0) : 0;
             const isDailyPayoutDue = (now - payoutTime) >= ONE_DAY;
-
-            // فحص العامل من user_buffs أولاً، ثم من levels كـ fallback للمستخدمين القدامى
-            const workerFromBuff = workerBuffRes.rows.length > 0;
-            const lvlRow = levelDataRes.rows[0];
-            const workerFromLevels = lvlRow && Number(lvlRow.hasGuard || lvlRow.hasguard || 0) === 1
-                && Number(lvlRow.guardExpires || lvlRow.guardexpires || 0) > now;
-            const hasWorker = workerFromBuff || workerFromLevels;
-
-            // إذا وُجد العامل في levels فقط (بيانات قديمة)، انقله إلى user_buffs لمزامنة الجدولين
-            if (workerFromLevels && !workerFromBuff) {
-                const workerExpires = Number(lvlRow.guardExpires || lvlRow.guardexpires);
-                await safeExecute(db,
-                    `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0) ON CONFLICT DO NOTHING`,
-                    [userID, guildID, workerExpires]
-                );
-            }
+            const hasWorker = workerBuffRes.rows.length > 0;
 
             // ============================================
             // 1. نظام الحصاد المستمر للعامل

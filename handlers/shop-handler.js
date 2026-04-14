@@ -420,48 +420,39 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     }
                 }
             }
-            // 🔥 عامل المزرعة — يكتب في levels (للعرض) و user_buffs (للمنطق) 🔥
+            // عامل المزرعة — يُخزَّن في user_buffs فقط (مستقل تماماً عن نظام الحارس)
             else if (itemData.id === 'farm_worker_3d') {
                 const durationMs = 3 * 24 * 60 * 60 * 1000;
 
-                // --- 1. حساب وقت الانتهاء الجديد من levels (للعرض في farm-land) ---
-                let rLvl = await execSafe(db, `SELECT "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT guardexpires FROM levels WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
+                // جلب السجل الحالي من user_buffs لمعرفة الوقت المتبقي
+                let wBuf = await execSafe(db,
+                    `SELECT "id", "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                    `SELECT id, expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                    [interaction.user.id, interaction.guild.id]
+                );
 
-                let newExpiresAt = Date.now() + durationMs;
-                if (rLvl.rows.length > 0) {
-                    const expMs = Number(rLvl.rows[0].guardExpires || rLvl.rows[0].guardexpires || 0);
-                    if (expMs > Date.now()) newExpiresAt = expMs + durationMs;
+                const now = Date.now();
+                let newExpiresAt = now + durationMs;
+                if (wBuf.rows.length > 0) {
+                    const existingExp = Number(wBuf.rows[0].expiresAt || wBuf.rows[0].expiresat || 0);
+                    if (existingExp > now) newExpiresAt = existingExp + durationMs;
                 }
 
-                // تحديث levels للعرض
-                let upd = await execSafe(db,
-                    `UPDATE levels SET "hasGuard" = 1, "guardExpires" = $1 WHERE "user" = $2 AND "guild" = $3`,
-                    `UPDATE levels SET hasguard = 1, guardexpires = $1 WHERE userid = $2 AND guildid = $3`,
-                    [newExpiresAt, interaction.user.id, interaction.guild.id]
-                );
-                if (upd.error) success = false;
-
-                // --- 2. تحديث user_buffs (للمنطق في farm-handler) ---
-                if (success) {
-                    let wBuf = await execSafe(db,
-                        `SELECT "id", "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
-                        `SELECT id, expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
-                        [interaction.user.id, interaction.guild.id]
+                if (wBuf.rows.length > 0) {
+                    const bId = wBuf.rows[0].id || wBuf.rows[0].ID;
+                    let upd = await execSafe(db,
+                        `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`,
+                        `UPDATE user_buffs SET expiresat = $1 WHERE id = $2`,
+                        [newExpiresAt, bId]
                     );
-                    if (wBuf.rows.length > 0) {
-                        const bId = wBuf.rows[0].id || wBuf.rows[0].ID;
-                        await execSafe(db,
-                            `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`,
-                            `UPDATE user_buffs SET expiresat = $1 WHERE id = $2`,
-                            [newExpiresAt, bId]
-                        );
-                    } else {
-                        await execSafe(db,
-                            `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                            `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                            [interaction.user.id, interaction.guild.id, newExpiresAt]
-                        );
-                    }
+                    if (upd.error) success = false;
+                } else {
+                    let ins = await execSafe(db,
+                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        [interaction.user.id, interaction.guild.id, newExpiresAt]
+                    );
+                    if (ins.error) success = false;
                 }
             }
             else if (itemData.id === 'change_race') {
@@ -669,12 +660,14 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
             }
         }
         else if (item.id === 'farm_worker_3d') {
-            let rLvl = await execSafe(db, `SELECT "hasGuard", "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT hasguard, guardexpires FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
-            if (rLvl.rows.length > 0) {
-                const expiresAtMs = Number(rLvl.rows[0].guardExpires || rLvl.rows[0].guardexpires || 0);
-                const hasGuard = Number(rLvl.rows[0].hasGuard || rLvl.rows[0].hasguard || 0);
-
-                if (hasGuard === 1 && expiresAtMs > Date.now()) {
+            let wBuf = await execSafe(db,
+                `SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                `SELECT expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                [userId, guildId]
+            );
+            if (wBuf.rows.length > 0) {
+                const expiresAtMs = Number(wBuf.rows[0].expiresAt || wBuf.rows[0].expiresat || 0);
+                if (expiresAtMs > Date.now()) {
                     const remainingDays = (expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000);
                     // الحد الأقصى 2 عامل = 6 أيام إجمالية
                     if (remainingDays >= 6) {

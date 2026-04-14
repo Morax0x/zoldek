@@ -91,8 +91,8 @@ async function renderLand(interaction, client, db) {
         getGrowthMultiplier(db, userId, guildId),
         getLandPlots(client, userId, guildId),
         db.query(`SELECT * FROM user_lands WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]).catch(() => db.query(`SELECT * FROM user_lands WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}))),
-        // 🔥 جلب بيانات العامل من جدول levels 🔥
-        db.query(`SELECT "hasGuard", "guardExpires" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]).catch(() => db.query(`SELECT hasguard, guardexpires FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]}))),
+        // جلب بيانات عامل المزرعة من user_buffs (مستقل عن نظام الحارس)
+        db.query(`SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker' AND "expiresAt" > $3`, [userId, guildId, now]).catch(() => db.query(`SELECT expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker' AND expiresat > $3`, [userId, guildId, now]).catch(()=>({rows:[]}))),
         getFarmAsset('grass'), getFarmAsset('tilled'), getFarmAsset('lock'), getFarmAsset('withered'), getFarmAsset('sprout'),
         getFarmAsset('border_top'), getFarmAsset('border_bottom'), getFarmAsset('border_left'), getFarmAsset('border_right'),
         getFarmAsset('corner_top_left'), getFarmAsset('corner_top_right'), getFarmAsset('corner_bottom_left'), getFarmAsset('corner_bottom_right')
@@ -259,13 +259,11 @@ async function renderLand(interaction, client, db) {
         addButton(new ButtonBuilder().setCustomId('info_growth_time').setLabel(label).setStyle(ButtonStyle.Secondary).setDisabled(true));
     }
 
-    const levelData = levelDataRes.rows[0];
-    if (levelData) {
-        const hasGuard = Number(levelData.hasGuard || levelData.hasguard || 0);
-        const guardExpires = Number(levelData.guardExpires || levelData.guardexpires || 0);
-        
-        if (hasGuard === 1 && guardExpires > now) {
-            const timeLeft = guardExpires - now;
+    const workerRow = levelDataRes.rows[0];
+    if (workerRow) {
+        const workerExpires = Number(workerRow.expiresAt || workerRow.expiresat || 0);
+        if (workerExpires > now) {
+            const timeLeft = workerExpires - now;
             const daysLeft = Math.floor(timeLeft / (24 * 60 * 60 * 1000));
             const hoursLeft = Math.floor((timeLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
             const timeString = `${daysLeft} يـ ${hoursLeft} سـ`;
