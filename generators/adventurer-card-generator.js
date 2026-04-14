@@ -153,12 +153,23 @@ async function generateAdventurerCard(data) {
     ctx.stroke();
     ctx.restore();
 
+    // 🔥 التصحيح الذكي لحجم الرتبة SSS داخل الدرع 🔥
     ctx.fillStyle = primaryColor;
-    ctx.font = 'bold 55px "Arial", sans-serif';
     ctx.textAlign = 'center';
     ctx.shadowColor = primaryColor;
     ctx.shadowBlur = 15;
-    ctx.fillText(rankLetter, badgeX, badgeY + 20);
+    
+    if (rankLetter === 'SSS') {
+        ctx.font = 'bold 36px "Arial", sans-serif';
+        ctx.fillText(rankLetter, badgeX, badgeY + 14);
+    } else if (rankLetter === 'SS') {
+        ctx.font = 'bold 45px "Arial", sans-serif';
+        ctx.fillText(rankLetter, badgeX, badgeY + 18);
+    } else {
+        ctx.font = 'bold 55px "Arial", sans-serif';
+        ctx.fillText(rankLetter, badgeX, badgeY + 20);
+    }
+    
     ctx.shadowBlur = 0;
 
     const textRightX = 850; 
@@ -272,7 +283,9 @@ async function generateAdventurerCard(data) {
         ctx.fillStyle = '#FFAA40';
         ctx.textAlign = 'right';
         ctx.font = 'bold 22px "Bein", sans-serif';
-        ctx.fillText(`#${value}`, col1X + boxW - 20, row1Y + yOffset + 2);
+        // 🔥 إخفاء الإمبراطور من التصنيف وعرض ??? 🔥
+        const displayValue = (value === "0" || value === 0) ? "???" : `#${value}`;
+        ctx.fillText(displayValue, col1X + boxW - 20, row1Y + yOffset + 2);
     };
 
     drawRankRow('المستوى:', data.ranks.level, 115);
