@@ -60,6 +60,15 @@ const shieldCache = new Map();
 // لا نخزّن أفاتار اللاعبين (ديناميكية) لتجنب الانتفاخ في الذاكرة
 const staticImageCache = new Map();
 
+const IMAGE_FETCH_TIMEOUT = 5000; // 5 ثوانٍ حد أقصى لكل صورة خارجية
+
+async function loadImageWithTimeout(url) {
+    return Promise.race([
+        loadImage(url),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`ImageTimeout: ${url}`)), IMAGE_FETCH_TIMEOUT))
+    ]);
+}
+
 async function getSafeImage(url, fileName) {
     if (!url) return null;
     // الصور الثابتة: تُعرَّف بوجود fileName — تُخزَّن في الكاش بعد أول تحميل
@@ -74,11 +83,15 @@ async function getSafeImage(url, fileName) {
                 if (fs.existsSync(uiPath)) img = await loadImage(uiPath);
             }
         }
-        if (!img) img = await loadImage(url);
+        // استخدم timeout للصور الخارجية فقط لتجنب التعليق
+        if (!img) img = await loadImageWithTimeout(url);
         // خزّن فقط الصور الثابتة (ذات fileName) وليس أفاتار اللاعبين
         if (img && fileName) staticImageCache.set(fileName, img);
         return img;
-    } catch (e) { return null; }
+    } catch (e) {
+        if (e.message && e.message.startsWith('ImageTimeout')) console.warn('[PvP Generator] Image timed out:', url);
+        return null;
+    }
 }
 
 function cleanText(text) {

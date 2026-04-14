@@ -422,17 +422,18 @@ module.exports = {
 
                                 if (pvpCore.startPveBattle) {
                                     activeFishingSessions.delete(user.id);
-                                    
-                                    // 🔥 ربط دقيق بـ pvp-manager لتوليد الثريد بشكل صحيح 🔥
+
                                     const fakeInteraction = {
                                         channel: interactionOrMessage.channel,
                                         message: loadingMsg,
-                                        editReply: async (data) => loadingMsg.edit(data),
+                                        editReply: async (data) => loadingMsg.edit(data).catch(()=>{}),
                                         guild: guild,
                                         user: user
                                     };
-                                    await pvpCore.startPveBattle(fakeInteraction, client, sql, member, monster, playerWeapon);
-                                    return; 
+                                    // لا نستخدم await هنا لتجنب تعليق أمر الصيد بالكامل
+                                    pvpCore.startPveBattle(fakeInteraction, client, sql, member, monster, playerWeapon)
+                                        .catch(e => console.error("[PvE Start Error]:", e));
+                                    return;
                                 }
                             }
 

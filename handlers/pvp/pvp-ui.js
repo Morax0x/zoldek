@@ -89,13 +89,17 @@ async function buildBattleEmbed(battleState) {
 
         if (generatePvPImage) {
             try {
-                const buffer = await generatePvPImage(battleState);
+                const buffer = await Promise.race([
+                    generatePvPImage(battleState),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('PvPImageTimeout')), 8000))
+                ]);
                 if (buffer) {
                     const attachment = new AttachmentBuilder(buffer, { name: 'pvp_battle.png' });
                     files.push(attachment);
                 }
             } catch (err) {
-                console.error("[PvP Canvas Generation Error]:", err);
+                console.error("[PvP Canvas Generation Error]:", err.message);
+                // يكمل بدون صورة — الإيمبيد النصي يعمل كـ fallback
             }
         }
 
