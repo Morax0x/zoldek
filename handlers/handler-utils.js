@@ -36,7 +36,7 @@ async function getFreeBalance(member, db) {
     return Math.max(0, freeBalance);
 }
 
-async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, isMessageEvent = false) {
+async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, isMessageEvent = false, messageChannel = null) {
     if (!member || !db) return;
     const userId = member.id;
     const guildId = member.guild.id;
@@ -93,7 +93,7 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
         if (client.setLevel) await client.setLevel(userData);
 
         if (leveledUp && isMessageEvent) {
-            const mockInteraction = { guild: member.guild, channel: member.guild.systemChannel || member.guild.channels.cache.first() };
+            const mockInteraction = { guild: member.guild, channel: messageChannel || member.guild.channels.cache.first() };
             if (generateLevelUpCard) {
                 await sendLevelUpMessage(mockInteraction, member, userData.level, oldLevel, userData, db).catch(console.error);
             }
@@ -104,25 +104,31 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
 }
 
 async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpData, db) {
+     let channelToSend = null;
+     
      try {
-         let channelRes;
-         try { channelRes = await db.query(`SELECT "levelChannel" FROM settings WHERE "guild" = $1`, [interaction.guild.id]); }
-         catch(e) { channelRes = await db.query(`SELECT levelchannel as "levelChannel" FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
-         
-         let savedChannelId = channelRes.rows[0]?.levelChannel || channelRes.rows[0]?.levelchannel;
+         let savedChannelId = null;
+         try {
+             let channelRes = await db.query(`SELECT "levelChannel" FROM settings WHERE "guild" = $1`, [interaction.guild.id]);
+             if (!channelRes || channelRes.rows.length === 0) channelRes = await db.query(`SELECT levelchannel FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]}));
+             if (!channelRes || channelRes.rows.length === 0) channelRes = await db.query(`SELECT "levelChannel" FROM settings WHERE "guildID" = $1`, [interaction.guild.id]).catch(()=>({rows:[]}));
+             if (!channelRes || channelRes.rows.length === 0) channelRes = await db.query(`SELECT levelchannel FROM settings WHERE guildid = $1`, [interaction.guild.id]).catch(()=>({rows:[]}));
+             
+             savedChannelId = channelRes.rows[0]?.levelChannel || channelRes.rows[0]?.levelchannel;
+         } catch(e) {}
 
-         let channelToSend = null;
          if (savedChannelId && savedChannelId !== "Default") {
                channelToSend = interaction.guild.channels.cache.get(savedChannelId)
                              || await interaction.guild.channels.fetch(savedChannelId).catch(() => null);
+               
+               if (!channelToSend) return; 
+         } else {
+             channelToSend = interaction.channel;
          }
-         
-         if (!channelToSend) {
-             const fallback = interaction.channel;
-             if (interaction.guild?.systemChannelId && fallback?.id === interaction.guild.systemChannelId) return;
-             channelToSend = fallback;
-         }
+
          if (!channelToSend) return;
+
+         if (interaction.guild?.systemChannelId && channelToSend.id === interaction.guild.systemChannelId) return;
 
          const permissionFlags = channelToSend.permissionsFor(interaction.guild.members.me);
          if (!permissionFlags || !permissionFlags.has(PermissionsBitField.Flags.SendMessages) || !permissionFlags.has(PermissionsBitField.Flags.ViewChannel)) return;
@@ -138,11 +144,15 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
 
          const userReference = isMentionOn ? member.toString() : `**${member.displayName}**`;
          
-         let customDescRes;
-         try { customDescRes = await db.query(`SELECT "lvlUpDesc" FROM settings WHERE "guild" = $1`, [interaction.guild.id]); }
-         catch(e) { customDescRes = await db.query(`SELECT lvlupdesc as "lvlUpDesc" FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
+         let rawDesc = null;
+         try {
+             let customDescRes = await db.query(`SELECT "lvlUpDesc" FROM settings WHERE "guild" = $1`, [interaction.guild.id]);
+             if (!customDescRes || customDescRes.rows.length === 0) customDescRes = await db.query(`SELECT lvlupdesc FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]}));
+             if (!customDescRes || customDescRes.rows.length === 0) customDescRes = await db.query(`SELECT "lvlUpDesc" FROM settings WHERE "guildID" = $1`, [interaction.guild.id]).catch(()=>({rows:[]}));
+             if (!customDescRes || customDescRes.rows.length === 0) customDescRes = await db.query(`SELECT lvlupdesc FROM settings WHERE guildid = $1`, [interaction.guild.id]).catch(()=>({rows:[]}));
+             rawDesc = customDescRes.rows[0]?.lvlUpDesc || customDescRes.rows[0]?.lvlupdesc;
+         } catch(e) {}
          
-         let rawDesc = customDescRes.rows[0]?.lvlUpDesc || customDescRes.rows[0]?.lvlupdesc;
          let contentMsg = "";
 
          if (rawDesc) {
@@ -188,9 +198,10 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
              let backupMsg = `╭⭒★︰ <a:wi:1435572304988868769> ${member} <a:wii:1435572329039007889>\n` +
                              `✶ مبارك صعودك في سُلّم الإمبراطورية\n` +
                              `★ فقد كـسرت حـاجـز الـمستوى〃${oldLevel}〃وبلغـت المسـتـوى الـ 〃${newLevel}〃`;
-             const fallback = interaction.channel;
-             if (interaction.guild?.systemChannelId && fallback?.id === interaction.guild.systemChannelId) return;
-             await fallback?.send(backupMsg).catch(()=>{});
+             const fallback = channelToSend || interaction.channel;
+             if (!fallback) return;
+             if (interaction.guild?.systemChannelId && fallback.id === interaction.guild.systemChannelId) return;
+             await fallback.send(backupMsg).catch(()=>{});
          } catch(e) {}
     }
 }
