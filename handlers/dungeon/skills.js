@@ -207,7 +207,9 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
     }
 
     const isOwner = player.id === OWNER_ID;
-    const result = skillCalculator.executeSkill(player, monster, skill, isOwner);
+    
+    // 🔥 تنفيذ المهارة الفعلي (الذي يعالج الكريت والشفاء) 🔥
+    const result = skillCalculator.executeSkill(player, defender || monster, skill, isOwner);
 
     if (result.effectsApplied && result.effectsApplied.length > 0) {
         const userSkillEntry = player.skills ? player.skills[skill.id] : null;
@@ -215,9 +217,7 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
 
         result.effectsApplied.forEach(eff => {
             if (eff.type === 'poison' || eff.type === 'burn' || eff.type === 'bleed') {
-                
                 let baseVal = 100 + (skillLevel * 50); 
-                
                 eff.val = applyCap(Math.floor(baseVal * sealMultiplier), damageCap);
             }
         });
@@ -237,7 +237,8 @@ function handleSkillUsage(player, skill, monster, log, threadChannel, players, d
           
         checkBossPhase(monster, log);
 
-        if (originalDmg > result.damage) {
+        // إذا كان هناك ختم في الضرر وأيضاً إذا كان هناك لوق يجب تحديثه 
+        if (originalDmg > result.damage && result.log) {
             if (!result.log.includes("(مختوم)")) result.log += " (مختوم)";
         }
     }
