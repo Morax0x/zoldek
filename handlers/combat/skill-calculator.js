@@ -2,8 +2,6 @@ const { cleanDisplayName } = require('../dungeon/utils');
 
 const GLOBAL_SKILL_MULTIPLIER = 5.0;
 
-// ── أدوات الاحتمالات ───────────────────────────────────────────────────────
-
 /** إرجاع True بناءً على النسبة المئوية (0 - 1) */
 function roll(probability) {
     return Math.random() < probability;
@@ -43,16 +41,16 @@ function label(type) {
 
 function makeTargetEffect(type) {
     switch (type) {
-        case 'burn':       return { type: 'burn',       val: 100,  turns: 3 };
-        case 'silence':    return { type: 'silence',    val: true, turns: 2 };
+        case 'burn':       return { type: 'burn',        val: 100,  turns: 3 };
+        case 'silence':    return { type: 'silence',     val: true, turns: 2 };
         case 'vulnerable': return { type: 'vulnerable', val: 0.3,  turns: 2 };
-        case 'weaken':     return { type: 'weaken',     val: 0.3,  turns: 2 };
-        case 'stun':       return { type: 'stun',       val: true, turns: 1 };
+        case 'weaken':     return { type: 'weaken',      val: 0.3,  turns: 2 };
+        case 'stun':       return { type: 'stun',        val: true, turns: 1 };
         case 'confusion':  return { type: 'confusion',  val: true, turns: 2 };
-        case 'poison':     return { type: 'poison',     val: 100,  turns: 3 };
-        case 'bleed':      return { type: 'bleed',      val: 100,  turns: 3 };
-        case 'blind':      return { type: 'blind',      val: true, turns: 2 };
-        case 'bat':        return { type: 'bat',        val: 0.05, turns: 5 };
+        case 'poison':     return { type: 'poison',      val: 100,  turns: 3 };
+        case 'bleed':      return { type: 'bleed',       val: 100,  turns: 3 };
+        case 'blind':      return { type: 'blind',       val: true, turns: 2 };
+        case 'bat':        return { type: 'bat',         val: 0.05, turns: 5 };
         default:           return null;
     }
 }
@@ -134,6 +132,10 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         skillPower = Math.floor(rawValue * GLOBAL_SKILL_MULTIPLIER);
     }
 
+    // 🔥 تطبيق البفات على المهارة (هجوم + كريت) 🔥
+    let isCritSkill = false;
+    let critChance = 0.05; 
+
     if (!skill.id.includes('heal') && !skill.id.includes('shield')) {
         let buffMultiplier = 1.0;
         if (attacker.effects && Array.isArray(attacker.effects)) {
@@ -142,6 +144,15 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
                 if (e.type === 'weaken') buffMultiplier -= e.val;
             });
         }
+        
+        if (attacker.critRate) critChance += (Number(attacker.critRate) / 100);
+        if (critChance > 0.75) critChance = 0.75;
+        
+        if (roll(critChance)) {
+            buffMultiplier *= 1.5;
+            isCritSkill = true;
+        }
+
         skillPower = Math.floor(skillPower * buffMultiplier);
     }
 
@@ -313,8 +324,8 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
     case 'Gamble_Dmg': {
         if (Math.random() < 0.5) {
             const dmg = Math.floor(Math.random() * (2222 - 777 + 1)) + 777;
-            result.damage = dmg;
-            result.log = `🎲 **${getName(attacker)}** نجحت مقامرته! الأرقام تطابقت بضرر **${dmg}**!`;
+            result.damage = isCritSkill ? Math.floor(dmg * 1.5) : dmg;
+            result.log = `🎲 **${getName(attacker)}** نجحت مقامرته! الأرقام تطابقت بضرر **${result.damage}**!`;
         } else {
             const fail    = Math.floor(Math.random() * (200 - 100 + 1)) + 100;
             const selfDmg = Math.floor(attacker.hp * 0.03);
@@ -379,6 +390,20 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         result.damage = skillPower;
         result.log = `💥 **${getName(attacker)}** استخدم ${skill.name} وسبب ${result.damage} ضرر!`;
         break;
+    }
+
+    // 🔥 تطبيق شفاء اللايف ستيل (Lifesteal) بناءً على بف العرق 🔥
+    if (result.damage > 0 && attacker.lifesteal > 0) {
+        const stolenHp = Math.floor(result.damage * attacker.lifesteal);
+        if (stolenHp > 0) {
+            result.heal = (result.heal || 0) + stolenHp;
+            result.log += ` 🩸 (وامتص ${stolenHp} HP)`;
+        }
+    }
+
+    if (isCritSkill && result.damage > 0) {
+        result.log = result.log.replace(/سبب \*\*([0-9]+)\*\* ضرر/g, `سدد ضربة حرجة بـ **$1** ضرر ✨`);
+        result.log = result.log.replace(/وسبب ([0-9]+) ضرر/g, `وسدد ضربة حرجة بـ **$1** ضرر ✨`);
     }
 
     if (isHybrid) {
