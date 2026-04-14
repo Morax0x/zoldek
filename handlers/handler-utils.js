@@ -6,14 +6,11 @@ try {
     console.error("Error loading levelup-card-generator:", e);
 }
 
-// 🔥 1. الدالة المركزية لحساب الـ XP (معادلة MEE6 / ProBot القياسية) 🔥
 function calculateRequiredXP(level) {
     const lvl = Number(level) || 0;
-    // معادلة التلفيل الموحدة والناعمة لجميع المستويات
     return Math.floor(5 * (lvl ** 2) + 50 * lvl + 100);
 }
 
-// 🔥 2. دالة حساب رصيد المورا الحر (بدون القروض) 🔥
 async function getFreeBalance(member, db) {
     if (!db) return 0;
     
@@ -39,7 +36,6 @@ async function getFreeBalance(member, db) {
     return Math.max(0, freeBalance);
 }
 
-// 🔥 3. الدالة السحرية المركزية 🔥
 async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, isMessageEvent = false) {
     if (!member || !db) return;
     const userId = member.id;
@@ -64,7 +60,6 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
         let leveledUp = false;
         let oldLevel = userData.level;
 
-        // 🔥 التعديل: السماح بحساب التلفيل دائماً حتى لو كانت الخبرة من إنجاز أو مهمة 🔥
         let nextXP = calculateRequiredXP(userData.level);
         while (userData.xp >= nextXP) {
             userData.xp -= nextXP;
@@ -73,7 +68,6 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
             nextXP = calculateRequiredXP(userData.level);
         }
 
-        // 🔥 التحديث الآمن: جمع المورا والاكس بي مباشرة في قاعدة البيانات لمنع مسح المكافآت 🔥
         try {
             await db.query(`
                 INSERT INTO levels ("user", "guild", "xp", "totalXP", "level", "mora") 
@@ -98,7 +92,6 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
 
         if (client.setLevel) await client.setLevel(userData);
 
-        // إرسال الإشعار عند التلفيل فقط في حال كان التلفيل ناتج عن رسالة
         if (leveledUp && isMessageEvent) {
             const mockInteraction = { guild: member.guild, channel: member.guild.systemChannel || member.guild.channels.cache.first() };
             if (generateLevelUpCard) {
@@ -110,10 +103,8 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
     }
 }
 
-// 🔥 4. دالة إرسال التلفيل بالصورة الفخمة (تم إصلاح استعلام القناة) 🔥
 async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpData, db) {
      try {
-         // 🔥 التعديل هنا: جلب القناة من جدول settings بدلاً من channel 🔥
          let channelRes;
          try { channelRes = await db.query(`SELECT "levelChannel" FROM settings WHERE "guild" = $1`, [interaction.guild.id]); }
          catch(e) { channelRes = await db.query(`SELECT levelchannel as "levelChannel" FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
@@ -126,10 +117,8 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
                              || await interaction.guild.channels.fetch(savedChannelId).catch(() => null);
          }
          
-         // إذا لم يتم تحديد قناة خاصة بالتلفيل، أرسل الرسالة في نفس القناة التي تمت فيها الرسالة
          if (!channelToSend) {
              const fallback = interaction.channel;
-             // منع الإرسال في قناة السيستم في حال كانت هي المحددة كـ fallback بشكل خاطئ
              if (interaction.guild?.systemChannelId && fallback?.id === interaction.guild.systemChannelId) return;
              channelToSend = fallback;
          }
@@ -137,18 +126,6 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
 
          const permissionFlags = channelToSend.permissionsFor(interaction.guild.members.me);
          if (!permissionFlags || !permissionFlags.has(PermissionsBitField.Flags.SendMessages) || !permissionFlags.has(PermissionsBitField.Flags.ViewChannel)) return;
-
-         let card = null;
-         try {
-             const cardPromise = generateLevelUpCard(member, oldLevel, newLevel, { mora: 0, hp: 0 });
-             cardPromise.catch(() => {});
-             card = await Promise.race([
-                 cardPromise,
-                 new Promise((_, reject) => setTimeout(() => reject(new Error('CardTimeout')), 15000))
-             ]);
-         } catch(e) {
-             console.error('[LevelUp] Card generation failed:', e.message);
-         }
 
          let isMentionOn = 1;
          try {
@@ -161,7 +138,6 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
 
          const userReference = isMentionOn ? member.toString() : `**${member.displayName}**`;
          
-         // استخراج الرسالة المخصصة من الداتابيز (إذا وجدت)
          let customDescRes;
          try { customDescRes = await db.query(`SELECT "lvlUpDesc" FROM settings WHERE "guild" = $1`, [interaction.guild.id]); }
          catch(e) { customDescRes = await db.query(`SELECT lvlupdesc as "lvlUpDesc" FROM settings WHERE guild = $1`, [interaction.guild.id]).catch(()=>({rows:[]})); }
@@ -170,14 +146,12 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
          let contentMsg = "";
 
          if (rawDesc) {
-             // استبدال المتغيرات المخصصة
              contentMsg = rawDesc
                 .replace(/{member}/gi, userReference)
                 .replace(/{level}/gi, newLevel)
                 .replace(/{level_old}/gi, oldLevel)
                 .replace(/\\n/g, '\n');
          } else {
-             // الرسالة الافتراضية
              contentMsg = `╭⭒★︰ <a:wi:1435572304988868769> ${userReference} <a:wii:1435572329039007889>\n` +
                           `✶ مبارك صعودك في سُلّم الإمبراطورية\n` +
                           `★ فقد كـسرت حـاجـز الـمستوى〃${oldLevel}〃وبلغـت المسـتـوى الـ 〃${newLevel}〃 <a:MugiStronk:1438795606872166462> وتعاظم شأنك بين جموع الرعية فامضِ قُدمًا نحو المجد  <:2KazumaSalut:1437129108806176768>`;
@@ -186,6 +160,20 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
          const milestones = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 99];
          if (milestones.includes(Number(newLevel))) {
              contentMsg += `\n★  فتـحـت ميزة جديـدة راجع قنـاة المستويات !`;
+         }
+
+         let card = null;
+         try {
+             if (generateLevelUpCard) {
+                 const cardPromise = generateLevelUpCard(member, oldLevel, newLevel);
+                 cardPromise.catch(() => {});
+                 card = await Promise.race([
+                     cardPromise,
+                     new Promise((_, reject) => setTimeout(() => reject(new Error('CardTimeout')), 15000))
+                 ]);
+             }
+         } catch(e) {
+             console.error('[LevelUp] Card generation failed:', e.message);
          }
 
          if (card) {
