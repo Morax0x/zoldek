@@ -1,6 +1,5 @@
 const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, Colors, AttachmentBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
-// 🛡️ نظام استيراد محمي بمسارات معدلة لتناسب مجلد handlers 🛡️
 let weaponsConfig = [];
 let skillsConfig = [];
 let upgradeMats = { weapon_materials: [], skill_books: [] };
@@ -112,7 +111,6 @@ const safeQuery = async (db, qPg, params) => {
     }
 };
 
-// 🔥 استعلام الكاش الحقيقي للـ Mora (التحقق) 🔥
 async function checkMora(client, db, userId, guildId, amount) {
     if (amount <= 0) return true;
     let mora = 0, bank = 0;
@@ -159,7 +157,6 @@ async function checkItems(db, userId, guildId, itemsArray) {
     return true;
 }
 
-// 🔥 الخصم الحقيقي بالوقت الفعلي وتحديث الكاش 🔥
 async function deductMora(client, db, userId, guildId, amount) {
     if (amount <= 0) return true;
     
@@ -269,6 +266,7 @@ function getWeaponDisplayDamage(weaponConfig, level) {
     return Math.floor(finalDamage);
 }
 
+// 🔥 تم إصلاح دالة حساب المهارات لتعرض النسب المئوية بشكل صحيح للدرع، الهجوم الخ 🔥
 function getSkillDisplayValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -277,13 +275,15 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
     const isPercentage = skillConfig.stat_type === '%' || skillConfig.id.includes('heal') || skillConfig.id.includes('shield');
 
     let finalValue = 0;
-    if (level <= 15) finalValue = base + (inc * (level - 1));
-    else {
+    if (level <= 15) {
+        finalValue = base + (inc * (level - 1));
+    } else {
         const valueAt15 = base + (inc * 14);
-        const targetValueAt30 = isPercentage ? 50 : 200; 
+        const targetValueAt30 = isPercentage ? 70 : 200; 
         const levelsRemaining = 15;
-        if (valueAt15 >= targetValueAt30) finalValue = base + (inc * (level - 1));
-        else {
+        if (valueAt15 >= targetValueAt30) {
+            finalValue = base + (inc * (level - 1));
+        } else {
              const dynamicIncrement = (targetValueAt30 - valueAt15) / levelsRemaining;
              finalValue = valueAt15 + (dynamicIncrement * (level - 15));
              if (level >= 30) finalValue = targetValueAt30;
@@ -386,7 +386,6 @@ const getReturnRow = () => new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('forge_return_main').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
 );
 
-// 🔥 استعلام حالة التطوير مع الكاش الحقيقي 🔥
 async function getUpgradeState(client, db, userId, guildId, currentLevel, isSkill, skillId, roleRaceName, wData) {
     const dbRaceName = getSafeVal(wData, 'racename', null);
     const raceName = dbRaceName ? (getStandardRaceName(dbRaceName) || roleRaceName) : roleRaceName;
@@ -455,7 +454,6 @@ async function replyWithCanvas(i, user, view, data, components, isInitial = fals
     return i;
 }
 
-// 🔥 جلب المورا الحية لواجهة الحدادة الرئيسية 🔥
 async function buildMainUI(i, user, guildId, db, isInitial = false) {
     let userMora = 0;
     if (i.client && i.client.getLevel) {
@@ -806,7 +804,6 @@ async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) 
     return await replyWithCanvas(i, user, 'synthesis', payloadData, components, isInitial);
 }
 
-// 🔥 هنا إصلاح الأقواس في דالة الـ Smelting/Synthesis 🔥
 async function handleSynthesisMultiModal(i, user, guildId, db, state, client) {
     const targetId = i.customId.replace('forge_synth_multi_', '');
     state.targetItem = targetId;
