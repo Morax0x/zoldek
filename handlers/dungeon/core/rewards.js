@@ -65,10 +65,10 @@ async function safeUpdateRepAndChests(db, userId, guildId, repReward, earnedChes
 }
 
 async function handleMemberRetreat(member, floor, db, guildId, thread, sessionStartFloor = 1) {
-    const earnedMora = Math.floor(member.loot.mora || 0);
-    const earnedXp = Math.floor(member.loot.xp || 0);
-    const earnedChests = Math.floor(member.loot.chests || 0);
-    const earnedRep = Math.floor(member.loot.rep || 0);
+    const earnedMora = Math.floor(member.loot?.mora || 0);
+    const earnedXp = Math.floor(member.loot?.xp || 0);
+    const earnedChests = Math.floor(member.loot?.chests || 0);
+    const earnedRep = Math.floor(member.loot?.rep || 0);
 
     member.rewardsClaimed = false; 
     member.finalMora = earnedMora;
@@ -76,11 +76,12 @@ async function handleMemberRetreat(member, floor, db, guildId, thread, sessionSt
     member.finalChests = earnedChests;
     member.finalRep = earnedRep;
     
-    // تصفير الحقيبة لكي لا يتضاعف اللوت
-    member.loot.mora = 0;
-    member.loot.xp = 0;
-    member.loot.chests = 0;
-    member.loot.rep = 0;
+    if (member.loot) {
+        member.loot.mora = 0;
+        member.loot.xp = 0;
+        member.loot.chests = 0;
+        member.loot.rep = 0;
+    }
     
     member.pendingRetreatSave = true;
 
@@ -95,16 +96,15 @@ async function handleTeamWipe(players, currentFloor, db, guildId, client) {
         let effectiveFloor = Math.max(1, currentFloor - 1);
 
         if (currentFloor > 20) {
-            finalMora = p.lootSnapshot20 ? p.lootSnapshot20.mora : 0;
-            finalXp = p.lootSnapshot20 ? p.lootSnapshot20.xp : 0;
-            finalChests = p.lootSnapshot20 ? p.lootSnapshot20.chests : 0;
-            finalRep = p.lootSnapshot20 ? p.lootSnapshot20.rep : 0;
+            finalMora = p.lootSnapshot20 ? Math.floor(p.lootSnapshot20.mora || 0) : 0;
+            finalXp = p.lootSnapshot20 ? Math.floor(p.lootSnapshot20.xp || 0) : 0;
+            finalChests = p.lootSnapshot20 ? Math.floor(p.lootSnapshot20.chests || 0) : 0;
+            finalRep = p.lootSnapshot20 ? Math.floor(p.lootSnapshot20.rep || 0) : 0;
             effectiveFloor = 20; 
             note = " (Safe Point F20)";
         } else {
-            // فقدان الغنائم (صناديق وسمعة) عند الموت تحت الطابق 20
-            finalMora = Math.floor((p.loot.mora || 0) * 0.5);
-            finalXp = Math.floor((p.loot.xp || 0) * 0.5);
+            finalMora = Math.floor((p.loot?.mora || 0) * 0.5);
+            finalXp = Math.floor((p.loot?.xp || 0) * 0.5);
             finalChests = 0;
             finalRep = 0;
             note = " (Penalty -50% & Lost Chests/Rep)";
@@ -126,10 +126,11 @@ async function handleLeaderRetreat(players, db, guildId, client) {
     const results = [];
     for (const p of players) {
         if (p.rewardsClaimed) continue;
-        const earnedMora = Math.floor(p.loot.mora || 0);
-        const earnedXp = Math.floor(p.loot.xp || 0);
-        const earnedChests = Math.floor(p.loot.chests || 0);
-        const earnedRep = Math.floor(p.loot.rep || 0);
+        
+        const earnedMora = Math.floor(p.loot?.mora || 0);
+        const earnedXp = Math.floor(p.loot?.xp || 0);
+        const earnedChests = Math.floor(p.loot?.chests || 0);
+        const earnedRep = Math.floor(p.loot?.rep || 0);
 
         p.finalMora = earnedMora;
         p.finalXp = earnedXp;
@@ -145,10 +146,10 @@ async function handleLeaderRetreat(players, db, guildId, client) {
 function snapshotLootAtFloor20(players) {
     players.forEach(p => {
         p.lootSnapshot20 = {
-            mora: Math.floor(p.loot.mora || 0),
-            xp: Math.floor(p.loot.xp || 0),
-            chests: Math.floor(p.loot.chests || 0),
-            rep: Math.floor(p.loot.rep || 0)
+            mora: Math.floor(p.loot?.mora || 0),
+            xp: Math.floor(p.loot?.xp || 0),
+            chests: Math.floor(p.loot?.chests || 0),
+            rep: Math.floor(p.loot?.rep || 0)
         };
     });
 }
