@@ -100,15 +100,15 @@ function isSmeltable(itemId) {
     return false;
 }
 
-// 🔥 إضافة رتبة SSS للسمعة هنا 🔥
+// 🔥 تم إرجاع النسب الحقيقية بدون أي تخبيص 🔥
 function getRepRankInfo(points) {
     if (points >= 9999) return { name: '🎇 رتبة SSS', color: '#FFD700' };
-    if (points >= 5000) return { name: '👑 رتبة SS', color: '#FF00FF' };
-    if (points >= 1000) return { name: '💎 رتبة S',  color: '#00FFFF' };
-    if (points >= 500)  return { name: '🥇 رتبة A',  color: '#FFD700' };
-    if (points >= 250)  return { name: '🥈 رتبة B',  color: '#C0C0C0' };
-    if (points >= 100)  return { name: '🥉 رتبة C',  color: '#CD7F32' };
-    if (points >= 50)   return { name: '⚔️ رتبة D',  color: '#2E8B57' };
+    if (points >= 1000) return { name: '👑 رتبة SS', color: '#FF00FF' };
+    if (points >= 500)  return { name: '💎 رتبة S',  color: '#00FFFF' };
+    if (points >= 250)  return { name: '🥇 رتبة A',  color: '#FFD700' };
+    if (points >= 100)  return { name: '🥈 رتبة B',  color: '#C0C0C0' };
+    if (points >= 50)   return { name: '🥉 رتبة C',  color: '#CD7F32' };
+    if (points >= 25)   return { name: '⚔️ رتبة D',  color: '#2E8B57' };
     if (points >= 10)   return { name: '🛡️ رتبة E',  color: '#8B4513' };
     return { name: '🪵 رتبة F', color: '#A0522D' }; 
 }
@@ -156,7 +156,6 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
     return isPercentage ? Number(finalValue.toFixed(1)) : Math.floor(finalValue);
 }
 
-// 🔥 تم التعديل: إخفاء الإمبراطور تماماً من حسبة الترتيب ليكون الأول الحقيقي هو من يليه 🔥
 async function calculateStrongestRank(db, guildID, targetUserID) {
     try {
         if (targetUserID === TARGET_OWNER_ID) return 0;
@@ -471,7 +470,6 @@ module.exports = {
                     try { xpBuff = await calculateBuffMultiplier(targetMember, db); } catch(e) {}
                     try { moraBuff = await calculateMoraBuff(targetMember, db); } catch(e) {}
                     
-                    // 🔥 تم إخفاؤك هنا أيضاً من تصنيفات المورا واللفل لكي يبقى الأول العادي رقمه 1 🔥
                     let ranks = { level: "0", mora: "0", streak: "0", power: "0" };
                     if (targetUser.id !== TARGET_OWNER_ID) {
                         try {
