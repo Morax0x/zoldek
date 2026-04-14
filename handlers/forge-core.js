@@ -249,24 +249,27 @@ async function getUserRaceName(user, guild, db) {
     return null;
 }
 
+// 🔥 تم الإصلاح هنا (توحيد معادلة السلاح مع البروفايل ليكون الحد 1000) 🔥
 function getWeaponDisplayDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     const base = weaponConfig.base_damage;
     const inc = weaponConfig.damage_increment;
 
-    if (level <= 15) return Math.floor(base + (inc * (level - 1)));
-    
-    const damageAt15 = base + (inc * 14);
-    const targetDamageAt30 = 800;
-    const levelsRemaining = 15; 
-    if (damageAt15 >= targetDamageAt30) return Math.floor(base + (inc * (level - 1)));
-    const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
-    let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
-    if (level >= 30) return targetDamageAt30;
-    return Math.floor(finalDamage);
+    if (level <= 15) {
+        return Math.floor(base + (inc * (level - 1)));
+    } else {
+        const damageAt15 = base + (inc * 14);
+        const targetDamageAt30 = 1000; // كان 800 وتم تعديله ليتطابق
+        const levelsRemaining = 15; 
+        if (damageAt15 >= targetDamageAt30) return Math.floor(base + (inc * (level - 1)));
+        const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
+        let finalDamage = damageAt15 + (dynamicIncrement * (level - 15));
+        if (level >= 30) return targetDamageAt30;
+        return Math.floor(finalDamage);
+    }
 }
 
-// 🔥 تم إصلاح دالة حساب المهارات لتعرض النسب المئوية بشكل صحيح للدرع، الهجوم الخ 🔥
+// 🔥 تم الإصلاح هنا (توحيد معادلة المهارات مع البروفايل ليكون الحد 70% للنسب و 200 للأرقام) 🔥
 function getSkillDisplayValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -279,7 +282,7 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
         finalValue = base + (inc * (level - 1));
     } else {
         const valueAt15 = base + (inc * 14);
-        const targetValueAt30 = isPercentage ? 70 : 200; 
+        const targetValueAt30 = isPercentage ? 70 : 200; // كان 50 للنسب وتم تعديله لـ 70 ليتطابق
         const levelsRemaining = 15;
         if (valueAt15 >= targetValueAt30) {
             finalValue = base + (inc * (level - 1));
