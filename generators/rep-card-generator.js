@@ -11,14 +11,16 @@ function fixAr(text) {
 
 try { GlobalFonts.registerFromPath(path.join(process.cwd(), 'fonts', 'bein-ar-normal.ttf'), 'Bein'); } catch (e) {}
 
+// 🔥 تم إضافة رتبة SSS هنا 🔥
 function getRepRank(points) {
-    if (points >= 1000) return { rank: 'SS', name: '👑 مغامـر رتبـة SS', color: '#FF0055', next: 'الحد الأقصى' };
-    if (points >= 500)  return { rank: 'S',  name: '💎 مغامـر رتبـة S', color: '#00FFFF', next: 1000 };
-    if (points >= 250)  return { rank: 'A',  name: '🥇 مغامـر رتبـة A', color: '#FFD700', next: 500 };
-    if (points >= 100)  return { rank: 'B',  name: '🥈 مغامـر رتبـة B', color: '#C0C0C0', next: 250 };
-    if (points >= 50)   return { rank: 'C',  name: '🥉 مغامـر رتبـة C', color: '#CD7F32', next: 100 };
-    if (points >= 25)   return { rank: 'D',  name: '⚔️ مغامـر رتبـة D', color: '#2E8B57', next: 50 };
-    if (points >= 10)   return { rank: 'E',  name: '🛡️ مغامـر رتبـة E', color: '#8B4513', next: 25 };
+    if (points >= 9999) return { rank: 'SSS', name: '🎇 مغامـر رتبـة SSS', color: '#FFD700', next: 'الحد الأقصى' };
+    if (points >= 5000) return { rank: 'SS', name: '👑 مغامـر رتبـة SS', color: '#FF00FF', next: 9999 };
+    if (points >= 1000) return { rank: 'S',  name: '💎 مغامـر رتبـة S', color: '#00FFFF', next: 5000 };
+    if (points >= 500)  return { rank: 'A',  name: '🥇 مغامـر رتبـة A', color: '#FFD700', next: 1000 };
+    if (points >= 250)  return { rank: 'B',  name: '🥈 مغامـر رتبـة B', color: '#C0C0C0', next: 500 };
+    if (points >= 100)  return { rank: 'C',  name: '🥉 مغامـر رتبـة C', color: '#CD7F32', next: 250 };
+    if (points >= 50)   return { rank: 'D',  name: '⚔️ مغامـر رتبـة D', color: '#2E8B57', next: 100 };
+    if (points >= 10)   return { rank: 'E',  name: '🛡️ مغامـر رتبـة E', color: '#8B4513', next: 50 };
     return { rank: 'F', name: '🪵 مغامـر رتبـة F', color: '#A0522D', next: 10 };
 }
 
@@ -183,8 +185,8 @@ async function generateRepCard(senderAvatar, senderName, receiverAvatar, receive
         ctx.fill();
         ctx.stroke();
 
-        // 🔥 تم الإصلاح هنا لضمان دقة الشريط والأرقام
-        const tiers = [0, 10, 25, 50, 100, 250, 500, 1000];
+        // 🔥 تم تحديث حدود الشريط (Tiers) لتشمل 5000 🔥
+        const tiers = [0, 10, 25, 50, 100, 250, 500, 1000, 5000];
         let currentTierMin = 0;
         for (let i = tiers.length - 1; i >= 0; i--) {
             if (currentPoints >= tiers[i]) {
@@ -195,10 +197,9 @@ async function generateRepCard(senderAvatar, senderName, receiverAvatar, receive
         
         let progress = (currentPoints - currentTierMin) / (rankData.next - currentTierMin);
         
-        // منع القيم السالبة والنسب غير المنطقية
         if (progress < 0) progress = 0;
         if (progress > 1) progress = 1;
-        if (progress < 0.05 && currentPoints > 0) progress = 0.05; // على الأقل يظهر جزء صغير
+        if (progress < 0.05 && currentPoints > 0) progress = 0.05; 
         
         const barColor = isRankUp ? '#00FF88' : rankData.color;
         const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
@@ -219,7 +220,6 @@ async function generateRepCard(senderAvatar, senderName, receiverAvatar, receive
             ctx.fillStyle = '#000000'; 
             ctx.fillText(fixAr("🎉 تـم الارتـقـاء للـرتـبـة الجـديـدة! 🎉"), barX + barW / 2, barY + 25);
         } else {
-            // عرض الرقم الكلي مقابل الرقم القادم لتجنب الأرقام الغريبة
             const progressText = `${currentPoints} / ${rankData.next}`;
             ctx.fillStyle = '#FFFFFF';
             ctx.shadowColor = '#000000';
