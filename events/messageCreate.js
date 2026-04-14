@@ -100,7 +100,6 @@ module.exports = {
 
         if (!client.talkedRecently) client.talkedRecently = new Collection(); 
 
-        // 🔥 معالجة البومب من دسبورد 🔥
         if (message.author.bot && message.author.id === DISBOARD_BOT_ID) {
             const settings = await getSettings(db, message.guild.id);
             if (settings && (settings.bumpChannelID || settings.bumpchannelid) && message.channel.id !== (settings.bumpChannelID || settings.bumpchannelid)) return;
@@ -119,10 +118,9 @@ module.exports = {
                 recordBump(client, message.guild.id, bumperID); 
                 message.react('👊').catch(() => {});
                 
-                const nextBumpTime = Date.now() + 7200000; // ساعتين من الآن
+                const nextBumpTime = Date.now() + 7200000; 
                 const nextBumpTimeSec = Math.floor(nextBumpTime / 1000);
                 
-                // حفظ موعد النشر وصاحبه في الداتابيز لكي يعمل الـ Cron Jobs
                 try {
                     await db.query(`
                         UPDATE settings SET "nextBumpTime" = $1, "lastBumperID" = $2 WHERE "guild" = $3
@@ -620,8 +618,9 @@ module.exports = {
 
                 const xpGained = Math.floor((Math.random() * Number(getXpfromDB) + 1) * buff);
                 
+                // 🔥 تم تمرير message.channel لحل مشكلة التلفيل نهائياً 🔥
                 if (addXPAndCheckLevel) {
-                    await addXPAndCheckLevel(client, message.member, db, xpGained, 0, true);
+                    await addXPAndCheckLevel(client, message.member, db, xpGained, 0, true, message.channel);
                 }
 
                 client.talkedRecently.set(message.author.id, Date.now() + Number(getCooldownfromDB));
