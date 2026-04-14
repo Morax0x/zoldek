@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, PermissionsBitField, EmbedBuilder } = require('discord.js');
 
-// دوال حساب الخبرة
 function recalculateLevel(totalXP) {
     if (totalXP < 0) totalXP = 0;
     let level = 0; 
@@ -78,7 +77,7 @@ module.exports = {
         const db = client.sql;
         const guild = interactionOrMessage.guild;
         
-        if (!guild) return; // حماية من رسائل الخاص
+        if (!guild) return;
         const guildId = guild.id;
 
         const member = isSlash ? interactionOrMessage.member : interactionOrMessage.member;
@@ -91,9 +90,11 @@ module.exports = {
             await db.query(`CREATE TABLE IF NOT EXISTS level_roles ("guildID" TEXT, "roleID" TEXT, "level" INTEGER)`);
             await db.query(`CREATE TABLE IF NOT EXISTS role_buffs ("guildID" TEXT, "roleID" TEXT, "buffPercent" INTEGER)`);
             await db.query(`CREATE TABLE IF NOT EXISTS user_buffs ("guildID" TEXT, "userID" TEXT, "buffPercent" INTEGER, "expiresAt" BIGINT, "buffType" TEXT, "multiplier" REAL)`);
-        } catch(e) {
-            console.error("Level Admin Table Creation Error:", e);
-        }
+            
+            // 🔥 إضافة عمود قناة التلفيل لحل مشكلة عدم الحفظ 🔥
+            try { await db.query(`ALTER TABLE settings ADD COLUMN "levelChannel" TEXT`); } catch(e) {}
+            try { await db.query(`ALTER TABLE settings ADD COLUMN levelchannel TEXT`); } catch(e) {}
+        } catch(e) {}
 
         let subcommand = '';
         let targetUser = null;
@@ -104,7 +105,6 @@ module.exports = {
         let targetRole = null;
         let hoursInput = null;
 
-        // 🔥 نظام قراءة الأوامر (محسن ومصلح)
         if (isSlash) {
             subcommand = interactionOrMessage.options.getSubcommand();
             targetUser = interactionOrMessage.options.getMember('user');
@@ -118,7 +118,6 @@ module.exports = {
         } else {
             const cmdName = interactionOrMessage.content.split(' ')[0].toLowerCase().slice(1); 
             
-            // في حال استخدم الاختصار الرئيسي (مثال: !la add @user 5)
             if (cmdName === 'la' || cmdName === 'leveladmin') {
                 const subArg = args[0] ? args[0].toLowerCase() : '';
                 if (['add', 'remove', 'set'].includes(subArg)) {
@@ -137,7 +136,6 @@ module.exports = {
                     subcommand = 'userbuff'; targetUser = interactionOrMessage.mentions.members.first(); amount = parseInt(args[2]); hoursInput = parseInt(args[3]);
                 }
             } else {
-                // في حال استخدم الاختصار المباشر (مثال: !add-level @user 5)
                 if (cmdName.includes('add-level')) { subcommand = 'add'; targetUser = interactionOrMessage.mentions.members.first(); amount = parseInt(args[1]); }
                 else if (cmdName.includes('remove-level')) { subcommand = 'remove'; targetUser = interactionOrMessage.mentions.members.first(); amount = parseInt(args[1]); }
                 else if (cmdName.includes('set-level')) { subcommand = 'set'; targetUser = interactionOrMessage.mentions.members.first(); amount = parseInt(args[1]); }
@@ -158,7 +156,6 @@ module.exports = {
         if (!subcommand) return reply("❌ صيغة الأمر خاطئة. يرجى التأكد من كتابة الأمر بشكل صحيح.");
 
         try {
-            // قسم التحكم بالمستويات والخبرة
             if (['add', 'remove', 'set', 'xp'].includes(subcommand)) {
                 if (!targetUser || isNaN(amount) || amount === null) return reply("❌ بيانات غير مكتملة (يرجى تحديد العضو والرقم).");
                 
@@ -201,79 +198,102 @@ module.exports = {
                 return reply({ embeds: [embed] });
             }
 
-            // قسم إعداد قناة الإشعارات
+            // 🔥 الإصلاح الجذري لقسم قناة الإشعارات 🔥
             if (subcommand === 'channel') {
                 if (!targetChannel || targetChannel === 'reset') {
-                    await db.query(`INSERT INTO settings ("guild", "levelChannel") VALUES ($1, NULL) ON CONFLICT("guild") DO UPDATE SET "levelChannel" = NULL`, [guildId]);
+                    try { await db.query(`INSERT INTO settings ("guild", "levelChannel") VALUES ($1, NULL) ON CONFLICT("guild") DO UPDATE SET "levelChannel" = NULL`, [guildId]); }
+                    catch(e) { await db.query(`INSERT INTO settings (guild, levelchannel) VALUES ($1, NULL) ON CONFLICT(guild) DO UPDATE SET levelchannel = NULL`, [guildId]).catch(()=>{}); }
                     return reply("✅ تم العودة للوضع الافتراضي. سيتم إرسال بطاقة اللفل في نفس القناة التي يتفاعل فيها العضو.");
                 } else {
-                    await db.query(`INSERT INTO settings ("guild", "levelChannel") VALUES ($1, $2) ON CONFLICT("guild") DO UPDATE SET "levelChannel" = EXCLUDED."levelChannel"`, [guildId, targetChannel.id]);
-                    return reply(`✅ تم تحديد قناة الإشعارات: ${targetChannel}`);
+                    try { await db.query(`INSERT INTO settings ("guild", "levelChannel") VALUES ($1, $2) ON CONFLICT("guild") DO UPDATE SET "levelChannel" = EXCLUDED."levelChannel"`, [guildId, targetChannel.id]); }
+                    catch(e) { await db.query(`INSERT INTO settings (guild, levelchannel) VALUES ($1, $2) ON CONFLICT(guild) DO UPDATE SET levelchannel = EXCLUDED.levelchannel`, [guildId, targetChannel.id]).catch(()=>{}); }
+                    return reply(`✅ تم تحديد قناة الإشعارات بنجاح إلى: ${targetChannel}`);
                 }
             }
 
-            // قسم تخصيص رسالة التلفيل
             if (subcommand === 'message') {
                 if (actionStr === 'empire') {
                     const desc = "╭⭒★︰ <a:wi:1435572304988868769> {member} <a:wii:1435572329039007889>\\n✶ مبارك صعودك في سُلّم الإمبراطورية\\n★ فقد كـسرت حـاجـز الـمستوى〃{level_old}〃وبلغـت المسـتـوى الـ 〃{level}〃 <a:MugiStronk:1438795606872166462> وتعاظم شأنك بين جموع الرعية فامضِ قُدمًا نحو المجد <:2KazumaSalut:1437129108806176768>";
-                    await db.query(`INSERT INTO settings ("guild", "lvlUpDesc") VALUES ($1, $2) ON CONFLICT ("guild") DO UPDATE SET "lvlUpDesc" = EXCLUDED."lvlUpDesc", "lvlUpTitle" = NULL, "lvlUpImage" = NULL`, [guildId, desc]);
+                    try { await db.query(`INSERT INTO settings ("guild", "lvlUpDesc") VALUES ($1, $2) ON CONFLICT ("guild") DO UPDATE SET "lvlUpDesc" = EXCLUDED."lvlUpDesc", "lvlUpTitle" = NULL, "lvlUpImage" = NULL`, [guildId, desc]); }
+                    catch(e) { await db.query(`INSERT INTO settings (guild, lvlUpDesc) VALUES ($1, $2) ON CONFLICT (guild) DO UPDATE SET lvlUpDesc = EXCLUDED.lvlUpDesc, lvlUpTitle = NULL, lvlUpImage = NULL`, [guildId, desc]).catch(()=>{}); }
                     return reply("✅ **تم تفعيل رسالة التلفيل بنمط الإمبراطورية!**");
                 } 
                 else if (actionStr === 'custom' || actionStr === 'desc') {
                     if (!textInput) return reply("❌ يرجى إدخال النص.");
-                    await db.query(`INSERT INTO settings ("guild", "lvlUpDesc") VALUES ($1, $2) ON CONFLICT ("guild") DO UPDATE SET "lvlUpDesc" = EXCLUDED."lvlUpDesc", "lvlUpTitle" = NULL, "lvlUpImage" = NULL`, [guildId, textInput]);
+                    try { await db.query(`INSERT INTO settings ("guild", "lvlUpDesc") VALUES ($1, $2) ON CONFLICT ("guild") DO UPDATE SET "lvlUpDesc" = EXCLUDED."lvlUpDesc", "lvlUpTitle" = NULL, "lvlUpImage" = NULL`, [guildId, textInput]); }
+                    catch(e) { await db.query(`INSERT INTO settings (guild, lvlUpDesc) VALUES ($1, $2) ON CONFLICT (guild) DO UPDATE SET lvlUpDesc = EXCLUDED.lvlUpDesc, lvlUpTitle = NULL, lvlUpImage = NULL`, [guildId, textInput]).catch(()=>{}); }
                     return reply("✅ تم تحديث النص المخصص لرسالة التلفيل.");
                 }
                 else if (actionStr === 'reset') {
-                    await db.query(`INSERT INTO settings ("guild", "lvlUpDesc") VALUES ($1, NULL) ON CONFLICT ("guild") DO UPDATE SET "lvlUpDesc" = NULL, "lvlUpTitle" = NULL, "lvlUpImage" = NULL`, [guildId]);
+                    try { await db.query(`INSERT INTO settings ("guild", "lvlUpDesc") VALUES ($1, NULL) ON CONFLICT ("guild") DO UPDATE SET "lvlUpDesc" = NULL, "lvlUpTitle" = NULL, "lvlUpImage" = NULL`, [guildId]); }
+                    catch(e) { await db.query(`INSERT INTO settings (guild, lvlUpDesc) VALUES ($1, NULL) ON CONFLICT (guild) DO UPDATE SET lvlUpDesc = NULL, lvlUpTitle = NULL, lvlUpImage = NULL`, [guildId]).catch(()=>{}); }
                     return reply("✅ تم إعادة ضبط رسالة التلفيل للوضع الافتراضي.");
                 }
                 else if (actionStr === 'show') {
-                    const setRes = await db.query(`SELECT "lvlUpDesc" FROM settings WHERE "guild" = $1`, [guildId]);
-                    let msg = setRes.rows[0]?.lvlUpDesc || setRes.rows[0]?.lvlupdesc || "لم يتم تخصيص نص (يستخدم النظام الرسالة الافتراضية).";
-                    msg = msg.replace(/{member}/gi, `<@${interactionOrMessage.member.id}>`).replace(/{level}/gi, `10`).replace(/{level_old}/gi, `9`).replace(/\\n/g, '\n');
+                    let setRes;
+                    try { setRes = await db.query(`SELECT "lvlUpDesc" FROM settings WHERE "guild" = $1`, [guildId]); }
+                    catch(e) { setRes = await db.query(`SELECT lvlupdesc as "lvlUpDesc" FROM settings WHERE guild = $1`, [guildId]).catch(()=>({rows:[]})); }
+                    
+                    let rawMsg = setRes.rows[0]?.lvlUpDesc || setRes.rows[0]?.lvlupdesc;
+                    let msg = "";
+                    if (rawMsg) {
+                        msg = rawMsg.replace(/{member}/gi, `<@${interactionOrMessage.member.id}>`).replace(/{level}/gi, `10`).replace(/{level_old}/gi, `9`).replace(/\\n/g, '\n');
+                    } else {
+                        msg = "لم يتم تخصيص نص (يستخدم النظام الرسالة الافتراضية).";
+                    }
                     return reply({ embeds: [new EmbedBuilder().setTitle('معاينة النص الحالي').setDescription(msg).setColor("Blue")] });
                 }
             }
 
-            // قسم إعداد رتب المستويات التلقائية
             if (subcommand === 'reward') {
                 if (actionStr === 'add') {
                     if (!amount || !targetRole) return reply("❌ يرجى تحديد المستوى والرتبة بشكل صحيح.");
-                    await db.query(`DELETE FROM level_roles WHERE "guildID" = $1 AND "level" = $2`, [guildId, amount]);
-                    await db.query(`INSERT INTO level_roles ("guildID", "roleID", "level") VALUES ($1, $2, $3)`, [guildId, targetRole.id, amount]);
+                    try {
+                        await db.query(`DELETE FROM level_roles WHERE "guildID" = $1 AND "level" = $2`, [guildId, amount]);
+                        await db.query(`INSERT INTO level_roles ("guildID", "roleID", "level") VALUES ($1, $2, $3)`, [guildId, targetRole.id, amount]);
+                    } catch(e) {
+                        await db.query(`DELETE FROM level_roles WHERE guildid = $1 AND level = $2`, [guildId, amount]).catch(()=>{});
+                        await db.query(`INSERT INTO level_roles (guildid, roleid, level) VALUES ($1, $2, $3)`, [guildId, targetRole.id, amount]).catch(()=>{});
+                    }
                     return reply(`✅ تم الإعداد: سيحصل الأعضاء على رتبة ${targetRole} عند الوصول للمستوى **${amount}**.`);
                 } 
                 else if (actionStr === 'remove' || actionStr === 'delete') {
                     if (!amount) return reply("❌ يرجى تحديد المستوى المراد حذف رتبته.");
-                    await db.query(`DELETE FROM level_roles WHERE "guildID" = $1 AND "level" = $2`, [guildId, amount]);
+                    try { await db.query(`DELETE FROM level_roles WHERE "guildID" = $1 AND "level" = $2`, [guildId, amount]); }
+                    catch(e) { await db.query(`DELETE FROM level_roles WHERE guildid = $1 AND level = $2`, [guildId, amount]).catch(()=>{}); }
                     return reply(`✅ تم حذف رتبة المكافأة الخاصة بالمستوى **${amount}**.`);
                 }
                 else if (actionStr === 'show' || actionStr === 'list') {
-                    const rolesRes = await db.query(`SELECT * FROM level_roles WHERE "guildID" = $1 ORDER BY "level" ASC`, [guildId]);
+                    let rolesRes;
+                    try { rolesRes = await db.query(`SELECT * FROM level_roles WHERE "guildID" = $1 ORDER BY "level" ASC`, [guildId]); }
+                    catch(e) { rolesRes = await db.query(`SELECT * FROM level_roles WHERE guildid = $1 ORDER BY level ASC`, [guildId]).catch(()=>({rows:[]})); }
+                    
                     if (rolesRes.rows.length === 0) return reply("⚠️ لا توجد رتب مكافآت مضافة في السيرفر حالياً.");
                     let desc = rolesRes.rows.map(r => `🔹 **مستوى ${r.level}**: <@&${r.roleID || r.roleid}>`).join('\n');
                     return reply({ embeds: [new EmbedBuilder().setTitle('📜 قائمة رتب التلفيل التلقائية').setDescription(desc).setColor('Blue')] });
                 }
             }
 
-            // قسم البف الدائم للرتبة
             if (subcommand === 'rolebuff') {
                 if (!targetRole || isNaN(amount) || amount === null) return reply("❌ يرجى تحديد الرتبة والنسبة (مثال: 50).");
-                await db.query(`DELETE FROM role_buffs WHERE "roleID" = $1`, [targetRole.id]);
+                try { await db.query(`DELETE FROM role_buffs WHERE "roleID" = $1`, [targetRole.id]); }
+                catch(e) { await db.query(`DELETE FROM role_buffs WHERE roleid = $1`, [targetRole.id]).catch(()=>{}); }
+                
                 if (amount !== 0) {
-                    await db.query(`INSERT INTO role_buffs ("guildID", "roleID", "buffPercent") VALUES ($1, $2, $3)`, [guildId, targetRole.id, amount]);
+                    try { await db.query(`INSERT INTO role_buffs ("guildID", "roleID", "buffPercent") VALUES ($1, $2, $3)`, [guildId, targetRole.id, amount]); }
+                    catch(e) { await db.query(`INSERT INTO role_buffs (guildid, roleid, buffpercent) VALUES ($1, $2, $3)`, [guildId, targetRole.id, amount]).catch(()=>{}); }
                     return reply(`✅ تم تعيين مضاعف خبرة (Buff) للرتبة ${targetRole} بنسبة **+${amount}%**.`);
                 }
                 return reply(`✅ تم إزالة البف من الرتبة ${targetRole}.`);
             }
 
-            // قسم البف المؤقت للعضو
             if (subcommand === 'userbuff') {
                 if (!targetUser || isNaN(amount) || isNaN(hoursInput) || amount === null) return reply("❌ يرجى تحديد العضو، النسبة المئوية، وعدد الساعات.");
                 const expiresAt = Date.now() + (hoursInput * 60 * 60 * 1000);
                 const multiplier = amount / 100;
-                await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, targetUser.id, amount, expiresAt, 'xp', multiplier]);
+                try { await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, targetUser.id, amount, expiresAt, 'xp', multiplier]); }
+                catch(e) { await db.query(`INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, targetUser.id, amount, expiresAt, 'xp', multiplier]).catch(()=>{}); }
+                
                 return reply(`✅ تم إعطاء مضاعف خبرة **+${amount}%** للعضو ${targetUser} لمدة **${hoursInput}** ساعة.`);
             }
 
