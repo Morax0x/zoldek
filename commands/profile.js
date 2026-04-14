@@ -17,7 +17,6 @@ const skillsConfig = require('../json/skills-config.json');
 let marketConfig = [];
 try { marketConfig = require('../json/market-items.json'); } catch(e) {}
 
-// 🔥 تم تعديل هذا الجزء ليكون fishingConf متاحاً في باقي الكود لجلب الصور 🔥
 let validBaitIDs = ['worm', 'cricket', 'shrimp', 'squid', 'magic'];
 let fishingConf = {};
 try {
@@ -101,15 +100,17 @@ function isSmeltable(itemId) {
     return false;
 }
 
+// 🔥 إضافة رتبة SSS للسمعة هنا 🔥
 function getRepRankInfo(points) {
-    if (points >= 1000) return { name: '👑 رتبة SS', color: '#FF0055' }; 
-    if (points >= 500)  return { name: '💎 رتبة S', color: '#9D00FF' }; 
-    if (points >= 250)  return { name: '🥇 رتبة A', color: '#FFD700' }; 
-    if (points >= 100)  return { name: '🥈 رتبة B', color: '#00FF88' }; 
-    if (points >= 50)   return { name: '🥉 رتبة C', color: '#00BFFF' }; 
-    if (points >= 25)   return { name: '⚔️ رتبة D', color: '#A9A9A9' }; 
-    if (points >= 10)   return { name: '🛡️ رتبة E', color: '#B87333' }; 
-    return { name: '🪵 رتبة F', color: '#654321' }; 
+    if (points >= 9999) return { name: '🎇 رتبة SSS', color: '#FFD700' };
+    if (points >= 5000) return { name: '👑 رتبة SS', color: '#FF00FF' };
+    if (points >= 1000) return { name: '💎 رتبة S',  color: '#00FFFF' };
+    if (points >= 500)  return { name: '🥇 رتبة A',  color: '#FFD700' };
+    if (points >= 250)  return { name: '🥈 رتبة B',  color: '#C0C0C0' };
+    if (points >= 100)  return { name: '🥉 رتبة C',  color: '#CD7F32' };
+    if (points >= 50)   return { name: '⚔️ رتبة D',  color: '#2E8B57' };
+    if (points >= 10)   return { name: '🛡️ رتبة E',  color: '#8B4513' };
+    return { name: '🪵 رتبة F', color: '#A0522D' }; 
 }
 
 function getWeaponDisplayDamage(weaponConfig, level) {
@@ -155,16 +156,18 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
     return isPercentage ? Number(finalValue.toFixed(1)) : Math.floor(finalValue);
 }
 
+// 🔥 تم التعديل: إخفاء الإمبراطور تماماً من حسبة الترتيب ليكون الأول الحقيقي هو من يليه 🔥
 async function calculateStrongestRank(db, guildID, targetUserID) {
     try {
         if (targetUserID === TARGET_OWNER_ID) return 0;
+        
         let wRes = await safeQuery(db, `SELECT "userID", "raceName", "weaponLevel" FROM user_weapons WHERE "guildID" = $1 AND "userID" != $2`, `SELECT userid as "userID", racename as "raceName", weaponlevel as "weaponLevel" FROM user_weapons WHERE guildid = $1 AND userid != $2`, [guildID, TARGET_OWNER_ID]);
         const weapons = wRes?.rows || [];
         
-        let lvlRes = await safeQuery(db, `SELECT "user" as "userID", "level" FROM levels WHERE "guild" = $1`, `SELECT userid as "userID", level FROM levels WHERE guildid = $1`, [guildID]);
+        let lvlRes = await safeQuery(db, `SELECT "user" as "userID", "level" FROM levels WHERE "guild" = $1 AND "user" != $2`, `SELECT userid as "userID", level FROM levels WHERE guildid = $1 AND userid != $2`, [guildID, TARGET_OWNER_ID]);
         const levelsMap = new Map((lvlRes?.rows || []).map(r => [r.userID, r.level]));
         
-        let skillRes = await safeQuery(db, `SELECT "userID", SUM("skillLevel") as "totalLevels" FROM user_skills WHERE "guildID" = $1 GROUP BY "userID"`, `SELECT userid as "userID", SUM(skilllevel) as "totalLevels" FROM user_skills WHERE guildid = $1 GROUP BY userid`, [guildID]);
+        let skillRes = await safeQuery(db, `SELECT "userID", SUM("skillLevel") as "totalLevels" FROM user_skills WHERE "guildID" = $1 AND "userID" != $2 GROUP BY "userID"`, `SELECT userid as "userID", SUM(skilllevel) as "totalLevels" FROM user_skills WHERE guildid = $1 AND userid != $2 GROUP BY userid`, [guildID, TARGET_OWNER_ID]);
         const skillsMap = new Map((skillRes?.rows || []).map(r => [r.userID, parseInt(r.totalLevels) || 0]));
         
         let stats = [];
@@ -404,7 +407,6 @@ module.exports = {
                             const cRod = rodKey ? fishingStats[rodKey] : null;
                             const cBoat = boatKey ? fishingStats[boatKey] : null;
                             
-                            // 🔥 التعديل: سحب صورة السنارة والقارب الذكية هنا بدلاً من الاسم المباشر 🔥
                             if (cRod) {
                                 const rodData = (fishingConf.rods || []).find(r => r.name === cRod);
                                 const rodImg = rodData ? rodData.image : `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/fish/fishing/rod_1.png`;
@@ -469,13 +471,14 @@ module.exports = {
                     try { xpBuff = await calculateBuffMultiplier(targetMember, db); } catch(e) {}
                     try { moraBuff = await calculateMoraBuff(targetMember, db); } catch(e) {}
                     
+                    // 🔥 تم إخفاؤك هنا أيضاً من تصنيفات المورا واللفل لكي يبقى الأول العادي رقمه 1 🔥
                     let ranks = { level: "0", mora: "0", streak: "0", power: "0" };
                     if (targetUser.id !== TARGET_OWNER_ID) {
                         try {
                             const [lvlR, moraR, strkR] = await Promise.all([
-                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM levels WHERE "guild" = $1 AND "totalXP" > $2`, `SELECT COUNT(*) + 1 as rank FROM levels WHERE guildid = $1 AND totalxp > $2`, [guildId, levelData.totalXP]),
-                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM levels WHERE "guild" = $1 AND ("mora" + "bank") > $2`, `SELECT COUNT(*) + 1 as rank FROM levels WHERE guildid = $1 AND (mora + bank) > $2`, [guildId, totalMora]),
-                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM streaks WHERE "guildID" = $1 AND "streakCount" > $2`, `SELECT COUNT(*) + 1 as rank FROM streaks WHERE guildid = $1 AND streakcount > $2`, [guildId, streakData.streakCount || streakData.streakcount || 0])
+                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM levels WHERE "guild" = $1 AND "totalXP" > $2 AND "user" != $3`, `SELECT COUNT(*) + 1 as rank FROM levels WHERE guildid = $1 AND totalxp > $2 AND userid != $3`, [guildId, levelData.totalXP, TARGET_OWNER_ID]),
+                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM levels WHERE "guild" = $1 AND ("mora" + "bank") > $2 AND "user" != $3`, `SELECT COUNT(*) + 1 as rank FROM levels WHERE guildid = $1 AND (mora + bank) > $2 AND userid != $3`, [guildId, totalMora, TARGET_OWNER_ID]),
+                                safeQuery(db, `SELECT COUNT(*) + 1 as rank FROM streaks WHERE "guildID" = $1 AND "streakCount" > $2 AND "userID" != $3`, `SELECT COUNT(*) + 1 as rank FROM streaks WHERE guildid = $1 AND streakcount > $2 AND userid != $3`, [guildId, streakData.streakCount || streakData.streakcount || 0, TARGET_OWNER_ID])
                             ]);
                             ranks.level = (lvlR?.rows?.[0]?.rank || 1).toString();
                             ranks.mora = (moraR?.rows?.[0]?.rank || 1).toString();
@@ -977,8 +980,6 @@ module.exports = {
                 }
             });
 
-        } catch (error) {
-            console.error(error);
-        }
+        } catch (error) {}
     }
 };
