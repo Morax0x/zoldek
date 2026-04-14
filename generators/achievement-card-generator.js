@@ -9,6 +9,7 @@ const FONT_EMOJI = '"Noto Color Emoji", "Apple Color Emoji", sans-serif';
 
 const BASE_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/ui';
 const ASSETS = {
+    // 🔥 تم تصحيح رابط الخلفية هنا 🔥
     bg: `${BASE_URL}/wallpaper.png`,
     mora: `${BASE_URL}/icon_mora.png`,
     xp: `${BASE_URL}/icon_xp.png`,
@@ -17,8 +18,7 @@ const ASSETS = {
     uncommon: `${BASE_URL}/Uncommon.png`,
     rare: `${BASE_URL}/Rare.png`,
     epic: `${BASE_URL}/Epic.png`,
-    legendary: `${BASE_URL}/Legendary.png`,
-    mythic: `${BASE_URL}/Legendary.png`
+    legendary: `${BASE_URL}/Legendary.png`
 };
 
 const RARITIES = {
@@ -26,8 +26,7 @@ const RARITIES = {
     uncommon: { color: '#00FF66', imgKey: 'uncommon' },
     rare: { color: '#00E5FF', imgKey: 'rare' },
     epic: { color: '#B530FF', imgKey: 'epic' },
-    legendary: { color: '#FFD700', imgKey: 'legendary' },
-    mythic: { color: '#FF0055', imgKey: 'mythic' }
+    legendary: { color: '#FFD700', imgKey: 'legendary' }
 };
 
 let cachedAssets = null;
@@ -66,7 +65,7 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
 
 async function loadAssets() {
     if (cachedAssets) return cachedAssets;
-    const [bg, mora, xp, rep, common, uncommon, rare, epic, legendary, mythic] = await Promise.all([
+    const [bg, mora, xp, rep, common, uncommon, rare, epic, legendary] = await Promise.all([
         loadSafeImage('wallpaper.png', ASSETS.bg),
         loadSafeImage('icon_mora.png', ASSETS.mora),
         loadSafeImage('icon_xp.png', ASSETS.xp),
@@ -75,10 +74,9 @@ async function loadAssets() {
         loadSafeImage('Uncommon.png', ASSETS.uncommon),
         loadSafeImage('Rare.png', ASSETS.rare),
         loadSafeImage('Epic.png', ASSETS.epic),
-        loadSafeImage('Legendary.png', ASSETS.legendary),
-        loadSafeImage('Legendary.png', ASSETS.mythic)
+        loadSafeImage('Legendary.png', ASSETS.legendary)
     ]);
-    cachedAssets = { bg, mora, xp, rep, common, uncommon, rare, epic, legendary, mythic };
+    cachedAssets = { bg, mora, xp, rep, common, uncommon, rare, epic, legendary };
     return cachedAssets;
 }
 
