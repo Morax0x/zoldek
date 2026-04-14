@@ -45,6 +45,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
     let totalAccumulatedChests = 0;
     let totalAccumulatedRep = 0;
     let resumedMonsterData = null;
+    let applyAnomalyBuffs = !!resumeData;
 
     if (resumeData) {
         players = resumeData.players;
@@ -80,7 +81,7 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
         }
         
         const dioEmbed = new EmbedBuilder()
-            .setDescription(`**زا واردوو!** ديو اعـاد الزمن جاري استكمال المعركة من الطابق: **${startFloor}**\n(تم إنقاذ الصناديق والسمعة والمورا بنجاح! 📦)`)
+            .setDescription(`**زا واردوو!** ديو اعـاد الزمن جاري استكمال المعركة من الطابق: **${startFloor}**\n\n✶ خـلل زمكـانـي ادى الى مضاعفـة قوتـكم في هذا الطابـق`)
             .setImage('https://i.postimg.cc/VvsFq67N/dio-da.gif')
             .setColor(Colors.Gold);
 
@@ -227,6 +228,20 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
             }
         }
 
+        if (applyAnomalyBuffs) {
+            if (!monster.effects) monster.effects = [];
+            monster.effects.push({ type: 'stun', val: true, turns: 4 });
+            
+            players.forEach(p => {
+                if (!p.isDead) {
+                    p.shield = (p.shield || 0) + Math.floor(p.maxHp * 0.5);
+                    if (!p.effects) p.effects = [];
+                    p.effects.push({ type: 'atk_buff', val: 0.50, turns: 99, anomaly: true });
+                }
+            });
+            applyAnomalyBuffs = false;
+        }
+
         await saveDungeonState(db, threadChannel.id, guild.id, hostId, {
             floor, players, merchantState, retreatedPlayers, isTrapActive, retreatState, 
             loot: { coins: totalAccumulatedCoins, xp: totalAccumulatedXP, chests: totalAccumulatedChests, rep: totalAccumulatedRep },
@@ -369,6 +384,12 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
                 if (ongoing) handleLeaderSuccession(players, log);
             }
         }
+
+        players.forEach(p => {
+            if (p.effects) {
+                p.effects = p.effects.filter(e => !e.anomaly);
+            }
+        });
 
         if (players.every(p => p.isDead)) {
             const finalFloor = isTrapActive ? trapStartFloor : floor;
