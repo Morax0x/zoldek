@@ -6,7 +6,8 @@ const OWNER_ID = "1145327691772481577";
 const getRandomColor = () => Math.floor(Math.random() * 16777215);
 
 function getRepRank(points) {
-    if (points >= 1000) return { rank: 'SS', name: '👑 مغامـر رتبـة SS', color: '#FF00FF', next: 'الحد الأقصى' };
+    if (points >= 9999) return { rank: 'SSS', name: '🎇 مغامـر رتبـة SSS', color: '#FFD700', next: 'الحد الأقصى' };
+    if (points >= 1000) return { rank: 'SS', name: '👑 مغامـر رتبـة SS', color: '#FF00FF', next: 9999 };
     if (points >= 500)  return { rank: 'S',  name: '💎 مغامـر رتبـة S', color: '#00FFFF', next: 1000 };
     if (points >= 250)  return { rank: 'A',  name: '🥇 مغامـر رتبـة A', color: '#FFD700', next: 500 };
     if (points >= 100)  return { rank: 'B',  name: '🥈 مغامـر رتبـة B', color: '#C0C0C0', next: 250 };
@@ -29,7 +30,6 @@ function getNextResetTime() {
     return Math.floor(resetDate.getTime() / 1000);
 }
 
-// 🔥 الإصلاح هنا: هذه الدالة تطابق تماماً الدالة الموجودة في messageCreate.js لضمان توحيد الوقت والصيغة 🔥
 function getTodayDateString() { 
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date());
 }
@@ -76,9 +76,7 @@ module.exports = {
             if (voiceKingId === senderId) {
                 maxVotes += 3;
             }
-        } catch (err) {
-            console.error("Error checking Voice King status:", err.message);
-        }
+        } catch (err) {}
 
         let senderRep;
         try {
@@ -102,7 +100,6 @@ module.exports = {
             }
         }
 
-        // توحيد تاريخ اليوم للتحقق من السمعة
         let currentDailyReps = 0;
         if (senderRep && (senderRep.last_rep_given === todayStr || senderRep.last_rep_given === todayStr)) {
             currentDailyReps = parseInt(senderRep.daily_reps_given || senderRep.daily_reps_given, 10) || 0;
@@ -132,7 +129,6 @@ module.exports = {
             return message.reply({ embeds: [selfEmbed] });
         }
 
-        // الفحص الأول: هل يمتلك رصيد شهادات؟
         if (senderId !== OWNER_ID && remainingVotes <= 0) {
             const nextRepTime = getNextResetTime();
             const cooldownEmbed = new EmbedBuilder()
@@ -143,7 +139,6 @@ module.exports = {
             return message.reply({ embeds: [cooldownEmbed] });
         }
 
-        // الفحص الثاني: اللفل (10 فما فوق)
         let senderLevel = 1;
         try {
             const senderLevelRes = await db.query(`SELECT "level" FROM levels WHERE "user" = $1 AND "guild" = $2`, [senderId, guildId]);
@@ -162,7 +157,6 @@ module.exports = {
             return message.reply({ embeds: [lvlEmbed] });
         }
         
-        // 🔥 الفحص الثالث: التفاعل (الرسائل اليومية المصلّح) 🔥
         if (senderId !== OWNER_ID) {
             try {
                 let todayMessages = 0;
@@ -183,9 +177,7 @@ module.exports = {
                         .setColor(getRandomColor());
                     return message.reply({ embeds: [msgEmbed] });
                 }
-            } catch (e) {
-                console.error("Rep Stat Check Error:", e.message);
-            }
+            } catch (e) {}
         }
 
         const currentSenderPoints = parseInt(senderRep ? (senderRep.rep_points || senderRep.rep_points) : 0, 10) || 0;
@@ -193,8 +185,12 @@ module.exports = {
         
         let repToAdd = 1;
         let isEliteVouch = false;
+        let isMythicVouch = false;
         
-        if (['S', 'SS'].includes(senderRankData.rank)) {
+        if (senderRankData.rank === 'SSS') {
+            repToAdd = 3;
+            isMythicVouch = true;
+        } else if (['S', 'SS'].includes(senderRankData.rank)) {
             repToAdd = 2;
             isEliteVouch = true;
         }
@@ -256,17 +252,18 @@ module.exports = {
             const attachment = new AttachmentBuilder(imageBuffer, { name: 'reputation.png' });
 
             let extraMsg = '';
-            if (isEliteVouch) {
+            if (isMythicVouch) {
+                extraMsg = `\n✨ **تزكية أسطورية!** شهادة من مغامر في القمة (**SSS**) تعادل 3 شهادات! (+3 🌟)`;
+            } else if (isEliteVouch) {
                 extraMsg = `\n👑 **تزكية النخبة!** لأنك مغامر من الرتبة المرموقة (**${senderRankData.rank}**)، تزكيتك تعادل شهادتين! (+2 🌟)`;
             }
 
             await message.reply({ content: `<@${targetId}>${extraMsg}`, files: [attachment] });
             
         } catch (error) {
-            console.error("Error generating rep card:", error);
-            
             let extraMsg = '';
-            if (isEliteVouch) extraMsg = `\n👑 **تزكية النخبة!** شهادتك تعادل صوتين (+2 🌟)`;
+            if (isMythicVouch) extraMsg = `\n✨ **تزكية أسطورية!** شهادتك تعادل 3 أصوات (+3 🌟)`;
+            else if (isEliteVouch) extraMsg = `\n👑 **تزكية النخبة!** شهادتك تعادل صوتين (+2 🌟)`;
             
             const errorEmbed = new EmbedBuilder()
                 .setDescription(`✅ **تم منح السمعة بنجاح!**${extraMsg}`)
