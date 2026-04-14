@@ -108,7 +108,6 @@ async function deductMora(client, db, userId, guildId, amount) {
     if (mora >= amount) { moraDeduct = amount; }
     else { moraDeduct = mora; bankDeduct = amount - mora; }
 
-    // استخدام خصم نسبي بدلاً من مطلق لمنع التعارض مع العمليات المتزامنة
     let updateRes;
     try {
         updateRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora",'0') AS BIGINT) - $1), "bank" = GREATEST(0, CAST(COALESCE("bank",'0') AS BIGINT) - $2) WHERE "user" = $3 AND "guild" = $4 RETURNING "mora", "bank"`, [moraDeduct, bankDeduct, userId, guildId]);
@@ -181,8 +180,6 @@ function performPull(pityData, userRace) {
 }
 
 async function maintainChestInventory(db, userId, guildId) {
-    // Uses a single atomic CTE statement: DELETE + INSERT in one query.
-    // If the INSERT fails, PostgreSQL rolls back the DELETE too — no data loss.
     const consolidate = async (itemId) => {
         const cteQ = `
             WITH deleted AS (
@@ -199,7 +196,6 @@ async function maintainChestInventory(db, userId, guildId) {
             const res = await db.query(cteQ, [userId, guildId, itemId]);
             return res.rows[0] ? Number(res.rows[0].quantity) : 0;
         } catch(e) {
-            // Fallback: lowercase column names
             const cteFallback = `
                 WITH deleted AS (
                     DELETE FROM user_inventory
@@ -215,7 +211,6 @@ async function maintainChestInventory(db, userId, guildId) {
                 const res2 = await db.query(cteFallback, [userId, guildId, itemId]);
                 return res2.rows[0] ? Number(res2.rows[0].quantity) : 0;
             } catch(e2) {
-                // Read-only fallback: don't modify DB, just return current count
                 try {
                     const r = await db.query(
                         `SELECT COALESCE(SUM(GREATEST(0, CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER))), 0) AS cnt FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = $3`,
@@ -324,38 +319,27 @@ module.exports = {
                 await safeExecute(db, `INSERT INTO user_gacha_pity ("userID", "guildID", "last_free_claim") VALUES ($1, $2, '')`, [user.id, guildId]);
             }
 
+            // 🔥 التعديل هنا: تعديل كمية الصناديق اليومية للمرتبة الأولى 15 والثانية 30 🔥
             let dailyLimit = 0;
-            if (member && member.roles && member.roles.cache.has('1422160802416164885')) dailyLimit = 20;
-            else if (member && member.roles && member.roles.cache.has('1395674235002945636')) dailyLimit = 10;
+            if (member && member.roles && member.roles.cache.has('1422160802416164885')) dailyLimit = 30; // 30 صندوق بدلاً من 20
+            else if (member && member.roles && member.roles.cache.has('1395674235002945636')) dailyLimit = 15; // 15 صندوق بدلاً من 10
 
             const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
 
             if (dailyLimit > 0 && pityData.last_free_claim !== todaySaudi) {
-                // Mark today's daily as claimed regardless
                 await safeExecute(db, `UPDATE user_gacha_pity SET "last_free_claim" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [todaySaudi, user.id, guildId]);
                 pityData.last_free_claim = todaySaudi;
 
-                if (freeChests < dailyLimit) {
-                    // Only reset if user has fewer free chests than their daily entitlement.
-                    // This preserves dungeon-earned chests above the daily limit.
-                    const oldInvRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
-                    let oldIds = [];
-                    if (oldInvRes.rows) {
-                        oldInvRes.rows.forEach(r => {
-                            const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
-                            const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
-                            if (idKey && String(r[idKey]).toLowerCase().trim() === 'free_gacha_chest' && rowIdKey) {
-                                oldIds.push(r[rowIdKey]);
-                            }
-                        });
-                    }
-                    for (let oid of oldIds) await safeExecute(db, `DELETE FROM user_inventory WHERE "id" = $1`, [oid]);
-                    await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]);
-                    freeChests = dailyLimit;
-                    totalChests = freeChests + paidChests;
+                // 🔥 التعديل هنا: تراكم الصناديق بدلاً من حذف القديم وإعادة تعيينه 🔥
+                await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]);
+                
+                freeChests += dailyLimit;
+                totalChests = freeChests + paidChests;
 
-                    (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).send({ content: `🎁 <@${user.id}> **مكافأة يومية!** لقد تم تجديد صناديقك المجانية لليوم لتصبح **${dailyLimit}** صناديق.` }).catch(()=>{});
-                }
+                // 🔥 الرسالة الفخمة المخصصة للتجديد اليومي 🔥
+                (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).send({ 
+                    content: `❖ <@${user.id}>\n✦ لأنك احد داعمي الامبراطوريـة حـصـلـت عـلـى  «${dailyLimit}»  صندوق <:gboost:1439665966354268201>` 
+                }).catch(()=>{});
             }
 
             const getPullButtons = (totalBalance) => {
@@ -511,7 +495,6 @@ module.exports = {
                         if (item) resArr.push({ item, rarity });
                     }
 
-                    // Query inventory once, then check all items against the snapshot
                     const invSnap = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
                     const invRows = invSnap.rows || [];
 
@@ -602,7 +585,7 @@ module.exports = {
                         return;
                     }
 
-                    await fetchUserData();
+                    await fetchUserData(); 
                     
                     let isBuying = i.customId.startsWith('gacha_');
                     currentPullCount = (i.customId === 'gacha_10' || i.customId === 'open_chest_10') ? 10 : 1;
