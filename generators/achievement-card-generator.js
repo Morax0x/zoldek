@@ -1,232 +1,348 @@
-const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas'); 
 const path = require('path');
-const fs = require('fs');
 
-try { GlobalFonts.registerFromPath(path.join(process.cwd(), 'fonts', 'bein-ar-normal.ttf'), 'Bein'); } catch (e) {}
-
-const FONT_MAIN = '"Cairo", "Bein", "Tahoma", sans-serif'; 
-const FONT_EMOJI = '"Noto Color Emoji", "Apple Color Emoji", sans-serif';
-
-const BASE_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/ui';
-const ASSETS = {
-    // 🔥 تم تصحيح رابط الخلفية هنا 🔥
-    bg: `${BASE_URL}/wallpaper.png`,
-    mora: `${BASE_URL}/icon_mora.png`,
-    xp: `${BASE_URL}/icon_xp.png`,
-    rep: `${BASE_URL}/icon_rep.png`,
-    common: `${BASE_URL}/Uncommon.png`,
-    uncommon: `${BASE_URL}/Uncommon.png`,
-    rare: `${BASE_URL}/Rare.png`,
-    epic: `${BASE_URL}/Epic.png`,
-    legendary: `${BASE_URL}/Legendary.png`
-};
-
-const RARITIES = {
-    common: { color: '#B0BEC5', imgKey: 'common' },
-    uncommon: { color: '#00FF66', imgKey: 'uncommon' },
-    rare: { color: '#00E5FF', imgKey: 'rare' },
-    epic: { color: '#B530FF', imgKey: 'epic' },
-    legendary: { color: '#FFD700', imgKey: 'legendary' }
-};
-
-let cachedAssets = null;
-
-async function loadSafeImage(fileName, url) {
-    try {
-        const localPath = path.join(process.cwd(), 'images', 'ui', fileName);
-        if (fs.existsSync(localPath)) return await loadImage(localPath);
-        return await loadImage(url);
-    } catch (e) {
-        return null;
-    }
+try {
+    GlobalFonts.registerFromPath(path.join(__dirname, '../fonts/bein-ar-normal.ttf'), 'Bein');
+} catch (e) {
+    console.log("⚠️ لم يتم العثور على خط Bein، سيتم استخدام الخط الافتراضي.");
 }
 
-function hexToRgba(hex, alpha) {
-    if (!hex) return `rgba(255, 255, 255, ${alpha})`;
-    let r = parseInt(hex.slice(1, 3), 16) || 0;
-    let g = parseInt(hex.slice(3, 5), 16) || 0;
-    let b = parseInt(hex.slice(5, 7), 16) || 0;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-function drawRoundedRect(ctx, x, y, width, height, radius) {
+function drawRandomPolygon(ctx, cx, cy, radius, sides) {
     ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
+    for (let i = 0; i < sides; i++) {
+        const angle = (i * 2 * Math.PI) / sides + (Math.random() * 0.5);
+        const r = radius * (0.5 + Math.random() * 0.5);
+        const x = cx + r * Math.cos(angle);
+        const y = cy + r * Math.sin(angle);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
     ctx.closePath();
 }
 
-async function loadAssets() {
-    if (cachedAssets) return cachedAssets;
-    const [bg, mora, xp, rep, common, uncommon, rare, epic, legendary] = await Promise.all([
-        loadSafeImage('wallpaper.png', ASSETS.bg),
-        loadSafeImage('icon_mora.png', ASSETS.mora),
-        loadSafeImage('icon_xp.png', ASSETS.xp),
-        loadSafeImage('icon_rep.png', ASSETS.rep),
-        loadSafeImage('Uncommon.png', ASSETS.common),
-        loadSafeImage('Uncommon.png', ASSETS.uncommon),
-        loadSafeImage('Rare.png', ASSETS.rare),
-        loadSafeImage('Epic.png', ASSETS.epic),
-        loadSafeImage('Legendary.png', ASSETS.legendary)
-    ]);
-    cachedAssets = { bg, mora, xp, rep, common, uncommon, rare, epic, legendary };
-    return cachedAssets;
+function roundRect(ctx, x, y, width, height, radius) {
+    if (width < 2 * radius) radius = width / 2;
+    if (height < 2 * radius) radius = height / 2;
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + width, y, x + width, y + height, radius);
+    ctx.arcTo(x + width, y + height, x, y + height, radius);
+    ctx.arcTo(x, y + height, x, y, radius);
+    ctx.arcTo(x, y, x + width, y, radius);
+    ctx.closePath();
 }
 
-async function generateAchievementCard(userAvatar, userName, achName, achDesc, rewardMora, rewardXp, repReward, rarity = 'legendary') {
-    const assets = await loadAssets();
-    const WIDTH = 950;
-    const HEIGHT = 450;
-    const canvas = createCanvas(WIDTH, HEIGHT);
+function drawShield(ctx, x, y, width, height) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - height/2); 
+    ctx.lineTo(x + width/2, y - height/3.5); 
+    ctx.lineTo(x + width/2, y + height/8); 
+    ctx.quadraticCurveTo(x + width/2, y + height/2.2, x, y + height/2); 
+    ctx.quadraticCurveTo(x - width/2, y + height/2.2, x - width/2, y + height/8); 
+    ctx.lineTo(x - width/2, y - height/3.5); 
+    ctx.closePath();
+}
+
+// 🔥 تم إضافة SSS هنا 🔥
+function getRepRankInfo(points) {
+    if (points >= 9999) return { name: '🎇 رتبة SSS', color: '#FFD700' };
+    if (points >= 5000) return { name: '👑 رتبة SS', color: '#FF00FF' };
+    if (points >= 1000) return { name: '💎 رتبة S',  color: '#00FFFF' };
+    if (points >= 500)  return { name: '🥇 رتبة A',  color: '#FFD700' };
+    if (points >= 250)  return { name: '🥈 رتبة B',  color: '#C0C0C0' };
+    if (points >= 100)  return { name: '🥉 رتبة C',  color: '#CD7F32' };
+    if (points >= 50)   return { name: '⚔️ رتبة D',  color: '#2E8B57' };
+    if (points >= 10)   return { name: '🛡️ رتبة E',  color: '#8B4513' };
+    return { name: '🪵 رتبة F', color: '#654321' }; 
+}
+
+async function generateAdventurerCard(data) {
+    const width = 1100;
+    const height = 650;
+    const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    const rarityInfo = RARITIES[rarity.toLowerCase()] || RARITIES['legendary'];
-    const cardColor = rarityInfo.color;
-    const bgImage = assets[rarityInfo.imgKey];
+    const primaryColor = data.rankInfo.color || '#555555';
 
-    if (assets.bg) {
-        ctx.drawImage(assets.bg, 0, 0, WIDTH, HEIGHT);
-        ctx.fillStyle = 'rgba(4, 5, 8, 0.7)';
-        ctx.fillRect(0, 0, WIDTH, HEIGHT);
-    } else {
-        const bgGradient = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
-        bgGradient.addColorStop(0, '#040508');
-        bgGradient.addColorStop(1, '#0d1326');
-        ctx.fillStyle = bgGradient;
-        ctx.fillRect(0, 0, WIDTH, HEIGHT);
-    }
-
-    const cardX = 30;
-    const cardY = 30;
-    const cardW = WIDTH - 60;
-    const cardH = HEIGHT - 60;
+    const bgBase = ctx.createLinearGradient(0, 0, width, height);
+    bgBase.addColorStop(0, '#050508'); 
+    bgBase.addColorStop(1, '#11111a');
+    ctx.fillStyle = bgBase;
+    ctx.fillRect(0, 0, width, height);
 
     ctx.save();
-    drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 25);
+    for (let i = 0; i < 200; i++) {
+        const x = Math.random() * width;
+        const y = Math.random() * height;
+        const radius = Math.random() * 80 + 30;
+        const sides = Math.floor(Math.random() * 3) + 3;
+
+        const shardGrad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+        shardGrad.addColorStop(0, primaryColor); 
+        shardGrad.addColorStop(1, 'rgba(0,0,0,0.9)'); 
+
+        drawRandomPolygon(ctx, x, y, radius, sides);
+        ctx.globalAlpha = 0.35; 
+        ctx.fillStyle = shardGrad;
+        ctx.fill();
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#000000'; 
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    const vignette = ctx.createRadialGradient(width/2, height/2, 200, width/2, height/2, 750);
+    vignette.addColorStop(0, 'rgba(0,0,0,0)');
+    vignette.addColorStop(1, 'rgba(0,0,0,0.95)'); 
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, width, height);
+
+    const borderGradient = ctx.createLinearGradient(0, 0, width, height);
+    borderGradient.addColorStop(0, primaryColor);
+    borderGradient.addColorStop(0.5, '#ffffff');
+    borderGradient.addColorStop(1, primaryColor);
+
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = borderGradient;
+    ctx.strokeRect(4, 4, width - 8, height - 8);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.strokeRect(12, 12, width - 24, height - 24);
+
+    const avatarSize = 180;
+    const avatarX = 160; 
+    const avatarY = 130; 
+    
+    ctx.save();
+    ctx.shadowColor = primaryColor;
+    ctx.shadowBlur = 40; 
+    ctx.beginPath();
+    ctx.arc(avatarX, avatarY, (avatarSize / 2) + 6, 0, Math.PI * 2);
+    ctx.fillStyle = primaryColor;
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+    ctx.closePath();
     ctx.clip();
-
-    if (bgImage) {
-        ctx.drawImage(bgImage, cardX, cardY, cardW, cardH);
-        ctx.fillStyle = 'rgba(10, 12, 20, 0.75)';
-        ctx.fillRect(cardX, cardY, cardW, cardH);
-    } else {
-        ctx.fillStyle = 'rgba(20, 24, 38, 0.9)';
-        ctx.fillRect(cardX, cardY, cardW, cardH);
-    }
-
-    ctx.fillStyle = hexToRgba(cardColor, 0.1);
-    ctx.beginPath(); ctx.arc(WIDTH / 2, HEIGHT / 2, 200, 0, Math.PI * 2); ctx.fill();
-
-    ctx.restore();
-
-    ctx.save();
-    drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 25);
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = hexToRgba(cardColor, 0.8);
-    ctx.strokeStyle = cardColor;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.fillStyle = cardColor;
-    ctx.font = `bold 38px ${FONT_MAIN}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor = cardColor;
-    ctx.shadowBlur = 15;
-    ctx.fillText("🎉 إنجـاز جـديـد مـفـتـوح 🎉", WIDTH / 2, 75);
-    ctx.shadowBlur = 0;
-
-    const avatarSize = 110;
-    const avatarX = (WIDTH / 2) - (avatarSize / 2);
-    const avatarY = 120;
-
     try {
-        if (userAvatar) {
-            const img = await loadImage(userAvatar);
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(WIDTH / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-            ctx.closePath();
-            ctx.clip();
-            ctx.drawImage(img, avatarX, avatarY, avatarSize, avatarSize);
-            ctx.restore();
-        }
-    } catch (e) {}
+        const avatarUrl = data.user.displayAvatarURL({ extension: 'png', size: 256 });
+        const avatarImage = await loadImage(avatarUrl);
+        ctx.drawImage(avatarImage, avatarX - avatarSize/2, avatarY - avatarSize/2, avatarSize, avatarSize);
+    } catch (e) {
+        ctx.fillStyle = '#333'; ctx.fill();
+    }
+    ctx.restore();
 
     ctx.beginPath();
-    ctx.arc(WIDTH / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-    ctx.strokeStyle = cardColor;
-    ctx.lineWidth = 4;
-    ctx.shadowColor = cardColor;
-    ctx.shadowBlur = 15;
+    ctx.arc(avatarX, avatarY, avatarSize / 2, 0, Math.PI * 2);
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = borderGradient;
     ctx.stroke();
+
+    const rankMatch = data.rankInfo.name.match(/[A-Z]+/);
+    const rankLetter = rankMatch ? rankMatch[0] : 'F'; 
+    const badgeX = 940;
+    const badgeY = 110;
+    const badgeW = 120;
+    const badgeH = 140;
+
+    ctx.save();
+    drawShield(ctx, badgeX, badgeY, badgeW, badgeH);
+    ctx.fillStyle = 'rgba(10, 10, 15, 0.9)';
+    ctx.shadowColor = primaryColor;
+    ctx.shadowBlur = 25;
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = primaryColor;
+    ctx.stroke();
+
+    drawShield(ctx, badgeX, badgeY + 5, badgeW - 20, badgeH - 25);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = primaryColor;
+    ctx.font = 'bold 55px "Arial", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = primaryColor;
+    ctx.shadowBlur = 15;
+    // تعديل حجم الخط إذا كانت الرتبة SSS لكي تتسع داخل الدرع
+    if (rankLetter === 'SSS') {
+        ctx.font = 'bold 40px "Arial", sans-serif';
+        ctx.fillText(rankLetter, badgeX, badgeY + 15);
+    } else if (rankLetter === 'SS') {
+        ctx.font = 'bold 45px "Arial", sans-serif';
+        ctx.fillText(rankLetter, badgeX, badgeY + 18);
+    } else {
+        ctx.fillText(rankLetter, badgeX, badgeY + 20);
+    }
     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `bold 36px ${FONT_MAIN}`;
-    ctx.fillText(achName || 'إنجاز', WIDTH / 2, 275);
-
-    ctx.fillStyle = '#c2cadb';
-    ctx.font = `20px ${FONT_MAIN}`;
-    ctx.fillText(achDesc || '', WIDTH / 2, 320);
-
-    const chips = [];
-    if (rewardMora > 0) chips.push({ text: `${rewardMora.toLocaleString()}`, color: '#FFD700', icon: assets.mora });
-    if (rewardXp > 0) chips.push({ text: `${rewardXp.toLocaleString()}`, color: '#00E5FF', icon: assets.xp });
-    if (repReward > 0) chips.push({ text: `+${repReward.toLocaleString()}`, color: '#B530FF', icon: assets.rep });
-
-    let totalChipsWidth = 0;
-    ctx.font = `bold 18px ${FONT_MAIN}`;
+    const textRightX = 850; 
     
-    chips.forEach(chip => {
-        chip.textWidth = ctx.measureText(chip.text).width;
-        chip.fullWidth = chip.textWidth + (chip.icon ? 28 : 0) + 24;
-        totalChipsWidth += chip.fullWidth + 15;
-    });
-    totalChipsWidth -= 15; 
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 50px "Bein", sans-serif';
+    ctx.shadowColor = 'rgba(0,0,0,1)';
+    ctx.shadowBlur = 10;
+    let dName = data.displayName;
+    if (dName.length > 15) dName = dName.substring(0, 15) + '..';
+    ctx.fillText(dName, textRightX, 85);
+    ctx.shadowBlur = 0;
 
-    let currentX = (WIDTH / 2) - (totalChipsWidth / 2);
-    const chipsY = 360;
-
-    chips.forEach(chip => {
-        const chipH = 36;
-        
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = hexToRgba(chip.color, 0.4);
-        ctx.fillStyle = hexToRgba(chip.color, 0.15);
-        drawRoundedRect(ctx, currentX, chipsY, chip.fullWidth, chipH, chipH / 2);
+    const drawTag = (text, y) => {
+        ctx.font = 'bold 24px "Bein", sans-serif'; 
+        const tagW = ctx.measureText(text).width + 60; 
+        ctx.fillStyle = 'rgba(20, 20, 25, 0.85)';
+        ctx.beginPath(); 
+        roundRect(ctx, textRightX - tagW, y, tagW, 45, 10); 
         ctx.fill();
+        ctx.lineWidth = 2; 
+        ctx.strokeStyle = primaryColor; 
+        ctx.stroke();
+        ctx.fillStyle = '#e0e0e0';
+        ctx.textAlign = 'center';
+        ctx.fillText(text, textRightX - (tagW / 2), y + 31); 
+    };
 
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = hexToRgba(chip.color, 0.7);
-        ctx.lineWidth = 1.5;
+    drawTag(`🩸 ${data.raceName}   |   ⚔️ ${data.weaponName}`, 115); 
+
+    const col4X = 830;
+    const col3X = 590;
+    const col2X = 350;
+    const col1X = 50; 
+    const boxW = 220;
+    const boxH = 95;
+    const row1Y = 240;
+    const row2Y = 355;
+    const row3Y = 470;
+
+    const drawStatBox = (title, value, x, y, isHighlight = false) => {
+        ctx.fillStyle = 'rgba(15, 15, 20, 0.8)';
+        ctx.beginPath(); roundRect(ctx, x, y, boxW, boxH, 12); ctx.fill();
+        ctx.lineWidth = isHighlight ? 3 : 1.5; 
+        ctx.strokeStyle = primaryColor; 
         ctx.stroke();
 
-        const iconSize = 22;
-        const iconX = currentX + 10;
-        const iconY = chipsY + (chipH - iconSize) / 2;
-        
-        if (chip.icon) {
-            ctx.drawImage(chip.icon, iconX, iconY, iconSize, iconSize);
+        if (isHighlight) {
+            const grad = ctx.createLinearGradient(x, y, x, y+boxH);
+            grad.addColorStop(0, 'rgba(255,255,255,0.1)');
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad;
+            ctx.fill();
         }
 
-        ctx.fillStyle = chip.color;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(chip.text, chip.icon ? iconX + iconSize + 8 : currentX + 12, chipsY + (chipH / 2));
+        ctx.fillStyle = '#cccccc';
+        ctx.font = '20px "Bein", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(title, x + (boxW / 2), y + 35);
 
-        currentX += chip.fullWidth + 15;
-    });
+        ctx.fillStyle = '#ffffff';
+        let fontSize = 32;
+        ctx.font = `bold ${fontSize}px "Bein", sans-serif`;
+        while (ctx.measureText(value).width > boxW - 20 && fontSize > 15) {
+            fontSize--;
+            ctx.font = `bold ${fontSize}px "Bein", sans-serif`;
+        }
+        ctx.shadowColor = isHighlight ? primaryColor : 'transparent';
+        ctx.shadowBlur = isHighlight ? 10 : 0;
+        ctx.fillText(value, x + (boxW / 2), y + 75);
+        ctx.shadowBlur = 0;
+    };
+
+    drawStatBox('💰 الثروة', data.mora, col4X, row1Y, true);
+    drawStatBox('🌟 السمعة', data.repPoints.toString(), col3X, row1Y, true);
+    drawStatBox('📈 المستوى', data.level.toString(), col2X, row1Y, true);
+
+    drawStatBox('❤️ الصحة', data.maxHp.toString(), col4X, row2Y);
+    drawStatBox('⚔️ الدمج', data.weaponDmg.toString(), col3X, row2Y);
+    drawStatBox('🔥 الستريك', data.streakCount.toString(), col2X, row2Y);
+
+    drawStatBox('🛡️ الدروع', data.shields.toString(), col4X, row3Y);
+    drawStatBox('✨ تعزيز خبرة', `+${data.xpBuff}%`, col3X, row3Y);
+    drawStatBox('🪙 تعزيز المورا', `+${data.moraBuff}%`, col2X, row3Y);
+
+    ctx.fillStyle = 'rgba(15, 15, 20, 0.8)';
+    ctx.beginPath(); roundRect(ctx, col1X, row1Y, boxW, 325, 15); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = primaryColor; ctx.stroke();
+
+    ctx.fillStyle = primaryColor;
+    ctx.font = 'bold 24px "Bein", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = primaryColor;
+    ctx.shadowBlur = 10;
+    ctx.fillText('🏆 التصنيف', col1X + (boxW / 2), row1Y + 45);
+    ctx.shadowBlur = 0;
+
+    ctx.beginPath();
+    ctx.moveTo(col1X + 30, row1Y + 65);
+    ctx.lineTo(col1X + boxW - 30, row1Y + 65);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.stroke();
+
+    const drawRankRow = (label, value, yOffset) => {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '20px "Bein", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(label, col1X + 20, row1Y + yOffset);
+        
+        ctx.fillStyle = '#FFAA40';
+        ctx.textAlign = 'right';
+        ctx.font = 'bold 22px "Bein", sans-serif';
+        const displayValue = value === "0" ? "???" : `#${value}`;
+        ctx.fillText(displayValue, col1X + boxW - 20, row1Y + yOffset + 2);
+    };
+
+    drawRankRow('المستوى:', data.ranks.level, 115);
+    drawRankRow('الثروة:', data.ranks.mora, 175);
+    drawRankRow('القوة:', data.ranks.power, 235);
+    drawRankRow('الستريك:', data.ranks.streak, 295);
+
+    const barW = 1000;
+    const barH = 30;
+    const barX = 50;
+    const barY = 585;
+    const barRadius = 15;
+
+    let percentage = data.requiredXP > 0 ? Math.max(0, Math.min(1, data.currentXP / data.requiredXP)) : 0;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(20, 20, 25, 0.9)';
+    ctx.beginPath(); roundRect(ctx, barX, barY, barW, barH, barRadius); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.stroke();
+    ctx.restore();
+
+    if (percentage > 0) {
+        ctx.save();
+        ctx.beginPath(); roundRect(ctx, barX, barY, barW, barH, barRadius); ctx.clip();
+        
+        const xpGrad = ctx.createLinearGradient(barX, barY, barX + barW * percentage, barY);
+        xpGrad.addColorStop(0, primaryColor); 
+        xpGrad.addColorStop(1, '#ffffff'); 
+        
+        ctx.fillStyle = xpGrad;
+        ctx.fillRect(barX, barY, barW * percentage, barH);
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillRect(barX, barY, barW * percentage, barH / 2.5);
+        ctx.restore();
+    }
+
+    ctx.shadowColor = '#000000';
+    ctx.shadowBlur = 5;
+    const xpText = `الخبرة: ${data.currentXP.toLocaleString()} / ${data.requiredXP.toLocaleString()}`;
+    ctx.font = 'bold 18px "Bein", sans-serif'; 
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(xpText, barX + (barW / 2), barY + 21);
+    ctx.shadowBlur = 0;
 
     return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
-module.exports = { generateAchievementCard };
+module.exports = { generateAdventurerCard };
