@@ -555,7 +555,8 @@ async function generateMainHub(arg1, arg2, arg3, arg4, arg5, arg6) {
         try {
             const repRes = await db.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
             const points = Number(repRes.rows[0]?.rep_points || 0);
-            if (points >= 1000) finalRank = 'SS'; 
+            if (points >= 9999) finalRank = 'SSS'; // 🔥 تم إضافة رتبة SSS هنا 🔥
+            else if (points >= 1000) finalRank = 'SS'; 
             else if (points >= 500) finalRank = 'S'; 
             else if (points >= 250) finalRank = 'A'; 
             else if (points >= 100) finalRank = 'B'; 
@@ -660,7 +661,18 @@ async function generateMainHub(arg1, arg2, arg3, arg4, arg5, arg6) {
     ctx.fillStyle = primaryColor; ctx.font = 'bold 36px "Arial"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = primaryColor; ctx.shadowBlur = 10;
-    ctx.fillText(finalRank.replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿🪙]/gu, '').trim(), badgeX, badgeY + 6);
+    
+    // 🔥 التصحيح الذكي لكي يتسع الـ SSS في الدرع الخاص بالحقيبة 🔥
+    if (finalRank === 'SSS') {
+        ctx.font = 'bold 26px "Arial"';
+        ctx.fillText(finalRank, badgeX, badgeY + 5);
+    } else if (finalRank === 'SS') {
+        ctx.font = 'bold 30px "Arial"';
+        ctx.fillText(finalRank, badgeX, badgeY + 6);
+    } else {
+        ctx.fillText(finalRank, badgeX, badgeY + 6);
+    }
+
     ctx.restore();
     
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -853,7 +865,6 @@ async function generateItemDetailsCard(userDisplayName, item) {
     return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
-// 🌟 دالة رسم الممتلكات المحدثة 🌟
 async function generatePortfolioCard(userDisplayName, items, page, totalPages, totalValue) {
     const width = 1200; 
     const height = 900; 
@@ -958,8 +969,7 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
 
         const cleanName = item.name.replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿🪙]/gu, '').trim();
 
-        // 🔥 التصحيح الذكي (Vertical Centering) لصورة اللوغو والنصوص بجنب بعض 🔥
-        const topAreaH = cardH * 0.45; // مساحة القسم العلوي المخصصة للاسم والصورة
+        const topAreaH = cardH * 0.45;
         const imgX = x + cardW - imgSize - 20;
         const imgY = y + (topAreaH - imgSize) / 2; 
 
@@ -996,7 +1006,6 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
         ctx.beginPath(); ctx.moveTo(x + 20, sepY); ctx.lineTo(x + cardW - 20, sepY); ctx.stroke();
 
-        // 🔥 التصحيح الذكي لتوسيط الأرقام في المساحة السفلية 🔥
         const bottomAreaH = cardH - (sepY - y);
         const totalTextH = (4 * fontText) + (3 * (paddingY * 0.6));
         let textY = sepY + (bottomAreaH - totalTextH) / 2; 
@@ -1018,7 +1027,7 @@ async function generatePortfolioCard(userDisplayName, items, page, totalPages, t
         for (const r of rowsData) {
             ctx.font = `${fontText}px "Bein"`;
             ctx.textAlign = 'right';
-            ctx.textBaseline = 'top'; // غيرتها لـ top عشان الحسبة تكون دقيقة
+            ctx.textBaseline = 'top';
             ctx.fillStyle = '#A8B8D0';
             ctx.fillText(r.label, textRightX, textY);
 
