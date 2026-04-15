@@ -420,27 +420,43 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     }
                 }
             }
-            // 🔥 تصحيح أخطاء شراء العامل (Farm Worker) 🔥
+            // عامل المزرعة — يُخزَّن في user_buffs فقط (مستقل تماماً عن نظام الحارس)
             else if (itemData.id === 'farm_worker_3d') {
-                const duration = 3 * 24 * 60 * 60 * 1000;
-                let r = await execSafe(db, `SELECT "expiresAt", "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `SELECT expiresat, id FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]);
-                const existingWorker = r.rows[0];
-                let newExpiresAt = Date.now() + duration;
-                
-                if (existingWorker) {
-                    const expMs = Number(existingWorker.expiresAt || existingWorker.expiresat);
-                    if (expMs > Date.now()) newExpiresAt = expMs + duration;
-                    const workerId = existingWorker.id || existingWorker.ID;
-                    let r2 = await execSafe(db, `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`, `UPDATE user_buffs SET expiresat = $1 WHERE id = $2`, [newExpiresAt, workerId]);
-                    if(r2.error) success = false;
-                } else {
-                    // تصحيح القيم، وإضافة 0 بدلاً من الأعمدة الناقصة عشان الداتابيز ما تعطي Error
-                    let r2 = await execSafe(db, 
-                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "expiresAt", "multiplier", "buffPercent") VALUES ($1, $2, $3, $4, 0, 0)`, 
-                        `INSERT INTO user_buffs (userid, guildid, bufftype, expiresat, multiplier, buffpercent) VALUES ($1, $2, $3, $4, 0, 0)`, 
-                        [interaction.user.id, interaction.guild.id, 'farm_worker', newExpiresAt]
+                const durationMs = 3 * 24 * 60 * 60 * 1000;
+                const nowMs = Date.now();
+
+                // قراءة الوقت المتبقي الحالي (إن وُجد) لإضافة 3 أيام فوقه
+                let wBuf = await execSafe(db,
+                    `SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                    `SELECT expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                    [interaction.user.id, interaction.guild.id]
+                );
+
+                let newExpiresAt = nowMs + durationMs;
+                const existingExp = Number(wBuf.rows[0]?.expiresAt || wBuf.rows[0]?.expiresat || 0);
+                if (existingExp > nowMs) newExpiresAt = existingExp + durationMs;
+
+                // UPDATE أولاً — لا يسبب تعارض في المفتاح الرئيسي أبداً
+                let upd = await execSafe(db,
+                    `UPDATE user_buffs SET "expiresAt" = $3, "multiplier" = 1 WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                    `UPDATE user_buffs SET expiresat = $3, multiplier = 1 WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                    [interaction.user.id, interaction.guild.id, newExpiresAt]
+                );
+
+                if (!upd.error && (upd.rowCount || 0) === 0) {
+                    // لا يوجد صف — إصلاح تسلسل BIGSERIAL ثم إدراج
+                    await db.query(
+                        `SELECT setval(pg_get_serial_sequence('user_buffs', 'id'), COALESCE((SELECT MAX(id) FROM user_buffs), 0) + 1, false)`
+                    ).catch(() => {});
+
+                    let ins = await execSafe(db,
+                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        [interaction.user.id, interaction.guild.id, newExpiresAt]
                     );
-                    if(r2.error) success = false;
+                    if (ins.error) success = false;
+                } else if (upd.error) {
+                    success = false;
                 }
             }
             else if (itemData.id === 'change_race') {

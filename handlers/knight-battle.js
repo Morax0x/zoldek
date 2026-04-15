@@ -233,19 +233,21 @@ function calculateDamage(attacker, defender, multiplier = 1) {
 
 function checkShieldBreak(battleState, defenderId) {
     const defender = battleState.players.get(defenderId);
-      
+    if (!defender || !defender.effects) return null;
+
     if (defender.effects.shield <= 0 && defender.effects.shield_source) {
         const skillId = defender.effects.shield_source;
-        const cooldownDuration = defender.effects.shield_cd_duration || 4; 
+        const cooldownDuration = defender.effects.shield_cd_duration || 4;
 
         if (!battleState.skillCooldowns[defenderId]) battleState.skillCooldowns[defenderId] = {};
         battleState.skillCooldowns[defenderId][skillId] = cooldownDuration;
 
         defender.effects.shield_source = null;
         defender.effects.shield_cd_duration = 0;
-        defender.effects.shield = 0; 
+        defender.effects.shield = 0;
 
-        return `💔 **انكسر درع ${defender.isMonster ? defender.name : cleanDisplayName(defender.member.user.displayName)}**! (بدأ الكولداون)`;
+        const dName = defender.isMonster ? (defender.name || 'فارس') : (defender.member && defender.member.user ? cleanDisplayName(defender.member.user.displayName || defender.member.user.username || 'لاعب') : 'لاعب');
+        return `💔 **انكسر درع ${dName}**! (بدأ الكولداون)`;
     }
     return null;
 }
@@ -266,22 +268,24 @@ function applyPersistentEffects(battleState, attackerId) {
         }
     });
 
+    const pName = attacker.isMonster ? (attacker.name || 'فارس') : (attacker.member && attacker.member.user ? cleanDisplayName(attacker.member.user.displayName || attacker.member.user.username || 'لاعب') : 'لاعب');
+
     if (attacker.effects.poison > 0) {
         attacker.hp -= attacker.effects.poison;
-        logEntries.push(`☠️ ${attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member.user.displayName)} يتألم من السم (-${attacker.effects.poison})!`);
+        logEntries.push(`☠️ ${pName} يتألم من السم (-${attacker.effects.poison})!`);
         attacker.effects.poison_turns--;
         if (attacker.effects.poison_turns <= 0) attacker.effects.poison = 0;
     }
 
     if (attacker.effects.burn > 0) {
         attacker.hp -= attacker.effects.burn;
-        logEntries.push(`🔥 ${attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member.user.displayName)} يحترق (-${attacker.effects.burn})!`);
+        logEntries.push(`🔥 ${pName} يحترق (-${attacker.effects.burn})!`);
         attacker.effects.burn_turns--;
         if (attacker.effects.burn_turns <= 0) attacker.effects.burn = 0;
     }
 
     if (attacker.effects.stun) {
-        logEntries.push(`⚡ ${attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member.user.displayName)} مشلول ولا يستطيع الحركة!`);
+        logEntries.push(`⚡ ${pName} مشلول ولا يستطيع الحركة!`);
         skipTurn = true;
     }
 
@@ -353,7 +357,8 @@ function applySkillEffect(battleState, attackerId, skill) {
                 defender.effects.weaken = (defender.effects.weaken || 0) + 0.15; defender.effects.weaken_turns = 3;
                 effectMsg = "💀 **سرقة الروح!** (امتصاص القوة)";
             } else { effectMsg = "(هجوم طيفي)"; }
-            return `👻 **${cleanDisplayName(attacker.member.user.displayName)}** أطلق طيفاً! سبب **${spiritDmg}** ضرر + ${effectMsg}`;
+            const spiritName = attacker.isMonster ? attacker.name : (attacker.member && attacker.member.user ? cleanDisplayName(attacker.member.user.displayName || attacker.member.user.username || 'لاعب') : 'لاعب');
+            return `👻 **${spiritName}** أطلق طيفاً! سبب **${spiritDmg}** ضرر + ${effectMsg}`;
         }
         case 'TrueDMG_Burn': {
             const burnDmg = Math.floor(baseAtk * 0.2);
@@ -485,26 +490,34 @@ function applySkillEffect(battleState, attackerId, skill) {
 }
 
 function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0) {
-    const attackerId = battleState.turn[0]; 
-    const defenderId = "guard"; 
+    const attackerId = battleState.turn[0];
+    const defenderId = "guard";
     const attacker = battleState.players.get(attackerId);
     const defender = battleState.players.get(defenderId);
-      
+
     const embed = new EmbedBuilder()
         .setTitle('⚔️ مبارزة الموت: ضد فارس الإمبراطور')
         .setColor('#D6D4D4')
         .setImage(KNIGHT_IMAGES.MAIN);
 
+    const safeName = (p) => {
+        if (!p) return 'مقاتل';
+        if (p.isMonster) return p.name || 'فارس';
+        if (p.member && p.member.user) return cleanDisplayName(p.member.user.displayName || p.member.user.username || 'لاعب');
+        if (p.member) return cleanDisplayName(p.member.displayName || 'لاعب');
+        return 'لاعب';
+    };
+
     embed.addFields(
-        { 
-            name: `${attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member.user.displayName)}`, 
-            value: `HP: ${buildHpBar(attacker.hp, attacker.maxHp)}\nتأثيرات: ${buildEffectsString(attacker.effects)}`, 
-            inline: true 
+        {
+            name: safeName(attacker),
+            value: `HP: ${buildHpBar(attacker ? attacker.hp : 0, attacker ? attacker.maxHp : 1)}\nتأثيرات: ${buildEffectsString((attacker && attacker.effects) || {})}`,
+            inline: true
         },
-        { 
-            name: `${defender.isMonster ? defender.name : cleanDisplayName(defender.member.user.displayName)}`, 
-            value: `HP: ${buildHpBar(defender.hp, defender.maxHp)}\nتأثيرات: ${buildEffectsString(defender.effects)}`, 
-            inline: true 
+        {
+            name: safeName(defender),
+            value: `HP: ${buildHpBar(defender ? defender.hp : 0, defender ? defender.maxHp : 1)}\nتأثيرات: ${buildEffectsString((defender && defender.effects) || {})}`,
+            inline: true
         }
     );
 
@@ -517,8 +530,8 @@ function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0
     const componentsToSend = [];
 
     if (skillSelectionMode) {
-        const userSkills = attacker.skills || {};
-        const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
+        const userSkills = (attacker && attacker.skills) || {};
+        const availableSkills = Object.values(userSkills).filter(s => s && s.id && ((s.currentLevel > 0) || s.id.startsWith('race_')));
         const skillsPerPage = 4;
         const totalPages = Math.ceil(availableSkills.length / skillsPerPage);
           
@@ -642,43 +655,69 @@ function executeGuardLogic(battleState, player, guard, playerId) {
 }
 
 function setupBattleCollector(battleState) {
-    const playerId = battleState.turn[0]; 
+    if (!battleState || !battleState.message || typeof battleState.message.createMessageComponentCollector !== 'function') {
+        console.error("[Knight Battle] cannot setup collector — invalid message");
+        if (battleState) {
+            battleState.isEnded = true;
+            const pid = Array.from(battleState.players.keys()).find(id => id !== "guard");
+            if (pid) activeKnightPlayers.delete(pid);
+        }
+        return;
+    }
+
+    const playerId = battleState.turn[0];
     const filter = i => i.user.id === playerId && i.customId.startsWith('knight_');
-     
-    const collector = battleState.message.createMessageComponentCollector({ 
-        filter, 
-        componentType: ComponentType.Button, 
-        idle: 300000 
-    });
+
+    let collector;
+    try {
+        collector = battleState.message.createMessageComponentCollector({
+            filter,
+            componentType: ComponentType.Button,
+            idle: 300000
+        });
+    } catch (e) {
+        console.error("[Knight Battle] failed to create collector:", e);
+        battleState.isEnded = true;
+        activeKnightPlayers.delete(playerId);
+        return;
+    }
 
     collector.on('collect', async i => {
-        if (battleState.processingTurn) return; 
-        battleState.processingTurn = true; 
+        if (battleState.isEnded) { try { await i.deferUpdate(); } catch(_){} return; }
+        if (battleState.processingTurn) { try { await i.deferUpdate(); } catch(_){} return; }
+        battleState.processingTurn = true;
 
         try {
             const customId = i.customId;
             const player = battleState.players.get(i.user.id);
             const guard = battleState.players.get("guard");
 
-            if (customId === 'knight_skill_menu') {
+            if (!player || !guard) {
                 battleState.processingTurn = false;
-                return await i.update(buildBattleEmbed(battleState, true, 0));
-            } else if (customId === 'knight_skill_back') {
-                battleState.processingTurn = false;
-                return await i.update(buildBattleEmbed(battleState, false));
-            } else if (customId.startsWith('knight_skill_page_')) {
-                battleState.processingTurn = false;
-                const newPage = parseInt(customId.split('_')[3]);
-                return await i.update(buildBattleEmbed(battleState, true, newPage));
+                try { await i.deferUpdate(); } catch(_){}
+                return;
             }
 
-            battleState.log = []; 
-            
+            if (customId === 'knight_skill_menu') {
+                battleState.processingTurn = false;
+                try { return await i.update(buildBattleEmbed(battleState, true, 0)); } catch (e) { console.error("[Knight] update err:", e.message); return; }
+            } else if (customId === 'knight_skill_back') {
+                battleState.processingTurn = false;
+                try { return await i.update(buildBattleEmbed(battleState, false)); } catch (e) { console.error("[Knight] update err:", e.message); return; }
+            } else if (customId.startsWith('knight_skill_page_')) {
+                battleState.processingTurn = false;
+                const parts = customId.split('_');
+                const newPage = parseInt(parts[3]) || 0;
+                try { return await i.update(buildBattleEmbed(battleState, true, newPage)); } catch (e) { console.error("[Knight] update err:", e.message); return; }
+            }
+
+            battleState.log = [];
+
             const { logEntries: pLog, skipTurn: pSkip } = applyPersistentEffects(battleState, playerId);
             if (pLog.length > 0) battleState.log.push(...pLog);
 
             if (player.hp <= 0) {
-                await i.deferUpdate();
+                try { await i.deferUpdate(); } catch(_){}
                 return await handleGuardBattleEnd(battleState, "guard", "lose");
             }
 
@@ -688,103 +727,214 @@ function setupBattleCollector(battleState) {
                 if (customId === 'knight_attack') {
                     const dmg = calculateDamage(player, guard);
                     guard.hp -= dmg;
-                    battleState.log.push(`⚔️ **${cleanDisplayName(player.member.user.displayName)}** هاجم الفارس وسبب **${dmg}** ضرر!`);
+                    const pName = (player.member && player.member.user) ? cleanDisplayName(player.member.user.displayName || player.member.user.username || 'لاعب') : 'لاعب';
+                    battleState.log.push(`⚔️ **${pName}** هاجم الفارس وسبب **${dmg}** ضرر!`);
                     const breakMsg = checkShieldBreak(battleState, "guard");
                     if (breakMsg) battleState.log.push(breakMsg);
-                } 
+                }
                 else if (customId.startsWith('knight_skill_use_')) {
                     const skillId = customId.replace('knight_skill_use_', '');
-                    const skillData = player.skills[skillId];
+                    const skillData = player.skills ? player.skills[skillId] : null;
                     if (skillData) {
-                        const logMsg = applySkillEffect(battleState, i.user.id, skillData);
-                        battleState.log.push(logMsg);
-                        const breakMsg = checkShieldBreak(battleState, "guard");
-                        if (breakMsg) battleState.log.push(breakMsg);
+                        try {
+                            const logMsg = applySkillEffect(battleState, i.user.id, skillData);
+                            if (logMsg) battleState.log.push(logMsg);
+                            const breakMsg = checkShieldBreak(battleState, "guard");
+                            if (breakMsg) battleState.log.push(breakMsg);
+                        } catch (skillErr) {
+                            console.error("[Knight] skill error:", skillErr);
+                            battleState.log.push(`⚠️ المهارة فشلت في التنفيذ.`);
+                        }
                     }
                 }
             }
 
             if (guard.hp <= 0) {
-                await i.deferUpdate();
+                try { await i.deferUpdate(); } catch(_){}
                 return await handleGuardBattleEnd(battleState, playerId, "win");
             }
 
-            executeGuardLogic(battleState, player, guard, playerId);
+            try { executeGuardLogic(battleState, player, guard, playerId); } catch (e) {
+                console.error("[Knight] guard logic error:", e);
+            }
 
             if (player.hp <= 0) {
-                await i.deferUpdate();
+                try { await i.deferUpdate(); } catch(_){}
                 return await handleGuardBattleEnd(battleState, "guard", "lose");
             }
 
             battleState.processingTurn = false;
-            await i.update(buildBattleEmbed(battleState, false, 0));
+            try {
+                await i.update(buildBattleEmbed(battleState, false, 0));
+            } catch (e) {
+                console.error("[Knight] final update err:", e.message);
+            }
 
         } catch (error) {
-            console.error("Collector Logic Error:", error);
+            console.error("[Knight] Collector Logic Error:", error);
             battleState.processingTurn = false;
+            try { if (!i.replied && !i.deferred) await i.deferUpdate(); } catch(_){}
         }
     });
 
     collector.on('end', (collected, reason) => {
-        if ((reason === 'time' || reason === 'idle') && !battleState.isEnded) {
-            handleGuardBattleEnd(battleState, "guard", "lose");
+        try {
+            if ((reason === 'time' || reason === 'idle') && !battleState.isEnded) {
+                handleGuardBattleEnd(battleState, "guard", "lose").catch(e => console.error("[Knight] end-on-idle err:", e));
+            }
+            // ضمان تنظيف اللاعب من القائمة النشطة
+            const pid = Array.from(battleState.players.keys()).find(id => id !== "guard");
+            if (pid) activeKnightPlayers.delete(pid);
+        } catch (e) {
+            console.error("[Knight] collector end err:", e);
         }
     });
 }
 
-async function startGuardBattle(interaction, client, db, robberMember, amountToSteal) {
+// إرسال رسالة بداية المعركة بأمان مهما كانت حالة الـ interaction
+async function safeSendBattleStart(interaction, payload) {
     try {
-        if (activeKnightPlayers.has(robberMember.id)) {
-            if (interaction.isRepliable && !interaction.replied) {
-                return await interaction.reply({ content: "❌ أنت تقاتل الفارس بالفعل! ركز في معركتك!", flags: [MessageFlags.Ephemeral] });
-            } else {
-                return await interaction.channel.send(`❌ <@${robberMember.id}> أنت تقاتل الفارس بالفعل! ركز في معركتك!`);
+        // Message من أمر prefix (-rob)
+        const isInteraction = interaction && typeof interaction.reply === 'function' && interaction.applicationId;
+        if (!isInteraction) {
+            if (interaction && interaction.channel) {
+                return await interaction.channel.send(payload).catch(() => null);
             }
+            return null;
         }
-        activeKnightPlayers.add(robberMember.id);
 
+        // Interaction تم الرد عليه مسبقاً — لا نستطيع reply أو editReply لنتيجة مختلفة، استخدم channel.send
+        if (interaction.replied) {
+            if (interaction.channel) return await interaction.channel.send(payload).catch(() => null);
+            return null;
+        }
+
+        // Interaction مؤجل (deferred) لكن لم يتم الرد — استخدم editReply
+        if (interaction.deferred) {
+            const edited = await interaction.editReply(payload).catch(() => null);
+            if (edited) return edited;
+            if (interaction.channel) return await interaction.channel.send(payload).catch(() => null);
+            return null;
+        }
+
+        // لم يتم الرد ولا التأجيل — reply مباشرة
+        const replied = await interaction.reply({ ...payload, fetchReply: true }).catch(() => null);
+        if (replied) return replied;
+        if (interaction.channel) return await interaction.channel.send(payload).catch(() => null);
+        return null;
+    } catch (e) {
+        console.error("[safeSendBattleStart Error]:", e);
+        try {
+            if (interaction && interaction.channel) return await interaction.channel.send(payload).catch(() => null);
+        } catch (_) {}
+        return null;
+    }
+}
+
+// الرد على "أنت تقاتل الفارس بالفعل" بأمان
+async function safeSendAlreadyFighting(interaction, robberId) {
+    const content = `❌ <@${robberId}> أنت تقاتل الفارس بالفعل! ركز في معركتك!`;
+    try {
+        const isInteraction = interaction && typeof interaction.reply === 'function' && interaction.applicationId;
+        if (isInteraction && !interaction.replied && !interaction.deferred) {
+            return await interaction.reply({ content, flags: [MessageFlags.Ephemeral] }).catch(() => null);
+        }
+        if (isInteraction && interaction.deferred && !interaction.replied) {
+            return await interaction.editReply({ content }).catch(() => null);
+        }
+        if (interaction && interaction.channel) {
+            return await interaction.channel.send(content).catch(() => null);
+        }
+    } catch (_) {}
+    return null;
+}
+
+async function startGuardBattle(interaction, client, db, robberMember, amountToSteal) {
+    // فحوصات الحماية الأساسية
+    if (!interaction || !robberMember || !robberMember.id) {
+        console.error("[Knight Battle] invalid inputs: missing interaction or robberMember");
+        return null;
+    }
+    if (!db || typeof db.query !== 'function') {
+        console.error("[Knight Battle] invalid db client");
+        return null;
+    }
+    const guildId = (interaction.guild && interaction.guild.id) || (robberMember.guild && robberMember.guild.id);
+    if (!guildId) {
+        console.error("[Knight Battle] cannot resolve guild id");
+        return null;
+    }
+    amountToSteal = Math.max(0, Number(amountToSteal) || 0);
+
+    // إذا كان اللاعب يقاتل بالفعل
+    if (activeKnightPlayers.has(robberMember.id)) {
+        return await safeSendAlreadyFighting(interaction, robberMember.id);
+    }
+
+    activeKnightPlayers.add(robberMember.id);
+    const channelKey = (interaction.channel && interaction.channel.id) || `${guildId}-${robberMember.id}`;
+
+    try {
         let robberData;
         try {
-            const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [robberMember.id, interaction.guild.id]);
+            const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [robberMember.id, guildId]);
             robberData = getLevelRes.rows[0];
         } catch(e) {
-            const getLevelRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [robberMember.id, interaction.guild.id]).catch(()=>({rows:[]}));
+            const getLevelRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [robberMember.id, guildId]).catch(()=>({rows:[]}));
             robberData = getLevelRes.rows[0];
         }
-        
-        if (!robberData) robberData = { user: robberMember.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0 };
-        
+
+        if (!robberData) robberData = { user: robberMember.id, guild: guildId, level: 0, mora: 0, bank: 0 };
+
         const pMaxHp = BASE_HP + ((Number(robberData.level) || 0) * HP_PER_LEVEL);
-        let robberWeapon = await getWeaponData(db, robberMember);
-        if (!robberWeapon || robberWeapon.currentLevel === 0) {
-            robberWeapon = { name: "قبضة يد", currentDamage: 15 };
+        let robberWeapon = null;
+        try { robberWeapon = await getWeaponData(db, robberMember); } catch (e) { robberWeapon = null; }
+        if (!robberWeapon || !robberWeapon.currentLevel) {
+            robberWeapon = { name: "قبضة يد", currentDamage: 15, currentLevel: 0 };
         }
-        const robberSkills = await getAllSkillData(db, robberMember);
+        let robberSkills = {};
+        try { robberSkills = await getAllSkillData(db, robberMember) || {}; } catch (e) { robberSkills = {}; }
 
         const nowKSA = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
         const todayInt = parseInt(nowKSA.toLocaleDateString('en-CA').replace(/-/g, ''));
-        
+
         const userId = robberMember.id;
-        const guildId = interaction.guild.id;
         const historyId = `${userId}-${guildId}`;
 
         await db.query(`CREATE TABLE IF NOT EXISTS knight_history ("id" TEXT PRIMARY KEY, "count" INTEGER, "lastDate" BIGINT)`).catch(()=>{});
 
-        const historyRes = await db.query(`SELECT * FROM knight_history WHERE "id" = $1`, [historyId]);
+        let historyRes = { rows: [] };
+        try {
+            historyRes = await db.query(`SELECT * FROM knight_history WHERE "id" = $1`, [historyId]);
+        } catch (e) {
+            historyRes = await db.query(`SELECT * FROM knight_history WHERE id = $1`, [historyId]).catch(() => ({ rows: [] }));
+        }
         let history = historyRes.rows[0];
-        let encounterCount = 1; 
+        let encounterCount = 1;
 
         if (history) {
             const dbLastDate = Number(history.lastDate || history.lastdate) || 0;
             if (dbLastDate === todayInt) {
-                encounterCount = Number(history.count) + 1; 
-                await db.query(`UPDATE knight_history SET "count" = $1 WHERE "id" = $2`, [encounterCount, historyId]);
+                encounterCount = Number(history.count) + 1;
+                try {
+                    await db.query(`UPDATE knight_history SET "count" = $1 WHERE "id" = $2`, [encounterCount, historyId]);
+                } catch (e) {
+                    await db.query(`UPDATE knight_history SET count = $1 WHERE id = $2`, [encounterCount, historyId]).catch(()=>{});
+                }
             } else {
                 encounterCount = 1;
-                await db.query(`UPDATE knight_history SET "count" = $1, "lastDate" = $2 WHERE "id" = $3`, [1, todayInt, historyId]);
+                try {
+                    await db.query(`UPDATE knight_history SET "count" = $1, "lastDate" = $2 WHERE "id" = $3`, [1, todayInt, historyId]);
+                } catch (e) {
+                    await db.query(`UPDATE knight_history SET count = $1, lastdate = $2 WHERE id = $3`, [1, todayInt, historyId]).catch(()=>{});
+                }
             }
         } else {
-            await db.query(`INSERT INTO knight_history ("id", "count", "lastDate") VALUES ($1, $2, $3)`, [historyId, 1, todayInt]);
+            try {
+                await db.query(`INSERT INTO knight_history ("id", "count", "lastDate") VALUES ($1, $2, $3)`, [historyId, 1, todayInt]);
+            } catch (e) {
+                await db.query(`INSERT INTO knight_history (id, count, lastdate) VALUES ($1, $2, $3)`, [historyId, 1, todayInt]).catch(()=>{});
+            }
         }
 
         const multiplier = encounterCount; 
@@ -834,55 +984,94 @@ async function startGuardBattle(interaction, client, db, robberMember, amountToS
             ])
         };
 
-        activePveBattles.set(interaction.channel.id, battleState);
-        
+        activePveBattles.set(channelKey, battleState);
+
         const { embeds, components } = buildBattleEmbed(battleState, false, 0);
         const msgPayload = { content: `**قـاتـل لتنجـو بحيـاتـك!** <@${robberMember.id}>`, embeds, components };
 
-        let sentMsg;
-        if (interaction.isRepliable && !interaction.replied) {
-            const response = await interaction.reply({ ...msgPayload, withResponse: true });
-            sentMsg = response.resource ? response.resource.message : response; 
-        } else {
-            sentMsg = await interaction.channel.send(msgPayload);
+        const sentMsg = await safeSendBattleStart(interaction, msgPayload);
+
+        if (!sentMsg) {
+            // تعذّر إرسال رسالة المعركة — تنظيف وإرجاع
+            activeKnightPlayers.delete(robberMember.id);
+            activePveBattles.delete(channelKey);
+            try {
+                if (interaction && interaction.channel) {
+                    await interaction.channel.send(`❌ <@${robberMember.id}> تعذّر بدء معركة الفارس. حاول لاحقاً.`).catch(()=>{});
+                }
+            } catch (_) {}
+            return;
         }
-        
+
         battleState.message = sentMsg;
         setupBattleCollector(battleState);
-        
+
     } catch (error) {
         console.error("Error starting knight battle:", error);
         activeKnightPlayers.delete(robberMember.id);
-        activePveBattles.delete(interaction.channel.id);
+        activePveBattles.delete(channelKey);
+        try {
+            if (interaction && interaction.channel) {
+                await interaction.channel.send(`❌ <@${robberMember.id}> حدث خطأ عند بدء معركة الفارس.`).catch(()=>{});
+            }
+        } catch (_) {}
     }
 }
 
 async function handleGuardBattleEnd(battleState, winnerId, resultType) {
-    if (battleState.isEnded) return;
+    if (!battleState || battleState.isEnded) return;
     battleState.isEnded = true;
 
+    // تحديد معرّفات التنظيف مسبقاً لضمان تنظيفها حتى في حال الأخطاء
+    let playerMemberId = null;
+    let channelKey = null;
     try {
+        playerMemberId = Array.from(battleState.players.keys()).find(id => id !== "guard");
+        channelKey = battleState.message && battleState.message.channel ? battleState.message.channel.id : null;
+    } catch (_) {}
+
+    try {
+        if (!battleState.message || !battleState.message.client) {
+            // المعركة بدون رسالة صالحة — تنظيف فقط
+            if (playerMemberId) activeKnightPlayers.delete(playerMemberId);
+            if (channelKey) activePveBattles.delete(channelKey);
+            return;
+        }
+
         const client = battleState.message.client;
-        const db = client.db || client.sql; 
-        const playerMemberId = Array.from(battleState.players.keys()).find(id => id !== "guard");
+        const db = client.db || client.sql;
         const player = battleState.players.get(playerMemberId);
-        
+
+        if (!player || !player.member) {
+            if (playerMemberId) activeKnightPlayers.delete(playerMemberId);
+            if (channelKey) activePveBattles.delete(channelKey);
+            return;
+        }
+
         activeKnightPlayers.delete(player.member.id);
+
+        if (!db || typeof db.query !== 'function') {
+            if (channelKey) activePveBattles.delete(channelKey);
+            await battleState.message.edit({ components: [] }).catch(() => {});
+            return;
+        }
+
+        const guildId = battleState.message.guild ? battleState.message.guild.id : (player.member.guild ? player.member.guild.id : null);
 
         let playerData;
         try {
-            const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [player.member.id, battleState.message.guild.id]);
+            const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [player.member.id, guildId]);
             playerData = getLevelRes.rows[0];
         } catch(e) {
-            const getLevelRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [player.member.id, battleState.message.guild.id]).catch(()=>({rows:[]}));
+            const getLevelRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [player.member.id, guildId]).catch(()=>({rows:[]}));
             playerData = getLevelRes.rows[0];
         }
         if (!playerData) playerData = { mora: 0, bank: 0 };
-        
-        const amount = battleState.amountToSteal;
+
+        const amount = Math.max(0, Number(battleState.amountToSteal) || 0);
 
         const embed = new EmbedBuilder();
-        activePveBattles.delete(battleState.message.channel.id);
+        if (channelKey) activePveBattles.delete(channelKey);
 
         await battleState.message.edit({ components: [] }).catch(() => {});
 
@@ -891,41 +1080,44 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
 
         if (resultType === "win") {
             try {
-                const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, player.member.id, battleState.message.guild.id]);
+                const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, player.member.id, guildId]);
                 pMora = winRes.rows[0] ? Number(winRes.rows[0].mora) : pMora + amount;
             } catch(e) {
-                await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [amount, player.member.id, battleState.message.guild.id]).catch(()=>{});
+                await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [amount, player.member.id, guildId]).catch(()=>{});
                 pMora += amount;
             }
 
             if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
-                let cache = await client.getLevel(player.member.id, battleState.message.guild.id);
-                if (cache) {
-                    cache.mora = pMora;
-                    await client.setLevel(cache);
-                }
+                try {
+                    let cache = await client.getLevel(player.member.id, guildId);
+                    if (cache) {
+                        cache.mora = pMora;
+                        await client.setLevel(cache);
+                    }
+                } catch (_) {}
             }
-            
+
             const randomWinImage = WIN_IMAGES_LIST[Math.floor(Math.random() * WIN_IMAGES_LIST.length)];
-            const randomColor = Colors[Object.keys(Colors)[Math.floor(Math.random() * Object.keys(Colors).length)]];
+            const colorKeys = Object.keys(Colors);
+            const randomColor = Colors[colorKeys[Math.floor(Math.random() * colorKeys.length)]] || Colors.Gold;
 
             embed.setTitle(`🏆 هــروب نــاجــح!`)
-                 .setColor(randomColor) 
+                 .setColor(randomColor)
                  .setDescription(`تمكنت من هزيمة فارس الإمبراطور والفرار بالغنيمة!\n\n💰 **المبلغ المسروق:** ${amount.toLocaleString()} ${EMOJI_MORA}`)
-                 .setImage(randomWinImage); 
+                 .setImage(randomWinImage);
 
             try { await db.query(`ALTER TABLE user_daily_stats ADD COLUMN "knights_defeated" INTEGER DEFAULT 0`); } catch(e) {}
             try { await db.query(`ALTER TABLE user_daily_stats ADD COLUMN "knight_badge_given" INTEGER DEFAULT 0`); } catch(e) {}
 
             const todayStr = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" })).toLocaleDateString('en-CA');
-            const dailyID = `${player.member.id}-${battleState.message.guild.id}-${todayStr}`;
-            
+            const dailyID = `${player.member.id}-${guildId}-${todayStr}`;
+
             try {
                 await db.query(`
-                    INSERT INTO user_daily_stats ("id", "userID", "guildID", "date", "knights_defeated") 
-                    VALUES ($1, $2, $3, $4, 1) 
+                    INSERT INTO user_daily_stats ("id", "userID", "guildID", "date", "knights_defeated")
+                    VALUES ($1, $2, $3, $4, 1)
                     ON CONFLICT("id") DO UPDATE SET "knights_defeated" = COALESCE(user_daily_stats."knights_defeated", 0) + 1
-                `, [dailyID, player.member.id, battleState.message.guild.id, todayStr]);
+                `, [dailyID, player.member.id, guildId, todayStr]);
             } catch(e) {}
 
             try {
@@ -933,31 +1125,34 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                 const dailyData = dailyDataRes.rows[0];
 
                 if (dailyData && Number(dailyData.knights_defeated) >= 4 && Number(dailyData.knight_badge_given) === 0) {
-                    await db.query(`UPDATE user_daily_stats SET "knight_badge_given" = 1 WHERE "id" = $1`, [dailyID]);
-                    
+                    await db.query(`UPDATE user_daily_stats SET "knight_badge_given" = 1 WHERE "id" = $1`, [dailyID]).catch(()=>{});
+
                     let settings;
                     try {
-                        const settingsRes = await db.query(`SELECT "guildAnnounceChannelID", "roleKnightSlayer" FROM settings WHERE "guild" = $1`, [battleState.message.guild.id]);
+                        const settingsRes = await db.query(`SELECT "guildAnnounceChannelID", "roleKnightSlayer" FROM settings WHERE "guild" = $1`, [guildId]);
                         settings = settingsRes.rows[0];
                     } catch (e) {
-                        const settingsRes = await db.query(`SELECT guildannouncechannelid, roleknightslayer FROM settings WHERE guild = $1`, [battleState.message.guild.id]).catch(()=>({rows:[]}));
+                        const settingsRes = await db.query(`SELECT guildannouncechannelid, roleknightslayer FROM settings WHERE guild = $1`, [guildId]).catch(()=>({rows:[]}));
                         settings = settingsRes.rows[0];
                     }
-                    
+
                     if (settings && (settings.roleKnightSlayer || settings.roleknightslayer)) {
-                        player.member.roles.add(settings.roleKnightSlayer || settings.roleknightslayer).catch(()=>{});
+                        try { await player.member.roles.add(settings.roleKnightSlayer || settings.roleknightslayer).catch(()=>{}); } catch (_) {}
                     }
 
-                    if (settings && (settings.guildAnnounceChannelID || settings.guildannouncechannelid)) {
-                        const announceChannel = battleState.message.guild.channels.cache.get(settings.guildAnnounceChannelID || settings.guildannouncechannelid);
-                        if (announceChannel) {
-                            const badgeEmbed = new EmbedBuilder()
-                                .setTitle('🛡️ انـجـاز يـومـي: قـاهـر الـفـرسـان!')
-                                .setDescription(`🎉 أثبت <@${player.member.id}> قوته الساحقة اليوم!\n\nلقد تمكن من إسقاط **فارس الإمبراطور 4 مرات** في يوم واحد واستحق وسام الشرف بجدارة!`)
-                                .setColor('#C0C0C0')
-                                .setThumbnail(player.member.user.displayAvatarURL());
-                            announceChannel.send({ content: `<@${player.member.id}>`, embeds: [badgeEmbed] }).catch(()=>{});
-                        }
+                    if (settings && (settings.guildAnnounceChannelID || settings.guildannouncechannelid) && battleState.message.guild) {
+                        try {
+                            const announceChannel = battleState.message.guild.channels.cache.get(settings.guildAnnounceChannelID || settings.guildannouncechannelid);
+                            if (announceChannel) {
+                                const avatar = (player.member.user && typeof player.member.user.displayAvatarURL === 'function') ? player.member.user.displayAvatarURL() : null;
+                                const badgeEmbed = new EmbedBuilder()
+                                    .setTitle('🛡️ انـجـاز يـومـي: قـاهـر الـفـرسـان!')
+                                    .setDescription(`🎉 أثبت <@${player.member.id}> قوته الساحقة اليوم!\n\nلقد تمكن من إسقاط **فارس الإمبراطور 4 مرات** في يوم واحد واستحق وسام الشرف بجدارة!`)
+                                    .setColor('#C0C0C0');
+                                if (avatar) badgeEmbed.setThumbnail(avatar);
+                                announceChannel.send({ content: `<@${player.member.id}>`, embeds: [badgeEmbed] }).catch(()=>{});
+                            }
+                        } catch (_) {}
                     }
 
                     embed.addFields({ name: '🎖️ إنجاز يومي!', value: 'لقد حصلت على وسام **🛡️ قاهر الفرسان** لليوم!' });
@@ -974,29 +1169,41 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
 
             try {
                 // خصم من الكاش أولاً ثم البنك مع حماية من السالب
-                const lossRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("mora",'0') AS BIGINT) - $1 ELSE 0 END), "bank" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("bank",'0') AS BIGINT) ELSE CAST(COALESCE("bank",'0') AS BIGINT) - ($1 - CAST(COALESCE("mora",'0') AS BIGINT)) END) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora", "bank"`, [amount, player.member.id, battleState.message.guild.id]);
+                const lossRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("mora",'0') AS BIGINT) - $1 ELSE 0 END), "bank" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("bank",'0') AS BIGINT) ELSE CAST(COALESCE("bank",'0') AS BIGINT) - ($1 - CAST(COALESCE("mora",'0') AS BIGINT)) END) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora", "bank"`, [amount, player.member.id, guildId]);
                 if (lossRes.rows[0]) { pMora = Number(lossRes.rows[0].mora); pBank = Number(lossRes.rows[0].bank); }
             } catch(e) {
-                await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [pMora, pBank, player.member.id, battleState.message.guild.id]).catch(()=>{});
+                await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [pMora, pBank, player.member.id, guildId]).catch(()=>{});
             }
 
             if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
-                let cache = await client.getLevel(player.member.id, battleState.message.guild.id);
-                if (cache) {
-                    cache.mora = pMora;
-                    cache.bank = pBank;
-                    await client.setLevel(cache);
-                }
+                try {
+                    let cache = await client.getLevel(player.member.id, guildId);
+                    if (cache) {
+                        cache.mora = pMora;
+                        cache.bank = pBank;
+                        await client.setLevel(cache);
+                    }
+                } catch (_) {}
             }
-            
+
             embed.setTitle(`💀 هـُزمـت!`).setColor(Colors.DarkRed)
                  .setDescription(` قـتـلـك فارس الإمبراطور... \n\n**الغرامة المدفوعة ✶ :** ${amount.toLocaleString()} ${EMOJI_MORA}`)
                  .setImage(KNIGHT_IMAGES.LOSE);
         }
 
-        await battleState.message.channel.send({ content: `<@${player.member.id}>`, embeds: [embed] });
+        try {
+            if (battleState.message.channel && typeof battleState.message.channel.send === 'function') {
+                await battleState.message.channel.send({ content: `<@${player.member.id}>`, embeds: [embed] });
+            }
+        } catch (sendErr) {
+            console.error("[Knight End] send err:", sendErr.message);
+        }
     } catch (error) {
         console.error("End Game Error:", error);
+    } finally {
+        // تنظيف ضروري لضمان عدم الاحتفاظ بحالة خاطئة
+        try { if (playerMemberId) activeKnightPlayers.delete(playerMemberId); } catch (_) {}
+        try { if (channelKey) activePveBattles.delete(channelKey); } catch (_) {}
     }
 }
 
