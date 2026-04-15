@@ -74,18 +74,31 @@ const safeExecute = async (db, qPg, params) => {
 
 // =========================================================================
 // 🚀 دوال ذكية تجبر قاعدة البيانات على تسجيل وحذف المشاركين بنجاح 100% 🚀
+// (تمت إضافة التوافق مع كل أسماء الأعمدة القديمة لتجنب المشاكل)
 // =========================================================================
 async function getGiveawayEntries(db, msgId) {
-    const res = await safeQuery(db, `SELECT * FROM giveaway_entries WHERE "giveawayID" = $1`, [msgId]);
-    return res.rows;
+    let res;
+    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE "giveawayID" = $1`, [msgId]); if(res?.rows?.length) return res.rows; } catch(e) {}
+    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE giveawayid = $1`, [msgId]); if(res?.rows?.length) return res.rows; } catch(e) {}
+    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE "messageID" = $1`, [msgId]); if(res?.rows?.length) return res.rows; } catch(e) {}
+    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE messageid = $1`, [msgId]); if(res?.rows?.length) return res.rows; } catch(e) {}
+    return [];
 }
 
 async function addGiveawayEntry(db, msgId, userId, weight) {
-    return await safeExecute(db, `INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, weight]);
+    try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries (messageid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
+    return false;
 }
 
 async function removeGiveawayEntry(db, msgId, userId) {
-    return await safeExecute(db, `DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [msgId, userId]);
+    try { await db.query(`DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [msgId, userId]); return true; } catch(e) {}
+    try { await db.query(`DELETE FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [msgId, userId]); return true; } catch(e) {}
+    try { await db.query(`DELETE FROM giveaway_entries WHERE "messageID" = $1 AND "userID" = $2`, [msgId, userId]); return true; } catch(e) {}
+    try { await db.query(`DELETE FROM giveaway_entries WHERE messageid = $1 AND userid = $2`, [msgId, userId]); return true; } catch(e) {}
+    return false;
 }
 // =========================================================================
 
@@ -116,6 +129,7 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     if (!db) return;
 
     await db.query(`CREATE TABLE IF NOT EXISTS active_giveaways ("messageID" TEXT PRIMARY KEY, "guildID" TEXT, "channelID" TEXT, "prize" TEXT, "endsAt" BIGINT, "winnerCount" INTEGER, "xpReward" INTEGER, "moraReward" INTEGER, "isFinished" INTEGER DEFAULT 0)`).catch(()=>{});
+    // تصميم الجدول بأعمدة آمنة لا تتضارب مع النسخ القديمة
     await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER)`).catch(()=>{});
 
     const endsAt = Date.now() + duration;
@@ -197,30 +211,27 @@ async function handleGiveawayInteraction(client, interaction) {
             const weight = await getUserWeight(interaction.member, db);
             const isSuccess = await addGiveawayEntry(db, messageID, userID, weight);
             if (!isSuccess) {
-                return interaction.editReply({ content: "❌ فشل في حفظ المشاركة، حاول مرة أخرى!" });
+                return interaction.editReply({ content: "❌ حدث خطأ، تأكد من التسجيل وحاول مجدداً." });
             }
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة`;
         }
 
-        // تحديث العداد من الداتابيز مباشرة وبناء النص من جديد 100%
+        // تحديث العداد من الداتابيز مباشرة (دقيق 100%) وتصليح النص
         try {
             const newEntries = await getGiveawayEntries(db, messageID);
             const count = newEntries.length;
 
             const embed = EmbedBuilder.from(interaction.message.embeds[0]);
             
-            const prizeName = giveaway.prize;
-            const endsAtTime = Number(giveaway.endsAt || giveaway.endsat);
-            
-            // بناء نص دقيق لا يتأثر بأي مسافات غريبة أو أخطاء Regex
-            let newDesc = `**${prizeName}**\n\n✶ عـدد الـمـشاركـيـن: ${count}\n✶ ينتـهـى بعـد: <t:${Math.floor(endsAtTime / 1000)}:R>`;
-            
-            // لتمييز رسائل الدروب العشوائي وإبقاء الأزرار فيها سليمة
-            if (prizeName === 'جوائز عشوائية') {
-                newDesc += `\n\nاضغط على الزر بالأسفل للمشاركة! ⤵️`;
+            if (embed.data.description) {
+                // Regex ذكي يلتقط سطر المشاركين مهما كان تنسيقه القديم
+                const regex = /✶ عـدد الـمـشاركـيـن:\s*\d+/g;
+                if (regex.test(embed.data.description)) {
+                    embed.setDescription(embed.data.description.replace(regex, `✶ عـدد الـمـشاركـيـن: ${count}`));
+                } else {
+                    embed.setDescription(embed.data.description + `\n✶ عـدد الـمـشاركـيـن: ${count}`);
+                }
             }
-
-            embed.setDescription(newDesc);
 
             const oldButton = interaction.message.components[0].components[0];
             const newButton = ButtonBuilder.from(oldButton).setLabel(`مشاركة (${count})`);
