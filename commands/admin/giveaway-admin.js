@@ -109,12 +109,8 @@ module.exports = {
         };
 
         try {
-            // =========================
-            // 1. إنشاء قيفاواي (Start)
-            // =========================
             if (subcommand === 'start') {
-                // تصفير البيانات لكل عملية جديدة
-                let giveawayData = { prize: null, durationRaw: null, durationMs: null, winnerCount: 1, description: null, image: null, targetChannel: channel, xpReward: 0, moraReward: 0 };
+                let giveawayData = { prize: null, durationRaw: null, durationMs: null, winnerCount: 1, description: null, image: null, targetChannel: channel, xpReward: 0, moraReward: 0, color: null };
 
                 const updateEmbed = () => {
                     const embed = new EmbedBuilder()
@@ -128,7 +124,7 @@ module.exports = {
                             { name: "👥 الفائزون (*)", value: `\`${giveawayData.winnerCount}\``, inline: true },
                             { name: "📢 القناة", value: `<#${giveawayData.targetChannel.id}>`, inline: true },
                             { name: "💎 المكافآت الإضافية", value: `مورا: \`${giveawayData.moraReward}\` | XP: \`${giveawayData.xpReward}\``, inline: true },
-                            { name: "🖼️ الصورة المرفقة", value: giveawayData.image ? "[رابط الصورة المرفقة]" : "لا يوجد", inline: true }
+                            { name: "🎨 لون الإمبد", value: giveawayData.color ? `\`${giveawayData.color}\`` : "الافتراضي (أزرق)", inline: true }
                         ])
                         .setFooter({ text: "نظام إدارة الهبات الإمبراطوري", iconURL: client.user.displayAvatarURL() });
                     if (giveawayData.image) embed.setImage(giveawayData.image);
@@ -151,7 +147,6 @@ module.exports = {
                     msg = await interactionOrMessage.reply({ embeds: [updateEmbed()], components: [getRows()] });
                 }
 
-                // الكوليكتور يعمل فقط للأزرار الخاصة بالقيفاواي ومربوط باليوزر نفسه
                 const collector = msg.createMessageComponentCollector({ 
                     filter: i => i.user.id === member.id && ['g_core_data', 'g_extra_data', 'g_send_final'].includes(i.customId), 
                     time: 5 * 60 * 1000 
@@ -193,12 +188,14 @@ module.exports = {
                             const moraInput = new TextInputBuilder().setCustomId('m_mora').setLabel("مكافأة مورا (تلقائي للفائز)").setStyle(TextInputStyle.Short).setRequired(false);
                             const xpInput = new TextInputBuilder().setCustomId('m_xp').setLabel("مكافأة خبرة (تلقائي للفائز)").setStyle(TextInputStyle.Short).setRequired(false);
                             const imageInput = new TextInputBuilder().setCustomId('m_image').setLabel("رابط الصورة (https://...)").setStyle(TextInputStyle.Short).setRequired(false);
+                            const colorInput = new TextInputBuilder().setCustomId('m_color').setLabel("لون الإمبد (مثال: #ff0000 أو Red)").setStyle(TextInputStyle.Short).setRequired(false);
                             
                             if (giveawayData.image) imageInput.setValue(giveawayData.image);
                             if (giveawayData.moraReward > 0) moraInput.setValue(String(giveawayData.moraReward));
                             if (giveawayData.xpReward > 0) xpInput.setValue(String(giveawayData.xpReward));
+                            if (giveawayData.color) colorInput.setValue(giveawayData.color);
 
-                            modal.addComponents(new ActionRowBuilder().addComponents(channelInput), new ActionRowBuilder().addComponents(moraInput), new ActionRowBuilder().addComponents(xpInput), new ActionRowBuilder().addComponents(imageInput));
+                            modal.addComponents(new ActionRowBuilder().addComponents(channelInput), new ActionRowBuilder().addComponents(moraInput), new ActionRowBuilder().addComponents(xpInput), new ActionRowBuilder().addComponents(imageInput), new ActionRowBuilder().addComponents(colorInput));
                             await i.showModal(modal);
 
                             try {
@@ -207,6 +204,7 @@ module.exports = {
                                 const m = parseInt(submit.fields.getTextInputValue('m_mora')) || 0;
                                 const x = parseInt(submit.fields.getTextInputValue('m_xp')) || 0;
                                 const img = submit.fields.getTextInputValue('m_image'); 
+                                const c = submit.fields.getTextInputValue('m_color');
 
                                 if (chID) {
                                     const ch = member.guild.channels.cache.get(chID);
@@ -217,6 +215,8 @@ module.exports = {
                                 giveawayData.moraReward = m; giveawayData.xpReward = x;
                                 if (img && img.startsWith('http')) giveawayData.image = img;
                                 else giveawayData.image = null;
+                                
+                                giveawayData.color = c ? c.trim() : null;
 
                                 await submit.update({ embeds: [updateEmbed()], components: [getRows()] }).catch(()=>{});
                             } catch (e) {}
@@ -226,7 +226,8 @@ module.exports = {
                             if (!i.deferred && !i.replied) await i.deferUpdate().catch(()=>{}); 
                             try {
                                 collector.stop('sent');
-                                await startGiveaway(client, i, giveawayData.targetChannel, giveawayData.durationMs, giveawayData.winnerCount, giveawayData.prize, giveawayData.xpReward, giveawayData.moraReward, giveawayData.image);
+                                // 🔥 هنا نرسل اللون المخصص إلى الهاندلر 🔥
+                                await startGiveaway(client, i, giveawayData.targetChannel, giveawayData.durationMs, giveawayData.winnerCount, giveawayData.prize, giveawayData.xpReward, giveawayData.moraReward, giveawayData.image, giveawayData.color);
                                 const successEmbed = new EmbedBuilder().setColor("Green").setTitle("✅ تم إطلاق القيفاواي!").setDescription(`تم بدء السحب بنجاح في <#${giveawayData.targetChannel.id}>!\n\nتم حفظ البيانات بأمان ولن تتأثر بإعادة تشغيل البوت.`);
                                 await i.editReply({ embeds: [successEmbed], components: [] }).catch(()=>{});
                             } catch (error) {
@@ -247,9 +248,6 @@ module.exports = {
                 return;
             }
 
-            // =========================
-            // 2. إنهاء قيفاواي (End)
-            // =========================
             if (subcommand === 'end') {
                 if (!targetMessageId) return reply("❌ يرجى وضع آيدي رسالة القيفاواي.");
                 
@@ -263,9 +261,6 @@ module.exports = {
                 return reply(`✅ تم إنهاء القيفاواي (ID: ${targetMessageId}) واختيار الفائزين بنجاح!`);
             }
 
-            // =========================
-            // 3. إعادة السحب (Reroll)
-            // =========================
             if (subcommand === 'reroll') {
                 if (targetMessageId) {
                     try {
@@ -306,9 +301,6 @@ module.exports = {
                 return reply({ content: "الرجاء اختيار قيفاواي من القائمة أدناه:", components: [row] });
             }
 
-            // =========================
-            // 4. أوزان القيفاواي (Weights)
-            // =========================
             if (subcommand === 'weight') {
                 if (!targetRole || isNaN(targetWeight) || targetWeight < 1) {
                     return reply("❌ الاستخدام: `/giveaway-admin weight <@Role> <Weight>` (أقل شيء 1).");
