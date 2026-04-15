@@ -221,8 +221,9 @@ async function handleGiveawayInteraction(client, interaction) {
 
             const embed = EmbedBuilder.from(interaction.message.embeds[0]);
             
+            // 🔥 تعديل قوي للتأكد من استبدال السطر مهما كان التنسيق 🔥
             if (embed.data.description) {
-                const newDesc = embed.data.description.replace(/✶ عـدد الـمـشاركـيـن: \d+/g, `✶ عـدد الـمـشاركـيـن: ${count}`);
+                const newDesc = embed.data.description.replace(/✶ عـدد الـمـشاركـيـن:\s*\d+/g, `✶ عـدد الـمـشاركـيـن: ${count}`);
                 embed.setDescription(newDesc);
             }
 
@@ -423,7 +424,7 @@ async function createRandomDropGiveaway(client, guild) {
 
         const prize = `جوائز عشوائية`;
 
-        // ترتيب وتنسيق القيفاواي العشوائي ليكون مرتباً وأنيقاً
+        // ترتيب وتنسيق القيفاواي العشوائي ليكون مطابقاً للقيفاوي العادي ليسهل تحديث العداد
         const description = `**${prize}**\n\n` +
                             `✶ عـدد الـمـشاركـيـن: 0\n` +
                             `✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>\n\n` +
