@@ -36,6 +36,7 @@ const safeQuery = async (db, qPg, params) => {
             .replace(/"xp"/gi, "xp")
             .replace(/"rep_points"/gi, "rep_points")
             .replace(/"tickets"/gi, "tickets")
+            .replace(/"chests"/gi, "chests")
             .replace(/"floor"/gi, "floor")
             .replace(/"timestamp"/gi, "timestamp")
             .replace(/"id"/gi, "id");
@@ -61,6 +62,7 @@ const safeExecute = async (db, qPg, params) => {
             .replace(/"xp"/gi, "xp")
             .replace(/"rep_points"/gi, "rep_points")
             .replace(/"tickets"/gi, "tickets")
+            .replace(/"chests"/gi, "chests")
             .replace(/"floor"/gi, "floor")
             .replace(/"timestamp"/gi, "timestamp")
             .replace(/"id"/gi, "id");
@@ -105,6 +107,21 @@ async function executeAdminAction(message, targetUser, amount, text, db) {
                 }
                 await message.react('🎟️').catch(()=>{});
                 return `\n\n> 👑 **أمر إمبراطوري مُنفذ:**\n> ✧ **العملية:** إضافة تذاكر\n> ✧ **الهدف:** ${targetUser.username}\n> ✧ **الكمية:** ${amount} تذكرة دانجون 🎟️`;
+            }
+        }
+
+        // 🔥 إدارة صناديق الدانجون (الغنائم العادية) 🔥
+        if (text.includes('صندوق دانجون') || text.includes('صناديق دانجون') || text.includes('غنيم') || text.includes('غنايم')) {
+            if (amount > 0) {
+                const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+                let check = await safeQuery(db, `SELECT * FROM dungeon_stats WHERE "userID"=$1 AND "guildID"=$2`, [userID, guildID]);
+                if (check.rows.length > 0) {
+                    await safeExecute(db, `UPDATE dungeon_stats SET "chests" = COALESCE("chests", 0) + $1 WHERE "userID"=$2 AND "guildID"=$3`, [amount, userID, guildID]);
+                } else {
+                    await safeExecute(db, `INSERT INTO dungeon_stats ("guildID", "userID", "chests", "last_reset") VALUES ($1, $2, $3, $4)`, [guildID, userID, amount, todayStr]);
+                }
+                await message.react('🧰').catch(()=>{});
+                return `\n\n> 👑 **أمر إمبراطوري مُنفذ:**\n> ✧ **العملية:** إضافة غنائم دانجون\n> ✧ **الهدف:** ${targetUser.username}\n> ✧ **الكمية:** ${amount} صندوق دانجون 🧰`;
             }
         }
 
@@ -190,10 +207,10 @@ async function executeAdminAction(message, targetUser, amount, text, db) {
             let foundItem = null;
             const nText = normalize(text); // النص المُنظف بدون مسافات للبحث الدقيق
 
-            // اختصارات الصناديق
+            // 🔥 اختصارات الصناديق السحرية والغاتشا 🔥
             if (nText.includes('صندوقمجان') || nText.includes('صناديقمجان')) {
                 foundItem = { id: 'free_gacha_chest', name: 'صندوق مجاني', type: 'inventory', emoji: '🎁' };
-            } else if (nText.includes('صندوق') || nText.includes('غاتشا') || nText.includes('قاتشا')) {
+            } else if (nText.includes('صندوقغاتش') || nText.includes('صندوققاتش') || nText.includes('صندوقسحر')) {
                 foundItem = { id: 'gacha_chest', name: 'صندوق غاتشا', type: 'inventory', emoji: '🌟' };
             }
 
@@ -245,7 +262,6 @@ async function executeAdminAction(message, targetUser, amount, text, db) {
                     else {
                         let check = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [userID, guildID, foundItem.id]);
                         if (check.rows.length > 0) await safeExecute(db, `UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4`, [amount, userID, guildID, foundItem.id]);
-                        // 🔥 هنا كان الخطأ المكتوب guildId، تم تغييره إلى guildID 🔥
                         else await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildID, userID, foundItem.id, amount]);
                     }
                     await message.react('🎒').catch(()=>{});
