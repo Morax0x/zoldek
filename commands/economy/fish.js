@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, AttachmentBuilder } = require("discord.js");
+const { SlashCommandBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const path = require('path');
 let generateFishingCard;
 try {
@@ -21,7 +21,6 @@ try {
 const rootDir = process.cwd();
 const fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
-// 🔥 هنا كان الخطأ! ربطناه بالمسار الصحيح الجديد للـ PvP 🔥
 let pvpCore;
 try { pvpCore = require(path.join(rootDir, 'handlers', 'pvp', 'index.js')); } 
 catch (e) { pvpCore = {}; }
@@ -337,10 +336,18 @@ module.exports = {
 
                 await sendUpdate();
 
-                const collector = (isSlash ? interactionOrMessage : loadingMsg).createMessageComponentCollector({
-                    filter: i => i.user.id === user.id && i.customId.startsWith('fish_'),
-                    time: 60000 
-                });
+                // 🔥 تم الإصلاح هنا: وضعناه داخل Try/Catch لحماية السيرفر من الـ Crash 🔥
+                let collector;
+                try {
+                    collector = loadingMsg.createMessageComponentCollector({
+                        filter: i => i.user.id === user.id && i.customId.startsWith('fish_'),
+                        time: 60000 
+                    });
+                } catch(e) {
+                    console.log("⚠️ تم فقدان رسالة الصيد، إلغاء العملية لتجنب تعليق البوت.");
+                    activeFishingSessions.delete(user.id);
+                    return;
+                }
 
                 collector.on('collect', async i => {
                     if (isGameOver) {
@@ -430,7 +437,6 @@ module.exports = {
                                         guild: guild,
                                         user: user
                                     };
-                                    // لا نستخدم await هنا لتجنب تعليق أمر الصيد بالكامل
                                     pvpCore.startPveBattle(fakeInteraction, client, sql, member, monster, playerWeapon)
                                         .catch(e => console.error("[PvE Start Error]:", e));
                                     return;
