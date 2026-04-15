@@ -27,7 +27,7 @@ const MAX_FARM_LIMIT = 1000;
 
 const activeShopUsers = new Set();
 
-// 🔥 تعديل الاستعلامات لتعمل على PostgreSQL و SQLite بدقة عالية بتطابق حالة الأحرف 🔥
+// 🔥 تعديل الاستعلامات لتعمل بمرونة على PostgreSQL و SQLite 🔥
 async function execSafe(db, queryPg, queryLite, params = []) {
     try {
         let res = await db.query(queryPg, params);
@@ -61,7 +61,7 @@ async function deductMora(client, db, userId, guildId, amount) {
         } else {
             let res = await execSafe(db, 
                 `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, 
-                `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, 
+                `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, 
                 [userId, guildId]
             );
             if (res.rows && res.rows[0]) {
@@ -86,7 +86,7 @@ async function deductMora(client, db, userId, guildId, amount) {
 
         let r1 = await execSafe(db, 
             `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, 
-            `UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, 
+            `UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, 
             [dbMora, dbBank, userId, guildId]
         );
         return !r1.error;
@@ -109,13 +109,13 @@ async function refundMora(client, db, userId, guildId, amount) {
 
     await execSafe(db, 
         `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, 
-        `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, 
+        `UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, 
         [amount, userId, guildId]
     );
 }
 
 async function getUserBal(db, userId, guildId) {
-    let r = await execSafe(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
+    let r = await execSafe(db, `SELECT "mora", "bank" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
     if(r.error || r.rows.length === 0) return { mora: 0, bank: 0 };
     return { mora: Number(r.rows[0].mora || r.rows[0].Mora || 0), bank: Number(r.rows[0].bank || r.rows[0].Bank || 0) };
 }
@@ -123,14 +123,14 @@ async function getUserBal(db, userId, guildId) {
 async function safeGetFishing(db, userId, guildId) {
     await execSafe(db, 
         `CREATE TABLE IF NOT EXISTS user_fishing ("userID" TEXT, "guildID" TEXT, "rodLevel" BIGINT DEFAULT 1, "currentRod" TEXT DEFAULT 'سنارة خشبية', "boatLevel" BIGINT DEFAULT 1, "currentBoat" TEXT DEFAULT 'قارب خشب', PRIMARY KEY ("userID", "guildID"))`,
-        `CREATE TABLE IF NOT EXISTS user_fishing ("userID" TEXT, "guildID" TEXT, "rodLevel" BIGINT DEFAULT 1, "currentRod" TEXT DEFAULT 'سنارة خشبية', "boatLevel" BIGINT DEFAULT 1, "currentBoat" TEXT DEFAULT 'قارب خشب', PRIMARY KEY ("userID", "guildID"))`
+        `CREATE TABLE IF NOT EXISTS user_fishing (userid TEXT, guildid TEXT, rodlevel BIGINT DEFAULT 1, currentrod TEXT DEFAULT 'سنارة خشبية', boatlevel BIGINT DEFAULT 1, currentboat TEXT DEFAULT 'قارب خشب', PRIMARY KEY (userid, guildid))`
     );
     
-    let r = await execSafe(db, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    let r = await execSafe(db, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
     
     if (r.rows && r.rows.length > 0) return r.rows[0];
 
-    let oldR = await execSafe(db, `SELECT "rodLevel", "boatLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT "rodLevel", "boatLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
+    let oldR = await execSafe(db, `SELECT "rodLevel", "boatLevel" FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT rodLevel, boatLevel FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
     
     if (oldR.rows && oldR.rows.length > 0) {
         let oldRodLvl = Number(oldR.rows[0].rodLevel || oldR.rows[0].rodlevel || 0);
@@ -148,7 +148,7 @@ async function safeGetFishing(db, userId, guildId) {
 
             await execSafe(db, 
                 `INSERT INTO user_fishing ("userID", "guildID", "rodLevel", "currentRod", "boatLevel", "currentBoat") VALUES ($1, $2, $3, $4, $5, $6)`, 
-                `INSERT INTO user_fishing ("userID", "guildID", "rodLevel", "currentRod", "boatLevel", "currentBoat") VALUES ($1, $2, $3, $4, $5, $6)`, 
+                `INSERT INTO user_fishing (userid, guildid, rodlevel, currentrod, boatlevel, currentboat) VALUES ($1, $2, $3, $4, $5, $6)`, 
                 [userId, guildId, oldRodLvl, rodName, oldBoatLvl, boatName]
             );
 
@@ -159,7 +159,7 @@ async function safeGetFishing(db, userId, guildId) {
 }
 
 async function safeGetInv(db, userId, guildId, itemId) {
-    let r = await execSafe(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [userId, guildId, itemId]);
+    let r = await execSafe(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, `SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [userId, guildId, itemId]);
     return r.rows[0] || null;
 }
 
@@ -168,17 +168,17 @@ async function safeAddInv(db, userId, guildId, itemId, qty) {
     if (item) {
         let newQty = Number(item.quantity || item.Quantity || 0) + qty;
         let id = item.id || item.ID;
-        let r = await execSafe(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [newQty, id]);
+        let r = await execSafe(db, `UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, `UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [newQty, id]);
         return !r.error;
     } else {
-        let r = await execSafe(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, qty]);
+        let r = await execSafe(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, `INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, qty]);
         return !r.error;
     }
 }
 
 async function sendShopLog(client, db, guildId, member, item, price, type = "شراء") {
     try {
-        let r = await execSafe(db, `SELECT "shopLogChannelID" FROM settings WHERE "guild" = $1`, `SELECT "shopLogChannelID" FROM settings WHERE "guild" = $1`, [guildId]);
+        let r = await execSafe(db, `SELECT "shopLogChannelID" FROM settings WHERE "guild" = $1`, `SELECT shoplogchannelid FROM settings WHERE guild = $1`, [guildId]);
         let chId = r.rows[0]?.shopLogChannelID || r.rows[0]?.shoplogchannelid;
         if (!chId) return;
         const channel = await client.channels.fetch(chId).catch(() => null);
@@ -247,10 +247,10 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     const guildID = interaction.guild.id; 
     const userID = member.id;
     
-    let rBoss = await execSafe(db, `SELECT * FROM user_coupons WHERE "guildID" = $1 AND "userID" = $2 AND "isUsed" = 0 LIMIT 1`, `SELECT * FROM user_coupons WHERE "guildID" = $1 AND "userID" = $2 AND "isUsed" = 0 LIMIT 1`, [guildID, userID]);
+    let rBoss = await execSafe(db, `SELECT * FROM user_coupons WHERE "guildID" = $1 AND "userID" = $2 AND "isUsed" = 0 LIMIT 1`, `SELECT * FROM user_coupons WHERE guildid = $1 AND userid = $2 AND isused = 0 LIMIT 1`, [guildID, userID]);
     const bossCoupon = rBoss.rows[0] || null;
     
-    let rRole = await execSafe(db, `SELECT * FROM role_coupons_config WHERE "guildID" = $1`, `SELECT * FROM role_coupons_config WHERE "guildID" = $1`, [guildID]);
+    let rRole = await execSafe(db, `SELECT * FROM role_coupons_config WHERE "guildID" = $1`, `SELECT * FROM role_coupons_config WHERE guildid = $1`, [guildID]);
     const roleCouponsConfig = rRole.rows || [];
     
     let bestRoleCoupon = null;
@@ -264,7 +264,7 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     
     let isRoleCouponReady = false;
     if (bestRoleCoupon) {
-        let rUse = await execSafe(db, `SELECT "lastUsedTimestamp" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, `SELECT "lastUsedTimestamp" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, [guildID, userID]);
+        let rUse = await execSafe(db, `SELECT "lastUsedTimestamp" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, `SELECT lastusedtimestamp FROM user_role_coupon_usage WHERE guildid = $1 AND userid = $2`, [guildID, userID]);
         const usageData = rUse.rows[0];
         const lastUsed = usageData?.lastUsedTimestamp || usageData?.lastusedtimestamp;
         const fifteenDaysMs = 15 * 24 * 60 * 60 * 1000;
@@ -314,6 +314,7 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     });
 }
 
+// 🔥 الإصلاح النهائي والأكيد لتخطي مشاكل الداتابيز (Duplicate Keys) أثناء الشراء 🔥
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
     let bal = await getUserBal(db, interaction.user.id, interaction.guild.id);
     const totalWealth = bal.mora + bal.bank;
@@ -342,20 +343,25 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
 
     try {
         if (couponType === 'boss' && couponIdToDelete) {
-            await execSafe(db, `DELETE FROM user_coupons WHERE "id" = $1`, `DELETE FROM user_coupons WHERE "id" = $1`, [couponIdToDelete]);
+            await execSafe(db, `DELETE FROM user_coupons WHERE "id" = $1`, `DELETE FROM user_coupons WHERE id = $1`, [couponIdToDelete]);
         }
         else if (couponType === 'role') {
-            let rUse = await execSafe(db, `SELECT "userID" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, `SELECT "userID" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, [interaction.guild.id, interaction.user.id]);
+            let rUse = await execSafe(db, `SELECT "userID" FROM user_role_coupon_usage WHERE "guildID" = $1 AND "userID" = $2`, `SELECT userid FROM user_role_coupon_usage WHERE guildid = $1 AND userid = $2`, [interaction.guild.id, interaction.user.id]);
             if (rUse.rows[0]) {
-                await execSafe(db, `UPDATE user_role_coupon_usage SET "lastUsedTimestamp" = $1 WHERE "guildID" = $2 AND "userID" = $3`, `UPDATE user_role_coupon_usage SET "lastUsedTimestamp" = $1 WHERE "guildID" = $2 AND "userID" = $3`, [Date.now(), interaction.guild.id, interaction.user.id]);
+                await execSafe(db, `UPDATE user_role_coupon_usage SET "lastUsedTimestamp" = $1 WHERE "guildID" = $2 AND "userID" = $3`, `UPDATE user_role_coupon_usage SET lastusedtimestamp = $1 WHERE guildid = $2 AND userid = $3`, [Date.now(), interaction.guild.id, interaction.user.id]);
             } else {
-                await execSafe(db, `INSERT INTO user_role_coupon_usage ("guildID", "userID", "lastUsedTimestamp") VALUES ($1, $2, $3)`, `INSERT INTO user_role_coupon_usage ("guildID", "userID", "lastUsedTimestamp") VALUES ($1, $2, $3)`, [interaction.guild.id, interaction.user.id, Date.now()]);
+                let insCoup = await execSafe(db, `INSERT INTO user_role_coupon_usage ("guildID", "userID", "lastUsedTimestamp") VALUES ($1, $2, $3)`, `INSERT INTO user_role_coupon_usage (guildid, userid, lastusedtimestamp) VALUES ($1, $2, $3)`, [interaction.guild.id, interaction.user.id, Date.now()]);
+                let attC = 0;
+                while (insCoup.error && attC < 10) {
+                    insCoup = await execSafe(db, `INSERT INTO user_role_coupon_usage ("guildID", "userID", "lastUsedTimestamp") VALUES ($1, $2, $3)`, `INSERT INTO user_role_coupon_usage (guildid, userid, lastusedtimestamp) VALUES ($1, $2, $3)`, [interaction.guild.id, interaction.user.id, Date.now()]);
+                    attC++;
+                }
             }
         }
 
         if (callbackType === 'item') {
             if (itemData.id === 'personal_guard_1d') { 
-                let r = await execSafe(db, `UPDATE levels SET "hasGuard" = LEAST(COALESCE("hasGuard", 0) + 3, 6), "guardExpires" = 0 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET "hasGuard" = LEAST(COALESCE("hasGuard", 0) + 3, 6), "guardExpires" = 0 WHERE "user" = $1 AND "guild" = $2`, [interaction.user.id, interaction.guild.id]);
+                let r = await execSafe(db, `UPDATE levels SET "hasGuard" = LEAST(COALESCE("hasGuard", 0) + 3, 6), "guardExpires" = 0 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET hasguard = LEAST(COALESCE(hasguard, 0) + 3, 6), guardexpires = 0 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
                 if(r.error) success = false;
                 else {
                     try {
@@ -376,35 +382,30 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 if(!added) success = false;
             }
             else if (itemData.id === 'streak_shield') {
-                let r = await execSafe(db, `SELECT "id" FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT "id" FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]);
+                let r = await execSafe(db, `SELECT "id" FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT id FROM streaks WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
                 if (r.rows[0]) {
                     const strkId = r.rows[0].id || r.rows[0].ID;
-                    let r2 = await execSafe(db, `UPDATE streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, `UPDATE streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, [strkId]);
+                    let r2 = await execSafe(db, `UPDATE streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, `UPDATE streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [strkId]);
                     if(r2.error) success = false;
                 } else {
                     const id = `${interaction.guild.id}-${interaction.user.id}`;
-                    let r2 = await execSafe(db, `INSERT INTO streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, `INSERT INTO streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]);
+                    let r2 = await execSafe(db, `INSERT INTO streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, `INSERT INTO streaks (id, guildid, userid, hasitemshield) VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]);
                     if(r2.error) success = false;
                 }
             }
             else if (itemData.id === 'streak_shield_media') {
-                let r = await execSafe(db, `SELECT "id" FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT "id" FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, [interaction.user.id, interaction.guild.id]);
+                let r = await execSafe(db, `SELECT "id" FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT id FROM media_streaks WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
                 if (r.rows[0]) {
                     const medId = r.rows[0].id || r.rows[0].ID;
-                    let r2 = await execSafe(db, `UPDATE media_streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, `UPDATE media_streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, [medId]);
+                    let r2 = await execSafe(db, `UPDATE media_streaks SET "hasItemShield" = COALESCE("hasItemShield", 0) + 1 WHERE "id" = $1`, `UPDATE media_streaks SET hasitemshield = COALESCE(hasitemshield, 0) + 1 WHERE id = $1`, [medId]);
                     if(r2.error) success = false;
                 } else {
                     const id = `${interaction.guild.id}-${interaction.user.id}`;
-                    let r2 = await execSafe(db, `INSERT INTO media_streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, `INSERT INTO media_streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]);
+                    let r2 = await execSafe(db, `INSERT INTO media_streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1)`, `INSERT INTO media_streaks (id, guildid, userid, hasitemshield) VALUES ($1, $2, $3, 1)`, [id, interaction.guild.id, interaction.user.id]);
                     if(r2.error) success = false;
                 }
             }
-            // 🔥 هنا الإصلاح الجذري لحل مشكلة الداتابيز المزعجة 🔥
             else if (itemData.id.startsWith('xp_buff_')) {
-                // إسقاط قيد الحماية القديم الذي يسبب التعارض إن وُجد
-                try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                try { await db.query(`ALTER TABLE user_buffs ADD COLUMN IF NOT EXISTS "id" TEXT`); } catch(e) {}
-
                 let multiplier = 0, buffPercent = 0, duration = 0;
                 switch (itemData.id) {
                     case 'xp_buff_1d_3': multiplier = 0.45; buffPercent = 45; duration = 24 * 60 * 60 * 1000; break;
@@ -413,46 +414,28 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 }
                 if (duration > 0) {
                     const expiresAt = Date.now() + duration;
-                    let r = await execSafe(db, `SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [interaction.user.id, interaction.guild.id]);
+                    let r = await execSafe(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]);
                     
-                    if (r.rows[0]) {
-                        const bfId = r.rows[0].id || r.rows[0].ID;
-                        if (bfId) {
-                            let r2 = await execSafe(db, `UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "id" = $4`, `UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "id" = $4`, [multiplier, expiresAt, buffPercent, bfId]);
-                            if(r2.error) success = false;
-                        } else {
-                            let r2 = await execSafe(db, `UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "userID" = $4 AND "guildID" = $5 AND "buffType" = 'xp'`, `UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "userID" = $4 AND "guildID" = $5 AND "buffType" = 'xp'`, [multiplier, expiresAt, buffPercent, interaction.user.id, interaction.guild.id]);
-                            if(r2.error) success = false;
-                        }
+                    if (r.rows.length > 0) {
+                        let r2 = await execSafe(db, `UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "userID" = $4 AND "guildID" = $5 AND "buffType" = 'xp'`, `UPDATE user_buffs SET multiplier = $1, expiresat = $2, buffpercent = $3 WHERE userid = $4 AND guildid = $5 AND bufftype = 'xp'`, [multiplier, expiresAt, buffPercent, interaction.user.id, interaction.guild.id]);
+                        if(r2.error) success = false;
                     } else {
-                        const newBufId = `xp_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-                        let insXP = await execSafe(db, 
-                            `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'xp', $4, $5, $6)`, 
-                            `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'xp', $4, $5, $6)`, 
-                            [newBufId, interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
-                        );
-                        if(insXP.error) {
-                            insXP = await execSafe(db, 
-                                `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`, 
-                                `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`, 
-                                [interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
-                            );
+                        let insXP = await execSafe(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]);
+                        if (insXP.error) {
+                            let tempId = `xp_${Date.now()}`;
+                            insXP = await execSafe(db, `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6, $7)`, `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [tempId, interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]);
                         }
                         if(insXP.error) success = false;
                     }
                 }
             }
-            // 🔥 الإصلاح الفولاذي لعامل المزرعة (حل نهائي) 🔥
             else if (itemData.id === 'farm_worker_3d') {
                 const durationMs = 3 * 24 * 60 * 60 * 1000;
                 const nowMs = Date.now();
 
-                try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                try { await db.query(`ALTER TABLE user_buffs ADD COLUMN IF NOT EXISTS "id" TEXT`); } catch(e) {}
-
                 let wBuf = await execSafe(db,
-                    `SELECT "id", "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
-                    `SELECT "id", "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                    `SELECT "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                    `SELECT expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
                     [interaction.user.id, interaction.guild.id]
                 );
 
@@ -462,77 +445,50 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     const existingExp = Number(wBuf.rows[0].expiresAt || wBuf.rows[0].expiresat || 0);
                     if (existingExp > nowMs) newExpiresAt = existingExp + durationMs;
                     
-                    const bufId = wBuf.rows[0].id || wBuf.rows[0].ID;
-                    if (bufId) {
-                        let upd = await execSafe(db,
-                            `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`,
-                            `UPDATE user_buffs SET "expiresAt" = $1 WHERE "id" = $2`,
-                            [newExpiresAt, bufId]
-                        );
-                        if (upd.error) success = false;
-                    } else {
-                        let upd = await execSafe(db,
-                            `UPDATE user_buffs SET "expiresAt" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "buffType" = 'farm_worker'`,
-                            `UPDATE user_buffs SET "expiresAt" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "buffType" = 'farm_worker'`,
-                            [newExpiresAt, interaction.user.id, interaction.guild.id]
-                        );
-                        if (upd.error) success = false;
-                    }
+                    let upd = await execSafe(db,
+                        `UPDATE user_buffs SET "expiresAt" = $1 WHERE "userID" = $2 AND "guildID" = $3 AND "buffType" = 'farm_worker'`,
+                        `UPDATE user_buffs SET expiresat = $1 WHERE userid = $2 AND guildid = $3 AND bufftype = 'farm_worker'`,
+                        [newExpiresAt, interaction.user.id, interaction.guild.id]
+                    );
+                    if (upd.error) success = false;
                 } else {
-                    const newBufId = `fw_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
                     let insWorker = await execSafe(db,
-                        `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
-                        `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
-                        [newBufId, interaction.user.id, interaction.guild.id, newExpiresAt]
+                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        [interaction.user.id, interaction.guild.id, newExpiresAt]
                     );
                     
                     if (insWorker.error) {
+                        let tempId = `fw_${Date.now()}`;
                         insWorker = await execSafe(db,
-                            `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                            `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                            [interaction.user.id, interaction.guild.id, newExpiresAt]
+                            `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
+                            `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
+                            [tempId, interaction.user.id, interaction.guild.id, newExpiresAt]
                         );
                     }
                     if (insWorker.error) success = false;
                 }
             }
             else if (itemData.id === 'change_race') {
-                try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                try { await db.query(`ALTER TABLE user_buffs ADD COLUMN IF NOT EXISTS "id" TEXT`); } catch(e) {}
-
-                let allRaceRolesRes = await execSafe(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, [interaction.guild.id]);
+                let allRaceRolesRes = await execSafe(db, `SELECT "roleID", "raceName" FROM race_roles WHERE "guildID" = $1`, `SELECT roleid, racename FROM race_roles WHERE guildid = $1`, [interaction.guild.id]);
                 const raceRoleIDs = (allRaceRolesRes.rows || []).map(r => r.roleID || r.roleid);
                 const userRaceRole = interaction.member.roles.cache.find(r => raceRoleIDs.includes(r.id));
                 if (userRaceRole) { await interaction.member.roles.remove(userRaceRole).catch(()=>{}); }
 
-                await execSafe(db, `DELETE FROM race_dungeon_buffs WHERE "guildID" = $1 AND "roleID" = $2`, `DELETE FROM race_dungeon_buffs WHERE "guildID" = $1 AND "roleID" = $2`, [interaction.guild.id, userRaceRole ? userRaceRole.id : 'none']);
+                await execSafe(db, `DELETE FROM race_dungeon_buffs WHERE "guildID" = $1 AND "roleID" = $2`, `DELETE FROM race_dungeon_buffs WHERE guildid = $1 AND roleid = $2`, [interaction.guild.id, userRaceRole ? userRaceRole.id : 'none']);
                 
                 const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
-                let xpBuffCheck = await execSafe(db, `SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `SELECT "id" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [interaction.user.id, interaction.guild.id]);
+                let xpBuffCheck = await execSafe(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]);
                 
-                if (xpBuffCheck.rows[0]) {
-                    const xpId = xpBuffCheck.rows[0].id || xpBuffCheck.rows[0].ID;
-                    if (xpId) {
-                        let r2 = await execSafe(db, `UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, `UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "id" = $4`, [-5, expiresAt, -0.05, xpId]);
-                        if(r2.error) success = false;
-                    } else {
-                        let r2 = await execSafe(db, `UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "userID" = $4 AND "guildID" = $5 AND "buffType" = 'xp'`, `UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "userID" = $4 AND "guildID" = $5 AND "buffType" = 'xp'`, [-5, expiresAt, -0.05, interaction.user.id, interaction.guild.id]);
-                        if(r2.error) success = false;
-                    }
+                if (xpBuffCheck.rows.length > 0) {
+                    let r2 = await execSafe(db, `UPDATE user_buffs SET "buffPercent" = $1, "expiresAt" = $2, "multiplier" = $3 WHERE "userID" = $4 AND "guildID" = $5 AND "buffType" = 'xp'`, `UPDATE user_buffs SET buffpercent = $1, expiresat = $2, multiplier = $3 WHERE userid = $4 AND guildid = $5 AND bufftype = 'xp'`, [-5, expiresAt, -0.05, interaction.user.id, interaction.guild.id]);
+                    if(r2.error) success = false;
                 }
                 else {
-                    const newBufId = `debuff_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-                    let insXP = await execSafe(db, 
-                        `INSERT INTO user_buffs ("id", "guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, 
-                        `INSERT INTO user_buffs ("id", "guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, 
-                        [newBufId, interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]
-                    );
+                    let insXP = await execSafe(db, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'xp', $5)`, `INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'xp', $5)`, [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]);
                     if (insXP.error) {
-                        insXP = await execSafe(db, 
-                            `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'xp', $5)`, 
-                            `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'xp', $5)`, 
-                            [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]
-                        );
+                        let tempId = `dbf_${Date.now()}`;
+                        insXP = await execSafe(db, `INSERT INTO user_buffs ("id", "guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, `INSERT INTO user_buffs (id, guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, [tempId, interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]);
                     }
                     if(insXP.error) success = false;
                 }
@@ -540,7 +496,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         } 
 
         if (success) {
-            await execSafe(db, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, [interaction.user.id, interaction.guild.id]);
+            await execSafe(db, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
             
             let successMsg = `📦 **العنصر:** ${itemData.name || 'Unknown'}\n💰 **التكلفة:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
             if (discountUsed > 0) successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
@@ -594,9 +550,9 @@ async function _handleRodUpgrade(i, client, db) {
 
     let rUpdate;
     if (fishData) {
-        rUpdate = await execSafe(db, `UPDATE user_fishing SET "rodLevel" = $1, "currentRod" = $2 WHERE "userID" = $3 AND "guildID" = $4`, `UPDATE user_fishing SET "rodLevel" = $1, "currentRod" = $2 WHERE "userID" = $3 AND "guildID" = $4`, [nextLevel, nextRod.name, i.user.id, i.guild.id]);
+        rUpdate = await execSafe(db, `UPDATE user_fishing SET "rodLevel" = $1, "currentRod" = $2 WHERE "userID" = $3 AND "guildID" = $4`, `UPDATE user_fishing SET rodlevel = $1, currentrod = $2 WHERE userid = $3 AND guildid = $4`, [nextLevel, nextRod.name, i.user.id, i.guild.id]);
     } else {
-        rUpdate = await execSafe(db, `INSERT INTO user_fishing ("userID", "guildID", "rodLevel", "currentRod", "boatLevel", "currentBoat") VALUES ($1, $2, $3, $4, 1, 'قارب خشب')`, `INSERT INTO user_fishing ("userID", "guildID", "rodLevel", "currentRod", "boatLevel", "currentBoat") VALUES ($1, $2, $3, $4, 1, 'قارب خشب')`, [i.user.id, i.guild.id, nextLevel, nextRod.name]);
+        rUpdate = await execSafe(db, `INSERT INTO user_fishing ("userID", "guildID", "rodLevel", "currentRod", "boatLevel", "currentBoat") VALUES ($1, $2, $3, $4, 1, 'قارب خشب')`, `INSERT INTO user_fishing (userid, guildid, rodlevel, currentrod, boatlevel, currentboat) VALUES ($1, $2, $3, $4, 1, 'قارب خشب')`, [i.user.id, i.guild.id, nextLevel, nextRod.name]);
     }
 
     if (rUpdate.error) {
@@ -651,9 +607,9 @@ async function _handleBoatUpgrade(i, client, db) {
 
     let rUpdate;
     if (fishData) {
-        rUpdate = await execSafe(db, `UPDATE user_fishing SET "boatLevel" = $1, "currentBoat" = $2 WHERE "userID" = $3 AND "guildID" = $4`, `UPDATE user_fishing SET "boatLevel" = $1, "currentBoat" = $2 WHERE "userID" = $3 AND "guildID" = $4`, [nextLevel, nextBoat.name, i.user.id, i.guild.id]);
+        rUpdate = await execSafe(db, `UPDATE user_fishing SET "boatLevel" = $1, "currentBoat" = $2 WHERE "userID" = $3 AND "guildID" = $4`, `UPDATE user_fishing SET boatlevel = $1, currentboat = $2 WHERE userid = $3 AND guildid = $4`, [nextLevel, nextBoat.name, i.user.id, i.guild.id]);
     } else {
-        rUpdate = await execSafe(db, `INSERT INTO user_fishing ("userID", "guildID", "boatLevel", "currentBoat", "rodLevel", "currentRod") VALUES ($1, $2, $3, $4, 1, 'سنارة خشبية')`, `INSERT INTO user_fishing ("userID", "guildID", "boatLevel", "currentBoat", "rodLevel", "currentRod") VALUES ($1, $2, $3, $4, 1, 'سنارة خشبية')`, [i.user.id, i.guild.id, nextLevel, nextBoat.name]);
+        rUpdate = await execSafe(db, `INSERT INTO user_fishing ("userID", "guildID", "boatLevel", "currentBoat", "rodLevel", "currentRod") VALUES ($1, $2, $3, $4, 1, 'سنارة خشبية')`, `INSERT INTO user_fishing (userid, guildid, boatlevel, currentboat, rodlevel, currentrod) VALUES ($1, $2, $3, $4, 1, 'سنارة خشبية')`, [i.user.id, i.guild.id, nextLevel, nextBoat.name]);
     }
 
     if (rUpdate.error) {
@@ -686,6 +642,85 @@ async function _handleBoatUpgrade(i, client, db) {
     await i.editReply({ embeds: [refreshEmbed], components: [refreshRow] }).catch(()=>{});
 }
 
+async function _handleShopButton(i, client, db, explicitItemId = null) {
+    try {
+        try { if (!i.replied && !i.deferred) await i.deferReply({ flags: MessageFlags.Ephemeral }); } catch(e) {}
+        
+        const userId = i.user.id; 
+        const guildId = i.guild.id; 
+        const boughtItemId = explicitItemId || i.customId.replace('buy_item_', ''); 
+          
+        let item = shopItems.find(it => it.id === boughtItemId) || finalPotionItems.find(it => it.id === boughtItemId);
+        if (!item) return await i.editReply({ content: '❌ هذا العنصر غير موجود!' });
+        
+        let userDataRes = await execSafe(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+        let userData = userDataRes.rows[0] || { mora: 0, bank: 0 };
+          
+        const NON_DISCOUNTABLE = ['xp_buff_1d_3', 'xp_buff_1d_7', 'xp_buff_2d_10', 'farm_worker_3d'];
+        
+        if (item.id === 'personal_guard_1d') {
+            if (Number(userData.hasGuard || userData.hasguard || 0) >= 6) {
+                return await i.editReply({ content: `🚫 **لا يمكنك الشراء!**\nلديك بالفعل أقصى عدد من محاولات حماية الحارس الشخصي (الحد الأقصى 6).` });
+            }
+        }
+        else if (item.id === 'streak_shield') {
+            let existingRes = await execSafe(db, `SELECT * FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+            const currentShields = Number(existingRes.rows[0]?.hasItemShield || existingRes.rows[0]?.hasitemshield || 0);
+            if (currentShields >= 3) {
+                return await i.editReply({ content: `🚫 **درعك ممتلئ!**\nلديك **${currentShields}** دروع ستريك نشطة حالياً. لا يمكنك شراء المزيد.` });
+            }
+        }
+        else if (item.id === 'streak_shield_media') {
+            let existingRes = await execSafe(db, `SELECT * FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM media_streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+            const currentShields = Number(existingRes.rows[0]?.hasItemShield || existingRes.rows[0]?.hasitemshield || 0);
+            if (currentShields >= 3) {
+                return await i.editReply({ content: `🚫 **درع الميديا ممتلئ!**\nلديك **${currentShields}** دروع نشطة حالياً. لا يمكنك شراء المزيد.` });
+            }
+        }
+        else if (item.id === 'farm_worker_3d') {
+            let wBuf = await execSafe(db,
+                `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                [userId, guildId]
+            );
+            if (wBuf.rows.length > 0) {
+                const expiresAtMs = Number(wBuf.rows[0].expiresAt || wBuf.rows[0].expiresat || 0);
+                if (expiresAtMs > Date.now()) {
+                    const remainingDays = (expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000);
+                    if (remainingDays >= 6) {
+                        return await i.editReply({ content: `🚫 **الحد الأقصى من العمال!**\nلديك بالفعل **2 عاملان نشطان** (الحد الأقصى)، سيستمران بالعمل لمدة **${Math.ceil(remainingDays)} يوماً** القادمة.` });
+                    }
+                }
+            }
+        }
+        else if (item.id.startsWith('xp_buff_')) {
+            let getActiveBuffRes = await execSafe(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp' AND "expiresAt" > $3`, `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp' AND expiresat > $3`, [userId, guildId, Date.now()]);
+            if (getActiveBuffRes.rows[0]) {
+                const replaceButton = new ButtonBuilder().setCustomId(`replace_buff_${item.id}`).setLabel("إلغاء القديم وشراء الجديد").setStyle(ButtonStyle.Danger);
+                const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغاء").setStyle(ButtonStyle.Secondary);
+                const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
+                return await i.editReply({ content: `⚠️ لديك معزز خبرة فعال بالفعل! (لا يمكن دمج معززين في نفس الوقت)`, components: [row], embeds: [] });
+            }
+        }
+
+        if (NON_DISCOUNTABLE.includes(item.id) || item.id.startsWith('xp_buff_')) {
+             let bal = await getUserBal(db, userId, guildId);
+             if ((bal.mora + bal.bank) < item.price) {
+                 return await i.editReply({ content: `❌ رصيدك (كاش + بنك) ما يكفي. تحتاج **${item.price.toLocaleString()}** مورا.` });
+             }
+             await processFinalPurchase(i, item, 1, item.price, 0, 'none', client, db, 'item');
+             return;
+        }
+        
+        await handlePurchaseWithCoupons(i, item, 1, item.price, client, db, 'item');
+
+    } catch (error) { 
+        console.error("[Shop System Error] handleShopInteractions:", error);
+        if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); 
+        else await i.reply({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); 
+    }
+}
+
 async function _handleReplaceBuffButton(i, client, db) {
     try {
         try { if (!i.replied && !i.deferred) await i.deferUpdate(); } catch(e) {}
@@ -706,7 +741,7 @@ async function _handleReplaceBuffButton(i, client, db) {
         if (!deducted) return await i.followUp({ content: '❌ حدث خطأ أثناء خصم الأموال.', flags: MessageFlags.Ephemeral });
 
         try {
-            await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [userId, guildId]);
+            await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [userId, guildId]);
             
             let expiresAt, multiplier, buffPercent;
             switch (item.id) {
@@ -716,26 +751,15 @@ async function _handleReplaceBuffButton(i, client, db) {
             }
             
             if (multiplier > 0) {
-                try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                try { await db.query(`ALTER TABLE user_buffs ADD COLUMN IF NOT EXISTS "id" TEXT`); } catch(e) {}
-                const newBufId = `xp_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-
-                let ins = await execSafe(db, 
-                    `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6, $7)`, 
-                    `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6, $7)`, 
-                    [newBufId, userId, guildId, 'xp', multiplier, expiresAt, buffPercent]
-                );
+                let ins = await execSafe(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]);
                 if (ins.error) {
-                    ins = await execSafe(db, 
-                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, 
-                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, 
-                        [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]
-                    );
+                    let tempId = `xp_${Date.now()}`;
+                    ins = await execSafe(db, `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6, $7)`, `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [tempId, userId, guildId, 'xp', multiplier, expiresAt, buffPercent]);
                 }
                 if (ins.error) throw new Error("BUFF_INS_ERR");
             }
 
-            await execSafe(db, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, [userId, guildId]);
+            await execSafe(db, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
             
             const successEmbed = new EmbedBuilder()
                 .setTitle('✅ تمت عملية الشراء بنجاح')
@@ -752,253 +776,89 @@ async function _handleReplaceBuffButton(i, client, db) {
     } catch (error) {}
 }
 
-async function _handlePotionSelect(i, client, db) {
-    try {
-        if(i.replied || i.deferred) await i.followUp({ content: "جاري التحميل...", flags: MessageFlags.Ephemeral });
-        else await i.deferReply({ flags: MessageFlags.Ephemeral });
-    } catch(e) {}
-      
-    if (finalPotionItems.length === 0) return i.editReply({ content: "❌ لا توجد جرعات متاحة حالياً." });
-
-    const potionOptions = finalPotionItems.slice(0, 25).map(p => {
-        return { label: p.name, description: `${p.price.toLocaleString()} مورا | ${p.description.substring(0, 50)}`, value: `buy_item_${p.id}`, emoji: p.emoji };
-    });
-
-    const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop_buy_potion_menu').setPlaceholder('اختر الجرعة لشرائها...').addOptions(potionOptions));
-    const embed = new EmbedBuilder().setTitle('🧪 متجر الجرعات السحرية').setDescription('اختر الجرعة التي تريد شراءها من القائمة بالأسفل.').setColor(Colors.Purple).setImage(BANNER_URL);
-
-    await i.editReply({ embeds: [embed], components: [row] });
-}
-
-async function _handleFishingMenu(i, client, db) {
-    try { if (!i.replied && !i.deferred) await i.deferReply({ flags: MessageFlags.Ephemeral }); } catch(e) {} 
-    const embed = new EmbedBuilder().setTitle('🎣 عـدة الـصـيـد').setDescription('اختر القسم الذي تريد تصفحه:').setColor(Colors.Aqua).setImage(BANNER_URL);
-    const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('fishing_gear_sub_menu').setPlaceholder('اختر الفئة...').addOptions(
-        { label: 'السنارات', value: 'gear_rods', emoji: '🎣' }, { label: 'القوارب', value: 'gear_boats', emoji: '🚤' }, { label: 'الطعوم', value: 'gear_baits', emoji: '🪱' }
-    ));
-    await i.editReply({ embeds: [embed], components: [row] });
-}
-
-async function _handleRodSelect(i, client, db) {
-    try {
-        if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
-    } catch(e) {}
+async function _handleBaitBuy(i, client, db, baitId) {
+    try { if(!i.deferred && !i.replied) await i.deferReply({ flags: MessageFlags.Ephemeral }); } catch(e) {}
+    const bait = finalBaits.find(b => b.id === baitId);
+    if (!bait) return i.editReply({ content: '❌ هذا العنصر غير موجود!' });
     
-    let fishData = await safeGetFishing(db, i.user.id, i.guild.id);
-    const currentLevel = fishData ? (Number(fishData.rodLevel || fishData.rodlevel) || 1) : 1;
-    const nextLevel = currentLevel + 1;
-    const currentRod = finalRods.find(r => r.level === currentLevel) || finalRods[0];
-    const nextRod = finalRods.find(r => r.level === nextLevel);
-    
-    if(!currentRod) return i.editReply("❌ بيانات السنارات غير متوفرة.");
+    const cost = Math.round(bait.price / 5) * 5; 
+    let bal = await getUserBal(db, i.user.id, i.guild.id);
 
-    const embed = new EmbedBuilder().setTitle(`🎣 سنارة الصيد`).setDescription(`**السنارة الحالية:** ${currentRod.name}`).setColor(Colors.Aqua).setImage(BANNER_URL)
-        .addFields({ name: 'المستوى الحالي', value: `Lv. ${currentLevel}`, inline: true }, { name: 'أقصى صيد', value: `${currentRod.max_fish} سمكات`, inline: true }, { name: 'الحظ', value: `+${currentRod.luck_bonus}%`, inline: true });
-    if(currentRod.image) embed.setThumbnail(currentRod.image);
-    
-    const row = new ActionRowBuilder();
-    if (!nextRod) {
-        embed.addFields({ name: "التطوير القادم", value: "الحد الأقصى", inline: true });
-        row.addComponents(new ButtonBuilder().setCustomId('max_rod').setLabel('MAX').setStyle(ButtonStyle.Secondary).setDisabled(true));
-    } else {
-        embed.addFields({ name: "التالي", value: nextRod.name, inline: true }, { name: "السعر", value: `${nextRod.price.toLocaleString()}`, inline: true });
-        row.addComponents(new ButtonBuilder().setCustomId('upgrade_rod').setLabel('تطوير').setStyle(ButtonStyle.Success).setEmoji('⬆️'));
+    if ((bal.mora + bal.bank) < cost) {
+        return i.editReply(`❌ رصيدك (كاش + بنك) لا يكفي! تحتاج **${cost.toLocaleString()}** مورا.`);
     }
-    await i.editReply({ embeds: [embed], components: [row] });
-}
-
-async function _handleBoatSelect(i, client, db) {
-    try {
-        if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
-    } catch(e) {}
     
-    let fishData = await safeGetFishing(db, i.user.id, i.guild.id);
-    const currentLevel = fishData ? (Number(fishData.boatLevel || fishData.boatlevel) || 1) : 1;
-    const nextLevel = currentLevel + 1;
-    const currentBoat = finalBoats.find(b => b.level === currentLevel) || finalBoats[0];
-    const nextBoat = finalBoats.find(b => b.level === nextLevel);
+    let deducted = await deductMora(client, db, i.user.id, i.guild.id, cost);
+    if(!deducted) return i.editReply('❌ صار خطأ بخصم الفلوس.');
     
-    if(!currentBoat) return i.editReply("❌ بيانات القوارب غير متوفرة.");
-
-    const embed = new EmbedBuilder().setTitle(`🚤 قـوارب الـصـيـد`).setDescription(`**القارب الحالي:** ${currentBoat.name}`).setColor(Colors.Blue).setImage(BANNER_URL);
-    if(currentBoat.image) embed.setThumbnail(currentBoat.image);
-    
-    const row = new ActionRowBuilder();
-    if (!nextBoat) {
-        embed.addFields({ name: "التطوير", value: "الحد الأقصى", inline: true });
-        row.addComponents(new ButtonBuilder().setCustomId('max_boat').setLabel('MAX').setStyle(ButtonStyle.Secondary).setDisabled(true));
-    } else {
-        embed.addFields({ name: "القادم", value: nextBoat.name, inline: true }, { name: "السعر", value: `${nextBoat.price.toLocaleString()}`, inline: true }, { name: "يفتح", value: nextBoat.location_id, inline: false });
-        row.addComponents(new ButtonBuilder().setCustomId('upgrade_boat').setLabel('شراء').setStyle(ButtonStyle.Success).setEmoji('🚤'));
+    let added = await safeAddInv(db, i.user.id, i.guild.id, baitId, 5);
+    if (!added) {
+        await refundMora(client, db, i.user.id, i.guild.id, cost);
+        return i.editReply('❌ السيرفر علق وما ضاف الطعم، رجعنا فلوسك.');
     }
-    await i.editReply({ embeds: [embed], components: [row] });
+    
+    const successEmbed = new EmbedBuilder()
+        .setTitle('✅ تمت عملية الشراء بنجاح')
+        .setColor(Colors.Green)
+        .setDescription(`📦 **العنصر:** حزمة (5 حبات) من ${bait.name}\n💰 **التكلفة:** ${cost.toLocaleString()} ${EMOJI_MORA}`)
+        .setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
+
+    await i.editReply({ content: null, embeds: [successEmbed] });
+    await sendShopLog(client, db, i.guild.id, i.member, `حزمة طعم: ${bait.name} (x5)`, cost, "شراء");
 }
 
-async function _handleBaitSelect(i, client, db) {
+async function _handleReplaceGuard(i, client, db) {
     try {
-        if(i.replied || i.deferred) await i.editReply({ content: "جاري التحميل..." }); 
-        else await i.deferReply({ flags: MessageFlags.Ephemeral });
-    } catch(e) {}
-    
-    if (finalBaits.length === 0) return i.editReply({ content: "❌ لا توجد طعوم في المتجر حالياً." });
-    
-    const baitOptions = finalBaits.map(b => ({
-        label: b.name,
-        description: `${b.price} مورا | حزمة (5 حبات)`,
-        value: `buy_bait_${b.id}`,
-        emoji: '🪱'
-    }));
-    
-    const row = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId('shop_buy_bait_menu')
-            .setPlaceholder('اختر الطعم لشرائه...')
-            .addOptions(baitOptions)
-    );
-    
-    const embed = new EmbedBuilder().setTitle('🪱 متجر الطعوم').setDescription('اختر الطعم الذي تود شراءه من القائمة السفلية (يتم بيع الطعوم كحزم، كل حزمة تحتوي على 5 طعوم).').setColor(Colors.Orange);
-    await i.editReply({ content: null, embeds: [embed], components: [row] });
-}
-
-async function handleShopModal(i, client, db) {
-    if (i.customId === 'exchange_xp_modal') {
+        try { if (!i.replied && !i.deferred) await i.deferUpdate(); } catch(e) {}
         const userId = i.user.id; 
-        const guildId = i.guild.id;
-
-        if (activeShopUsers.has(userId)) {
-            return await i.reply({ content: '⏳ انتظر ثواني لين تخلص عمليتك الحالية بمتجر المزرعة/الخبرة!', flags: MessageFlags.Ephemeral });
-        }
-        activeShopUsers.add(userId);
-
-        try {
-            await i.deferReply({ flags: MessageFlags.Ephemeral });
-            
-            let userLoanRes = await execSafe(db, `SELECT 1 FROM user_loans WHERE "userID" = $1 AND "guildID" = $2 AND "remainingAmount" > 0`, `SELECT 1 FROM user_loans WHERE "userID" = $1 AND "guildID" = $2 AND "remainingAmount" > 0`, [userId, guildId]);
-            if (userLoanRes.rows.length > 0) {
-                return await i.editReply({ content: `❌ لا يمكنك تبادل الخبرة بينما عليك قرض في البنك.` });
-            }
-            
-            let bal = await getUserBal(db, userId, guildId);
-            const amountString = i.fields.getTextInputValue('xp_amount_input').trim().toLowerCase();
-            let amountToBuy = 0;
-            
-            if (amountString === 'all') amountToBuy = Math.floor((bal.mora + bal.bank) / CUSTOM_XP_RATE);
-            else amountToBuy = parseInt(amountString.replace(/,/g, ''));
-            
-            if (isNaN(amountToBuy) || amountToBuy <= 0) return await i.editReply({ content: '❌ يرجى إدخال رقم صحيح أو كتابة All.' });
-            
-            const totalCost = amountToBuy * CUSTOM_XP_RATE;
-            
-            if ((bal.mora + bal.bank) < totalCost) {
-                let msg = `❌ رصيدك الكاش ما يكفي. تحتاج **${totalCost.toLocaleString()}** مورا.`;
-                if (bal.bank >= totalCost) msg += `\n💡 فلوسك بالبنك تكفي، اسحبها أولاً.`;
-                return await i.editReply({ content: msg });
-            }
-            
-            if (addXPAndCheckLevel) {
-                await addXPAndCheckLevel(client, i.member, db, amountToBuy, 0, false).catch(()=>{});
-                await new Promise(r => setTimeout(r, 1500));
-            } else {
-                await execSafe(db, `UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, `UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, [amountToBuy, userId, guildId]);
-            }
-
-            let deducted = await deductMora(client, db, userId, guildId, totalCost);
-            if(!deducted) {}
-
-            const successEmbed = new EmbedBuilder()
-                .setTitle('✅ تمت عملية التبادل بنجاح')
-                .setColor(Colors.Green)
-                .setDescription(`📦 **العنصر:** ${amountToBuy.toLocaleString()} إكس بي (XP)\n💰 **التكلفة:** ${totalCost.toLocaleString()} ${EMOJI_MORA}\n*(التحويل: 1 إكس بي = ${CUSTOM_XP_RATE} مورا)*`)
-                .setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
-
-            await i.editReply({ content: null, embeds: [successEmbed] });
-            await sendShopLog(client, db, guildId, i.member, `شراء ${amountToBuy} XP`, totalCost, "تبادل خبرة");
-
-        } catch (e) { 
-            await i.editReply({ content: '❌ حدث خطأ غير متوقع، حاول مجدداً.' }).catch(()=>{});
-        } finally {
-            activeShopUsers.delete(userId);
-        }
-        return true;
-    }
-    return false;
-}
-
-async function handleShopInteractions(i, client, db) {
-    if (i.isStringSelectMenu() && i.customId === 'shop_buy_select') {
-        const rawId = i.values[0].replace('buy_item_', '');
+        const guildId = i.guild.id; 
+        const item = shopItems.find(it => it.id === 'personal_guard_1d');
         
-        if (rawId === 'fishing_gear_menu') return await _handleFishingMenu(i, client, db);
-        if (rawId === 'potions_menu') return await _handlePotionSelect(i, client, db);
-        if (rawId === 'exchange_xp') {
-             const btn = new ButtonBuilder().setCustomId('open_xp_modal').setLabel('🪙 بدء التبادل').setStyle(ButtonStyle.Primary);
-             const embed = new EmbedBuilder().setTitle('تبديل الخبرة').setDescription(`السعر: ${CUSTOM_XP_RATE} مورا = 1 إكس بي (XP)`).setColor(Colors.Blue).setImage(BANNER_URL);
-             return await i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)], flags: MessageFlags.Ephemeral });
+        let r = await execSafe(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+        let userData = r.rows[0] || { mora: 0, bank: 0, hasGuard: 0 };
+        
+        if (Number(userData.hasGuard || userData.hasguard || 0) >= 6) {
+            return await i.followUp({ content: `🚫 لديك بالفعل أقصى عدد من محاولات الحارس الشخصي.`, flags: MessageFlags.Ephemeral });
         }
 
-        return await sendItemDetailsEmbed(i, rawId, 'general');
-    }
-
-    if (i.isButton() && i.customId === 'open_xp_modal') {
-         const xpModal = new ModalBuilder().setCustomId('exchange_xp_modal').setTitle(`تبادل الخبرة (1 XP = ${CUSTOM_XP_RATE} Mora)`);
-         xpModal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('xp_amount_input').setLabel('الكمية (اكتب All للكل)').setStyle(TextInputStyle.Short).setRequired(true)));
-         return await i.showModal(xpModal);
-    }
-
-    if (i.isStringSelectMenu() && i.customId === 'fishing_gear_sub_menu') {
-        const val = i.values[0];
-        if (val === 'gear_rods') await _handleRodSelect(i, client, db);
-        else if (val === 'gear_boats') await _handleBoatSelect(i, client, db);
-        else if (val === 'gear_baits') await _handleBaitSelect(i, client, db);
-        return;
-    }
-
-    if (i.isStringSelectMenu() && i.customId === 'shop_buy_potion_menu') {
-        const potionId = i.values[0].replace('buy_item_', '');
-        return await sendItemDetailsEmbed(i, potionId, 'general');
-    }
-
-    if (i.isStringSelectMenu() && i.customId === 'shop_buy_bait_menu') {
-        const baitId = i.values[0].replace('buy_bait_', '');
-        return await sendItemDetailsEmbed(i, baitId, 'bait');
-    }
-
-    const isProtectedButton = i.isButton() && (
-        i.customId.startsWith('buy_confirm_bait_') || 
-        i.customId === 'upgrade_rod' || 
-        i.customId === 'upgrade_boat' || 
-        i.customId.startsWith('buy_item_') || 
-        i.customId.startsWith('replace_buff_') || 
-        i.customId === 'replace_guard'
-    );
-
-    if (isProtectedButton) {
-        if (activeShopUsers.has(i.user.id)) {
-            return i.reply({ content: '⏳ انتظر ثواني لين تخلص عمليتك الحالية!', flags: MessageFlags.Ephemeral });
+        let bal = await getUserBal(db, userId, guildId);
+        if ((bal.mora + bal.bank) < item.price) {
+            return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
         }
-        activeShopUsers.add(i.user.id);
-    }
+        
+        let deducted = await deductMora(client, db, userId, guildId, item.price);
+        if (!deducted) return await i.followUp({ content: '❌ حدث خطأ أثناء الخصم.', flags: MessageFlags.Ephemeral });
 
-    try {
-        if (i.isButton() && i.customId.startsWith('buy_confirm_bait_')) {
-            const baitId = i.customId.replace('buy_confirm_bait_', '');
-            await _handleBaitBuy(i, client, db, baitId);
+        let upd = await execSafe(db, 
+            `UPDATE levels SET "hasGuard" = LEAST(COALESCE("hasGuard", 0) + 3, 6), "guardExpires" = 0 WHERE "user" = $1 AND "guild" = $2`,
+            `UPDATE levels SET hasguard = LEAST(COALESCE(hasguard, 0) + 3, 6), guardexpires = 0 WHERE userid = $1 AND guildid = $2`,
+            [userId, guildId]
+        );
+        if (upd.error) {
+            await refundMora(client, db, userId, guildId, item.price);
+            return await i.followUp({ content: `❌ حدث خطأ داخلي أثناء تحديث الحارس الشخصي، تم استرجاع أموالك.`, flags: MessageFlags.Ephemeral });
+        } else {
+            try {
+                if (client && typeof client.getLevel === 'function') {
+                    let u = await client.getLevel(userId, guildId);
+                    if (u) {
+                        u.hasGuard = Math.min((Number(u.hasGuard || u.hasguard || 0) + 3), 6);
+                        u.guardExpires = 0;
+                        await client.setLevel(u);
+                    }
+                }
+            } catch(e){}
         }
-        else if (i.isButton() && i.customId === 'upgrade_rod') await _handleRodUpgrade(i, client, db);
-        else if (i.isButton() && i.customId === 'upgrade_boat') await _handleBoatUpgrade(i, client, db);
-        else if (i.isButton() && i.customId.startsWith('buy_item_')) {
-            const boughtItemId = i.customId.replace('buy_item_', ''); 
-            await _handleShopButton(i, client, db, boughtItemId);
-        }
-        else if (i.customId.startsWith('replace_buff_')) await _handleReplaceBuffButton(i, client, db);
-        else if (i.customId === 'replace_guard') await _handleReplaceGuard(i, client, db);
-        else if (i.customId === 'cancel_purchase') { 
-            try { if (!i.replied && !i.deferred) await i.deferUpdate(); } catch(e) {} 
-            await i.editReply({ content: 'تم الإلغاء.', components: [], embeds: [] }); 
-        }
-    } finally {
-        if (isProtectedButton) activeShopUsers.delete(i.user.id);
-    }
+        
+        const successEmbed = new EmbedBuilder()
+            .setTitle('✅ تمت عملية التجديد بنجاح')
+            .setColor(Colors.Green)
+            .setDescription(`📦 **العنصر:** حارس شخصي\n💰 **التكلفة:** ${item.price.toLocaleString()} ${EMOJI_MORA}`)
+            .setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
+
+        await i.followUp({ embeds: [successEmbed], flags: MessageFlags.Ephemeral });
+        await sendShopLog(client, db, guildId, i.member, "حارس شخصي (تجديد)", item.price, "شراء");
+    } catch (error) {}
 }
 
 module.exports = {
