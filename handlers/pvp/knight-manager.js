@@ -1,4 +1,4 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, Colors, AttachmentBuilder, ChannelType } = require("discord.js");
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, Colors, AttachmentBuilder } = require("discord.js");
 const path = require('path');
 const { generatePvPImage } = require('../../generators/pvp-generator.js');
 const { generatePvPResultImage } = require('../../generators/pvp-summary-generator.js');
@@ -510,7 +510,6 @@ function executeGuardLogic(battleState, player, guard, playerId) {
     battleState.log.push(actionLog);
 }
 
-// 🔥 تجهيز واجهة الرندرة المتوافقة مع النظام الجديد للصور 🔥
 async function renderBattleFrame(battleState, skillSelectionMode = false, skillPage = 0) {
     const attackerId = battleState.turn[0]; 
     const attacker = battleState.players.get(attackerId);
@@ -569,7 +568,7 @@ async function renderBattleFrame(battleState, skillSelectionMode = false, skillP
         content: `**قـاتـل لتنجـو بحيـاتـك!** <@${attackerId}>`, 
         files: attachment ? [attachment] : [], 
         components: componentsToSend,
-        embeds: [] // تم حذف الإمبد لأننا نستخدم الصورة الآن!
+        embeds: []
     };
 }
 
@@ -584,7 +583,9 @@ function setupBattleCollector(battleState) {
     });
 
     collector.on('collect', async i => {
-        if (battleState.processingTurn) return; 
+        if (battleState.processingTurn) {
+            return i.reply({ content: '⏳ انتظر دورك...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+        }
         battleState.processingTurn = true; 
 
         try {
@@ -593,19 +594,24 @@ function setupBattleCollector(battleState) {
             const guard = battleState.players.get("guard");
 
             if (customId === 'knight_skill_menu') {
+                await i.deferUpdate().catch(()=>{});
                 battleState.processingTurn = false;
                 const payload = await renderBattleFrame(battleState, true, 0);
-                return await i.update(payload).catch(()=>{});
+                return await i.editReply(payload).catch(()=>{});
             } else if (customId === 'knight_skill_back') {
+                await i.deferUpdate().catch(()=>{});
                 battleState.processingTurn = false;
                 const payload = await renderBattleFrame(battleState, false, 0);
-                return await i.update(payload).catch(()=>{});
+                return await i.editReply(payload).catch(()=>{});
             } else if (customId.startsWith('knight_skill_page_')) {
+                await i.deferUpdate().catch(()=>{});
                 battleState.processingTurn = false;
                 const newPage = parseInt(customId.split('_')[3]);
                 const payload = await renderBattleFrame(battleState, true, newPage);
-                return await i.update(payload).catch(()=>{});
+                return await i.editReply(payload).catch(()=>{});
             }
+
+            await i.deferUpdate().catch(()=>{});
 
             battleState.log = []; 
             
@@ -613,7 +619,6 @@ function setupBattleCollector(battleState) {
             if (pLog.length > 0) battleState.log.push(...pLog);
 
             if (player.hp <= 0) {
-                await i.deferUpdate().catch(()=>{});
                 return await handleGuardBattleEnd(battleState, "guard", "lose");
             }
 
@@ -640,20 +645,18 @@ function setupBattleCollector(battleState) {
             }
 
             if (guard.hp <= 0) {
-                await i.deferUpdate().catch(()=>{});
                 return await handleGuardBattleEnd(battleState, playerId, "win");
             }
 
             executeGuardLogic(battleState, player, guard, playerId);
 
             if (player.hp <= 0) {
-                await i.deferUpdate().catch(()=>{});
                 return await handleGuardBattleEnd(battleState, "guard", "lose");
             }
 
             battleState.processingTurn = false;
             const nextPayload = await renderBattleFrame(battleState, false, 0);
-            await i.update(nextPayload).catch(()=>{});
+            await i.editReply(nextPayload).catch(()=>{});
 
         } catch (error) {
             console.error("Collector Logic Error:", error);
@@ -668,7 +671,6 @@ function setupBattleCollector(battleState) {
     });
 }
 
-// 🔥 الدالة الرئيسية مع إضافة دعم الثريدات 🔥
 async function startKnightBattle(interaction, client, db, robberMember, amountToSteal) {
     try {
         if (activeKnightPlayers.has(robberMember.id)) {
@@ -678,7 +680,6 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
         }
         activeKnightPlayers.add(robberMember.id);
 
-        // جلب بيانات اللاعب
         let robberData;
         try {
             const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [robberMember.id, interaction.guild.id]);
@@ -697,7 +698,6 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
         const playerRaceObj = await getUserRace(robberMember, db);
         const pRaceName = playerRaceObj ? (playerRaceObj.raceName || playerRaceObj.racename) : 'بشري';
 
-        // حساب قوة الفارس اليومية
         const nowKSA = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
         const todayInt = parseInt(nowKSA.toLocaleDateString('en-CA').replace(/-/g, ''));
         const userId = robberMember.id;
@@ -748,40 +748,39 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
         let introMsg = `🛡️ **فارس الإمبراطور** يغلق الأبواب! "لن تخرج من هنا حياً!"`;
         if (multiplier > 1) introMsg = `🔥🛡️ **فارس الإمبراطور (غاضب x${multiplier})** يتذكر وجهك! "عدت للموت مجدداً؟ هذه المرة لن أرحمك!"`;
 
-        // 🛡️ بناء ثريد المعركة (Thread) 🛡️
         const playerName = cleanDisplayName(robberMember.displayName || robberMember.user.username);
         const threadName = `🏰-قلعة-الإمبراطور-${playerName}`.substring(0, 100);
         let thread;
-        try {
-            if (interaction.isRepliable && interaction.message && typeof interaction.message.startThread === 'function') {
-                thread = await interaction.message.startThread({ name: threadName, autoArchiveDuration: 60, reason: 'Knight Battle' });
-            } else if (interaction.channel && typeof interaction.channel.threads?.create === 'function') {
-                thread = await interaction.channel.threads.create({ name: threadName, autoArchiveDuration: 60, type: ChannelType.PublicThread });
-            }
-        } catch(e) { console.error("Thread Error:", e); }
+        let initMsg;
+
+        const initPayload = { content: `🏰 **حراس القلعة يحاصرونك!** جاري تجهيز الساحة...` };
         
-        if (!thread) thread = interaction.channel;
-        else {
-            try { await thread.members.add(robberMember.id); } catch(e){}
-        }
-
-        // إرسال تنبيه في الشات الرئيسي لانتقال اللاعب للثريد
-        if (thread.id !== interaction.channel.id) {
-            const redirPayload = { content: `🏰 **حراس القلعة يحاصرونك!** انتقل إلى الساحة: <#${thread.id}>`, flags: [MessageFlags.Ephemeral] };
-            if (interaction.isRepliable && !interaction.replied && !interaction.deferred) {
-                await interaction.reply(redirPayload).catch(()=>{});
-            } else if (interaction.deferred || interaction.replied) {
-                await interaction.followUp(redirPayload).catch(()=>{});
+        try {
+            if (interaction.isRepliable) {
+                if (interaction.deferred || interaction.replied) {
+                    initMsg = await interaction.followUp({ ...initPayload, fetchReply: true });
+                } else {
+                    initMsg = await interaction.reply({ ...initPayload, fetchReply: true });
+                }
             } else {
-                await interaction.channel.send(redirPayload).catch(()=>{});
+                initMsg = await interaction.channel.send(initPayload);
             }
+            
+            thread = await initMsg.startThread({ name: threadName, autoArchiveDuration: 60 });
+        } catch(e) { 
+            console.error("Thread Error:", e); 
+            thread = interaction.channel;
+        }
+        
+        if (thread.id !== interaction.channel.id) {
+            try { await thread.members.add(robberMember.id); } catch(e){}
+            await initMsg.edit(`🏰 **حراس القلعة يحاصرونك!** انتقل إلى الساحة: <#${thread.id}>`).catch(()=>{});
         }
 
-        // إعداد حالة المعركة المتوافقة مع PvP الجديد
         const battleState = {
             isPvE: true, isGuardBattle: true, amountToSteal,
             thread: thread, message: null, turn: [robberMember.id, "guard"], processingTurn: false,
-            isEnded: false, log: [introMsg], 
+            isEnded: false, log: [introMsg], client: client, guildId: interaction.guild.id,
             skillPage: 0, skillCooldowns: { [robberMember.id]: {}, "guard": {} },
             players: new Map([
                 [robberMember.id, { 
@@ -797,7 +796,6 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
         activePveBattles.set(thread.id, battleState);
         
-        // إرسال الفريم الأول في الثريد
         const msgPayload = await renderBattleFrame(battleState, false, 0);
         const sentMsg = await thread.send(msgPayload);
         
@@ -815,7 +813,7 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
     battleState.isEnded = true;
 
     try {
-        const client = battleState.message.client;
+        const client = battleState.client;
         const db = client.db || client.sql; 
         const playerMemberId = Array.from(battleState.players.keys()).find(id => id !== "guard");
         const player = battleState.players.get(playerMemberId);
@@ -825,10 +823,10 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
 
         let playerData;
         try {
-            const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [player.member.id, battleState.message.guild.id]);
+            const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [player.member.id, battleState.guildId]);
             playerData = getLevelRes.rows[0];
         } catch(e) {
-            const getLevelRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [player.member.id, battleState.message.guild.id]).catch(()=>({rows:[]}));
+            const getLevelRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [player.member.id, battleState.guildId]).catch(()=>({rows:[]}));
             playerData = getLevelRes.rows[0];
         }
         if (!playerData) playerData = { mora: 0, bank: 0 };
@@ -839,15 +837,15 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
 
         if (resultType === "win") {
             try {
-                const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, player.member.id, battleState.message.guild.id]);
+                const winRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [amount, player.member.id, battleState.guildId]);
                 pMora = winRes.rows[0] ? Number(winRes.rows[0].mora) : pMora + amount;
             } catch(e) {
-                await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [amount, player.member.id, battleState.message.guild.id]).catch(()=>{});
+                await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [amount, player.member.id, battleState.guildId]).catch(()=>{});
                 pMora += amount;
             }
 
             if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
-                let cache = await client.getLevel(player.member.id, battleState.message.guild.id);
+                let cache = await client.getLevel(player.member.id, battleState.guildId);
                 if (cache) { cache.mora = pMora; await client.setLevel(cache); }
             }
             
@@ -855,14 +853,14 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             try { await db.query(`ALTER TABLE user_daily_stats ADD COLUMN "knight_badge_given" INTEGER DEFAULT 0`); } catch(e) {}
 
             const todayStr = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" })).toLocaleDateString('en-CA');
-            const dailyID = `${player.member.id}-${battleState.message.guild.id}-${todayStr}`;
+            const dailyID = `${player.member.id}-${battleState.guildId}-${todayStr}`;
             
             try {
                 await db.query(`
                     INSERT INTO user_daily_stats ("id", "userID", "guildID", "date", "knights_defeated") 
                     VALUES ($1, $2, $3, $4, 1) 
                     ON CONFLICT("id") DO UPDATE SET "knights_defeated" = COALESCE(user_daily_stats."knights_defeated", 0) + 1
-                `, [dailyID, player.member.id, battleState.message.guild.id, todayStr]);
+                `, [dailyID, player.member.id, battleState.guildId, todayStr]);
             } catch(e) {}
 
             try {
@@ -874,10 +872,10 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                     
                     let settings;
                     try {
-                        const settingsRes = await db.query(`SELECT "guildAnnounceChannelID", "roleKnightSlayer" FROM settings WHERE "guild" = $1`, [battleState.message.guild.id]);
+                        const settingsRes = await db.query(`SELECT "guildAnnounceChannelID", "roleKnightSlayer" FROM settings WHERE "guild" = $1`, [battleState.guildId]);
                         settings = settingsRes.rows[0];
                     } catch (e) {
-                        const settingsRes = await db.query(`SELECT guildannouncechannelid, roleknightslayer FROM settings WHERE guild = $1`, [battleState.message.guild.id]).catch(()=>({rows:[]}));
+                        const settingsRes = await db.query(`SELECT guildannouncechannelid, roleknightslayer FROM settings WHERE guild = $1`, [battleState.guildId]).catch(()=>({rows:[]}));
                         settings = settingsRes.rows[0];
                     }
                     
@@ -886,7 +884,7 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                     }
 
                     if (settings && (settings.guildAnnounceChannelID || settings.guildannouncechannelid)) {
-                        const announceChannel = battleState.message.guild.channels.cache.get(settings.guildAnnounceChannelID || settings.guildannouncechannelid);
+                        const announceChannel = battleState.thread.guild.channels.cache.get(settings.guildAnnounceChannelID || settings.guildannouncechannelid);
                         if (announceChannel) {
                             const badgeEmbed = new EmbedBuilder()
                                 .setTitle('🛡️ انـجـاز يـومـي: قـاهـر الـفـرسـان!')
@@ -908,19 +906,18 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             }
 
             try {
-                const lossRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("mora",'0') AS BIGINT) - $1 ELSE 0 END), "bank" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("bank",'0') AS BIGINT) ELSE CAST(COALESCE("bank",'0') AS BIGINT) - ($1 - CAST(COALESCE("mora",'0') AS BIGINT)) END) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora", "bank"`, [amount, player.member.id, battleState.message.guild.id]);
+                const lossRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("mora",'0') AS BIGINT) - $1 ELSE 0 END), "bank" = GREATEST(0, CASE WHEN CAST(COALESCE("mora",'0') AS BIGINT) >= $1 THEN CAST(COALESCE("bank",'0') AS BIGINT) ELSE CAST(COALESCE("bank",'0') AS BIGINT) - ($1 - CAST(COALESCE("mora",'0') AS BIGINT)) END) WHERE "user" = $2 AND "guild" = $3 RETURNING "mora", "bank"`, [amount, player.member.id, battleState.guildId]);
                 if (lossRes.rows[0]) { pMora = Number(lossRes.rows[0].mora); pBank = Number(lossRes.rows[0].bank); }
             } catch(e) {
-                await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [pMora, pBank, player.member.id, battleState.message.guild.id]).catch(()=>{});
+                await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [pMora, pBank, player.member.id, battleState.guildId]).catch(()=>{});
             }
 
             if (typeof client.getLevel === 'function' && typeof client.setLevel === 'function') {
-                let cache = await client.getLevel(player.member.id, battleState.message.guild.id);
+                let cache = await client.getLevel(player.member.id, battleState.guildId);
                 if (cache) { cache.mora = pMora; cache.bank = pBank; await client.setLevel(cache); }
             }
         }
 
-        // 🔥 توليد لوحة النتيجة النهائية للـ PvP 🔥
         const resultImgBuffer = await generatePvPResultImage(battleState, winnerId, resultType === "win" ? "S" : "F", amount, 0);
         const attachment = resultImgBuffer ? new AttachmentBuilder(resultImgBuffer, { name: 'knight_result.png' }) : null;
 
@@ -935,8 +932,7 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             embeds: []
         }).catch(() => {});
 
-        // تنظيف الثريد بعد دقيقة من انتهاء القتال
-        if (battleState.thread && battleState.thread.id !== battleState.message.channel.id) {
+        if (battleState.thread) {
             setTimeout(() => {
                 try { battleState.thread.delete('انتهت المعركة مع الفارس').catch(()=>{}); } catch(e){}
             }, 60000);
@@ -947,4 +943,4 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
     }
 }
 
-module.exports = { startKnightBattle: startGuardBattle, activePveBattles, activeKnightPlayers };
+module.exports = { startKnightBattle, activePveBattles, activeKnightPlayers };
