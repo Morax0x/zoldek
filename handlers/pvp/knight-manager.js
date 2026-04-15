@@ -16,7 +16,7 @@ const BASE_HP = 800;
 const HP_PER_LEVEL = 60;   
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
-// 🔥 تم تصحيح رابط صورة الفارس ليعمل مع نظام التوليد 🔥
+// 🔥 تم تصحيح رابط صورة الفارس ليعمل مع المولد الجديد 🔥
 const KNIGHT_IMAGES = {
     MAIN: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/knight.png', 
     LOSE: 'https://i.postimg.cc/fb3F8nWQ/crusader-darkest-dungeon.gif'
@@ -511,7 +511,7 @@ function executeGuardLogic(battleState, player, guard, playerId) {
     battleState.log.push(actionLog);
 }
 
-// 🔥 توليد الإمبد والأزرار مع المنيو المخفي للمهارات 🔥
+// 🔥 توليد الإمبد والأزرار الأساسية للمحرك الجديد 🔥
 async function renderBattleFrame(battleState) {
     const attackerId = battleState.turn[0]; 
     
@@ -551,7 +551,7 @@ function setupBattleCollector(battleState) {
             const player = battleState.players.get(i.user.id);
             const guard = battleState.players.get("guard");
 
-            // 🔥 القائمة المخفية للمهارات 🔥
+            // 🔥 قائمة المهارات المخفية (المنبثقة) 🔥
             if (customId === 'knight_skill_menu') {
                 const userSkills = player.skills || {};
                 const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
@@ -581,61 +581,95 @@ function setupBattleCollector(battleState) {
                     }
                 });
 
-                return await i.reply({ content: '✨ **اختر المهارة التي تريد استخدامها:**', components: skillRows, flags: [MessageFlags.Ephemeral] });
+                // إرسال قائمة المهارات في رسالة مخفية
+                const skillMsg = await i.reply({ content: '✨ **اختر المهارة التي تريد استخدامها:**', components: skillRows, flags: [MessageFlags.Ephemeral], fetchReply: true });
+                
+                try {
+                    // انتظار اختيار المهارة من القائمة المخفية
+                    const skillInteraction = await skillMsg.awaitMessageComponent({ filter: btnI => btnI.user.id === i.user.id, time: 30000 });
+                    await skillInteraction.update({ content: '⏳ جاري تنفيذ المهارة...', components: [] }).catch(()=>{});
+                    
+                    battleState.processingTurn = true;
+                    
+                    const skillId = skillInteraction.customId.replace('knight_skill_use_', '');
+                    const skillData = player.skills[skillId];
+
+                    if (skillData) {
+                        battleState.log = []; 
+                        const { logEntries: pLog, skipTurn: pSkip } = applyPersistentEffects(battleState, playerId);
+                        if (pLog.length > 0) battleState.log.push(...pLog);
+
+                        if (player.hp <= 0) {
+                            return await handleGuardBattleEnd(battleState, "guard", "lose");
+                        }
+
+                        if (pSkip) {
+                            battleState.log.push(`⚡ أنت مشلول، لا يمكنك الحركة هذا الدور!`);
+                        } else {
+                            const logMsg = applySkillEffect(battleState, i.user.id, skillData);
+                            battleState.log.push(logMsg);
+                            const breakMsg = checkShieldBreak(battleState, "guard");
+                            if (breakMsg) battleState.log.push(breakMsg);
+                        }
+
+                        if (guard.hp <= 0) {
+                            return await handleGuardBattleEnd(battleState, playerId, "win");
+                        }
+
+                        executeGuardLogic(battleState, player, guard, playerId);
+
+                        if (player.hp <= 0) {
+                            return await handleGuardBattleEnd(battleState, "guard", "lose");
+                        }
+
+                        battleState.processingTurn = false;
+                        const nextPayload = await renderBattleFrame(battleState);
+                        await battleState.message.edit(nextPayload).catch(()=>{});
+                    }
+                } catch (err) {
+                    await i.editReply({ content: '⏱️ انتهى وقت اختيار المهارة.', components: [] }).catch(()=>{});
+                }
+                return;
             }
 
-            battleState.processingTurn = true; 
-
-            if (customId.startsWith('knight_skill_use_')) {
-                await i.update({ content: '⏳ جاري تنفيذ المهارة...', components: [] }).catch(()=>{});
-            } else {
+            // 🔥 الهجوم العادي 🔥
+            if (customId === 'knight_attack') {
                 await i.deferUpdate().catch(()=>{});
-            }
+                battleState.processingTurn = true; 
 
-            battleState.log = []; 
-            
-            const { logEntries: pLog, skipTurn: pSkip } = applyPersistentEffects(battleState, playerId);
-            if (pLog.length > 0) battleState.log.push(...pLog);
+                battleState.log = []; 
+                
+                const { logEntries: pLog, skipTurn: pSkip } = applyPersistentEffects(battleState, playerId);
+                if (pLog.length > 0) battleState.log.push(...pLog);
 
-            if (player.hp <= 0) {
-                return await handleGuardBattleEnd(battleState, "guard", "lose");
-            }
+                if (player.hp <= 0) {
+                    return await handleGuardBattleEnd(battleState, "guard", "lose");
+                }
 
-            if (pSkip) {
-                battleState.log.push(`⚡ أنت مشلول، لا يمكنك الحركة هذا الدور!`);
-            } else {
-                if (customId === 'knight_attack') {
+                if (pSkip) {
+                    battleState.log.push(`⚡ أنت مشلول، لا يمكنك الحركة هذا الدور!`);
+                } else {
                     const dmg = calculateDamage(player, guard);
                     guard.hp -= dmg;
                     battleState.log.push(`⚔️ **${cleanDisplayName(player.member.user.displayName)}** هاجم الفارس وسبب **${dmg}** ضرر!`);
                     const breakMsg = checkShieldBreak(battleState, "guard");
                     if (breakMsg) battleState.log.push(breakMsg);
-                } 
-                else if (customId.startsWith('knight_skill_use_')) {
-                    const skillId = customId.replace('knight_skill_use_', '');
-                    const skillData = player.skills[skillId];
-                    if (skillData) {
-                        const logMsg = applySkillEffect(battleState, i.user.id, skillData);
-                        battleState.log.push(logMsg);
-                        const breakMsg = checkShieldBreak(battleState, "guard");
-                        if (breakMsg) battleState.log.push(breakMsg);
-                    }
                 }
+
+                if (guard.hp <= 0) {
+                    return await handleGuardBattleEnd(battleState, playerId, "win");
+                }
+
+                executeGuardLogic(battleState, player, guard, playerId);
+
+                if (player.hp <= 0) {
+                    return await handleGuardBattleEnd(battleState, "guard", "lose");
+                }
+
+                battleState.processingTurn = false;
+                const nextPayload = await renderBattleFrame(battleState);
+                await battleState.message.edit(nextPayload).catch(()=>{});
             }
-
-            if (guard.hp <= 0) {
-                return await handleGuardBattleEnd(battleState, playerId, "win");
-            }
-
-            executeGuardLogic(battleState, player, guard, playerId);
-
-            if (player.hp <= 0) {
-                return await handleGuardBattleEnd(battleState, "guard", "lose");
-            }
-
-            battleState.processingTurn = false;
-            const nextPayload = await renderBattleFrame(battleState);
-            await battleState.message.edit(nextPayload).catch(()=>{});
 
         } catch (error) {
             console.error("Collector Logic Error:", error);
@@ -650,6 +684,7 @@ function setupBattleCollector(battleState) {
     });
 }
 
+// 🔥 الدالة الرئيسية لبدء المعركة وإنشاء الثريد 🔥
 async function startKnightBattle(interaction, client, db, robberMember, amountToSteal) {
     try {
         if (activeKnightPlayers.has(robberMember.id)) {
@@ -861,13 +896,6 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                     if (settings && (settings.roleKnightSlayer || settings.roleknightslayer)) {
                         player.member.roles.add(settings.roleKnightSlayer || settings.roleknightslayer).catch(()=>{});
                     }
-
-                    if (settings && (settings.guildAnnounceChannelID || settings.guildannouncechannelid)) {
-                        const announceChannel = battleState.thread.guild.channels.cache.get(settings.guildAnnounceChannelID || settings.guildannouncechannelid);
-                        if (announceChannel) {
-                            // ...
-                        }
-                    }
                 }
             } catch(e) {}
 
@@ -906,7 +934,7 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             embeds: []
         }).catch(() => {});
 
-        // 🔥 التعديل هنا: يتم الحذف بعد 30 ثانية بالضبط 🔥
+        // 🔥 حذف الثريد بعد 30 ثانية بالضبط 🔥
         if (battleState.thread && battleState.thread.id !== battleState.message.channel.id) {
             setTimeout(() => {
                 try { battleState.thread.delete('انتهت المعركة مع الفارس').catch(()=>{}); } catch(e){}
