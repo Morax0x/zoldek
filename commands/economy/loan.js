@@ -214,15 +214,22 @@ module.exports = {
                             });
                         }
 
-                        // 🔥 التعديل الجوهري: استخدام Transaction آمن ومزدوج الحماية 🔥
+                        // 🔥 التعديل الجوهري: إضافة الفلوس لقاعدة البيانات فعلياً وحفظ القرض 🔥
                         try {
                             await sql.query("BEGIN");
                             
-                            // إضافة الفلوس للرصيد
-                            data.mora = (Number(data.mora) || 0) + selectedLoan.amount;
+                            // 1. إضافة الفلوس للرصيد في قاعدة البيانات (هذا ما كان ينقص الكود)
+                            try {
+                                await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [selectedLoan.amount, user.id, guild.id]);
+                            } catch(e) {
+                                await sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [selectedLoan.amount, user.id, guild.id]).catch(()=>{});
+                            }
+
+                            // 2. تحديث الكاش (الذاكرة المؤقتة)
+                            data.mora = String(BigInt(data.mora || 0) + BigInt(selectedLoan.amount));
                             await client.setLevel(data);
 
-                            // تسجيل القرض بحماية مزدوجة
+                            // 3. تسجيل القرض
                             try {
                                 await sql.query(`
                                     INSERT INTO user_loans ("userID", "guildID", "loanAmount", "remainingAmount", "dailyPayment", "lastPaymentDate", "missedPayments") 
@@ -260,8 +267,9 @@ module.exports = {
 
                         } catch (txError) {
                             await sql.query("ROLLBACK").catch(()=>{});
-                            // التراجع عن الفلوس التي أضيفت في الذاكرة
-                            data.mora = (Number(data.mora) || 0) - selectedLoan.amount;
+                            // التراجع عن الفلوس التي أضيفت في الذاكرة لتجنب التعارض
+                            let newMora = BigInt(data.mora || 0) - BigInt(selectedLoan.amount);
+                            data.mora = newMora > 0n ? String(newMora) : "0";
                             await client.setLevel(data);
                             
                             console.error("Loan Transaction Error:", txError);
