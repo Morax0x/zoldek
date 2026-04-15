@@ -1,5 +1,5 @@
 const { EmbedBuilder, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, Colors } = require("discord.js");
-const { startGuardBattle } = require('../../handlers/knight-battle');
+const { startKnightBattle } = require('../../handlers/pvp/knight-manager');
 
 let updateGuildStat;
 try {
@@ -143,7 +143,7 @@ module.exports = {
             if (robber.id === REAL_OWNER_ID) {
                 if (isSlash && !interaction.deferred && !interaction.replied) await interaction.deferReply();
                 const context = isSlash ? interaction : message;
-                return await startGuardBattle(context, client, sql, robber, 5000);
+                return await startKnightBattle(context, client, sql, robber, 5000);
             }
             return reply("تـسـرق نـفـسـك؟ غـبـي انـت؟؟ <:mirkk:1435648219488190525>");
         }
@@ -314,7 +314,7 @@ module.exports = {
                         activeRobberies.delete(robber.id);
                         
                         const context = isSlash ? interaction : message;
-                        return await startGuardBattle(context, client, sql, robber, amountToSteal);
+                        return await startKnightBattle(context, client, sql, robber, amountToSteal);
                     }
                 }
             });
