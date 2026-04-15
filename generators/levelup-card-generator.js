@@ -1,5 +1,4 @@
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
-const { AttachmentBuilder } = require('discord.js');
 const path = require('path');
 
 try {
@@ -160,7 +159,8 @@ async function generateLevelUpCard(member, oldLevel, newLevel) {
     ctx.fillText(`${newLevel}`, arrowX + 50, 205);
     ctx.restore();
 
-    return new AttachmentBuilder(await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'), { name: 'levelup.png' });
+    // 🔥 الإرجاع كـ Buffer ليتوافق مع حماية التلفيل (AttachmentBuilder سيتم استدعاؤه هناك) 🔥
+    return await canvas.encode ? await canvas.encode('png') : await canvas.toBuffer('image/png');
 }
 
 module.exports = { generateLevelUpCard };
