@@ -1,4 +1,4 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, Colors, AttachmentBuilder } = require("discord.js");
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, Colors, AttachmentBuilder, ChannelType } = require("discord.js");
 const path = require('path');
 const { generatePvPImage } = require('../../generators/pvp-generator.js');
 const { generatePvPResultImage } = require('../../generators/pvp-summary-generator.js');
@@ -16,8 +16,9 @@ const BASE_HP = 800;
 const HP_PER_LEVEL = 60;   
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
+// 🔥 تم تصحيح رابط صورة الفارس ليعمل مع نظام التوليد 🔥
 const KNIGHT_IMAGES = {
-    MAIN: 'https://i.postimg.cc/d1ndBX7B/download.gif', 
+    MAIN: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/knight.png', 
     LOSE: 'https://i.postimg.cc/fb3F8nWQ/crusader-darkest-dungeon.gif'
 };
 
@@ -510,56 +511,14 @@ function executeGuardLogic(battleState, player, guard, playerId) {
     battleState.log.push(actionLog);
 }
 
-async function renderBattleFrame(battleState, skillSelectionMode = false, skillPage = 0) {
+// 🔥 توليد الإمبد والأزرار مع المنيو المخفي للمهارات 🔥
+async function renderBattleFrame(battleState) {
     const attackerId = battleState.turn[0]; 
-    const attacker = battleState.players.get(attackerId);
     
-    const componentsToSend = [];
-
-    if (skillSelectionMode) {
-        const userSkills = attacker.skills || {};
-        const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
-        const skillsPerPage = 4;
-        const totalPages = Math.ceil(availableSkills.length / skillsPerPage);
-          
-        let page = Math.max(0, Math.min(skillPage, totalPages - 1));
-        if (totalPages === 0) page = 0;
-        battleState.skillPage = page;
-
-        if (availableSkills.length > 0) {
-            const skillsToShow = availableSkills.slice(page * skillsPerPage, (page * skillsPerPage) + skillsPerPage);
-            const skillButtons = new ActionRowBuilder();
-            const cooldowns = battleState.skillCooldowns[attackerId] || {};
-
-            skillsToShow.forEach(skill => {
-                let emoji = skill.emoji || '✨';
-                const isOnCooldown = (cooldowns[skill.id] || 0) > 0;
-                const label = isOnCooldown ? `${skill.name} (${cooldowns[skill.id]})` : skill.name;
-                skillButtons.addComponents(new ButtonBuilder()
-                    .setCustomId(`knight_skill_use_${skill.id}`)
-                    .setLabel(label).setEmoji(emoji).setStyle(isOnCooldown ? ButtonStyle.Secondary : ButtonStyle.Primary).setDisabled(isOnCooldown)
-                );
-            });
-            componentsToSend.push(skillButtons);
-        } else {
-            componentsToSend.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('no_skills').setLabel('لا توجد مهارات').setStyle(ButtonStyle.Secondary).setDisabled(true)));
-        }
-
-        const navRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('knight_skill_back').setLabel('العودة').setStyle(ButtonStyle.Danger));
-        if (totalPages > 1) {
-            navRow.addComponents(
-                new ButtonBuilder().setCustomId(`knight_skill_page_${page - 1}`).setLabel('◀️').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-                new ButtonBuilder().setCustomId(`knight_skill_page_${page + 1}`).setLabel('▶️').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
-            );
-        }
-        componentsToSend.push(navRow);
-    } else {
-        const mainButtons = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('knight_attack').setLabel('هـجـوم').setStyle(ButtonStyle.Danger).setEmoji('⚔️'),
-            new ButtonBuilder().setCustomId('knight_skill_menu').setLabel('مـهــارات').setStyle(ButtonStyle.Primary).setEmoji('✨')
-        );
-        componentsToSend.push(mainButtons);
-    }
+    const mainButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('knight_attack').setLabel('هـجـوم').setStyle(ButtonStyle.Danger).setEmoji('⚔️'),
+        new ButtonBuilder().setCustomId('knight_skill_menu').setLabel('مـهــارات').setStyle(ButtonStyle.Primary).setEmoji('✨')
+    );
 
     const imgBuffer = await generatePvPImage(battleState);
     const attachment = imgBuffer ? new AttachmentBuilder(imgBuffer, { name: 'knight_battle.png' }) : null;
@@ -567,8 +526,8 @@ async function renderBattleFrame(battleState, skillSelectionMode = false, skillP
     return { 
         content: `**قـاتـل لتنجـو بحيـاتـك!** <@${attackerId}>`, 
         files: attachment ? [attachment] : [], 
-        components: componentsToSend,
-        embeds: []
+        components: [mainButtons],
+        embeds: [] 
     };
 }
 
@@ -586,32 +545,52 @@ function setupBattleCollector(battleState) {
         if (battleState.processingTurn) {
             return i.reply({ content: '⏳ انتظر دورك...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
         }
-        battleState.processingTurn = true; 
 
         try {
             const customId = i.customId;
             const player = battleState.players.get(i.user.id);
             const guard = battleState.players.get("guard");
 
+            // 🔥 القائمة المخفية للمهارات 🔥
             if (customId === 'knight_skill_menu') {
-                await i.deferUpdate().catch(()=>{});
-                battleState.processingTurn = false;
-                const payload = await renderBattleFrame(battleState, true, 0);
-                return await i.editReply(payload).catch(()=>{});
-            } else if (customId === 'knight_skill_back') {
-                await i.deferUpdate().catch(()=>{});
-                battleState.processingTurn = false;
-                const payload = await renderBattleFrame(battleState, false, 0);
-                return await i.editReply(payload).catch(()=>{});
-            } else if (customId.startsWith('knight_skill_page_')) {
-                await i.deferUpdate().catch(()=>{});
-                battleState.processingTurn = false;
-                const newPage = parseInt(customId.split('_')[3]);
-                const payload = await renderBattleFrame(battleState, true, newPage);
-                return await i.editReply(payload).catch(()=>{});
+                const userSkills = player.skills || {};
+                const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
+                
+                if (availableSkills.length === 0) {
+                    return await i.reply({ content: 'لا تمتلك أي مهارات حالياً!', flags: [MessageFlags.Ephemeral] });
+                }
+
+                const cooldowns = battleState.skillCooldowns[i.user.id] || {};
+                const skillRows = [];
+                let currentRow = new ActionRowBuilder();
+
+                availableSkills.forEach((skill, index) => {
+                    const isOnCooldown = (cooldowns[skill.id] || 0) > 0;
+                    const label = isOnCooldown ? `${skill.name} (${cooldowns[skill.id]})` : skill.name;
+                    const btn = new ButtonBuilder()
+                        .setCustomId(`knight_skill_use_${skill.id}`)
+                        .setLabel(label)
+                        .setEmoji(skill.emoji || '✨')
+                        .setStyle(isOnCooldown ? ButtonStyle.Secondary : ButtonStyle.Primary)
+                        .setDisabled(isOnCooldown);
+                    
+                    currentRow.addComponents(btn);
+                    if (currentRow.components.length === 5 || index === availableSkills.length - 1) {
+                        skillRows.push(currentRow);
+                        currentRow = new ActionRowBuilder();
+                    }
+                });
+
+                return await i.reply({ content: '✨ **اختر المهارة التي تريد استخدامها:**', components: skillRows, flags: [MessageFlags.Ephemeral] });
             }
 
-            await i.deferUpdate().catch(()=>{});
+            battleState.processingTurn = true; 
+
+            if (customId.startsWith('knight_skill_use_')) {
+                await i.update({ content: '⏳ جاري تنفيذ المهارة...', components: [] }).catch(()=>{});
+            } else {
+                await i.deferUpdate().catch(()=>{});
+            }
 
             battleState.log = []; 
             
@@ -655,8 +634,8 @@ function setupBattleCollector(battleState) {
             }
 
             battleState.processingTurn = false;
-            const nextPayload = await renderBattleFrame(battleState, false, 0);
-            await i.editReply(nextPayload).catch(()=>{});
+            const nextPayload = await renderBattleFrame(battleState);
+            await battleState.message.edit(nextPayload).catch(()=>{});
 
         } catch (error) {
             console.error("Collector Logic Error:", error);
@@ -796,7 +775,7 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
         activePveBattles.set(thread.id, battleState);
         
-        const msgPayload = await renderBattleFrame(battleState, false, 0);
+        const msgPayload = await renderBattleFrame(battleState);
         const sentMsg = await thread.send(msgPayload);
         
         battleState.message = sentMsg;
@@ -886,12 +865,7 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
                     if (settings && (settings.guildAnnounceChannelID || settings.guildannouncechannelid)) {
                         const announceChannel = battleState.thread.guild.channels.cache.get(settings.guildAnnounceChannelID || settings.guildannouncechannelid);
                         if (announceChannel) {
-                            const badgeEmbed = new EmbedBuilder()
-                                .setTitle('🛡️ انـجـاز يـومـي: قـاهـر الـفـرسـان!')
-                                .setDescription(`🎉 أثبت <@${player.member.id}> قوته الساحقة اليوم!\n\nلقد تمكن من إسقاط **فارس الإمبراطور 4 مرات** في يوم واحد واستحق وسام الشرف بجدارة!`)
-                                .setColor('#C0C0C0')
-                                .setThumbnail(player.member.user.displayAvatarURL());
-                            announceChannel.send({ content: `<@${player.member.id}>`, embeds: [badgeEmbed] }).catch(()=>{});
+                            // ...
                         }
                     }
                 }
@@ -932,10 +906,11 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             embeds: []
         }).catch(() => {});
 
-        if (battleState.thread) {
+        // 🔥 التعديل هنا: يتم الحذف بعد 30 ثانية بالضبط 🔥
+        if (battleState.thread && battleState.thread.id !== battleState.message.channel.id) {
             setTimeout(() => {
                 try { battleState.thread.delete('انتهت المعركة مع الفارس').catch(()=>{}); } catch(e){}
-            }, 60000);
+            }, 30000); 
         }
 
     } catch (error) {
