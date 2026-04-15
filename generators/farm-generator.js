@@ -116,6 +116,24 @@ function drawAutoScaledText(ctx, text, x, y, maxWidth, maxFontSize, minFontSize 
     ctx.fillText(text, x, y);
 }
 
+function wrapText(ctx, text, maxWidth) {
+    const words = text.split(' ');
+    let lines = [];
+    let currentLine = words[0];
+    for (let i = 1; i < words.length; i++) {
+        const word = words[i];
+        const width = ctx.measureText(currentLine + " " + word).width;
+        if (width < maxWidth) {
+            currentLine += " " + word;
+        } else {
+            lines.push(currentLine);
+            currentLine = word;
+        }
+    }
+    lines.push(currentLine);
+    return lines;
+}
+
 function roundRect(ctx, x, y, width, height, radius) {
     if (width < 2 * radius) radius = width / 2;
     if (height < 2 * radius) radius = height / 2;
@@ -191,7 +209,8 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
     ctx.font = `bold 40px ${FONT_MAIN}`;
     ctx.shadowColor = '#FFD700';
     ctx.shadowBlur = 15;
-    ctx.fillText(`الحظيرة الملكية`, width - 40, 50);
+    // 🔥 تم الحذف لتصبح: الحظيرة فقط 🔥
+    ctx.fillText(`الحظيرة`, width - 40, 50);
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = '#FFFFFF';
@@ -206,7 +225,6 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
     ctx.fillStyle = '#FFD700';
     ctx.fillText(`الدخل اليومي: ${totalIncome.toLocaleString()} مورا`, avatarX + avatarSize + 30, 95);
 
-    // 🔥 زيادة الأحجام والمقاسات عشان النصوص تطلع كبيرة وواضحة جداً 🔥
     let cols, slotW, slotH, iconSize, fontTitle, fontText, gapX, gapY;
 
     if (animals.length === 1) {
@@ -283,7 +301,6 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
             ctx.shadowBlur = 0;
         }
 
-        // 🔥 ترتيب وتوسيط النصوص عشان تكون كبيرة جداً ومرتبة 🔥
         const lineGap = fontText + 12;
         const totalTextH = (5 * fontText) + (4 * 12); 
         const textStartX = iconX - 15;
@@ -318,19 +335,24 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
         let hungerStatus = '';
         let hungerColor = '#00FF88';
 
+        // 🔥 نظام الجوع الذكي: يعرض الأيام، أو الساعات، أو الدقائق بدقة تامة 🔥
         if (hungerMs > now) {
             const diffMs = hungerMs - now;
-            const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
+            const daysLeft = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            const hoursLeft = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
             const minutesLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
             
-            if (hoursLeft > 0) {
+            if (daysLeft > 0) {
+                hungerStatus = `شبعان (${daysLeft}ي و ${hoursLeft}س)`;
+            } else if (hoursLeft > 0) {
                 hungerStatus = `شبعان (${hoursLeft}س و ${minutesLeft}د)`;
             } else {
                 hungerStatus = `شبعان (${minutesLeft} دقيقة)`;
             }
+            hungerColor = '#00FF88'; // أخضر
         } else {
-            hungerStatus = cleanEmojis(animal.hungerText) || 'جائع';
-            hungerColor = '#FF4444';
+            hungerStatus = 'جائع (يحتاج إطعام)';
+            hungerColor = '#FF4444'; // أحمر
         }
 
         ctx.fillStyle = hungerColor;
@@ -344,5 +366,8 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
     ctx.font = `20px ${FONT_MAIN}`;
     ctx.fillText(`صفحة [ ${page + 1} / ${totalPages} ]`, width / 2, height - 35);
 
-    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
+    const buffer = await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
+    canvas.width = 0;
+    canvas.height = 0;
+    return buffer;
 };
