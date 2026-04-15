@@ -16,7 +16,6 @@ const BASE_HP = 800;
 const HP_PER_LEVEL = 60;   
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
-// 🔥 تم تصحيح رابط صورة الفارس ليعمل مع المولد الجديد 🔥
 const KNIGHT_IMAGES = {
     MAIN: 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/knight.png', 
     LOSE: 'https://i.postimg.cc/fb3F8nWQ/crusader-darkest-dungeon.gif'
@@ -511,7 +510,6 @@ function executeGuardLogic(battleState, player, guard, playerId) {
     battleState.log.push(actionLog);
 }
 
-// 🔥 توليد الإمبد والأزرار الأساسية للمحرك الجديد 🔥
 async function renderBattleFrame(battleState) {
     const attackerId = battleState.turn[0]; 
     
@@ -551,7 +549,7 @@ function setupBattleCollector(battleState) {
             const player = battleState.players.get(i.user.id);
             const guard = battleState.players.get("guard");
 
-            // 🔥 قائمة المهارات المخفية (المنبثقة) 🔥
+            // 🔥 القائمة المخفية للمهارات 🔥
             if (customId === 'knight_skill_menu') {
                 const userSkills = player.skills || {};
                 const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
@@ -581,11 +579,9 @@ function setupBattleCollector(battleState) {
                     }
                 });
 
-                // إرسال قائمة المهارات في رسالة مخفية
                 const skillMsg = await i.reply({ content: '✨ **اختر المهارة التي تريد استخدامها:**', components: skillRows, flags: [MessageFlags.Ephemeral], fetchReply: true });
                 
                 try {
-                    // انتظار اختيار المهارة من القائمة المخفية
                     const skillInteraction = await skillMsg.awaitMessageComponent({ filter: btnI => btnI.user.id === i.user.id, time: 30000 });
                     await skillInteraction.update({ content: '⏳ جاري تنفيذ المهارة...', components: [] }).catch(()=>{});
                     
@@ -684,7 +680,6 @@ function setupBattleCollector(battleState) {
     });
 }
 
-// 🔥 الدالة الرئيسية لبدء المعركة وإنشاء الثريد 🔥
 async function startKnightBattle(interaction, client, db, robberMember, amountToSteal) {
     try {
         if (activeKnightPlayers.has(robberMember.id)) {
@@ -772,7 +767,8 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
         try {
             if (interaction.isRepliable) {
                 if (interaction.deferred || interaction.replied) {
-                    initMsg = await interaction.followUp({ ...initPayload, fetchReply: true });
+                    await interaction.editReply(initPayload);
+                    initMsg = await interaction.fetchReply();
                 } else {
                     initMsg = await interaction.reply({ ...initPayload, fetchReply: true });
                 }
@@ -934,7 +930,7 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             embeds: []
         }).catch(() => {});
 
-        // 🔥 حذف الثريد بعد 30 ثانية بالضبط 🔥
+        // 🔥 التعديل هنا: يتم الحذف بعد 30 ثانية بالضبط 🔥
         if (battleState.thread && battleState.thread.id !== battleState.message.channel.id) {
             setTimeout(() => {
                 try { battleState.thread.delete('انتهت المعركة مع الفارس').catch(()=>{}); } catch(e){}
