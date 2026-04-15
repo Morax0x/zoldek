@@ -55,14 +55,6 @@ function makeTargetEffect(type) {
     }
 }
 
-// ── نظام الأمان (التأثير المضمون) المخصص ───────────────────────
-function applyFailSafe(result, pool) {
-    const chosen = pickOne(pool);
-    const effect = makeTargetEffect(chosen);
-    if (effect) result.effectsApplied.push(effect);
-    return `${label(chosen)} ✦`; // علامة النجمة تدل على أنه تأثير مضمون
-}
-
 // ── حساب قوة المهارة ───────────────────────────────────────────────────
 
 function calculateSkillRawValue(skillConfig, currentLevel) {
@@ -163,7 +155,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
 
     switch (activeStatType) {
 
-    // ── مهارات الأعراق بهويات مميزة ──────────────────────────────────────────
+    // ── مهارات الأعراق النظيفة 100% ──────────────────────────────────────────
 
     // 🐲 التنين
     case 'TrueDMG_Burn': {
@@ -173,9 +165,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         if (roll(0.50)) { result.effectsApplied.push(makeTargetEffect('burn'));       fx.push(label('burn')); }
         if (roll(0.30)) { result.effectsApplied.push(makeTargetEffect('vulnerable')); fx.push(label('vulnerable')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['blind', 'weaken']));
-
-        result.log = `🐲 **${getName(attacker)}** نفـث النـيران! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
+        result.log = `🐲 **${getName(attacker)}** نفـث النـيران! سبب **${result.damage}** ضرر` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
@@ -188,9 +178,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         if (roll(0.40)) { result.effectsApplied.push(makeTargetEffect('stun'));    fx.push(label('stun')); }
         if (roll(0.40)) { result.effectsApplied.push(makeTargetEffect('blind'));   fx.push(label('blind')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['weaken', 'bleed']));
-
-        result.log = `🏹 **${getName(attacker)}** أطلق سهام الرياح! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
+        result.log = `🏹 **${getName(attacker)}** أطلق سهام الرياح! سبب **${result.damage}** ضرر` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
@@ -203,9 +191,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         if (roll(0.50)) { result.effectsApplied.push(makeTargetEffect('confusion')); fx.push(label('confusion')); }
         if (roll(0.40)) { result.effectsApplied.push(makeTargetEffect('poison'));    fx.push(label('poison')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['blind', 'silence']));
-
-        result.log = `🗡️ **${getName(attacker)}** طعن من الظلام! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
+        result.log = `🗡️ **${getName(attacker)}** طعن من الظلام! سبب **${result.damage}** ضرر` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
@@ -218,9 +204,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         if (roll(0.50)) { result.effectsApplied.push(makeTargetEffect('vulnerable')); fx.push(label('vulnerable')); }
         if (roll(0.40)) { result.effectsApplied.push(makeTargetEffect('burn'));        fx.push(label('burn')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['bleed', 'confusion']));
-
-        result.log = `👹 **${getName(attacker)}** فجّر طاقته الشيطانية! سبب **${result.damage}** ضرر (وخسر **${result.selfDamage}** HP) [${fx.join(' · ')}]`;
+        result.log = `👹 **${getName(attacker)}** فجّر طاقته الشيطانية! سبب **${result.damage}** ضرر (وخسر **${result.selfDamage}** HP)` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
@@ -236,9 +220,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         }
         if (roll(0.50)) { result.effectsApplied.push(makeTargetEffect('silence')); fx.push(label('silence')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['blind', 'vulnerable']));
-
-        result.log = `⚖️ **${getName(attacker)}** أنزل عقاب السماء! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
+        result.log = `⚖️ **${getName(attacker)}** أنزل عقاب السماء! سبب **${result.damage}** ضرر` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
@@ -250,9 +232,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         if (roll(0.40)) { result.selfEffects.push({ type: 'evasion', val: true, turns: 1 }); fx.push(label('evasion')); }
         if (roll(0.40)) { result.effectsApplied.push(makeTargetEffect('confusion'));         fx.push(label('confusion')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['weaken', 'silence']));
-
-        result.log = `👻 **${getName(attacker)}** أرسل طيفاً مريباً! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
+        result.log = `👻 **${getName(attacker)}** أرسل طيفاً مريباً! سبب **${result.damage}** ضرر` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
@@ -265,9 +245,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         if (roll(0.60)) { result.effectsApplied.push(makeTargetEffect('poison'));  fx.push(label('poison')); }
         if (roll(0.40)) { result.effectsApplied.push(makeTargetEffect('weaken'));  fx.push(label('weaken')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['bleed', 'confusion']));
-
-        result.log = `🧟 **${getName(attacker)}** نهش الخصم بتعفن! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
+        result.log = `🧟 **${getName(attacker)}** نهش الخصم بتعفن! سبب **${result.damage}** ضرر` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
@@ -280,9 +258,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         if (roll(0.60)) { result.effectsApplied.push(makeTargetEffect('bat'));   fx.push(label('bat')); }
         if (roll(0.40)) { result.effectsApplied.push(makeTargetEffect('bleed')); fx.push(label('bleed')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['weaken', 'blind']));
-
-        result.log = `🦇 **${getName(attacker)}** مص الدماء! سبب **${result.damage}** ضرر وامتص **${result.heal}** HP [${fx.join(' · ')}]`;
+        result.log = `🦇 **${getName(attacker)}** مص الدماء! سبب **${result.damage}** ضرر وامتص **${result.heal}** HP` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
@@ -294,13 +270,11 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         if (roll(0.60)) { result.selfEffects.push({ type: 'taunt',  val: true, turns: 2 }); fx.push(label('taunt')); }
         if (roll(0.60)) { result.selfEffects.push({ type: 'thorns', val: 0.3,  turns: 2 }); fx.push(label('thorns')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['stun', 'vulnerable']));
-
-        result.log = `⚒️ **${getName(attacker)}** زأر وهوى بمطرقته! سبب **${result.damage}** ضرر [${fx.join(' · ')}]`;
+        result.log = `⚒️ **${getName(attacker)}** زأر وهوى بمطرقته! سبب **${result.damage}** ضرر` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
-    // ⚔️ البشري (ميزات ضرر إضافية)
+    // ⚔️ البشري
     case 'Cleanse_Buff_Shield': {
         let dmg = Math.floor(skillPower * 1.2);
         result.trueDamage = true;   
@@ -316,15 +290,12 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         if (roll(0.50)) { result.selfEffects.push({ type: 'cleanse' });                         fx.push(label('cleanse')); }
         if (roll(0.50)) { result.selfEffects.push({ type: 'atk_buff', val: 0.4, turns: 3 });    fx.push(label('atk_buff')); }
 
-        if (result.effectsApplied.length === 0) fx.push(applyFailSafe(result, ['vulnerable', 'weaken']));
-
-        result.log = `👑 **${getName(attacker)}** قاد بتكتيك متقن! سبب **${result.damage}** [${fx.join(' · ')}]`;
+        result.log = `👑 **${getName(attacker)}** قاد بتكتيك متقن! سبب **${result.damage}**` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         break;
     }
 
-    // ── المهارات العامة (للأسلحة أو الوحوش) ─────────────────────────
+    // ── المهارات العامة (أكاديمية السحر) ─────────────────────────
     
-    // 🔥 تم الإصلاح: تصحيح توافق المقامرة وتبديد السحر من ملفات الـ JSON 🔥
     case 'RNG':
     case 'Gamble_Dmg': {
         if (Math.random() < 0.5) {
@@ -398,19 +369,13 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    if (result.damage > 0 && attacker.lifesteal > 0 && isAttackSkill) {
-        const stolenHp = Math.floor(result.damage * attacker.lifesteal);
-        if (stolenHp > 0) {
-            result.heal = (result.heal || 0) + stolenHp;
-            result.log += ` 🩸 (وامتص ${stolenHp} HP)`;
-        }
-    }
-
+    // تطبيق الضربة الحرجة على النصوص لو حدثت
     if (isCritSkill && result.damage > 0) {
         result.log = result.log.replace(/سبب \*\*([0-9]+)\*\* ضرر/g, `سدد ضربة حرجة بـ **$1** ضرر ✨`);
         result.log = result.log.replace(/وسبب ([0-9]+) ضرر/g, `وسدد ضربة حرجة بـ **$1** ضرر ✨`);
     }
 
+    // إضافة نص الغريزة للهجناء فقط
     if (isHybrid) {
         result.log = `🐾 **(غريزة الوحش)** ` + result.log;
     }
