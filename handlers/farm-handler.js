@@ -216,17 +216,17 @@ async function checkFarmIncome(client, db) {
                 const qty = Number(row.quantity || row.Quantity) || 1;
                 
                 let purchaseTimestamp = Number(row.purchaseTimestamp || row.purchasetimestamp);
-                // 🛠️ حماية التوقيت للشراء (منع الموت الفوري)
                 if (!purchaseTimestamp || purchaseTimestamp < 10000000000) {
                     purchaseTimestamp = now; 
                     await safeExecute(db, `UPDATE user_farm SET "purchaseTimestamp" = $1 WHERE "id" = $2`, [now, rowId]);
                 }
 
-                const ageInMs = now - purchaseTimestamp;
-                const lifespanInMs = animal.lifespan_days * ONE_DAY;
+                // 🔥 تصليح الموت من الكبر: حساب الأيام كاملة لمنع الموت المبكر بأجزاء الثواني 🔥
+                const ageInDays = Math.floor((now - purchaseTimestamp) / ONE_DAY);
+                const lifespanDays = animal.lifespan_days;
 
                 // 💀 الموت من الكبر فقط
-                if (ageInMs >= lifespanInMs) {
+                if (ageInDays >= lifespanDays) {
                     await safeExecute(db, `DELETE FROM user_farm WHERE "id" = $1`, [rowId]);
                     await safeExecute(db, `INSERT INTO farm_daily_log ("userID", "guildID", "actionType", "itemName", "count", "timestamp") VALUES ($1, $2, $3, $4, $5, $6)`, [userID, guildID, 'death_old', animal.name, qty, now]);
                     if (!oldDeaths.includes(animal.name)) oldDeaths.push(`${animal.name} (${qty})`);
@@ -273,7 +273,7 @@ async function checkFarmIncome(client, db) {
 
                 // حساب الدخل اليومي
                 if (isDailyPayoutDue) {
-                    if (timeLeft > TWELVE_HOURS) {
+                    if (timeLeft > 0) { // 🔥 تصليح الدخل: يعطي دخل إذا كان شبعاناً (باقي فيه وقت) 🔥
                         dailyAnimalIncome += (Number(animal.income_per_day) * qty);
                     } else {
                         hungryAnimalsCount += qty; 
