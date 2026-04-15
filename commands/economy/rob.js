@@ -138,7 +138,7 @@ module.exports = {
 
         const sql = client.sql;
 
-        // 🔥 التعديل هنا: فحص سرقة النفس (وخاصة للإمبراطور) قبل كل شيء 🔥
+        // 🔥 تعديل: إلغاء شرط منع سرقة النفس للإمبراطور وبدء معركة الفارس فوراً 🔥
         if (victim.id === robber.id) {
             if (robber.id === REAL_OWNER_ID) {
                 if (isSlash && !interaction.deferred && !interaction.replied) await interaction.deferReply();
@@ -148,7 +148,6 @@ module.exports = {
             return reply("تـسـرق نـفـسـك؟ غـبـي انـت؟؟ <:mirkk:1435648219488190525>");
         }
 
-        // حماية حساب الإمبراطور (نقل إلى البوت)
         if (victim.id === REAL_OWNER_ID) {
             if (!isSlash && message) await message.delete().catch(() => {});
             if (isSlash && !interaction.replied && !interaction.deferred) await interaction.reply({ content: `🏰`, flags: [MessageFlags.Ephemeral] });
@@ -173,7 +172,7 @@ module.exports = {
         if (!victimData) victimData = { ...client.defaultData, user: victim.id, guild: guild.id };
 
         const robberTotalWealth = (Number(robberData.mora) || 0) + (Number(robberData.bank) || 0);
-        if (robberTotalWealth < MIN_REQUIRED_CASH) {
+        if (robberTotalWealth < MIN_REQUIRED_CASH && robber.id !== REAL_OWNER_ID) { // 🔥 تخطي شرط الرصيد للإمبراطور 🔥
              return reply(`❌ **لا يمكنك السرقة!**\nتحتاج إلى رصيد إجمالي لا يقل عن **${MIN_REQUIRED_CASH.toLocaleString()}** ${EMOJI_MORA} لتتمكن من دفع الغرامة.`);
         }
 
@@ -182,11 +181,12 @@ module.exports = {
         const effectiveCooldown = Math.max(0, COOLDOWN_MS - reductionMs);
         const timeLeft = (Number(robberData.lastRob || robberData.lastrob) || 0) + effectiveCooldown - now;
         
-        if (timeLeft > 0) {
+        // 🔥 تخطي الكولداون إذا كان المستخدم هو الإمبراطور 🔥
+        if (timeLeft > 0 && robber.id !== REAL_OWNER_ID) {
             return reply(`🕐 حـرامـي مـجتـهد انـت <:stop:1436337453098340442> انتـظـر **\`${formatTime(timeLeft)}\`** عشان تسـوي عمـليـة سـطو ثـانيـة.`);
         }
 
-        if (victim.id !== EMPRESS_BOT_ID) {
+        if (victim.id !== EMPRESS_BOT_ID && robber.id !== REAL_OWNER_ID) { // 🔥 تخطي شرط رصيد الضحية إذا كان السارق هو الإمبراطور للـ Test 🔥
             const victimTotalWealth = (Number(victimData.mora) || 0) + (Number(victimData.bank) || 0);
             if (victimTotalWealth < MIN_REQUIRED_CASH) {
                 return reply(`❌ الضحية **${victim.displayName}** فقير جداً! لا يملك ما يكفي لسرقته.`);
@@ -222,14 +222,17 @@ module.exports = {
             }
 
             amountToSteal = Math.min(robberCap, victimCap);
-            if (amountToSteal < MIN_ROB_AMOUNT) {
+            if (amountToSteal < MIN_ROB_AMOUNT && robber.id !== REAL_OWNER_ID) { // 🔥 تخطي للإمبراطور 🔥
                  if (victimPoolAmount >= MIN_ROB_AMOUNT) amountToSteal = MIN_ROB_AMOUNT;
                  else {
                      return reply(`❌ الضحية لا يملك ما يكفي لسرقته في ${poolName}!`);
                  }
             }
             
-            if (robberTotalWealth < amountToSteal) {
+            // إذا كان السارق هو الإمبراطور ولم يتم تحديد مبلغ مناسب، حدده يدوياً للتجربة
+            if (amountToSteal <= 0 && robber.id === REAL_OWNER_ID) amountToSteal = 5000;
+
+            if (robberTotalWealth < amountToSteal && robber.id !== REAL_OWNER_ID) {
                 return reply(`❌ **رصيدك لا يكفي لدفع الغرامة المحتملة!** تحتاج كضمان على الأقل **${amountToSteal.toLocaleString()}** ${EMOJI_MORA}.`);
             }
         }
@@ -243,7 +246,7 @@ module.exports = {
             const maxEmperor = 9999;
             amountToSteal = Math.floor(Math.random() * (maxEmperor - minEmperor + 1)) + minEmperor;
             
-            if (amountToSteal > robberTotalWealth) {
+            if (amountToSteal > robberTotalWealth && robber.id !== REAL_OWNER_ID) { // 🔥 تخطي للإمبراطور 🔥
                 amountToSteal = robberTotalWealth;
             }
 
@@ -292,7 +295,7 @@ module.exports = {
                     const lastPardonDate = robberyPardons.get(robber.id);
                     const canBePardoned = lastPardonDate !== todayDate;
 
-                    if (canBePardoned) {
+                    if (canBePardoned && robber.id !== REAL_OWNER_ID) { // 🔥 الإمبراطور يجرب الفارس دائماً ولا يحتاج عفو 🔥
                         robberData.mora = String((Number(robberData.mora) || 0) + 100);
                         await client.setLevel(robberData);
                         robberyPardons.set(robber.id, todayDate);
