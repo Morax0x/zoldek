@@ -1,4 +1,4 @@
-const { PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, Colors } = require("discord.js");
+const { PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, Colors, MessageFlags } = require("discord.js");
 const { startGiveaway, endGiveaway, rerollGiveaway } = require('../../handlers/giveaway-handler.js'); 
 
 function parseDuration(durationStr) {
@@ -61,7 +61,7 @@ module.exports = {
         const member = isSlash ? interactionOrMessage.member : interactionOrMessage.member;
         if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
             const err = '❌ ليس لديك صلاحيات.';
-            return isSlash ? interactionOrMessage.reply({ content: err, ephemeral: true }) : interactionOrMessage.reply(err);
+            return isSlash ? interactionOrMessage.reply({ content: err, flags: [MessageFlags.Ephemeral] }) : interactionOrMessage.reply(err);
         }
 
         try {
@@ -83,9 +83,9 @@ module.exports = {
             }
             
             if (subcommand !== 'start') {
-                await interactionOrMessage.deferReply({ ephemeral: true }); 
+                await interactionOrMessage.deferReply({ flags: [MessageFlags.Ephemeral] }); 
             } else {
-                await interactionOrMessage.deferReply({ ephemeral: false }); 
+                await interactionOrMessage.deferReply({ flags: [MessageFlags.Ephemeral] }); 
             }
         } else {
             const cmdName = interactionOrMessage.content.split(' ')[0].toLowerCase().slice(1);
@@ -113,21 +113,24 @@ module.exports = {
             // 1. إنشاء قيفاواي (Start)
             // =========================
             if (subcommand === 'start') {
+                // تصفير البيانات لكل عملية جديدة
                 let giveawayData = { prize: null, durationRaw: null, durationMs: null, winnerCount: 1, description: null, image: null, targetChannel: channel, xpReward: 0, moraReward: 0 };
 
                 const updateEmbed = () => {
                     const embed = new EmbedBuilder()
-                        .setTitle("✥ لوحة إنشاء قيفاواي ✥")
-                        .setDescription("قم بإدخال البيانات باستخدام الأزرار أدناه. الحقول الإجبارية (*) يجب تعبئتها قبل الإرسال.")
-                        .setColor("Grey")
+                        .setTitle("✥ لوحة إنشاء الهبات (Giveaway) ✥")
+                        .setDescription("قم بتعبئة بيانات الهبة من خلال الأزرار السفلية.\nيجب إكمال **البيانات الأساسية** أولاً لتتمكن من إرسال القيفاواي.")
+                        .setColor(Colors.DarkVividPink)
+                        .setThumbnail(guild.iconURL({ dynamic: true }))
                         .addFields([
-                            { name: "الجائزة (*)", value: giveawayData.prize || "❌ لم تحدد", inline: true },
-                            { name: "المدة (*)", value: giveawayData.durationRaw || "❌ لم تحدد", inline: true },
-                            { name: "الفائزون (*)", value: `${giveawayData.winnerCount}`, inline: true },
-                            { name: "القناة", value: `<#${giveawayData.targetChannel.id}>`, inline: true },
-                            { name: "المكافآت", value: `مورا: ${giveawayData.moraReward} | XP: ${giveawayData.xpReward}`, inline: true },
-                            { name: "الصورة", value: giveawayData.image ? "✅ تم تحديدها" : "لا يوجد", inline: true }
-                        ]);
+                            { name: "🎁 الجائزة (*)", value: giveawayData.prize ? `\`${giveawayData.prize}\`` : "❌ لم تُحدد", inline: true },
+                            { name: "⏳ المدة (*)", value: giveawayData.durationRaw ? `\`${giveawayData.durationRaw}\`` : "❌ لم تُحدد", inline: true },
+                            { name: "👥 الفائزون (*)", value: `\`${giveawayData.winnerCount}\``, inline: true },
+                            { name: "📢 القناة", value: `<#${giveawayData.targetChannel.id}>`, inline: true },
+                            { name: "💎 المكافآت الإضافية", value: `مورا: \`${giveawayData.moraReward}\` | XP: \`${giveawayData.xpReward}\``, inline: true },
+                            { name: "🖼️ الصورة المرفقة", value: giveawayData.image ? "[رابط الصورة المرفقة]" : "لا يوجد", inline: true }
+                        ])
+                        .setFooter({ text: "نظام إدارة الهبات الإمبراطوري", iconURL: client.user.displayAvatarURL() });
                     if (giveawayData.image) embed.setImage(giveawayData.image);
                     return embed;
                 };
@@ -135,9 +138,9 @@ module.exports = {
                 const getRows = (disabled = false) => {
                     const isReady = giveawayData.prize && giveawayData.durationMs;
                     return new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('g_builder_content').setLabel('البيانات الأساسية (1)').setEmoji('📝').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-                        new ButtonBuilder().setCustomId('g_builder_visuals').setLabel('الإعدادات الإضافية (2)').setEmoji('⚙️').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-                        new ButtonBuilder().setCustomId('g_builder_send').setLabel('إرسال القيفاواي').setEmoji('✅').setStyle(ButtonStyle.Success).setDisabled(disabled || !isReady) 
+                        new ButtonBuilder().setCustomId('g_core_data').setLabel('تعديل البيانات الأساسية').setEmoji('📝').setStyle(ButtonStyle.Primary).setDisabled(disabled),
+                        new ButtonBuilder().setCustomId('g_extra_data').setLabel('تعديل الإضافات (اختياري)').setEmoji('⚙️').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+                        new ButtonBuilder().setCustomId('g_send_final').setLabel('إطلاق القيفاواي').setEmoji('🚀').setStyle(ButtonStyle.Success).setDisabled(disabled || !isReady) 
                     );
                 };
 
@@ -148,59 +151,67 @@ module.exports = {
                     msg = await interactionOrMessage.reply({ embeds: [updateEmbed()], components: [getRows()] });
                 }
 
-                const collector = msg.createMessageComponentCollector({ filter: i => i.user.id === member.id, time: 5 * 60 * 1000 });
+                // الكوليكتور يعمل فقط للأزرار الخاصة بالقيفاواي ومربوط باليوزر نفسه
+                const collector = msg.createMessageComponentCollector({ 
+                    filter: i => i.user.id === member.id && ['g_core_data', 'g_extra_data', 'g_send_final'].includes(i.customId), 
+                    time: 5 * 60 * 1000 
+                });
 
                 collector.on('collect', async i => {
                     try {
-                        if (i.customId === 'g_builder_content') {
-                            const modal = new ModalBuilder().setCustomId('modal_g_content').setTitle('بيانات القيف اواي الأساسية');
-                            const prizeInput = new TextInputBuilder().setCustomId('input_prize').setLabel("ما هي الجائزة؟").setStyle(TextInputStyle.Short).setRequired(true);
+                        if (i.customId === 'g_core_data') {
+                            const modal = new ModalBuilder().setCustomId('modal_g_core').setTitle('البيانات الأساسية للقيفاواي');
+                            const prizeInput = new TextInputBuilder().setCustomId('m_prize').setLabel("ما هي الجائزة؟").setStyle(TextInputStyle.Short).setRequired(true);
                             if(giveawayData.prize) prizeInput.setValue(giveawayData.prize);
-                            const timeInput = new TextInputBuilder().setCustomId('input_time').setLabel("المدة (مثال: 10m, 1h, 2d)").setStyle(TextInputStyle.Short).setRequired(true);
+                            
+                            const timeInput = new TextInputBuilder().setCustomId('m_time').setLabel("المدة (مثال: 10m, 1h, 2d)").setStyle(TextInputStyle.Short).setRequired(true);
                             if(giveawayData.durationRaw) timeInput.setValue(giveawayData.durationRaw);
-                            const winnersInput = new TextInputBuilder().setCustomId('input_winners').setLabel("عدد الفائزين").setStyle(TextInputStyle.Short).setValue(String(giveawayData.winnerCount)).setRequired(true);
+                            
+                            const winnersInput = new TextInputBuilder().setCustomId('m_winners').setLabel("عدد الفائزين").setStyle(TextInputStyle.Short).setValue(String(giveawayData.winnerCount)).setRequired(true);
 
                             modal.addComponents(new ActionRowBuilder().addComponents(prizeInput), new ActionRowBuilder().addComponents(timeInput), new ActionRowBuilder().addComponents(winnersInput));
                             await i.showModal(modal);
 
                             try {
-                                const submit = await i.awaitModalSubmit({ time: 60000, filter: s => s.user.id === i.user.id });
-                                const p = submit.fields.getTextInputValue('input_prize');
-                                const t = submit.fields.getTextInputValue('input_time');
-                                const w = parseInt(submit.fields.getTextInputValue('input_winners'));
+                                const submit = await i.awaitModalSubmit({ time: 60000, filter: s => s.user.id === i.user.id && s.customId === 'modal_g_core' });
+                                const p = submit.fields.getTextInputValue('m_prize');
+                                const t = submit.fields.getTextInputValue('m_time');
+                                const w = parseInt(submit.fields.getTextInputValue('m_winners'));
 
                                 const ms = parseDuration(t);
-                                if (!ms) return await submit.reply({ content: "❌ صيغة الوقت غير صحيحة. حاول مرة أخرى (مثال: 30m).", ephemeral: true });
-                                if (isNaN(w) || w < 1) return await submit.reply({ content: "❌ عدد الفائزين غير صالح.", ephemeral: true });
+                                if (!ms) return await submit.reply({ content: "❌ صيغة الوقت غير صحيحة. حاول مرة أخرى (مثال: 30m).", flags: [MessageFlags.Ephemeral] });
+                                if (isNaN(w) || w < 1) return await submit.reply({ content: "❌ عدد الفائزين غير صالح.", flags: [MessageFlags.Ephemeral] });
 
                                 giveawayData.prize = p; giveawayData.durationRaw = t; giveawayData.durationMs = ms; giveawayData.winnerCount = w;
                                 await submit.update({ embeds: [updateEmbed()], components: [getRows()] }).catch(()=>{});
                             } catch (e) {}
                         }
 
-                        else if (i.customId === 'g_builder_visuals') {
-                            const modal = new ModalBuilder().setCustomId('modal_g_visuals').setTitle('الإعدادات الإضافية (اختياري)');
-                            const channelInput = new TextInputBuilder().setCustomId('input_channel').setLabel("آيدي القناة (اتركه فارغاً للحالية)").setStyle(TextInputStyle.Short).setRequired(false);
-                            const moraInput = new TextInputBuilder().setCustomId('input_mora').setLabel("مكافأة مورا (تلقائي للفائز)").setStyle(TextInputStyle.Short).setRequired(false);
-                            const xpInput = new TextInputBuilder().setCustomId('input_xp').setLabel("مكافأة خبرة (تلقائي للفائز)").setStyle(TextInputStyle.Short).setRequired(false);
-                            const imageInput = new TextInputBuilder().setCustomId('input_image').setLabel("رابط الصورة (https://...)").setStyle(TextInputStyle.Short).setRequired(false);
+                        else if (i.customId === 'g_extra_data') {
+                            const modal = new ModalBuilder().setCustomId('modal_g_extra').setTitle('الإعدادات الإضافية');
+                            const channelInput = new TextInputBuilder().setCustomId('m_channel').setLabel("آيدي القناة (اتركه فارغاً للحالية)").setStyle(TextInputStyle.Short).setRequired(false);
+                            const moraInput = new TextInputBuilder().setCustomId('m_mora').setLabel("مكافأة مورا (تلقائي للفائز)").setStyle(TextInputStyle.Short).setRequired(false);
+                            const xpInput = new TextInputBuilder().setCustomId('m_xp').setLabel("مكافأة خبرة (تلقائي للفائز)").setStyle(TextInputStyle.Short).setRequired(false);
+                            const imageInput = new TextInputBuilder().setCustomId('m_image').setLabel("رابط الصورة (https://...)").setStyle(TextInputStyle.Short).setRequired(false);
                             
                             if (giveawayData.image) imageInput.setValue(giveawayData.image);
+                            if (giveawayData.moraReward > 0) moraInput.setValue(String(giveawayData.moraReward));
+                            if (giveawayData.xpReward > 0) xpInput.setValue(String(giveawayData.xpReward));
 
                             modal.addComponents(new ActionRowBuilder().addComponents(channelInput), new ActionRowBuilder().addComponents(moraInput), new ActionRowBuilder().addComponents(xpInput), new ActionRowBuilder().addComponents(imageInput));
                             await i.showModal(modal);
 
                             try {
-                                const submit = await i.awaitModalSubmit({ time: 60000, filter: s => s.user.id === i.user.id });
-                                const chID = submit.fields.getTextInputValue('input_channel');
-                                const m = parseInt(submit.fields.getTextInputValue('input_mora')) || 0;
-                                const x = parseInt(submit.fields.getTextInputValue('input_xp')) || 0;
-                                const img = submit.fields.getTextInputValue('input_image'); 
+                                const submit = await i.awaitModalSubmit({ time: 60000, filter: s => s.user.id === i.user.id && s.customId === 'modal_g_extra' });
+                                const chID = submit.fields.getTextInputValue('m_channel');
+                                const m = parseInt(submit.fields.getTextInputValue('m_mora')) || 0;
+                                const x = parseInt(submit.fields.getTextInputValue('m_xp')) || 0;
+                                const img = submit.fields.getTextInputValue('m_image'); 
 
                                 if (chID) {
                                     const ch = member.guild.channels.cache.get(chID);
                                     if (ch) giveawayData.targetChannel = ch;
-                                    else return await submit.reply({ content: "❌ القناة غير موجودة أو الآيدي خطأ.", ephemeral: true }).catch(()=>{});
+                                    else return await submit.reply({ content: "❌ القناة غير موجودة أو الآيدي خطأ.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                                 }
 
                                 giveawayData.moraReward = m; giveawayData.xpReward = x;
@@ -211,15 +222,15 @@ module.exports = {
                             } catch (e) {}
                         }
 
-                        else if (i.customId === 'g_builder_send') {
+                        else if (i.customId === 'g_send_final') {
                             if (!i.deferred && !i.replied) await i.deferUpdate().catch(()=>{}); 
                             try {
                                 collector.stop('sent');
                                 await startGiveaway(client, i, giveawayData.targetChannel, giveawayData.durationMs, giveawayData.winnerCount, giveawayData.prize, giveawayData.xpReward, giveawayData.moraReward, giveawayData.image);
-                                const successEmbed = new EmbedBuilder().setColor("Green").setTitle("✅ تم إرسال القيفاواي").setDescription(`تم بدء القيفاواي بنجاح في <#${giveawayData.targetChannel.id}>!\n\nسيتم حفظه في قاعدة البيانات، ولن يتأثر بإعادة تشغيل البوت.`);
+                                const successEmbed = new EmbedBuilder().setColor("Green").setTitle("✅ تم إطلاق القيفاواي!").setDescription(`تم بدء السحب بنجاح في <#${giveawayData.targetChannel.id}>!\n\nتم حفظ البيانات بأمان ولن تتأثر بإعادة تشغيل البوت.`);
                                 await i.editReply({ embeds: [successEmbed], components: [] }).catch(()=>{});
                             } catch (error) {
-                                await i.followUp({ content: "❌ حدث خطأ أثناء بدء القيفاواي.", ephemeral: true }).catch(()=>{});
+                                await i.followUp({ content: "❌ حدث خطأ أثناء بدء القيفاواي.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                             }
                         }
                     } catch (error) {
