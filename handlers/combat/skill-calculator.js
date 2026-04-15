@@ -132,11 +132,14 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         skillPower = Math.floor(rawValue * GLOBAL_SKILL_MULTIPLIER);
     }
 
-    // 🔥 تطبيق البفات على المهارة (هجوم + كريت) 🔥
+    // 🔥 فرز المهارات الهجومية عن السلمية لمنع الكريت الخاطئ 🔥
+    const nonAttackSkills = ['skill_healing', 'skill_shielding', 'skill_buffing', 'skill_rebound', 'skill_weaken', 'skill_dispel', 'skill_cleanse'];
+    const isAttackSkill = !nonAttackSkills.includes(skill.id) && !hpBasedSkills.includes(activeStatType);
+
     let isCritSkill = false;
     let critChance = 0.05; 
 
-    if (!skill.id.includes('heal') && !skill.id.includes('shield')) {
+    if (isAttackSkill) {
         let buffMultiplier = 1.0;
         if (attacker.effects && Array.isArray(attacker.effects)) {
             attacker.effects.forEach(e => {
@@ -320,7 +323,9 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
     }
 
     // ── المهارات العامة (للأسلحة أو الوحوش) ─────────────────────────
-
+    
+    // 🔥 تم الإصلاح: تصحيح توافق المقامرة وتبديد السحر من ملفات الـ JSON 🔥
+    case 'RNG':
     case 'Gamble_Dmg': {
         if (Math.random() < 0.5) {
             const dmg = Math.floor(Math.random() * (2222 - 777 + 1)) + 777;
@@ -352,12 +357,13 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         result.log = `🐍 **${getName(attacker)}** غرز نصل السموم! (${result.damage} ضرر + سم)`;
         break;
     }
+    case 'Utility':
     case '%': {
         if (skill.id === 'skill_shielding') {
-            result.shield = skillPower;
+            result.shield = Math.floor(attacker.maxHp * (rawValue / 100));
             result.log = `🛡️ **${getName(attacker)}** رفع درعه (+${result.shield})!`;
         } else if (skill.id === 'skill_healing') {
-            result.heal = skillPower;
+            result.heal = Math.floor(attacker.maxHp * (rawValue / 100));
             result.log = `💖 **${getName(attacker)}** استعاد ${result.heal} HP!`;
         } else if (skill.id === 'skill_buffing') {
             const buffPct = Math.min(rawValue / 100, 1.0);
@@ -378,7 +384,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
             result.log = `💨 **${getName(attacker)}** بدد كل سحر الخصم!`;
         } else if (skill.id === 'skill_cleanse') {
             result.selfEffects.push({ type: 'cleanse' });
-            result.heal = Math.floor(attacker.maxHp * 0.1);
+            result.heal = Math.floor(attacker.maxHp * (rawValue / 100));
             result.log = `✨ **${getName(attacker)}** طهر نفسه من اللعنات!`;
         } else {
             result.damage = skillPower;
@@ -392,8 +398,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // 🔥 تطبيق شفاء اللايف ستيل (Lifesteal) بناءً على بف العرق 🔥
-    if (result.damage > 0 && attacker.lifesteal > 0) {
+    if (result.damage > 0 && attacker.lifesteal > 0 && isAttackSkill) {
         const stolenHp = Math.floor(result.damage * attacker.lifesteal);
         if (stolenHp > 0) {
             result.heal = (result.heal || 0) + stolenHp;
