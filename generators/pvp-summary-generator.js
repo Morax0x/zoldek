@@ -17,7 +17,6 @@ const RACE_AR = {
     'Spirit': 'روح', 'Dwarf': 'قزم', 'Ghoul': 'غول', 'Hybrid': 'نصف وحش'
 };
 
-// 🚀 كاش للصور الثابتة (خلفية الساحة، لوحة الموت) — محمّلة مرة واحدة فقط
 const staticImageCache = new Map();
 
 async function getSafeImage(url, fileName) {
@@ -120,7 +119,14 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
         const canvas = createCanvas(W, H);
         const ctx = canvas.getContext('2d');
 
-        const bgImg = await getSafeImage(`${R2_URL}/pvp_arena_bg.png`, 'pvp_arena_bg.png');
+        const [bgImg, p1Img, p2Img, vsImg, deathImg] = await Promise.all([
+            getSafeImage(`${R2_URL}/pvp_arena_bg.png`, 'pvp_arena_bg.png'),
+            getSafeImage(challenger?.avatar, null),
+            getSafeImage(opponent?.avatar, null),
+            getSafeImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/pvp_log_panel.png', 'pvp_log_panel.png'),
+            getSafeImage(`${R2_VFX}/vfx_death.png`, 'vfx_death.png')
+        ]);
+
         if (bgImg) {
             ctx.drawImage(bgImg, 0, 0, W, H);
             ctx.fillStyle = 'rgba(5, 5, 15, 0.75)';
@@ -136,14 +142,8 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
         drawOrnatePanel(ctx, p1PanelX, panelY, panelW, panelH, 0.55, '#4fc3f7');
         drawOrnatePanel(ctx, p2PanelX, panelY, panelW, panelH, 0.55, '#ef5350');
 
-        const [p1Img, p2Img, vsImg] = await Promise.all([
-            getSafeImage(challenger?.avatar, null),
-            getSafeImage(opponent?.avatar, null),
-            getSafeImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/pvp/pvp_log_panel.png', 'pvp_log_panel.png')
-        ]);
-
-        drawCircularAvatar(ctx, p1Img, p1PanelX + panelW/2, panelY + 100, 70, '#4fc3f7');
-        drawCircularAvatar(ctx, p2Img, p2PanelX + panelW/2, panelY + 100, 70, '#ef5350');
+        drawCircularAvatar(ctx, p1Img, p1PanelX + panelW/2, panelY + 100, 70, '#4fc3f7', challenger?.isDead, deathImg);
+        drawCircularAvatar(ctx, p2Img, p2PanelX + panelW/2, panelY + 100, 70, '#ef5350', opponent?.isDead, deathImg);
 
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 26px "Bein"'; ctx.textAlign = 'center';
         ctx.fillText((challenger?.name || "مقاتل").replace(/[!.]/g, ''), p1PanelX + panelW/2, panelY + 210);
@@ -260,7 +260,12 @@ async function generatePvPChallengeImage(challenger, opponent, bet, totalPot, st
             ctx.fillText(subText, W/2, logPanelY + 250);
         }
 
-        return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
+        const buffer = await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
+        
+        canvas.width = 0;
+        canvas.height = 0;
+        
+        return buffer;
     } catch (e) { return null; }
 }
 
@@ -277,7 +282,7 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
         const p1 = battleState.players.get(p1Id);
         const p2 = battleState.players.get(p2Id);
 
-        if (!p1 || !p2) return null; // حماية إضافية ضد الـ Crash
+        if (!p1 || !p2) return null;
 
         const p1Dead = p1.hp <= 0;
         const p2Dead = p2.hp <= 0;
@@ -471,7 +476,12 @@ async function generatePvPResultImage(battleState, winnerId, gradeText, finalMor
         }
         ctx.restore();
 
-        return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
+        const buffer = await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
+        
+        canvas.width = 0;
+        canvas.height = 0;
+        
+        return buffer;
     } catch (e) { 
         console.error("Generator Error PvP Result:", e);
         return null; 
