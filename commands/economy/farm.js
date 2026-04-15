@@ -169,32 +169,38 @@ module.exports = {
                     const maxHungerMs = (animalData.max_hunger_days || 3) * DAY_MS; 
                     const fullUntil = lastFed + maxHungerMs; 
                     const timeLeftMs = fullUntil - now;
-                    const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
                     
                     let hungerStatusText = "";
                     let isHungry = false;
+                    let generatesIncome = false;
                     
-                    if (timeLeftMs > TWELVE_HOURS_MS) {
-                        totalFarmIncome += (animalData.income_per_day * qty);
+                    // 🔥 تصليح دقيق لنظام الجوع بناءً على timeLeftMs فقط 🔥
+                    if (timeLeftMs > 0) {
                         hungerStatusText = `شبعان`;
-                    } else if (timeLeftMs > 0) {
-                        hungerStatusText = `جائع (بلا دخل)`;
-                        isHungry = true;
+                        generatesIncome = true;
                     } else {
-                        hungerStatusText = `يتضور جوعاً!`;
+                        hungerStatusText = `جائع (يحتاج إطعام)`;
                         isHungry = true;
                     }
 
                     if (animalsMap.has(animalData.id)) {
                         const existing = animalsMap.get(animalData.id);
                         existing.quantity += qty;
-                        if (timeLeftMs > TWELVE_HOURS_MS) existing.income += (animalData.income_per_day * qty);
+                        if (generatesIncome) {
+                            existing.income += (animalData.income_per_day * qty);
+                            totalFarmIncome += (animalData.income_per_day * qty);
+                        }
                         if (ageDays > existing.age) { existing.age = ageDays; existing.lifeRemaining = lifeRemaining; }
+                        // الحفاظ على أحدث وقت شبع كمرجع للعرض
+                        existing.hungerTimestamp = Math.max(existing.hungerTimestamp, fullUntil);
                     } else {
+                        const inc = generatesIncome ? (animalData.income_per_day * qty) : 0;
+                        totalFarmIncome += inc;
                         animalsMap.set(animalData.id, {
                             ...animalData, quantity: qty, 
-                            income: (timeLeftMs > TWELVE_HOURS_MS) ? (animalData.income_per_day * qty) : 0,
-                            hungerText: hungerStatusText, isHungry: isHungry, age: ageDays, lifeRemaining: lifeRemaining
+                            income: inc,
+                            hungerText: hungerStatusText, isHungry: isHungry, age: ageDays, lifeRemaining: lifeRemaining,
+                            hungerTimestamp: fullUntil // تمريرها لمولد البطاقة
                         });
                     }
                 }
