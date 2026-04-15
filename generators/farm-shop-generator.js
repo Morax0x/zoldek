@@ -151,9 +151,6 @@ function cleanEmojis(text) {
     return text.replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿🪙]/gu, '').trim();
 }
 
-// -------------------------------------------------------------
-// شبكة المتجر العام (بذور - حيوانات - أعلاف)
-// -------------------------------------------------------------
 exports.drawFarmShopGrid = async function(items, category, maxCap, currCap) {
     const width = 1350;
     const height = 900;
@@ -319,7 +316,7 @@ exports.drawFarmShopGrid = async function(items, category, maxCap, currCap) {
 };
 
 // -------------------------------------------------------------
-// بطاقة تفاصيل الشراء المفردة (لكل قسم)
+// بطاقة تفاصيل الشراء المفردة (لكل قسم) 🔥 تم التصميم بالصناديق المرتبة 🔥
 // -------------------------------------------------------------
 exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, currCap) {
     const width = 1000;
@@ -349,7 +346,7 @@ exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, cur
     ctx.strokeRect(15, 15, width - 30, height - 30);
 
     const imgSize = 350;
-    const imgX = 100;
+    const imgX = 80;
     const imgY = (height - imgSize) / 2;
 
     drawOrnateFrame(ctx, imgX, imgY, imgSize, imgSize, color);
@@ -396,78 +393,106 @@ exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, cur
         ctx.shadowBlur = 0;
     }
 
-    const textX = width - 80;
-    let textY = 120;
-
+    const startBoxesX = imgX + imgSize + 40;
+    const textX = width - 40;
+    
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     ctx.fillStyle = color;
     ctx.font = `bold 60px ${FONT_MAIN}`;
     ctx.shadowColor = color;
     ctx.shadowBlur = 15;
-    ctx.fillText(cleanEmojis(item.name), textX, textY);
+    ctx.fillText(cleanEmojis(item.name), textX, 70);
     ctx.shadowBlur = 0;
 
-    textY += 90;
-
     ctx.beginPath();
-    ctx.moveTo(textX, textY);
-    ctx.lineTo(imgX + imgSize + 50, textY);
-    const lineGrad = ctx.createLinearGradient(textX, textY, imgX + imgSize + 50, textY);
+    ctx.moveTo(textX, 150);
+    ctx.lineTo(startBoxesX, 150);
+    const lineGrad = ctx.createLinearGradient(textX, 150, startBoxesX, 150);
     lineGrad.addColorStop(0, color);
     lineGrad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.strokeStyle = lineGrad;
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    textY += 30;
+    // 🔥 دالة رسم الصناديق الأنيقة للمعلومات 🔥
+    const drawInfoBox = (label, value, icon, x, y, w, h, boxColor) => {
+        ctx.fillStyle = 'rgba(15, 20, 30, 0.8)';
+        ctx.beginPath(); roundRect(ctx, x, y, w, h, 12); ctx.fill();
+        ctx.strokeStyle = boxColor; ctx.lineWidth = 2; ctx.stroke();
 
-    ctx.fillStyle = '#FFD700';
-    ctx.font = `30px ${FONT_MAIN}`;
-    ctx.fillText(`السعر:  ${item.price.toLocaleString()} مورا`, textX, textY);
-    textY += 50;
+        ctx.fillStyle = boxColor;
+        ctx.font = `28px ${FONT_EMOJI}`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(icon, x + w - 15, y + h / 2);
+
+        ctx.fillStyle = '#A8B8D0';
+        ctx.font = `20px ${FONT_MAIN}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(label, x + w - 60, y + h / 2 - 12);
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = `bold 24px ${FONT_MAIN}`;
+        ctx.fillText(value, x + w - 60, y + h / 2 + 15);
+    };
+
+    const boxW = 240;
+    const boxH = 80;
+    const gapX = 20;
+    const gapY = 20;
+
+    const col1X = width - 40 - boxW;
+    const col2X = col1X - boxW - gapX;
     
-    ctx.fillStyle = '#00FF88';
+    let currentY = 180;
+
+    // صندوق السعر الثابت
+    drawInfoBox("السعر (مورا)", item.price.toLocaleString(), "💰", col1X, currentY, boxW, boxH, '#FFD700');
+
+    // صندوق السعة / المخزون
     if (category === 'animals') {
-        ctx.fillText(`السعة المتاحة:  ${maxCap - currCap}`, textX, textY);
+        const capacityText = `${maxCap - currCap} مكان متاح`;
+        drawInfoBox("سعة الحظيرة", capacityText, "🏡", col2X, currentY, boxW, boxH, '#00FF88');
     } else {
-        ctx.fillText(`المخزون الحالي:  ${userQty.toLocaleString()}`, textX, textY);
+        drawInfoBox("مخزونك الحالي", userQty.toLocaleString(), "📦", col2X, currentY, boxW, boxH, '#00FF88');
     }
-    textY += 60;
 
-    const descBoxX = imgX + imgSize + 50;
-    const descBoxY = textY;
-    const descBoxW = textX - descBoxX;
-    const descBoxH = height - textY - 60;
+    currentY += boxH + gapY;
 
-    ctx.fillStyle = 'rgba(15, 20, 30, 0.7)';
-    ctx.beginPath(); roundRect(ctx, descBoxX, descBoxY, descBoxW, descBoxH, 15); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1; ctx.stroke();
-
-    ctx.fillStyle = '#A8B8D0';
-    ctx.font = `24px ${FONT_MAIN}`;
-    
-    let details = [];
+    // صناديق التفاصيل حسب النوع
     if (category === 'animals') {
-        details.push(`💰 الدخل اليومي: ${item.income_per_day} مورا`);
-        details.push(`⏳ العمر الافتراضي: ${item.lifespan_days} يوم`);
-        details.push(`📦 الحجم بالسعة: ${item.size} وحدة`);
-        details.push(`🍗 أقصى حد للجوع: ${item.max_hunger_days} أيام`);
-        if (item.feed_id) details.push(`🌾 العلف المفضل: ${(item.feed_id.replace('feed_', ''))}`);
+        drawInfoBox("الدخل اليومي", `+${item.income_per_day} مورا`, "💸", col1X, currentY, boxW, boxH, '#2ECC71');
+        drawInfoBox("العمر الافتراضي", `${item.lifespan_days} أيام`, "⏳", col2X, currentY, boxW, boxH, '#00C3FF');
+        
+        currentY += boxH + gapY;
+        drawInfoBox("أقصى جوع", `${item.max_hunger_days} أيام`, "🍗", col1X, currentY, boxW, boxH, '#FF4444');
+        drawInfoBox("حجم الحيوان", `${item.size} وحدة`, "📏", col2X, currentY, boxW, boxH, '#B968FF');
     } else if (category === 'seeds') {
-        details.push(`💰 سعر البيع: ${item.sell_price} مورا`);
-        details.push(`⏳ وقت النمو: ${item.growth_time_hours} ساعة`);
-        details.push(`✨ الخبرة المكتسبة: +${item.xp_reward} XP`);
+        drawInfoBox("سعر البيع", `${item.sell_price} مورا`, "🏷️", col1X, currentY, boxW, boxH, '#2ECC71');
+        drawInfoBox("وقت النمو", `${item.growth_time_hours} ساعة`, "⏳", col2X, currentY, boxW, boxH, '#00C3FF');
+        
+        currentY += boxH + gapY;
+        drawInfoBox("الخبرة عند الحصاد", `+${item.xp_reward} XP`, "✨", col1X, currentY, boxW, boxH, '#B968FF');
     } else {
-        details.push(item.description || 'علف صحي لضمان نمو ودخل ممتاز لحيوانات المزرعة.');
-    }
-
-    let lines = wrapText(ctx, details.join('   |   '), descBoxW - 40);
-    let currentY = descBoxY + 40;
-    
-    for (let j = 0; j < lines.length; j++) {
-        ctx.fillText(lines[j], textX - 20, currentY);
-        currentY += 40;
+        // صندوق كبير لوصف العلف
+        const descBoxW = col1X + boxW - col2X;
+        const descBoxH = 120;
+        ctx.fillStyle = 'rgba(15, 20, 30, 0.8)';
+        ctx.beginPath(); roundRect(ctx, col2X, currentY, descBoxW, descBoxH, 12); ctx.fill();
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+        
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = `24px ${FONT_MAIN}`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        const descText = item.description || 'علف مخصص لحيوانات المزرعة.';
+        const lines = wrapText(ctx, descText, descBoxW - 40);
+        let dY = currentY + 20;
+        for (let j = 0; j < lines.length; j++) {
+            ctx.fillText(lines[j], col1X + boxW - 20, dY);
+            dY += 35;
+        }
     }
 
     const buffer = await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
@@ -476,9 +501,6 @@ exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, cur
     return buffer;
 };
 
-// -------------------------------------------------------------
-// شبكة حظيرة الحيوانات الخاصة باللاعب
-// -------------------------------------------------------------
 exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPages, maxCap, currCap, totalIncome) {
     const width = 1350;
     const height = 900;
@@ -667,7 +689,6 @@ exports.drawFarmAnimalsGrid = async function(targetUser, animals, page, totalPag
             const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
             const minutesLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
             
-            // 🔥 هنا نعرض وقت الشبع بناءً على الساعات والدقائق بطريقة صحيحة 🔥
             if (hoursLeft > 0) {
                 hungerStatus = `شبعان (${hoursLeft}س و ${minutesLeft}د)`;
             } else {
