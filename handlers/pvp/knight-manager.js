@@ -323,7 +323,7 @@ function applySkillEffect(battleState, attackerId, skill) {
             attacker.effects.buff = 0.2; attacker.effects.buff_turns = 2;
             attacker.effects.shield_source = skill.id; 
             attacker.effects.shield_cd_duration = cooldownDuration;
-            return `⚔️ **${attacker.isMonster ? attacker.name : attacker.member.displayName}** طهر نفسه واكتسب درعاً وقوة!`;
+            return `⚔️ **${attacker.isMonster ? attacker.name : attacker.member.displayName}** طهـر نفسه واكتسب درعاً وقوة!`;
         }
         case 'Scale_MissingHP_Heal': {
             const missingHpPercent = (attacker.maxHp - attacker.hp) / attacker.maxHp;
