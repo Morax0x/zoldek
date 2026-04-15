@@ -1,10 +1,18 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, SlashCommandBuilder, AttachmentBuilder } = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, SlashCommandBuilder, AttachmentBuilder, MessageFlags } = require("discord.js");
 
 // 🔥 استدعاء الدوال من المركز الجديد للـ PvP 🔥
 const { activePvpChallenges, EMOJI_MORA } = require('../../handlers/pvp/pvp-state.js');
 const { cleanDisplayName } = require('../../handlers/pvp/pvp-utils.js');
 const { getUserRace, getWeaponData } = require('../../handlers/pvp/pvp-data.js');
 const { generatePvPChallengeImage } = require('../../generators/pvp-summary-generator.js'); 
+
+// استدعاء نظام إدارة المعارك بشكل آمن
+let coreManager;
+try {
+    coreManager = require('../../handlers/pvp/pvp-manager.js');
+} catch (e) {
+    coreManager = {};
+}
 
 let updateGuildStat;
 try {
@@ -65,7 +73,7 @@ module.exports = {
 
         const replyError = async (content) => {
             if (isSlash) {
-                return interaction.editReply({ content, ephemeral: true });
+                return interaction.editReply({ content, flags: [MessageFlags.Ephemeral] });
             } else {
                 return message.reply({ content });
             }
@@ -168,9 +176,11 @@ module.exports = {
         await client.setLevel(challengerData);
 
         if (isBotChallenge) {
-            // 🔥 مسح إمبد القبول كما طلبت وتمريره مباشرة 🔥
-            const coreManager = require('../../handlers/pvp/pvp-manager.js');
-            return await coreManager.startPvpBattle(isSlash ? interaction : message, client, sql, challenger, opponent, bet, true);
+            if (coreManager.startPvpBattle) {
+                return await coreManager.startPvpBattle(isSlash ? interaction : message, client, sql, challenger, opponent, bet, true);
+            } else {
+                return replyError(`❌ نظام قتال الزعماء غير متوفر حالياً.`);
+            }
         }
 
         activePvpChallenges.add(channel.id);
@@ -201,7 +211,7 @@ module.exports = {
                 files.push(new AttachmentBuilder(imageBuffer, { name: 'challenge.png' }));
             }
         } catch (err) {
-            console.error(err);
+            console.error("Generator PvP Challenge Error:", err);
         }
 
         const row = new ActionRowBuilder().addComponents(
@@ -218,10 +228,10 @@ module.exports = {
         );
 
         const payload = {
-            content: `<@${opponent.id}>`, // 🔥 النص المطلوب فقط: منشن الخصم 🔥
+            content: `<@${opponent.id}>`, 
             files: files,
             embeds: [],
-            components: [row] // ✅ الأزرار تظهر دائماً بغض النظر عن نجاح توليد الصورة
+            components: [row] 
         };
 
         const challengeMsg = await sendChallenge(payload);
@@ -230,7 +240,6 @@ module.exports = {
             if (activePvpChallenges.has(channel.id)) {
                 activePvpChallenges.delete(channel.id);
 
-                // 🔥 رسم تحديث للصورة عند التايم أوت 🔥
                 try {
                     const timeoutBuffer = await generatePvPChallengeImage(challengerInfo, opponentInfo, bet, totalPot, 'timeout');
                     if (timeoutBuffer) {
@@ -238,7 +247,9 @@ module.exports = {
                         if (isSlash) {
                             await interaction.editReply({ content: `<@${opponent.id}>`, files: [timeoutAttach], components: [], embeds: [] }).catch(()=>{});
                         } else {
-                            await challengeMsg.edit({ content: `<@${opponent.id}>`, files: [timeoutAttach], components: [], embeds: [] }).catch(()=>{});
+                            if (challengeMsg && typeof challengeMsg.edit === 'function') {
+                                await challengeMsg.edit({ content: `<@${opponent.id}>`, files: [timeoutAttach], components: [], embeds: [] }).catch(()=>{});
+                            }
                         }
                     }
                 } catch(e){}
