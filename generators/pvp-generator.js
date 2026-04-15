@@ -55,12 +55,8 @@ const RACE_AR = {
 };
 
 const shieldCache = new Map();
-
-// 🚀 كاش الصور الثابتة (الخلفيات، VFX، الأسلحة، المهارات) - تُحمَّل مرة واحدة فقط
-// لا نخزّن أفاتار اللاعبين (ديناميكية) لتجنب الانتفاخ في الذاكرة
 const staticImageCache = new Map();
-
-const IMAGE_FETCH_TIMEOUT = 5000; // 5 ثوانٍ حد أقصى لكل صورة خارجية
+const IMAGE_FETCH_TIMEOUT = 5000;
 
 async function loadImageWithTimeout(url) {
     return Promise.race([
@@ -71,7 +67,6 @@ async function loadImageWithTimeout(url) {
 
 async function getSafeImage(url, fileName) {
     if (!url) return null;
-    // الصور الثابتة: تُعرَّف بوجود fileName — تُخزَّن في الكاش بعد أول تحميل
     if (fileName && staticImageCache.has(fileName)) return staticImageCache.get(fileName);
     try {
         let img = null;
@@ -83,9 +78,7 @@ async function getSafeImage(url, fileName) {
                 if (fs.existsSync(uiPath)) img = await loadImage(uiPath);
             }
         }
-        // استخدم timeout للصور الخارجية فقط لتجنب التعليق
         if (!img) img = await loadImageWithTimeout(url);
-        // خزّن فقط الصور الثابتة (ذات fileName) وليس أفاتار اللاعبين
         if (img && fileName) staticImageCache.set(fileName, img);
         return img;
     } catch (e) {
@@ -435,7 +428,6 @@ async function generatePvPImage(battleState) {
         const p1Url = p1.isMonster ? (p1.image || fallbackMonster) : (p1.member?.user?.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true }) || fallbackPlayer);
         const p2Url = p2.isMonster ? (p2.image || fallbackMonster) : (p2.member?.user?.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true }) || fallbackPlayer);
 
-        // تحميل الصور بأمان وبدون كاش لتجنب الانفجار (OOM)
         const [bgImg, p1Avatar, p2Avatar, vsPanelImg] = await Promise.all([
             getSafeImage(`${R2_URL}/pvp_arena_bg.png`, 'pvp_arena_bg.png'),
             getSafeImage(p1Url, null),
@@ -625,7 +617,6 @@ async function generatePvPImage(battleState) {
         const drawMiniStats = (player, x, y, align) => {
             ctx.textAlign = align;
             ctx.font = 'bold 16px "Bein"';
-            // 🔥 الإصلاح هنا: نقرأ الدمج الفعلي (player.damage) بدلاً من دمج السلاح المباشر
             const dmg = player.damage || player.weapon?.currentDamage || 0;
             ctx.fillStyle = '#e74c3c';
             ctx.fillText(`هجوم ${Math.floor(dmg)}`, x, y);
@@ -890,7 +881,12 @@ async function generatePvPImage(battleState) {
         ctx.fillRect(0, 0, W, 6);
         ctx.fillRect(0, H - 6, W, 6);
 
-        return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
+        const buffer = await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
+        
+        canvas.width = 0;
+        canvas.height = 0;
+        
+        return buffer;
     } catch (error) {
         return null;
     }
