@@ -510,6 +510,7 @@ function executeGuardLogic(battleState, player, guard, playerId) {
     battleState.log.push(actionLog);
 }
 
+// 🔥 تجهيز واجهة الرندرة الخالية من الأخطاء 🔥
 async function renderBattleFrame(battleState) {
     const attackerId = battleState.turn[0]; 
     
@@ -518,15 +519,26 @@ async function renderBattleFrame(battleState) {
         new ButtonBuilder().setCustomId('knight_skill_menu').setLabel('مـهــارات').setStyle(ButtonStyle.Primary).setEmoji('✨')
     );
 
-    const imgBuffer = await generatePvPImage(battleState);
+    let imgBuffer = null;
+    try {
+        imgBuffer = await generatePvPImage(battleState);
+    } catch (e) {
+        console.error("[Knight-Manager] Image Gen Error:", e);
+    }
+
     const attachment = imgBuffer ? new AttachmentBuilder(imgBuffer, { name: 'knight_battle.png' }) : null;
 
-    return { 
+    const payload = { 
         content: `**قـاتـل لتنجـو بحيـاتـك!** <@${attackerId}>`, 
-        files: attachment ? [attachment] : [], 
-        components: [mainButtons],
-        embeds: [] 
+        components: [mainButtons]
     };
+    
+    // منع إضافة ملفات فارغة يسبب تعليق وإغلاق صامت
+    if (attachment) {
+        payload.files = [attachment];
+    }
+
+    return payload;
 }
 
 function setupBattleCollector(battleState) {
@@ -579,6 +591,7 @@ function setupBattleCollector(battleState) {
                     }
                 });
 
+                // رسالة مخفية تظهر لك فقط
                 const skillMsg = await i.reply({ content: '✨ **اختر المهارة التي تريد استخدامها:**', components: skillRows, flags: [MessageFlags.Ephemeral], fetchReply: true });
                 
                 try {
@@ -680,11 +693,12 @@ function setupBattleCollector(battleState) {
     });
 }
 
+// 🔥 الدالة الرئيسية وبدء إنشاء الثريد بسلامة 🔥
 async function startKnightBattle(interaction, client, db, robberMember, amountToSteal) {
     try {
         if (activeKnightPlayers.has(robberMember.id)) {
             const errPayload = { content: "❌ أنت تقاتل الفارس بالفعل! ركز في معركتك!", flags: [MessageFlags.Ephemeral] };
-            if (interaction.isRepliable && !interaction.replied) return await interaction.reply(errPayload).catch(()=>{});
+            if (interaction.isRepliable && typeof interaction.isRepliable === 'function' && !interaction.replied) return await interaction.reply(errPayload).catch(()=>{});
             else return await interaction.channel.send(`❌ <@${robberMember.id}> أنت تقاتل الفارس بالفعل!`).catch(()=>{});
         }
         activeKnightPlayers.add(robberMember.id);
@@ -759,13 +773,13 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
         const playerName = cleanDisplayName(robberMember.displayName || robberMember.user.username);
         const threadName = `🏰-قلعة-الإمبراطور-${playerName}`.substring(0, 100);
+        
         let thread;
         let initMsg;
-
         const initPayload = { content: `🏰 **حراس القلعة يحاصرونك!** جاري تجهيز الساحة...` };
         
         try {
-            if (interaction.isRepliable) {
+            if (interaction.isRepliable && typeof interaction.isRepliable === 'function') {
                 if (interaction.deferred || interaction.replied) {
                     await interaction.editReply(initPayload);
                     initMsg = await interaction.fetchReply();
@@ -776,7 +790,11 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
                 initMsg = await interaction.channel.send(initPayload);
             }
             
-            thread = await initMsg.startThread({ name: threadName, autoArchiveDuration: 60 });
+            if (initMsg && typeof initMsg.startThread === 'function') {
+                thread = await initMsg.startThread({ name: threadName, autoArchiveDuration: 60 });
+            } else {
+                thread = interaction.channel;
+            }
         } catch(e) { 
             console.error("Thread Error:", e); 
             thread = interaction.channel;
@@ -787,6 +805,7 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
             await initMsg.edit(`🏰 **حراس القلعة يحاصرونك!** انتقل إلى الساحة: <#${thread.id}>`).catch(()=>{});
         }
 
+        // إضافة بيانات قوية لمنع الفشل عند إنشاء الصورة
         const battleState = {
             isPvE: true, isGuardBattle: true, amountToSteal,
             thread: thread, message: null, turn: [robberMember.id, "guard"], processingTurn: false,
@@ -795,10 +814,12 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
             players: new Map([
                 [robberMember.id, { 
                     isMonster: false, member: robberMember, hp: pMaxHp, maxHp: pMaxHp, 
+                    level: robberData.level || 1, atk: robberWeapon.currentDamage, def: 15,
                     weapon: robberWeapon, damage: robberWeapon.currentDamage, skills: robberSkills, effects: defEffects(), raceName: pRaceName 
                 }],
                 ["guard", { 
                     isMonster: true, name: `فـارس الإمبراطور ${multiplier > 1 ? `(x${multiplier})` : ''}`, 
+                    level: "?", atk: finalGuardDmg, def: 30,
                     hp: guardMaxHp, maxHp: guardMaxHp, weapon: guardWeapon, damage: guardWeapon.currentDamage, skills: {}, effects: guardEffects, raceName: 'زعيم', image: KNIGHT_IMAGES.MAIN 
                 }]
             ])
@@ -806,11 +827,16 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
         activePveBattles.set(thread.id, battleState);
         
-        const msgPayload = await renderBattleFrame(battleState);
-        const sentMsg = await thread.send(msgPayload);
-        
-        battleState.message = sentMsg;
-        setupBattleCollector(battleState);
+        try {
+            const msgPayload = await renderBattleFrame(battleState);
+            const sentMsg = await thread.send(msgPayload);
+            battleState.message = sentMsg;
+            setupBattleCollector(battleState);
+        } catch (e) {
+            console.error("Failed to send first battle frame:", e);
+            if (interaction.channel) await interaction.channel.send(`❌ حدث خطأ داخلي أثناء إرسال المعركة.`).catch(()=>{});
+            activeKnightPlayers.delete(robberMember.id);
+        }
         
     } catch (error) {
         console.error("Error starting knight battle:", error);
@@ -916,7 +942,11 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             }
         }
 
-        const resultImgBuffer = await generatePvPResultImage(battleState, winnerId, resultType === "win" ? "S" : "F", amount, 0);
+        let resultImgBuffer = null;
+        try {
+            resultImgBuffer = await generatePvPResultImage(battleState, winnerId, resultType === "win" ? "S" : "F", amount, 0);
+        } catch(e) { console.error("Result Image Error:", e); }
+        
         const attachment = resultImgBuffer ? new AttachmentBuilder(resultImgBuffer, { name: 'knight_result.png' }) : null;
 
         const endContent = resultType === "win" 
@@ -930,7 +960,7 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             embeds: []
         }).catch(() => {});
 
-        // 🔥 التعديل هنا: يتم الحذف بعد 30 ثانية بالضبط 🔥
+        // 🔥 حذف الثريد بعد 30 ثانية تماماً 🔥
         if (battleState.thread && battleState.thread.id !== battleState.message.channel.id) {
             setTimeout(() => {
                 try { battleState.thread.delete('انتهت المعركة مع الفارس').catch(()=>{}); } catch(e){}
