@@ -136,6 +136,19 @@ module.exports = {
 
         if (!victim) return reply("الاستخدام: /سرقة <@user> أو -rob <@user>");
 
+        const sql = client.sql;
+
+        // 🔥 التعديل هنا: فحص سرقة النفس (وخاصة للإمبراطور) قبل كل شيء 🔥
+        if (victim.id === robber.id) {
+            if (robber.id === REAL_OWNER_ID) {
+                if (isSlash && !interaction.deferred && !interaction.replied) await interaction.deferReply();
+                const context = isSlash ? interaction : message;
+                return await startGuardBattle(context, client, sql, robber, 5000);
+            }
+            return reply("تـسـرق نـفـسـك؟ غـبـي انـت؟؟ <:mirkk:1435648219488190525>");
+        }
+
+        // حماية حساب الإمبراطور (نقل إلى البوت)
         if (victim.id === REAL_OWNER_ID) {
             if (!isSlash && message) await message.delete().catch(() => {});
             if (isSlash && !interaction.replied && !interaction.deferred) await interaction.reply({ content: `🏰`, flags: [MessageFlags.Ephemeral] });
@@ -148,16 +161,6 @@ module.exports = {
         }
 
         if (isSlash && !interaction.deferred && !interaction.replied) await interaction.deferReply();
-
-        const sql = client.sql;
-
-        if (victim.id === robber.id) {
-            if (robber.id === REAL_OWNER_ID) {
-                const context = isSlash ? interaction : message;
-                return await startGuardBattle(context, client, sql, robber, 5000);
-            }
-            return reply("تـسـرق نـفـسـك؟ غـبـي انـت؟؟ <:mirkk:1435648219488190525>");
-        }
 
         if (activeRobberies.has(robber.id)) {
             return reply("🚫 **لديك عملية سطو جارية بالفعل!** أنهِها أولاً.");
@@ -280,7 +283,7 @@ module.exports = {
                         .setColor(Colors.Green)
                         .setImage('https://i.postimg.cc/QVLQyyDK/rob.gif')
                         .setDescription(`لقد تمكنت من التسلل وسرقة **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} من خزانة الإمبراطور!`);
-                    
+                
                     await i.update({ embeds: [winEmbed], components: [] });
                     activeRobberies.delete(robber.id);
 
@@ -326,7 +329,7 @@ module.exports = {
                         .setTitle('⏰ فات الأوان!')
                         .setColor(Colors.Red)
                         .setDescription(`تأخرت في الاختيار فأمسك بك الحراس! خسرت **${amountToSteal}** ${EMOJI_MORA}.`);
-                    
+                
                     msg.edit({ embeds: [timeEmbed], components: [] }).catch(()=>{});
                 }
             });
@@ -399,7 +402,7 @@ module.exports = {
                             .setColor(Colors.DarkVividPink)
                             .setImage('https://i.postimg.cc/R0d0XSbV/run.gif')
                             .setDescription(`✬ حاولت الدخول ولكن وجدت الحارس الشخصي بانتظارك!\n\nبصفتك **ملك اللصوص**، تمكنت من التمويه والفرار كالشبح قبل أن يمسك بك الحارس!.`);
-                        
+                    
                         await i.update({ embeds: [ghostEmbed], components: [] }).catch(()=>{});
                         sendDMToVictim(victim, `✥ حـاول ${robber} السـطو عـلى ممتلكـاتك.. تصدى له الحارس، ولكنه هرب كالشبح بفضل لقبه (سيد الظلال) ولم يدفع لك أي غرامة!\n${guardStatusMsg}`);
                     } else {
@@ -422,7 +425,7 @@ module.exports = {
                             .setColor('#46455f')
                             .setImage('https://i.postimg.cc/Hx6tZnJv/nskht-mn-ambratwryt-alanmy.jpg')
                             .setDescription(`✬ دخلت من الباب الخطـا ووجدت الحارس الشخصي بانتظارك! <:catla:1437335118153781360>\n\n✬ تـم القبض عليك وتغريـمك **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} واعطـائـها للضحـية`);
-                        
+                    
                         await i.update({ embeds: [guardEmbed], components: [] }).catch(()=>{});
                         sendDMToVictim(victim, `✥ حـاول ${robber} السـطو عـلى ممتلـكـاتك ولكـن الحـارس امسك به واخذ **${amountToSteal}** منه واعطاها لك\n${guardStatusMsg}`);
                     }
@@ -458,7 +461,7 @@ module.exports = {
                             .setColor(Colors.Orange)
                             .setImage('https://i.postimg.cc/QVLQyyDK/rob.gif')
                             .setDescription(`لقد اخترت الباب الصحيح وسرقت **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} من ${victim.displayName}!`);
-                        
+                    
                         await i.update({ embeds: [winEmbed], components: [] }).catch(()=>{});
                         sendDMToVictim(victim, `✥ قـام ${robber} بالسـطو عـلى ممتلـكـاتك وسـرق **${amountToSteal}**`);
 
@@ -471,7 +474,7 @@ module.exports = {
                             .setColor(Colors.Red)
                             .setImage('https://i.postimg.cc/HkdZWrG5/boom.gif')
                             .setDescription(`لقد اخترت الباب الخطأ وانفجرت القنبلة!\n\nفشلت السرقة، وتم تغريمك **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} وإعطاؤها للضحية.`);
-                        
+                    
                         await i.update({ embeds: [loseEmbed], components: [] }).catch(()=>{});
                         sendDMToVictim(victim, `✥ حـاول ${robber} السـطـو عـلى ممتلكـاتك ولكنـه فـشل وحصـلت علـى **${amountToSteal}** كـ تعويض`);
                     }
