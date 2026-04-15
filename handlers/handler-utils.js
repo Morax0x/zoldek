@@ -186,7 +186,8 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
              console.error('[LevelUp] Card generation failed:', e.message);
          }
 
-         if (card) {
+         // 🔥 الحماية الفولاذية الجديدة: التأكد من أن الصورة بصيغة Buffer صحيحة لتجنب انهيار البوت 🔥
+         if (card && Buffer.isBuffer(card)) {
              await channelToSend.send({ content: contentMsg, files: [card] });
          } else {
              await channelToSend.send({ content: contentMsg });
