@@ -146,6 +146,7 @@ function roundRect(ctx, x, y, width, height, radius) {
     ctx.closePath();
 }
 
+// 🔥 تعديل شاشة القائمة لحل تداخل النصوص 🔥
 exports.drawFarmShopGrid = async function(items, category, maxCap, currCap) {
     const width = 1350;
     const height = 900;
@@ -276,37 +277,45 @@ exports.drawFarmShopGrid = async function(items, category, maxCap, currCap) {
             ctx.shadowBlur = 0;
         }
 
+        // 🔥 تعديل أماكن النصوص وتصغيرها قليلاً للقسم الزراعي لتجنب التداخل 🔥
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#FFD700';
+        ctx.font = `bold ${isSeeds ? 18 : 22}px ${FONT_MAIN}`;
+        ctx.fillText(`${item.price.toLocaleString()} مورا`, iconContainerX - 10, y + (isSeeds ? 40 : 50));
+
+        ctx.fillStyle = '#A8B8D0';
+        ctx.font = `${isSeeds ? 16 : 18}px ${FONT_MAIN}`;
+        
+        if (category === 'animals') {
+            ctx.fillText(`الدخل: ${item.income_per_day}`, iconContainerX - 10, y + 80);
+            ctx.fillText(`العمر: ${item.lifespan_days} يوم | الحجم: ${item.size}`, iconContainerX - 10, y + 105);
+        } else if (category === 'seeds') {
+            // رفعناها قليلاً لتجنب الدخول في اسم البذرة
+            ctx.fillText(`البيع: ${item.sell_price}`, iconContainerX - 10, y + 70);
+            ctx.fillText(`النمو: ${item.growth_time_hours}س`, iconContainerX - 10, y + 95);
+        } else {
+            const desc = item.description ? item.description.substring(0, 20) + '...' : 'علف مخصص.';
+            ctx.fillText(desc, iconContainerX - 10, y + 80);
+        }
+
+        // شريط الاسم نزلناه تحت لكي لا يتداخل
         const ribbonH = 35;
-        const ribbonY = iconContainerY + iconContainerSize + 15;
+        const ribbonY = y + slotH - ribbonH - 15;
         drawRibbon(ctx, x + 15, ribbonY, slotW - 30, ribbonH, color);
         
         ctx.textAlign = 'center';
         ctx.fillStyle = '#FFFFFF';
         drawAutoScaledText(ctx, item.name.replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿🪙]/gu, '').trim(), x + slotW / 2, ribbonY + ribbonH / 2, slotW - 40, 18, 10);
 
-        ctx.textAlign = 'right';
-        ctx.fillStyle = '#FFD700';
-        ctx.font = `bold 22px ${FONT_MAIN}`;
-        ctx.fillText(`${item.price.toLocaleString()} مورا`, iconContainerX - 15, y + 50);
-
-        ctx.fillStyle = '#A8B8D0';
-        ctx.font = `18px ${FONT_MAIN}`;
-        
-        if (category === 'animals') {
-            ctx.fillText(`الدخل: ${item.income_per_day}`, iconContainerX - 15, y + 80);
-            ctx.fillText(`العمر: ${item.lifespan_days} يوم | حجم: ${item.size}`, iconContainerX - 15, y + 105);
-        } else if (category === 'seeds') {
-            ctx.fillText(`البيع: ${item.sell_price}`, iconContainerX - 15, y + 80);
-            ctx.fillText(`النمو: ${item.growth_time_hours}س`, iconContainerX - 15, y + 105);
-        } else {
-            const desc = item.description ? item.description.substring(0, 20) + '...' : 'علف مخصص.';
-            ctx.fillText(desc, iconContainerX - 15, y + 80);
-        }
     }
 
-    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
+    const buffer = await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
+    canvas.width = 0;
+    canvas.height = 0;
+    return buffer;
 };
 
+// 🔥 تعديل شاشة تفاصيل الحيوان لتعرض المعلومات بشكل جذاب ومفصل 🔥
 exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, currCap) {
     const width = 1000;
     const height = 600;
@@ -409,15 +418,15 @@ exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, cur
     textY += 30;
 
     ctx.fillStyle = '#FFD700';
-    ctx.font = `35px ${FONT_MAIN}`;
+    ctx.font = `30px ${FONT_MAIN}`;
     ctx.fillText(`السعر:  ${item.price.toLocaleString()} مورا`, textX, textY);
-    textY += 60;
+    textY += 50;
     
     ctx.fillStyle = '#00FF88';
     if (category === 'animals') {
-        ctx.fillText(`الـسـعـة المـتـاحـة:  ${maxCap - currCap}`, textX, textY);
+        ctx.fillText(`السعة المتاحة:  ${maxCap - currCap}`, textX, textY);
     } else {
-        ctx.fillText(`الـمـخـزون الـحـالـي:  ${userQty.toLocaleString()}`, textX, textY);
+        ctx.fillText(`المخزون الحالي:  ${userQty.toLocaleString()}`, textX, textY);
     }
     textY += 60;
 
@@ -435,18 +444,20 @@ exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, cur
     
     let details = [];
     if (category === 'animals') {
-        details.push(`💰 الدخل: ${item.income_per_day} مورا/يوم`);
-        details.push(`⏳ العمر: ${item.lifespan_days} يوم`);
-        details.push(`📦 الحجم: ${item.size} وحدة`);
+        details.push(`💰 الدخل اليومي: ${item.income_per_day} مورا`);
+        details.push(`⏳ العمر الافتراضي: ${item.lifespan_days} يوم`);
+        details.push(`📦 الحجم بالسعة: ${item.size} وحدة`);
+        details.push(`🍗 أقصى حد للجوع: ${item.max_hunger_days} أيام`);
+        if (item.feed_id) details.push(`🌾 نوع العلف المفضل: ${(item.feed_id.replace('feed_', ''))}`);
     } else if (category === 'seeds') {
-        details.push(`💰 البيع: ${item.sell_price} مورا`);
-        details.push(`⏳ النمو: ${item.growth_time_hours} ساعة`);
-        details.push(`✨ الخبرة: +${item.xp_reward} XP`);
+        details.push(`💰 سعر البيع: ${item.sell_price} مورا`);
+        details.push(`⏳ وقت النمو: ${item.growth_time_hours} ساعة`);
+        details.push(`✨ الخبرة المكتسبة: +${item.xp_reward} XP`);
     } else {
-        details.push(item.description || 'علف صحي لضمان نمو ودخل ممتاز.');
+        details.push(item.description || 'علف صحي لضمان نمو ودخل ممتاز لحيوانات المزرعة.');
     }
 
-    let lines = wrapText(ctx, details.join(' '), descBoxW - 40);
+    let lines = wrapText(ctx, details.join('   |   '), descBoxW - 40);
     let currentY = descBoxY + 40;
     
     for (let j = 0; j < lines.length; j++) {
@@ -454,5 +465,8 @@ exports.drawFarmShopDetail = async function(item, category, userQty, maxCap, cur
         currentY += 40;
     }
 
-    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
+    const buffer = await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
+    canvas.width = 0;
+    canvas.height = 0;
+    return buffer;
 };
