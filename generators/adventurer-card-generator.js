@@ -49,7 +49,14 @@ async function generateAdventurerCard(data) {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    const primaryColor = data.rankInfo.color || '#555555';
+    const rankMatch = data.rankInfo.name.match(/[A-Z]+/);
+    const rankLetter = rankMatch ? rankMatch[0] : 'F'; 
+
+    // 🔥 تعديل لون رتبة SSS ليكون بنفسجياً سحرياً مميزاً 🔥
+    let primaryColor = data.rankInfo.color || '#555555';
+    if (rankLetter === 'SSS') {
+        primaryColor = '#9b59b6'; // لون بنفسجي مميز
+    }
 
     const bgBase = ctx.createLinearGradient(0, 0, width, height);
     bgBase.addColorStop(0, '#050508'); 
@@ -130,8 +137,6 @@ async function generateAdventurerCard(data) {
     ctx.strokeStyle = borderGradient;
     ctx.stroke();
 
-    const rankMatch = data.rankInfo.name.match(/[A-Z]+/);
-    const rankLetter = rankMatch ? rankMatch[0] : 'F'; 
     const badgeX = 940;
     const badgeY = 110;
     const badgeW = 120;
@@ -153,7 +158,6 @@ async function generateAdventurerCard(data) {
     ctx.stroke();
     ctx.restore();
 
-    // 🔥 التصحيح الذكي لحجم الرتبة SSS داخل الدرع 🔥
     ctx.fillStyle = primaryColor;
     ctx.textAlign = 'center';
     ctx.shadowColor = primaryColor;
@@ -283,7 +287,6 @@ async function generateAdventurerCard(data) {
         ctx.fillStyle = '#FFAA40';
         ctx.textAlign = 'right';
         ctx.font = 'bold 22px "Bein", sans-serif';
-        // 🔥 إخفاء الإمبراطور من التصنيف وعرض ??? 🔥
         const displayValue = (value === "0" || value === 0) ? "???" : `#${value}`;
         ctx.fillText(displayValue, col1X + boxW - 20, row1Y + yOffset + 2);
     };
@@ -332,7 +335,11 @@ async function generateAdventurerCard(data) {
     ctx.fillText(xpText, barX + (barW / 2), barY + 21);
     ctx.shadowBlur = 0;
 
-    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
+    // 🔥 تدمير الكانفاس لتنظيف الرام فوراً 🔥
+    const buffer = await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
+    canvas.width = 0;
+    canvas.height = 0;
+    return buffer;
 }
 
 module.exports = { generateAdventurerCard };
