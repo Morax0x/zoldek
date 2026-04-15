@@ -1,5 +1,6 @@
-const { SlashCommandBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, AttachmentBuilder, Colors } = require('discord.js');
 const path = require('path');
+
 let generateFishingCard;
 try {
     ({ generateFishingCard } = require('../../generators/fishing-card-generator.js'));
@@ -315,6 +316,7 @@ module.exports = {
                         
                         if (currentVersion !== updateVersion) return; 
 
+                        // 🔥 التعديل الآمن الذي يتوافق مع مكتبة NAPI-RS 🔥
                         const attachment = new AttachmentBuilder(imgBuffer, { name: 'fishing-game.png' });
                         const finalContent = isFinal ? `<@${user.id}> **انتهت المحاولة!**` : `<@${user.id}> **انتبه للعداد والمسافة!**`;
                         
@@ -336,7 +338,6 @@ module.exports = {
 
                 await sendUpdate();
 
-                // 🔥 تم الإصلاح هنا: وضعناه داخل Try/Catch لحماية السيرفر من الـ Crash 🔥
                 let collector;
                 try {
                     collector = loadingMsg.createMessageComponentCollector({
