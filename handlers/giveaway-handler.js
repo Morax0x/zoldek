@@ -1,6 +1,5 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, MessageFlags } = require("discord.js");
 
-// 🔥 استيراد الدالة المركزية للتلفيل 🔥
 let addXPAndCheckLevel;
 try {
     ({ addXPAndCheckLevel } = require('./handler-utils.js'));
@@ -10,7 +9,6 @@ try {
     } catch(e2) {}
 }
 
-// 🛡️ نظام معالجة استعلامات فولاذي 🛡️
 const safeQuery = async (db, qPg, params) => {
     let res;
     try { 
@@ -72,10 +70,6 @@ const safeExecute = async (db, qPg, params) => {
     }
 };
 
-// =========================================================================
-// 🚀 دوال ذكية تجبر قاعدة البيانات على تسجيل وحذف المشاركين بنجاح 100% 🚀
-// (تمت إضافة التوافق مع كل أسماء الأعمدة القديمة لتجنب المشاكل)
-// =========================================================================
 async function getGiveawayEntries(db, msgId) {
     let res;
     try { res = await db.query(`SELECT * FROM giveaway_entries WHERE "giveawayID" = $1`, [msgId]); if(res?.rows?.length) return res.rows; } catch(e) {}
@@ -100,7 +94,6 @@ async function removeGiveawayEntry(db, msgId, userId) {
     try { await db.query(`DELETE FROM giveaway_entries WHERE messageid = $1 AND userid = $2`, [msgId, userId]); return true; } catch(e) {}
     return false;
 }
-// =========================================================================
 
 async function getUserWeight(member, db) {
     if (!member || !db || !member.guild) return 1;
@@ -124,12 +117,12 @@ async function getUserWeight(member, db) {
     }
 }
 
-async function startGiveaway(client, interaction, channel, duration, winnerCount, prize, xpReward, moraReward, image = null) {
+// 🔥 تحديث الدالة لتقبل اللون وتطبقه بحماية 🔥
+async function startGiveaway(client, interaction, channel, duration, winnerCount, prize, xpReward, moraReward, image = null, color = null) {
     const db = client.sql; 
     if (!db) return;
 
     await db.query(`CREATE TABLE IF NOT EXISTS active_giveaways ("messageID" TEXT PRIMARY KEY, "guildID" TEXT, "channelID" TEXT, "prize" TEXT, "endsAt" BIGINT, "winnerCount" INTEGER, "xpReward" INTEGER, "moraReward" INTEGER, "isFinished" INTEGER DEFAULT 0)`).catch(()=>{});
-    // تصميم الجدول بأعمدة آمنة لا تتضارب مع النسخ القديمة
     await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER)`).catch(()=>{});
 
     const endsAt = Date.now() + duration;
@@ -141,8 +134,14 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
             `✶ عـدد الـمـشاركـيـن: 0\n` +
             `✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>`
         )
-        .setColor(Colors.Blue)
         .setTimestamp(endsAt);
+
+    // تطبيق اللون مع الحماية من الأكواد الخاطئة
+    try {
+        embed.setColor(color || Colors.Blue);
+    } catch (e) {
+        embed.setColor(Colors.Blue);
+    }
 
     if (moraReward > 0 || xpReward > 0) {
         embed.addFields(
@@ -176,7 +175,6 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     return message;
 }
 
-// 🛠️ التحديث الآمن للتفاعل (يحدث الأزرار والوصف بشكل فوري وحقيقي) 🛠️
 async function handleGiveawayInteraction(client, interaction) {
     try {
         const db = client.sql; 
@@ -216,7 +214,6 @@ async function handleGiveawayInteraction(client, interaction) {
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة`;
         }
 
-        // تحديث العداد من الداتابيز مباشرة (دقيق 100%) وتصليح النص
         try {
             const newEntries = await getGiveawayEntries(db, messageID);
             const count = newEntries.length;
@@ -224,7 +221,6 @@ async function handleGiveawayInteraction(client, interaction) {
             const embed = EmbedBuilder.from(interaction.message.embeds[0]);
             
             if (embed.data.description) {
-                // Regex ذكي يلتقط سطر المشاركين مهما كان تنسيقه القديم
                 const regex = /✶ عـدد الـمـشاركـيـن:\s*\d+/g;
                 if (regex.test(embed.data.description)) {
                     embed.setDescription(embed.data.description.replace(regex, `✶ عـدد الـمـشاركـيـن: ${count}`));
@@ -430,7 +426,6 @@ async function createRandomDropGiveaway(client, guild) {
 
         const prize = `جوائز عشوائية`;
 
-        // ترتيب وتنسيق القيفاواي العشوائي ليكون مطابقاً للقيفاوي العادي ليسهل تحديث العداد
         const description = `**${prize}**\n\n` +
                             `✶ عـدد الـمـشاركـيـن: 0\n` +
                             `✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>\n\n` +
