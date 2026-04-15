@@ -178,18 +178,20 @@ module.exports = {
         const targetMember = await message.guild.members.fetch(targetUser.id).catch(() => null);
         if (!targetMember) return message.reply("❌ العضو غير موجود في السيرفر.");
 
-        // 🔥 التعديل: إرسال زر فقط لإخفاء القائمة 🔥
+        // 🔥 التصميم الجديد الخارجي المطلوب 🔥
+        const randomColor = Math.floor(Math.random()*16777215); 
+
         const embed = new EmbedBuilder()
-            .setTitle(`👑 بوابة تحكم الإمبراطور`)
-            .setColor(Colors.Gold)
-            .setDescription(`الهدف: **${targetUser.username}**\nانقر على الزر أدناه لفتح لوحة التحكم الخاصة بك بشكل سري.`);
+            .setTitle(`✥ لـوحـة التـحـكـم بالامبراطـوريـة`)
+            .setColor(randomColor)
+            .setThumbnail(targetUser.displayAvatarURL())
+            .setDescription(`**${targetUser.username}**`);
 
         const btnRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`admin_open_panel_${targetUser.id}`)
-                .setLabel('فتح لوحة التحكم السرية')
+                .setLabel('اصـدار امـر 👑')
                 .setStyle(ButtonStyle.Danger)
-                .setEmoji('👑')
         );
 
         const initMsg = await message.reply({ embeds: [embed], components: [btnRow] });
@@ -221,7 +223,7 @@ module.exports = {
                     { label: '⛺ منح خيمة (دانجون)', value: 'dungeon_tent', emoji: '⛺' },
                     { label: '🎒 إدارة العناصر', value: 'items', emoji: '🎒' },
                     { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', emoji: '⚔️' },
-                    { label: '🕵️ إدارة التعزيز المخفي', value: 'hidden_buff', description: 'تعديل لفل سلاح/مهارة في الخفاء!', emoji: '🕵️' }, // 🔥 الإضافة المطلوبة
+                    { label: '🕵️ إدارة التعزيز المخفي', value: 'hidden_buff', description: 'تعديل لفل سلاح/مهارة في الخفاء!', emoji: '🕵️' },
                     { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', emoji: '🎣' }, 
                     { label: '🗑️ تصفير الأسلحة والمهارات', value: 'reset_combat', emoji: '🗑️' },
                     { label: '🛡️ إعطاء درع ميديا', value: 'media_shield', emoji: '🛡️' },
@@ -229,11 +231,9 @@ module.exports = {
                 ])
         );
 
-        // إرسال القائمة بشكل مخفي لا يراه إلا الأدمن
         await interaction.reply({ content: `👑 **لوحة تحكم: ${targetUser.username}**`, components: [row], flags: [MessageFlags.Ephemeral] });
 
         const filter = i => i.user.id === interaction.user.id;
-        // نستخدم القناة نفسها للتنصت لأن الرسالة ephemeral
         const actionCollector = interaction.channel.createMessageComponentCollector({ filter, time: 300000 });
 
         actionCollector.on('collect', async i => {
@@ -339,7 +339,6 @@ module.exports = {
                     await modalSubmit.editReply({ content: `✅ تم تعديل اقتصاد ${targetUser} بنجاح.` });
                 } catch(e) {}
             }
-            // 🔥 نظام التعزيز المخفي (الإضافة الذكية) 🔥
             else if (val === 'hidden_buff') {
                 const modalId = `mod_hidden_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة التعزيز المخفي');
@@ -378,7 +377,7 @@ module.exports = {
                         return modalSubmit.editReply("❌ نوع غير معروف. يرجى كتابة (سلاح) أو (مهارة).");
                     }
 
-                    const expireTime = Date.now() + (365 * 24 * 60 * 60 * 1000); // مدة سنة
+                    const expireTime = Date.now() + (365 * 24 * 60 * 60 * 1000); 
                     
                     if (level === 0) {
                         await safeQuery(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = $3`, [userID, guildID, buffType]);
