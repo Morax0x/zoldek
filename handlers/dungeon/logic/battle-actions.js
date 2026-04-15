@@ -110,7 +110,9 @@ async function handlePlayerBattleInteraction(i, context) {
                 await selection.deferUpdate().catch(()=>{}); 
 
                 const skillId = selection.values[0];
-                const shieldSkills = ['skill_shielding', 'race_human_skill'];
+                
+                // 🔥 تم الإصلاح: حصر المنع على مهارة الدرع الأساسية فقط 🔥
+                const shieldSkills = ['skill_shielding'];
                 if (shieldSkills.includes(skillId) && p.shield > 0) {
                     await selection.followUp({ content: `🛡️ **لديك درع نشط بالفعل!**`, ephemeral: true });
                     processingUsers.delete(i.user.id); return { ongoing: true }; 
