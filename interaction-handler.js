@@ -254,7 +254,9 @@ module.exports = (client, db, antiRolesCache) => {
 
                 if (id.startsWith('bid_')) { 
                     await handleAuctionSystem(i); 
-                } else if (id.startsWith('giveaway_')) {
+                } 
+                // 🔥 توجيه القيفاوي المباشر للصحيح 🔥
+                else if (id === 'g_enter' || id === 'g_enter_drop' || id.startsWith('giveaway_')) {
                     if (handleGiveawayInteraction) await handleGiveawayInteraction(client, i);
                 } else if (id.startsWith('customrole_')) {
                     await handleCustomRoleInteraction(i, client, db);
@@ -292,7 +294,7 @@ module.exports = (client, db, antiRolesCache) => {
                     if (id === 'shop_select_item') await handleShopSelectMenu(i, client, db);
                     else if (id === 'shop_skill_select_menu') await handleSkillSelectMenu(i, client, db);
                     else await handleShopInteractions(i, client, db);
-                } else if (id === 'g_builder_content' || id === 'g_builder_visuals' || id === 'g_builder_send' || id === 'g_enter' || id === 'g_enter_drop') {
+                } else if (id === 'g_builder_content' || id === 'g_builder_visuals' || id === 'g_builder_send') {
                     await handleGiveawayBuilderButtons(i, client, db);
                 }
                 return;
@@ -348,7 +350,7 @@ module.exports = (client, db, antiRolesCache) => {
                     return;
                 }
 
-                if (i.customId.startsWith('bid_')) {
+                if (i.customId.startsWith('bid_')) { 
                     await handleAuctionSystem(i);
                     return;
                 }
@@ -607,7 +609,6 @@ async function handleGiveawayBuilderButtons(i, client, db) {
 
         const gMessage = await targetChannel.send({ embeds: [embed], components: [row] });
         
-        // 🔥 حل المشكلة: إدخال القيفاواي إلى الداتابيز باستخدام النظام الصحيح 🔥
         try {
             await db.query(`INSERT INTO active_giveaways ("messageID", "guildID", "channelID", "prize", "endsAt", "winnerCount", "xpReward", "moraReward", "isFinished") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)`, [gMessage.id, i.guild.id, targetChannel.id, data.prize, endsAt, winnerCount, data.xpReward || 0, data.moraReward || 0]);
         } catch (e) {
@@ -624,69 +625,6 @@ async function handleGiveawayBuilderButtons(i, client, db) {
         giveawayBuilders.delete(i.user.id);
         await i.message.edit({ content: "✅ تم إرسال القيفاواي بنجاح!", embeds: [], components: [] }).catch(() => {});
         await i.editReply("✅ تم الإرسال!");
-
-    // 🔥 حل المشكلة: تسجيل مشاركة القيفاواي بالنظام الصحيح للداتابيز 🔥
-    } else if (id === 'g_enter') {
-        if (!i.replied && !i.deferred) await i.deferUpdate().catch(() => {});
-        const giveawayID = i.message.id;
-        const userID = i.user.id;
-        
-        let existingEntry = null;
-        try {
-            const res = await db.query(`SELECT 1 FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [giveawayID, userID]);
-            existingEntry = res.rows[0];
-        } catch(e) {
-            try {
-                const res = await db.query(`SELECT 1 FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [giveawayID, userID]);
-                existingEntry = res.rows[0];
-            } catch(err) {}
-        }
-        
-        let replyMessage = "";
-        if (existingEntry) {
-            try { await db.query(`DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [giveawayID, userID]); } catch(e){
-                try { await db.query(`DELETE FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [giveawayID, userID]); } catch(e){}
-            }
-            replyMessage = "✅ تـم الـغـاء الـمـشاركـة";
-        } else {
-            const weight = await getUserWeight(i.member, db).catch(() => 1);
-            try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [giveawayID, userID, weight]); } catch(e){
-                try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [giveawayID, userID, weight]); } catch(e){}
-            }
-            replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح دخـلت بـ: ${weight} تذكـرة`;
-        }
-        await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-
-    // 🔥 حل المشكلة: تسجيل مشاركة الدروب (Drops) بالنظام الصحيح للداتابيز 🔥
-    } else if (id === 'g_enter_drop') {
-        if (!i.replied && !i.deferred) await i.deferUpdate().catch(() => {});
-        const messageID = i.message.id;
-        const userID = i.user.id;
-        try {
-            let giveawayRes;
-            try { giveawayRes = await db.query(`SELECT * FROM active_giveaways WHERE "messageID" = $1 AND "isFinished" = 0`, [messageID]); }
-            catch(e) { giveawayRes = await db.query(`SELECT * FROM active_giveaways WHERE messageid = $1 AND isfinished = 0`, [messageID]); }
-            const giveaway = giveawayRes?.rows?.[0];
-            
-            if (!giveaway || (giveaway.endsAt && giveaway.endsAt < Date.now()) || (giveaway.endsat && giveaway.endsat < Date.now())) return i.followUp({ content: "❌ هذا القيفاواي انتهى.", flags: [MessageFlags.Ephemeral] });
-            
-            let existingRes;
-            try { existingRes = await db.query(`SELECT 1 FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [messageID, userID]); }
-            catch(e) { existingRes = await db.query(`SELECT 1 FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [messageID, userID]); }
-            const existing = existingRes?.rows?.[0];
-            
-            if (existing) return i.followUp({ content: "⚠️ أنت مسجل بالفعل.", flags: [MessageFlags.Ephemeral] });
-
-            let weight = 1;
-            try { weight = await getUserWeight(i.member, db); } catch (err) {}
-
-            try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [messageID, userID, weight]); }
-            catch(e) { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [messageID, userID, weight]); }
-            
-            return i.followUp({ content: `✅ تم التسجيل بنجاح (تذاكر: ${weight})!`, flags: [MessageFlags.Ephemeral] });
-        } catch (error) {
-            return i.followUp({ content: "❌ حدث خطأ.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
-        }
     }
 }
 
