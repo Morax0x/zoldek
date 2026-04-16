@@ -117,7 +117,6 @@ async function getUserWeight(member, db) {
     }
 }
 
-// 🔥 تحديث الدالة لتقبل اللون وتطبقه بحماية 🔥
 async function startGiveaway(client, interaction, channel, duration, winnerCount, prize, xpReward, moraReward, image = null, color = null) {
     const db = client.sql; 
     if (!db) return;
@@ -136,12 +135,7 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
         )
         .setTimestamp(endsAt);
 
-    // تطبيق اللون مع الحماية من الأكواد الخاطئة
-    try {
-        embed.setColor(color || Colors.Blue);
-    } catch (e) {
-        embed.setColor(Colors.Blue);
-    }
+    try { embed.setColor(color || Colors.Blue); } catch (e) { embed.setColor(Colors.Blue); }
 
     if (moraReward > 0 || xpReward > 0) {
         embed.addFields(
@@ -175,6 +169,7 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     return message;
 }
 
+// 🔥 نظام الرد الذكي المحدث لتجنب أخطاء الديسكورد وتحديث العداد مباشرة 🔥
 async function handleGiveawayInteraction(client, interaction) {
     try {
         const db = client.sql; 
@@ -204,36 +199,42 @@ async function handleGiveawayInteraction(client, interaction) {
 
         if (existingEntry) {
             await removeGiveawayEntry(db, messageID, userID);
-            replyMessage = "✅ تـم الـغـاء الـمـشاركـة";
+            replyMessage = "✅ تـم الـغـاء الـمـشاركـة.. حظاً أوفر في المرات القادمة!";
         } else {
             const weight = await getUserWeight(interaction.member, db);
             const isSuccess = await addGiveawayEntry(db, messageID, userID, weight);
             if (!isSuccess) {
                 return interaction.editReply({ content: "❌ حدث خطأ، تأكد من التسجيل وحاول مجدداً." });
             }
-            replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة`;
+            replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة 🎟️`;
         }
 
         try {
+            // جلب العدد الجديد مباشرة بعد الإضافة/الحذف
             const newEntries = await getGiveawayEntries(db, messageID);
             const count = newEntries.length;
 
-            const embed = EmbedBuilder.from(interaction.message.embeds[0]);
+            const originalEmbed = interaction.message.embeds[0];
+            const newEmbed = new EmbedBuilder(originalEmbed.toJSON());
             
-            if (embed.data.description) {
-                const regex = /✶ عـدد الـمـشاركـيـن:\s*\d+/g;
-                if (regex.test(embed.data.description)) {
-                    embed.setDescription(embed.data.description.replace(regex, `✶ عـدد الـمـشاركـيـن: ${count}`));
+            if (newEmbed.data.description) {
+                const regex = /✶ عـدد الـمـشاركـيـن:\s*\d+/;
+                if (regex.test(newEmbed.data.description)) {
+                    newEmbed.setDescription(newEmbed.data.description.replace(regex, `✶ عـدد الـمـشاركـيـن: ${count}`));
                 } else {
-                    embed.setDescription(embed.data.description + `\n✶ عـدد الـمـشاركـيـن: ${count}`);
+                    newEmbed.setDescription(newEmbed.data.description + `\n✶ عـدد الـمـشاركـيـن: ${count}`);
                 }
             }
 
-            const oldButton = interaction.message.components[0].components[0];
-            const newButton = ButtonBuilder.from(oldButton).setLabel(`مشاركة (${count})`);
-            const newRow = new ActionRowBuilder().addComponents(newButton);
+            const newRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('g_enter')
+                    .setLabel(`مشاركة (${count})`)
+                    .setEmoji('🎉')
+                    .setStyle(ButtonStyle.Primary)
+            );
             
-            await interaction.message.edit({ embeds: [embed], components: [newRow] }).catch(()=>{});
+            await interaction.message.edit({ embeds: [newEmbed], components: [newRow] }).catch(()=>{});
         } catch(e) {
             console.error("Button Update Error:", e);
         }
@@ -418,7 +419,7 @@ async function createRandomDropGiveaway(client, guild) {
         if (!channel) return false;
 
         const moraReward = Math.floor(Math.random() * 3001) + 500; 
-        const xpReward = Math.floor(Math.random() * 1201) + 300;     
+        const xpReward = Math.floor(Math.random() * 1201) + 300;      
         
         const winnerCount = Math.floor(Math.random() * 3) + 1;        
         const durationMs = 5 * 60 * 1000; 
