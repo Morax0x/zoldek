@@ -515,7 +515,6 @@ function executeGuardLogic(battleState, player, guard, playerId) {
     battleState.log.push(actionLog);
 }
 
-// 🔥 تجهيز واجهة الرندرة الخالية من الأخطاء 🔥
 async function renderBattleFrame(battleState) {
     const attackerId = battleState.turn[0]; 
     
@@ -547,7 +546,6 @@ async function renderBattleFrame(battleState) {
     return payload;
 }
 
-// تحديث رسالة المعلق
 async function updateAnnouncer(battleState) {
     if (battleState.announcerText && battleState.announcerMessage) {
         const newAnnEmbed = new EmbedBuilder().setDescription(battleState.announcerText).setColor(battleState.announcerColor || Colors.Gold);
@@ -555,7 +553,6 @@ async function updateAnnouncer(battleState) {
     }
 }
 
-// 🔥 نظام معالجة الدور مع تأخير للرد لتكون المعركة حية 🔥
 async function processTurn(i, battleState, playerId, playerActionCallback) {
     if (battleState.processingTurn) return;
     battleState.processingTurn = true;
@@ -584,11 +581,9 @@ async function processTurn(i, battleState, playerId, playerActionCallback) {
         return;
     }
 
-    // 1️⃣ إرسال صورة الدور الخاص بك (هجومك)
     let nextPayload = await renderBattleFrame(battleState);
     if (battleState.message) await battleState.message.edit(nextPayload).catch(()=>{});
     
-    // تفعيل المعلق لتعليق حي على هجوم اللاعب
     let triggerAnnouncer;
     try { ({ triggerAnnouncer } = require('./pvp-announcer.js')); } catch(e) {}
     if (triggerAnnouncer) {
@@ -598,10 +593,8 @@ async function processTurn(i, battleState, playerId, playerActionCallback) {
         } catch(e) {}
     }
 
-    // ⏳ انتظار ثانيتين ونصف لكي يقرأ اللاعب ماذا حدث
     await new Promise(r => setTimeout(r, 2500));
 
-    // 2️⃣ تنفيذ دور الفارس (رد الفعل)
     executeGuardLogic(battleState, player, guard, playerId);
 
     if (player.hp <= 0) {
@@ -609,12 +602,10 @@ async function processTurn(i, battleState, playerId, playerActionCallback) {
         return;
     }
 
-    // 3️⃣ إرسال صورة الدور الخاص بالفارس (رده عليك)
     battleState.processingTurn = false;
     nextPayload = await renderBattleFrame(battleState);
     if (battleState.message) await battleState.message.edit(nextPayload).catch(()=>{});
     
-    // تفعيل المعلق لتعليق حي على رد الفارس
     if (triggerAnnouncer) {
         try {
             const p = triggerAnnouncer(battleState, battleState.log[battleState.log.length - 1] || 'دفاع');
@@ -643,7 +634,6 @@ function setupBattleCollector(battleState) {
             const player = battleState.players.get(i.user.id);
             const guard = battleState.players.get("guard");
 
-            // 🔥 القائمة المخفية للمهارات بطريقة الـ Dropdown Menu 🔥
             if (customId === 'knight_skill_menu') {
                 const userSkills = player.skills || {};
                 const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
@@ -700,7 +690,6 @@ function setupBattleCollector(battleState) {
                 return;
             }
 
-            // 🔥 الهجوم العادي مع الانتظار الذكي 🔥
             if (customId === 'knight_attack') {
                 await i.deferUpdate().catch(()=>{});
                 
@@ -726,7 +715,6 @@ function setupBattleCollector(battleState) {
     });
 }
 
-// 🔥 بناء الثريد على رسالة السرقة (Embed) نفسها 🔥
 async function startKnightBattle(interaction, client, db, robberMember, amountToSteal) {
     try {
         if (activeKnightPlayers.has(robberMember.id)) {
@@ -811,7 +799,6 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
         let initMsg;
 
         try {
-            // 🔥 ربط مباشر مع رسالة الـ Embed للسرقة المرسلة من rob.js 🔥
             if (interaction.startThread && interaction.author?.bot) {
                 initMsg = interaction;
             } else if (interaction.isRepliable && typeof interaction.isRepliable === 'function') {
@@ -1049,10 +1036,18 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             }).catch(() => {});
         }
 
-        // 🔥 حذف الثريد تلقائياً بعد 30 ثانية من انتهاء المعركة 🔥
-        if (battleState.thread && battleState.thread.id !== battleState.message.channel.id) {
-            setTimeout(() => {
-                try { battleState.thread.delete('انتهت المعركة مع الفارس').catch(()=>{}); } catch(e){}
+        // 🔥 تأمين وحماية دالة حذف الثريد التلقائية بعد 30 ثانية لتنفذ بشكل جذري وحتمي 🔥
+        if (battleState.thread) {
+            setTimeout(async () => {
+                try {
+                    // سحب الثريد مجدداً للتأكد من أنه لا يزال موجوداً ثم حذفه
+                    const fetchedThread = await battleState.message?.guild?.channels?.fetch(battleState.thread.id).catch(() => null);
+                    if (fetchedThread) {
+                        await fetchedThread.delete('انتهت المعركة مع الفارس');
+                    }
+                } catch (e) {
+                    console.log("Could not auto-delete Knight thread (already deleted or missing permissions).");
+                }
             }, 30000); 
         }
 
