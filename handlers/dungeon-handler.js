@@ -322,6 +322,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
                 const startMsg = await thread.send(`🔔 **يتم الآن استدعاء وحوش ${theme.name}.. استعدوا!**`);
 
                 if (typeof runDungeon === 'function') {
+                    // بدأ الدانجون بشكل طبيعي
                     await runDungeon(thread, msg.channel, validParty, theme, db, host.id, partyClasses, activeDungeonRequests, startFloor);
                 } else {
                     throw new Error("Dungeon battle logic (runDungeon) is not loaded correctly.");
@@ -373,7 +374,7 @@ async function lobbyPhase(interaction, oldMsg, theme, db, startFloor = 1) {
     });
 }
 
-// 🔥 إضافة دالة الاستعادة المفقودة هنا 🔥
+// 🔥 دالة الاستعادة المحسّنة (Resume) مع ضمان استرجاع الجوائز (Accumulated Rewards) 🔥
 async function resumeActiveDungeons(client, db) {
     try {
         let res;
@@ -427,6 +428,7 @@ async function resumeActiveDungeons(client, db) {
 
             activeDungeonRequests.set(hostID, { status: 'battle', startFloor: resumeData.floor });
 
+            // 🔥 تمرير الـ resumeData إلى runDungeon لضمان استرجاع المورا والإكس بي 🔥
             runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostID, partyClasses, activeDungeonRequests, resumeData.floor, resumeData)
             .catch(e => console.error(`[Dungeon Resume Fatal Error] Error resuming dungeon for ${hostID}:`, e));
         }
