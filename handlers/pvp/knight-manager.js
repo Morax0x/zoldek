@@ -563,7 +563,7 @@ async function processTurn(i, battleState, playerId, playerActionCallback) {
     const player = battleState.players.get(playerId);
     const guard = battleState.players.get("guard");
 
-    battleState.log = []; // تصفية السجل لبداية دور جديد
+    battleState.log = []; 
     
     const { logEntries: pLog, skipTurn: pSkip } = applyPersistentEffects(battleState, playerId);
     if (pLog.length > 0) battleState.log.push(...pLog);
@@ -587,7 +587,16 @@ async function processTurn(i, battleState, playerId, playerActionCallback) {
     // 1️⃣ إرسال صورة الدور الخاص بك (هجومك)
     let nextPayload = await renderBattleFrame(battleState);
     if (battleState.message) await battleState.message.edit(nextPayload).catch(()=>{});
-    await updateAnnouncer(battleState);
+    
+    // تفعيل المعلق لتعليق حي على هجوم اللاعب
+    let triggerAnnouncer;
+    try { ({ triggerAnnouncer } = require('./pvp-announcer.js')); } catch(e) {}
+    if (triggerAnnouncer) {
+        try {
+            const p = triggerAnnouncer(battleState, battleState.log[battleState.log.length - 1] || 'هجوم');
+            if (p && typeof p.catch === 'function') p.catch(()=>{});
+        } catch(e) {}
+    }
 
     // ⏳ انتظار ثانيتين ونصف لكي يقرأ اللاعب ماذا حدث
     await new Promise(r => setTimeout(r, 2500));
@@ -604,7 +613,14 @@ async function processTurn(i, battleState, playerId, playerActionCallback) {
     battleState.processingTurn = false;
     nextPayload = await renderBattleFrame(battleState);
     if (battleState.message) await battleState.message.edit(nextPayload).catch(()=>{});
-    await updateAnnouncer(battleState);
+    
+    // تفعيل المعلق لتعليق حي على رد الفارس
+    if (triggerAnnouncer) {
+        try {
+            const p = triggerAnnouncer(battleState, battleState.log[battleState.log.length - 1] || 'دفاع');
+            if (p && typeof p.catch === 'function') p.catch(()=>{});
+        } catch(e) {}
+    }
 }
 
 function setupBattleCollector(battleState) {
@@ -710,6 +726,7 @@ function setupBattleCollector(battleState) {
     });
 }
 
+// 🔥 بناء الثريد على رسالة السرقة (Embed) نفسها 🔥
 async function startKnightBattle(interaction, client, db, robberMember, amountToSteal) {
     try {
         if (activeKnightPlayers.has(robberMember.id)) {
@@ -721,13 +738,13 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
         let robberData;
         try {
-            const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [robberMember.id, interaction.guild.id]);
+            const getLevelRes = await db.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [robberMember.id, interaction.guild?.id || interaction.guildId]);
             robberData = getLevelRes.rows[0];
         } catch(e) {
-            const getLevelRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [robberMember.id, interaction.guild.id]).catch(()=>({rows:[]}));
+            const getLevelRes = await db.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [robberMember.id, interaction.guild?.id || interaction.guildId]).catch(()=>({rows:[]}));
             robberData = getLevelRes.rows[0];
         }
-        if (!robberData) robberData = { user: robberMember.id, guild: interaction.guild.id, level: 0, mora: 0, bank: 0 };
+        if (!robberData) robberData = { user: robberMember.id, guild: interaction.guild?.id || interaction.guildId, level: 0, mora: 0, bank: 0 };
         
         const pMaxHp = BASE_HP + ((Number(robberData.level) || 0) * HP_PER_LEVEL);
         let robberWeapon = await getWeaponData(db, robberMember);
@@ -740,7 +757,7 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
         const nowKSA = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
         const todayInt = parseInt(nowKSA.toLocaleDateString('en-CA').replace(/-/g, ''));
         const userId = robberMember.id;
-        const guildId = interaction.guild.id;
+        const guildId = interaction.guild?.id || interaction.guildId;
         const historyId = `${userId}-${guildId}`;
 
         await db.query(`CREATE TABLE IF NOT EXISTS knight_history ("id" TEXT PRIMARY KEY, "count" INTEGER, "lastDate" BIGINT)`).catch(()=>{});
@@ -789,13 +806,16 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
         const playerName = cleanDisplayName(robberMember.displayName || robberMember.user.username);
         const threadName = `🏰-قلعة-الإمبراطور-${playerName}`.substring(0, 100);
+        
         let thread;
         let initMsg;
 
-        const initPayload = { content: `🏰 **حراس القلعة يحاصرونك!** جاري تجهيز الساحة...` };
-        
         try {
-            if (interaction.isRepliable && typeof interaction.isRepliable === 'function') {
+            // 🔥 ربط مباشر مع رسالة الـ Embed للسرقة المرسلة من rob.js 🔥
+            if (interaction.startThread && interaction.author?.bot) {
+                initMsg = interaction;
+            } else if (interaction.isRepliable && typeof interaction.isRepliable === 'function') {
+                const initPayload = { content: `🏰 **حراس القلعة يحاصرونك!** جاري تجهيز الساحة...` };
                 if (interaction.deferred || interaction.replied) {
                     await interaction.editReply(initPayload);
                     initMsg = await interaction.fetchReply();
@@ -803,7 +823,7 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
                     initMsg = await interaction.reply({ ...initPayload, fetchReply: true });
                 }
             } else {
-                initMsg = await interaction.channel.send(initPayload);
+                initMsg = await interaction.channel.send({ content: `🏰 **حراس القلعة يحاصرونك!** جاري تجهيز الساحة...` });
             }
             
             if (initMsg && typeof initMsg.startThread === 'function') {
@@ -816,15 +836,20 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
             thread = interaction.channel;
         }
         
-        if (thread.id !== interaction.channel.id) {
+        if (thread && thread.id !== interaction.channel?.id) {
             try { await thread.members.add(robberMember.id); } catch(e){}
-            await initMsg.edit(`🏰 **حراس القلعة يحاصرونك!** انتقل إلى الساحة: <#${thread.id}>`).catch(()=>{});
+            
+            if (initMsg === interaction) {
+                await thread.send(`🏰 **حراس القلعة يحاصرونك يا <@${robberMember.id}>!** الساحة جاهزة!`).catch(()=>{});
+            } else {
+                await initMsg.edit(`🏰 **حراس القلعة يحاصرونك!** انتقل إلى الساحة: <#${thread.id}>`).catch(()=>{});
+            }
         }
 
         const battleState = {
             isPvE: true, isGuardBattle: true, amountToSteal,
             thread: thread, message: null, announcerMessage: null, turn: [robberMember.id, "guard"], processingTurn: false,
-            isEnded: false, log: [introMsg], client: client, guildId: interaction.guild.id, status: 'active',
+            isEnded: false, log: [introMsg], client: client, guildId: guildId, status: 'active',
             skillPage: 0, skillCooldowns: { [robberMember.id]: {}, "guard": {} },
             players: new Map([
                 [robberMember.id, { 
@@ -842,7 +867,6 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
         activePveBattles.set(thread.id, battleState);
         
-        // 🔥 إضافة المعلق لمعركة الفارس أسوة بالـ PvP/PvE 🔥
         let _rawInitAnnouncer = null;
         try { ({ initAnnouncer: _rawInitAnnouncer } = require('./pvp-announcer.js')); } catch (e) {}
 
@@ -865,7 +889,6 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
             setupBattleCollector(battleState);
 
-            // 🔥 مؤقت تلقائي لتحديث المعلق وصيانة الرسالة 🔥
             const threadCollector = thread.createMessageCollector({ filter: m => !m.author.bot, time: 300000 }); 
             let messageCounter = 0;
             let bumpCooldown = false;
@@ -1026,7 +1049,7 @@ async function handleGuardBattleEnd(battleState, winnerId, resultType) {
             }).catch(() => {});
         }
 
-        // 🔥 حذف الثريد بعد 30 ثانية تماماً 🔥
+        // 🔥 حذف الثريد تلقائياً بعد 30 ثانية من انتهاء المعركة 🔥
         if (battleState.thread && battleState.thread.id !== battleState.message.channel.id) {
             setTimeout(() => {
                 try { battleState.thread.delete('انتهت المعركة مع الفارس').catch(()=>{}); } catch(e){}
