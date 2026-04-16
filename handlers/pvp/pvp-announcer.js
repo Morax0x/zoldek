@@ -23,8 +23,8 @@ function removeTashkeel(text) {
 
 // دالة لمعرفة نوع المعركة الحالي ليتفاعل المعلق معها بذكاء
 function getBattleContext(battleState) {
-    if (battleState.isGuardBattle) {
-        return "المعركة تدور في قلعة الإمبراطور! لص يحاول سرقة الخزينة وفارس الإمبراطور الأسطوري يحاول القضاء عليه بلا رحمة!";
+    if (battleState.isGuardBattle || battleState.isGuardBattle === true) {
+        return "المعركة تدور في قلعة الإمبراطور! لص يحاول سرقة الخزينة وفارس الإمبراطور يحاول منعه من ذلك!";
     } else if (battleState.isPvE) {
         return "هذه رحلة صيد بحرية خطيرة! صياد شجاع يواجه وحشاً مرعباً ظهر من أعماق المحيط!";
     } else {
@@ -76,33 +76,41 @@ async function initAnnouncer(battleState, p1Name, p2Name) {
     battleState.announcerPersonality = selectedPersonality;
     const battleContext = getBattleContext(battleState);
 
+    // 🔥 التعديل هنا: توجيهات صارمة جداً لمنع الردود الطويلة (الجرائد) والالتزام بسطر واحد فقط 🔥
     const prompt = `أنت الآن تلعب دور: ${selectedPersonality}
 سياق الحدث: ${battleContext}
-المطلوب منك:
-1. ابتكر لنفسك اسماً عشوائياً من كلمة واحدة فقط (كن مبدعاً ولا تكتب كلمة المعلق في اسمك أبداً).
-2. رحب بالجمهور والمقاتلين (${p1Name} ضد ${p2Name}) بأسلوبك الخاص (حسب شخصيتك وسياق الحدث) في سطر واحد فقط.
-3. كن مبدعاً جداً في الوصف، لغتك عربية سليمة وجذابة.
-4. تحذير هام جداً: اكتب بنص صافٍ ولا تستخدم التشكيل (الحركات مثل الفتحة والكسرة) على الحروف العربية أبداً.
 
-**يجب** أن يكون ردك حصراً بهذه الصيغة (بدون أي إضافات أخرى):
-اسمك_من_كلمة_واحدة|ترحيبك_في_سطر_واحد`;
+المطلوب منك أمران فقط، ولا تزد عليهما شيئاً:
+1. ابتكر لنفسك اسماً عشوائياً من كلمة واحدة فقط (كن مبدعاً، ولا تكتب كلمة المعلق في اسمك أبداً).
+2. رحب بالجمهور وأعلن دخول المقاتلين (${p1Name} ضد ${p2Name}) إلى الساحة بأسلوبك الخاص.
+
+**قواعد صارمة جداً (إن خالفتها ستفشل المعركة):**
+- المعركة لم تبدأ بعد، هم فقط دخلوا الساحة الآن! لا تؤلف أحداثاً، لا تخترع ضربات، لا تقل من فاز أو خسر. فقط صف وقوفهم أمام بعضهم.
+- يجب أن يكون الترحيب في سطر واحد قصير جداً (جملتين كحد أقصى).
+- اكتب بنص صافٍ بدون تشكيل (حركات).
+
+يجب أن يكون ردك حصراً بهذه الصيغة (بدون أي إضافات أو شروحات):
+اسمك_من_كلمة_واحدة|ترحيبك_القصير_في_سطر_واحد`;
 
     try {
         const res = await askGemini(prompt);
         let name = FALLBACK_NAMES[Math.floor(Math.random() * FALLBACK_NAMES.length)]; 
-        let welcome = `الميدان يشتعل! ${p1Name} يواجه ${p2Name} في معركة لا ترحم!`;
+        let welcome = `الميدان يشتعل! ${p1Name} يقف وجهاً لوجه أمام ${p2Name} في معركة لا ترحم!`;
         
         if (res && res.includes('|')) {
             const parts = res.split('|');
-            // تنظيف الاسم المستخرج بأقصى درجة
             let extractedName = parts[0].replace(/[\*🎙️:\-]/g, '').replace(/المعلق/g, '').trim(); 
-            // إذا كان الاسم المستخرج كلمة واحدة حقيقية، استخدمه
             if (extractedName && !extractedName.includes(' ') && extractedName.length < 15) {
                 name = extractedName;
             }
-            welcome = parts.slice(1).join('|').trim(); // أخذ كل ما بعد | كترحيب
+            welcome = parts.slice(1).join('|').trim(); 
         } else if (res) {
             welcome = res.replace(/\*/g, '');
+        }
+
+        // قص أي استرسال زائد في حال تجاهل الجيميني الأوامر 
+        if (welcome.length > 200) {
+            welcome = welcome.substring(0, 197) + '...';
         }
 
         battleState.announcerName = name;
@@ -125,17 +133,26 @@ async function triggerAnnouncer(battleState, eventText) {
     const prompt = `أنت معلق المعركة واسمك "${name}".
 شخصيتك هي: ${personality}
 سياق الحدث: ${battleContext}
+
 الحدث الذي حصل للتو في المعركة: ${eventText}
+
 المطلوب:
-علق على هذا الحدث بأسلوبك الخاص وحسب شخصيتك وسياق المعركة في سطر واحد قصير ومثير جداً. أبدع في الوصف!
-لا ترحب بالجمهور ولا تذكر اسمك، ابدأ بالتعليق على الحدث مباشرة!
-تحذير هام جداً: اكتب بنص صافٍ ولا تستخدم التشكيل (الحركات مثل الفتحة والكسرة) على الحروف العربية أبداً.`;
+علق على هذا الحدث بأسلوبك الخاص وحسب شخصيتك في سطر واحد قصير ومثير جداً.
+لا ترحب بالجمهور ولا تذكر اسمك، ولا تضف أي ضربات من خيالك، علق فقط على ما حدث أمامك الآن!
+اكتب بنص صافٍ بدون تشكيل.`;
     
     try {
         const comment = await askGemini(prompt);
         if (comment) {
             battleState.announcerColor = ANNOUNCER_COLORS[Math.floor(Math.random() * ANNOUNCER_COLORS.length)];
-            battleState.announcerText = `🎙️ **المعلق ${name}:** ${comment.replace(/[\*🎙️]/g, '').trim()}`; 
+            let finalComment = comment.replace(/[\*🎙️]/g, '').trim();
+            
+            // قص التعليق لو كان طويلاً جداً
+            if (finalComment.length > 200) {
+                finalComment = finalComment.substring(0, 197) + '...';
+            }
+
+            battleState.announcerText = `🎙️ **المعلق ${name}:** ${finalComment}`; 
             await updateAnnouncerMessage(battleState);
         }
     } finally {
