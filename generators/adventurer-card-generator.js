@@ -52,10 +52,12 @@ async function generateAdventurerCard(data) {
     const rankMatch = data.rankInfo.name.match(/[A-Z]+/);
     const rankLetter = rankMatch ? rankMatch[0] : 'F'; 
 
-    // 🔥 تعديل لون رتبة SSS ليكون بنفسجياً سحرياً مميزاً 🔥
+    // 🔥 تعديل الألوان للرتب العُليا 🔥
     let primaryColor = data.rankInfo.color || '#555555';
     if (rankLetter === 'SSS') {
         primaryColor = '#9b59b6'; // لون بنفسجي مميز
+    } else if (rankLetter === 'SS') {
+        primaryColor = '#E74C3C'; // لون أحمر قاني ومرعب لـ SS 🔥
     }
 
     const bgBase = ctx.createLinearGradient(0, 0, width, height);
