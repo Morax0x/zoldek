@@ -926,6 +926,101 @@ async function _handleBaitSelect(i, client, db) {
     await i.editReply({ content: null, embeds: [embed], components: [row] });
 }
 
+async function _handleBaitBuy(i, client, db, baitId) {
+    try {
+        try { if (!i.replied && !i.deferred) await i.deferUpdate(); } catch(e) {}
+
+        const item = finalBaits.find(b => b.id === baitId);
+        if (!item) return await i.followUp({ content: '❌ هذا الطعم غير موجود!', flags: MessageFlags.Ephemeral });
+
+        const packQty = 5;
+        const totalCost = Math.round(item.price / packQty) * packQty || item.price;
+
+        let bal = await getUserBal(db, i.user.id, i.guild.id);
+        if ((bal.mora + bal.bank) < totalCost) {
+            return await i.followUp({ content: `❌ رصيدك (كاش + بنك) لا يكفي! تحتاج **${totalCost.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral });
+        }
+
+        // فحص الحد الأقصى للطعوم في الحقيبة
+        let invRow = await safeGetInv(db, i.user.id, i.guild.id, baitId);
+        let currentQty = invRow ? Number(invRow.quantity || invRow.Quantity || 0) : 0;
+        if (currentQty + packQty > 999) {
+            return await i.followUp({ content: `🚫 **الحقيبة ممتلئة!**\nلديك **${currentQty}** طعم من هذا النوع. الحد الأقصى 999.`, flags: MessageFlags.Ephemeral });
+        }
+
+        let deducted = await deductMora(client, db, i.user.id, i.guild.id, totalCost);
+        if (!deducted) return await i.followUp({ content: '❌ صار خطأ بخصم الفلوس، جرب ثانية.', flags: MessageFlags.Ephemeral });
+
+        if (ensureInventoryTable) await ensureInventoryTable(db);
+        let added = await safeAddInv(db, i.user.id, i.guild.id, baitId, packQty);
+        if (!added) {
+            await refundMora(client, db, i.user.id, i.guild.id, totalCost);
+            return await i.followUp({ content: '❌ السيرفر علق وما حفظ الطعوم، رجعنا لك فلوسك.', flags: MessageFlags.Ephemeral });
+        }
+
+        const successEmbed = new EmbedBuilder()
+            .setTitle('✅ تمت عملية الشراء بنجاح')
+            .setColor(Colors.Green)
+            .setDescription(`📦 **العنصر:** ${item.emoji || '🪱'} ${item.name} × ${packQty}\n💰 **التكلفة:** ${totalCost.toLocaleString()} ${EMOJI_MORA}`)
+            .setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
+
+        await i.followUp({ embeds: [successEmbed], flags: MessageFlags.Ephemeral });
+        await sendShopLog(client, db, i.guild.id, i.member, `${item.name} × ${packQty}`, totalCost, "شراء طعوم");
+    } catch (error) {
+        console.error("[Shop] _handleBaitBuy error:", error);
+        try { await i.followUp({ content: '❌ حدث خطأ غير متوقع.', flags: MessageFlags.Ephemeral }); } catch(e) {}
+    }
+}
+
+async function _handleReplaceGuard(i, client, db) {
+    try {
+        try { if (!i.replied && !i.deferred) await i.deferUpdate(); } catch(e) {}
+
+        const userId = i.user.id;
+        const guildId = i.guild.id;
+        const item = shopItems.find(it => it.id === 'personal_guard_1d');
+        if (!item) return await i.followUp({ content: '❌ العنصر غير موجود في المتجر.', flags: MessageFlags.Ephemeral });
+
+        let bal = await getUserBal(db, userId, guildId);
+        if ((bal.mora + bal.bank) < item.price) {
+            return await i.followUp({ content: `❌ رصيدك (كاش + بنك) ما يكفي! تحتاج **${item.price.toLocaleString()}** مورا.`, flags: MessageFlags.Ephemeral });
+        }
+
+        let deducted = await deductMora(client, db, userId, guildId, item.price);
+        if (!deducted) return await i.followUp({ content: '❌ صار خطأ بخصم الفلوس، جرب ثانية.', flags: MessageFlags.Ephemeral });
+
+        // استبدال الحارس: إعادة ضبط على 3 رصيدات بدلاً من التراكم
+        let r = await execSafe(db,
+            `UPDATE levels SET "hasGuard" = 3, "guardExpires" = 0 WHERE "user" = $1 AND "guild" = $2`,
+            `UPDATE levels SET hasguard = 3, guardexpires = 0 WHERE userid = $1 AND guildid = $2`,
+            [userId, guildId]
+        );
+        if (r.error) {
+            await refundMora(client, db, userId, guildId, item.price);
+            return await i.followUp({ content: '❌ السيرفر علق وما حفظ الحارس، رجعنا لك فلوسك.', flags: MessageFlags.Ephemeral });
+        }
+
+        try {
+            if (client && typeof client.getLevel === 'function') {
+                let u = await client.getLevel(userId, guildId);
+                if (u) { u.hasGuard = 3; u.guardExpires = 0; await client.setLevel(u); }
+            }
+        } catch(e) {}
+
+        const successEmbed = new EmbedBuilder()
+            .setTitle('✅ تم استبدال الحارس بنجاح')
+            .setColor(Colors.Green)
+            .setDescription(`🛡️ تم تفعيل **حارس شخصي** جديد بـ **3 محاولات حماية**.\n💰 **التكلفة:** ${item.price.toLocaleString()} ${EMOJI_MORA}`)
+            .setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
+
+        await i.followUp({ embeds: [successEmbed], flags: MessageFlags.Ephemeral });
+        await sendShopLog(client, db, guildId, i.member, item.name, item.price, "استبدال حارس");
+    } catch (error) {
+        console.error("[Shop] _handleReplaceGuard error:", error);
+        try { await i.followUp({ content: '❌ حدث خطأ غير متوقع.', flags: MessageFlags.Ephemeral }); } catch(e) {}
+    }
+}
+
 async function handleShopModal(i, client, db) {
     if (i.customId === 'exchange_xp_modal') {
         const userId = i.user.id; 

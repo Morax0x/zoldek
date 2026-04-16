@@ -703,15 +703,18 @@ function setupBattleCollector(battleState) {
                 return await handleGuardBattleEnd(battleState, playerId, "win");
             }
 
+            // عرض نتيجة هجوم اللاعب أولاً، ثم انتظار ثانيتين قبل هجوم الفارس
+            await i.update(buildBattleEmbed(battleState, false, 0));
+            await new Promise(r => setTimeout(r, 2000));
+
             executeGuardLogic(battleState, player, guard, playerId);
 
             if (player.hp <= 0) {
-                await i.deferUpdate();
                 return await handleGuardBattleEnd(battleState, "guard", "lose");
             }
 
             battleState.processingTurn = false;
-            await i.update(buildBattleEmbed(battleState, false, 0));
+            await battleState.message.edit(buildBattleEmbed(battleState, false, 0));
 
         } catch (error) {
             console.error("Collector Logic Error:", error);
