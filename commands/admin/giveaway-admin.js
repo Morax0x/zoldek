@@ -226,7 +226,7 @@ module.exports = {
                             if (!i.deferred && !i.replied) await i.deferUpdate().catch(()=>{}); 
                             try {
                                 collector.stop('sent');
-                                // 🔥 هنا نرسل اللون المخصص إلى الهاندلر 🔥
+                                // إرسال بيانات القيفاواي إلى دالة `startGiveaway` مع اللون
                                 await startGiveaway(client, i, giveawayData.targetChannel, giveawayData.durationMs, giveawayData.winnerCount, giveawayData.prize, giveawayData.xpReward, giveawayData.moraReward, giveawayData.image, giveawayData.color);
                                 const successEmbed = new EmbedBuilder().setColor("Green").setTitle("✅ تم إطلاق القيفاواي!").setDescription(`تم بدء السحب بنجاح في <#${giveawayData.targetChannel.id}>!\n\nتم حفظ البيانات بأمان ولن تتأثر بإعادة تشغيل البوت.`);
                                 await i.editReply({ embeds: [successEmbed], components: [] }).catch(()=>{});
@@ -251,7 +251,13 @@ module.exports = {
             if (subcommand === 'end') {
                 if (!targetMessageId) return reply("❌ يرجى وضع آيدي رسالة القيفاواي.");
                 
-                const dbRes = await client.sql.query(`SELECT * FROM active_giveaways WHERE "messageID" = $1 OR messageid = $1`, [targetMessageId]).catch(()=>({rows:[]}));
+                // جلب القيفاواي للتأكد من وجوده
+                let dbRes;
+                try {
+                    dbRes = await db.query(`SELECT * FROM active_giveaways WHERE "messageID" = $1`, [targetMessageId]);
+                } catch(e) {
+                    dbRes = await db.query(`SELECT * FROM active_giveaways WHERE messageid = $1`, [targetMessageId]).catch(()=>({rows:[]}));
+                }
                 const giveaway = dbRes.rows[0];
 
                 if (!giveaway) return reply("❌ لم يتم العثور على قيفاواي بهذا الآيدي.");
@@ -261,6 +267,7 @@ module.exports = {
                 return reply(`✅ تم إنهاء القيفاواي (ID: ${targetMessageId}) واختيار الفائزين بنجاح!`);
             }
 
+            // 🔥 تم ضبط أمر الريرول (إعادة السحب) ليعمل بتكامل مع قاعدة البيانات 🔥
             if (subcommand === 'reroll') {
                 if (targetMessageId) {
                     try {
@@ -271,18 +278,24 @@ module.exports = {
                     }
                 }
 
+                // إذا لم يحدد الآيدي، اعرض أحدث القيفاوايز
                 const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-                const gRes = await db.query(`SELECT * FROM active_giveaways WHERE ("isFinished" = 1 OR "endsAt" <= $1) AND "endsAt" > $2 ORDER BY "endsAt" DESC LIMIT 25`, [Date.now(), sevenDaysAgo]).catch(()=>({rows:[]}));
+                let gRes;
+                try {
+                    gRes = await db.query(`SELECT * FROM active_giveaways WHERE ("isFinished" = 1 OR "endsAt" <= $1) AND "endsAt" > $2 ORDER BY "endsAt" DESC LIMIT 25`, [Date.now(), sevenDaysAgo]);
+                } catch(e) {
+                    gRes = await db.query(`SELECT * FROM active_giveaways WHERE (isfinished = 1 OR endsat <= $1) AND endsat > $2 ORDER BY endsat DESC LIMIT 25`, [Date.now(), sevenDaysAgo]).catch(()=>({rows:[]}));
+                }
                 const giveawaysList = gRes.rows;
 
                 if (giveawaysList.length === 0) return reply("❌ لا يوجد أي قيفاوايز حديثة لعمل ريرول لها.\nجرب وضع الآيدي يدوياً.");
 
                 const options = giveawaysList.map(g => {
                     let endsDate = "تاريخ غير معروف";
-                    try {
-                        if (typeof getKSADateString === 'function') endsDate = getKSADateString(g.endsAt || g.endsat);
-                        else endsDate = new Date(g.endsAt || g.endsat).toLocaleDateString('en-US');
-                    } catch (e) {}
+                    const endsAtValue = g.endsAt || g.endsat;
+                    if (endsAtValue) {
+                        endsDate = new Date(Number(endsAtValue)).toLocaleDateString('en-CA');
+                    }
 
                     const status = (g.isFinished === 1 || g.isfinished === 1) ? "منتهي" : "معلق";
                     let label = g.prize || "جائزة مجهولة";
@@ -306,11 +319,16 @@ module.exports = {
                     return reply("❌ الاستخدام: `/giveaway-admin weight <@Role> <Weight>` (أقل شيء 1).");
                 }
                 
-                await db.query(`INSERT INTO giveaway_weights ("guildID", "roleID", "weight") VALUES ($1, $2, $3) ON CONFLICT ("roleID") DO UPDATE SET "weight" = EXCLUDED."weight"`, [guild.id, targetRole.id, targetWeight]);
+                try {
+                    await db.query(`INSERT INTO giveaway_weights ("guildID", "roleID", "weight") VALUES ($1, $2, $3) ON CONFLICT ("roleID") DO UPDATE SET "weight" = EXCLUDED."weight"`, [guild.id, targetRole.id, targetWeight]);
+                } catch(e) {
+                    await db.query(`INSERT INTO giveaway_weights (guildid, roleid, weight) VALUES ($1, $2, $3) ON CONFLICT (roleid) DO UPDATE SET weight = EXCLUDED.weight`, [guild.id, targetRole.id, targetWeight]).catch(()=>{});
+                }
                 return reply(`✅ تم تحديد وزن رتبة ${targetRole.name} إلى **${targetWeight}** تذكرة.`);
             }
 
         } catch (err) {
+            console.error("[Giveaway Admin Error]:", err);
             return reply("❌ حدث خطأ داخلي.");
         }
     }
