@@ -89,7 +89,7 @@ async function getSafeImage(url, fileName) {
 
 function cleanText(text) {
     if (!text) return "";
-    return text.replace(/\*\*/g, '').replace(/`/g, '').replace(/<a?:.+?:\d+>/g, '').trim();
+    return text.replace(/\*\*/g, '').replace(/`/g, '').trim();
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -783,15 +783,24 @@ async function generatePvPImage(battleState) {
             for (let idx = 0; idx < logs.length; idx++) {
                 const logLine = logs[idx];
                 let clean = cleanText(logLine);
-                clean = clean.replace(new RegExp(nameToRemove, 'g'), '').trim();
+                
+                if (nameToRemove) {
+                    clean = clean.split(nameToRemove).join('').trim();
+                }
 
                 const alpha = logs.length > 1 ? 0.4 + (idx / (logs.length - 1)) * 0.6 : 1;
                 ctx.font = 'bold 22px "Bein"';
                 ctx.fillStyle = `rgba(240, 240, 255, ${alpha})`;
                 
                 let displayText = clean;
-                while (ctx.measureText(displayText).width > maxW - 50 && displayText.length > 10) {
-                    displayText = displayText.substring(0, displayText.length - 2) + '..';
+                
+                // 🔥 الإصلاح النهائي والآمن مائة بالمائة للحلقة اللانهائية وحماية الإيموجيات 🔥
+                let chars = Array.from(displayText);
+                if (ctx.measureText(displayText).width > maxW - 50) {
+                    while (ctx.measureText(chars.join('') + '..').width > maxW - 50 && chars.length > 0) {
+                        chars.pop();
+                    }
+                    displayText = chars.join('') + '..';
                 }
 
                 const logSkillId = await getSkillIdFromLog(logLine, players);
@@ -888,6 +897,7 @@ async function generatePvPImage(battleState) {
         
         return buffer;
     } catch (error) {
+        console.error("Critical Image Generation Error:", error);
         return null;
     }
 }
