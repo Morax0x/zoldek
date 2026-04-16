@@ -1,4 +1,4 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, Colors, AttachmentBuilder, ChannelType } = require("discord.js");
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ComponentType, MessageFlags, Colors, AttachmentBuilder, ChannelType, EmbedBuilder } = require("discord.js");
 const path = require('path');
 const { generatePvPImage } = require('../../generators/pvp-generator.js');
 const { generatePvPResultImage } = require('../../generators/pvp-summary-generator.js');
@@ -515,7 +515,7 @@ function executeGuardLogic(battleState, player, guard, playerId) {
     battleState.log.push(actionLog);
 }
 
-// 🔥 استخدام نظام التحديث الآمن والسليم تماماً للـ PvP 🔥
+// 🔥 تجهيز واجهة الرندرة الخالية من الأخطاء 🔥
 async function renderBattleFrame(battleState) {
     const attackerId = battleState.turn[0]; 
     
@@ -541,10 +541,70 @@ async function renderBattleFrame(battleState) {
     if (attachment) {
         payload.files = [attachment];
     } else {
-        payload.files = []; // منع الخطأ لو لم تتولد الصورة
+        payload.files = []; 
     }
 
     return payload;
+}
+
+// تحديث رسالة المعلق
+async function updateAnnouncer(battleState) {
+    if (battleState.announcerText && battleState.announcerMessage) {
+        const newAnnEmbed = new EmbedBuilder().setDescription(battleState.announcerText).setColor(battleState.announcerColor || Colors.Gold);
+        await battleState.announcerMessage.edit({ embeds: [newAnnEmbed] }).catch(()=>{});
+    }
+}
+
+// 🔥 نظام معالجة الدور مع تأخير للرد لتكون المعركة حية 🔥
+async function processTurn(i, battleState, playerId, playerActionCallback) {
+    if (battleState.processingTurn) return;
+    battleState.processingTurn = true;
+    
+    const player = battleState.players.get(playerId);
+    const guard = battleState.players.get("guard");
+
+    battleState.log = []; // تصفية السجل لبداية دور جديد
+    
+    const { logEntries: pLog, skipTurn: pSkip } = applyPersistentEffects(battleState, playerId);
+    if (pLog.length > 0) battleState.log.push(...pLog);
+
+    if (player.hp <= 0) {
+        await handleGuardBattleEnd(battleState, "guard", "lose");
+        return;
+    }
+
+    if (pSkip) {
+        battleState.log.push(`⚡ أنت مشلول، لا يمكنك الحركة هذا الدور!`);
+    } else {
+        await playerActionCallback();
+    }
+
+    if (guard.hp <= 0) {
+        await handleGuardBattleEnd(battleState, playerId, "win");
+        return;
+    }
+
+    // 1️⃣ إرسال صورة الدور الخاص بك (هجومك)
+    let nextPayload = await renderBattleFrame(battleState);
+    if (battleState.message) await battleState.message.edit(nextPayload).catch(()=>{});
+    await updateAnnouncer(battleState);
+
+    // ⏳ انتظار ثانيتين ونصف لكي يقرأ اللاعب ماذا حدث
+    await new Promise(r => setTimeout(r, 2500));
+
+    // 2️⃣ تنفيذ دور الفارس (رد الفعل)
+    executeGuardLogic(battleState, player, guard, playerId);
+
+    if (player.hp <= 0) {
+        await handleGuardBattleEnd(battleState, "guard", "lose");
+        return;
+    }
+
+    // 3️⃣ إرسال صورة الدور الخاص بالفارس (رده عليك)
+    battleState.processingTurn = false;
+    nextPayload = await renderBattleFrame(battleState);
+    if (battleState.message) await battleState.message.edit(nextPayload).catch(()=>{});
+    await updateAnnouncer(battleState);
 }
 
 function setupBattleCollector(battleState) {
@@ -567,7 +627,7 @@ function setupBattleCollector(battleState) {
             const player = battleState.players.get(i.user.id);
             const guard = battleState.players.get("guard");
 
-            // 🔥 القائمة المخفية للمهارات 🔥
+            // 🔥 القائمة المخفية للمهارات بطريقة الـ Dropdown Menu 🔥
             if (customId === 'knight_skill_menu') {
                 const userSkills = player.skills || {};
                 const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
@@ -577,71 +637,46 @@ function setupBattleCollector(battleState) {
                 }
 
                 const cooldowns = battleState.skillCooldowns[i.user.id] || {};
-                const skillRows = [];
-                let currentRow = new ActionRowBuilder();
-
-                availableSkills.forEach((skill, index) => {
+                
+                const options = availableSkills.map((skill) => {
                     const isOnCooldown = (cooldowns[skill.id] || 0) > 0;
-                    const label = isOnCooldown ? `${skill.name} (${cooldowns[skill.id]})` : skill.name;
-                    const btn = new ButtonBuilder()
-                        .setCustomId(`knight_skill_use_${skill.id}`)
-                        .setLabel(label)
-                        .setEmoji(skill.emoji || '✨')
-                        .setStyle(isOnCooldown ? ButtonStyle.Secondary : ButtonStyle.Primary)
-                        .setDisabled(isOnCooldown);
-                    
-                    currentRow.addComponents(btn);
-                    if (currentRow.components.length === 5 || index === availableSkills.length - 1) {
-                        skillRows.push(currentRow);
-                        currentRow = new ActionRowBuilder();
-                    }
+                    return {
+                        label: isOnCooldown ? `${skill.name} (⏳ ${cooldowns[skill.id]})` : skill.name,
+                        value: skill.id,
+                        emoji: skill.emoji || '✨',
+                        description: isOnCooldown ? `المهارة قيد التجهيز ولا يمكن استخدامها` : `استخدم مهارة ${skill.name} الخاصة بك`
+                    };
                 });
 
-                const skillMsg = await i.reply({ content: '✨ **اختر المهارة التي تريد استخدامها:**', components: skillRows, flags: [MessageFlags.Ephemeral], fetchReply: true });
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('knight_skill_select')
+                    .setPlaceholder('اختر المهارة التي تود استخدامها...')
+                    .addOptions(options.slice(0, 25));
+
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+
+                const skillMsg = await i.reply({ content: '✨ **قائمة المهارات:**', components: [row], flags: [MessageFlags.Ephemeral], fetchReply: true });
                 
                 try {
                     const skillInteraction = await skillMsg.awaitMessageComponent({ filter: btnI => btnI.user.id === i.user.id, time: 30000 });
-                    await skillInteraction.deferUpdate().catch(()=>{}); // معالجة صامتة لزر المهارة المخفي
                     
-                    battleState.processingTurn = true;
+                    const skillId = skillInteraction.values[0];
+                    const isOnCooldown = (cooldowns[skillId] || 0) > 0;
                     
-                    const skillId = skillInteraction.customId.replace('knight_skill_use_', '');
+                    if (isOnCooldown) {
+                        return await skillInteraction.reply({ content: '⏳ هذه المهارة في فترة التجهيز!', flags: [MessageFlags.Ephemeral] });
+                    }
+
+                    await skillInteraction.update({ content: '⏳ جاري تنفيذ المهارة...', components: [] }).catch(()=>{});
+                    
                     const skillData = player.skills[skillId];
-
                     if (skillData) {
-                        battleState.log = []; 
-                        const { logEntries: pLog, skipTurn: pSkip } = applyPersistentEffects(battleState, playerId);
-                        if (pLog.length > 0) battleState.log.push(...pLog);
-
-                        if (player.hp <= 0) {
-                            return await handleGuardBattleEnd(battleState, "guard", "lose");
-                        }
-
-                        if (pSkip) {
-                            battleState.log.push(`⚡ أنت مشلول، لا يمكنك الحركة هذا الدور!`);
-                        } else {
+                        await processTurn(skillInteraction, battleState, playerId, async () => {
                             const logMsg = applySkillEffect(battleState, i.user.id, skillData);
                             battleState.log.push(logMsg);
                             const breakMsg = checkShieldBreak(battleState, "guard");
                             if (breakMsg) battleState.log.push(breakMsg);
-                        }
-
-                        if (guard.hp <= 0) {
-                            return await handleGuardBattleEnd(battleState, playerId, "win");
-                        }
-
-                        executeGuardLogic(battleState, player, guard, playerId);
-
-                        if (player.hp <= 0) {
-                            return await handleGuardBattleEnd(battleState, "guard", "lose");
-                        }
-
-                        // 🔥 التحديث الآمن والسليم للرسالة الأصلية 🔥
-                        battleState.processingTurn = false;
-                        const nextPayload = await renderBattleFrame(battleState);
-                        if (battleState.message) {
-                            await battleState.message.edit(nextPayload).catch(()=>{});
-                        }
+                        });
                     }
                 } catch (err) {
                     await i.editReply({ content: '⏱️ انتهى وقت اختيار المهارة.', components: [] }).catch(()=>{});
@@ -649,46 +684,17 @@ function setupBattleCollector(battleState) {
                 return;
             }
 
-            // 🔥 الهجوم العادي 🔥
+            // 🔥 الهجوم العادي مع الانتظار الذكي 🔥
             if (customId === 'knight_attack') {
-                await i.deferUpdate().catch(()=>{}); // تجاوب فوري مع زر الهجوم بدون تعليق
-                battleState.processingTurn = true; 
-
-                battleState.log = []; 
+                await i.deferUpdate().catch(()=>{});
                 
-                const { logEntries: pLog, skipTurn: pSkip } = applyPersistentEffects(battleState, playerId);
-                if (pLog.length > 0) battleState.log.push(...pLog);
-
-                if (player.hp <= 0) {
-                    return await handleGuardBattleEnd(battleState, "guard", "lose");
-                }
-
-                if (pSkip) {
-                    battleState.log.push(`⚡ أنت مشلول، لا يمكنك الحركة هذا الدور!`);
-                } else {
+                await processTurn(i, battleState, playerId, async () => {
                     const dmg = calculateDamage(player, guard);
                     guard.hp -= dmg;
                     battleState.log.push(`⚔️ **${cleanDisplayName(player.member.user.displayName)}** هاجم الفارس وسبب **${dmg}** ضرر!`);
                     const breakMsg = checkShieldBreak(battleState, "guard");
                     if (breakMsg) battleState.log.push(breakMsg);
-                }
-
-                if (guard.hp <= 0) {
-                    return await handleGuardBattleEnd(battleState, playerId, "win");
-                }
-
-                executeGuardLogic(battleState, player, guard, playerId);
-
-                if (player.hp <= 0) {
-                    return await handleGuardBattleEnd(battleState, "guard", "lose");
-                }
-
-                // 🔥 تحديث الرسالة بالصورة الجديدة والبيانات 🔥
-                battleState.processingTurn = false;
-                const nextPayload = await renderBattleFrame(battleState);
-                if (battleState.message) {
-                    await battleState.message.edit(nextPayload).catch(()=>{});
-                }
+                });
             }
 
         } catch (error) {
@@ -817,8 +823,8 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
         const battleState = {
             isPvE: true, isGuardBattle: true, amountToSteal,
-            thread: thread, message: null, turn: [robberMember.id, "guard"], processingTurn: false,
-            isEnded: false, log: [introMsg], client: client, guildId: interaction.guild.id,
+            thread: thread, message: null, announcerMessage: null, turn: [robberMember.id, "guard"], processingTurn: false,
+            isEnded: false, log: [introMsg], client: client, guildId: interaction.guild.id, status: 'active',
             skillPage: 0, skillCooldowns: { [robberMember.id]: {}, "guard": {} },
             players: new Map([
                 [robberMember.id, { 
@@ -836,11 +842,60 @@ async function startKnightBattle(interaction, client, db, robberMember, amountTo
 
         activePveBattles.set(thread.id, battleState);
         
+        // 🔥 إضافة المعلق لمعركة الفارس أسوة بالـ PvP/PvE 🔥
+        let _rawInitAnnouncer = null;
+        try { ({ initAnnouncer: _rawInitAnnouncer } = require('./pvp-announcer.js')); } catch (e) {}
+
         try {
+            if (_rawInitAnnouncer) {
+                const annEmbed = new EmbedBuilder().setDescription("🎙️ **المعلق يمسك الميكروفون...**").setColor(Colors.Gold);
+                battleState.announcerMessage = await thread.send({ embeds: [annEmbed] });
+            }
+            
             const msgPayload = await renderBattleFrame(battleState);
             const sentMsg = await thread.send(msgPayload);
             battleState.message = sentMsg;
+            
+            if (_rawInitAnnouncer) {
+                try {
+                    const p = _rawInitAnnouncer(battleState, playerName, `فارس الإمبراطور`);
+                    if (p && typeof p.catch === 'function') p.catch(e => console.error(e));
+                } catch(e) {}
+            }
+
             setupBattleCollector(battleState);
+
+            // 🔥 مؤقت تلقائي لتحديث المعلق وصيانة الرسالة 🔥
+            const threadCollector = thread.createMessageCollector({ filter: m => !m.author.bot, time: 300000 }); 
+            let messageCounter = 0;
+            let bumpCooldown = false;
+
+            threadCollector.on('collect', async (msg) => {
+                if (battleState.isEnded) { threadCollector.stop(); return; }
+                
+                messageCounter++;
+                if (messageCounter >= 20 && !bumpCooldown) {
+                    if (battleState.processingTurn) { messageCounter--; return; }
+
+                    messageCounter = 0; bumpCooldown = true;
+                    setTimeout(() => { bumpCooldown = false; }, 15000); 
+
+                    try {
+                        if (battleState.announcerMessage && battleState.announcerMessage.deletable) await battleState.announcerMessage.delete().catch(() => {});
+                        if (battleState.message && battleState.message.deletable) await battleState.message.delete().catch(() => {});
+                    } catch (e) {}
+
+                    try {
+                        if (battleState.announcerText) {
+                            const newAnnEmbed = new EmbedBuilder().setDescription(battleState.announcerText).setColor(battleState.announcerColor || Colors.Gold);
+                            battleState.announcerMessage = await thread.send({ embeds: [newAnnEmbed] });
+                        }
+                        const nextPayload = await renderBattleFrame(battleState);
+                        battleState.message = await thread.send(nextPayload);
+                    } catch (e) { console.error("[Auto-Bump Error]:", e); }
+                }
+            });
+
         } catch (e) {
             console.error("Failed to send first battle frame:", e);
             if (interaction.channel) await interaction.channel.send(`❌ حدث خطأ داخلي أثناء إرسال المعركة.`).catch(()=>{});
