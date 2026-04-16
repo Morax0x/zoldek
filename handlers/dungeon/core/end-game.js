@@ -40,6 +40,7 @@ const safeExecute = async (db, qPg, params) => {
     }
 };
 
+// 🔥 دالة الدفع النهائية والمعدلة لتسليم كل الجوائز (الكاش، البنك، الصناديق والسمعة) بأمان تام 🔥
 async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlayers, floor, status, sql, guildId, hostId, activeDungeonRequests, client) {
     if (!sql) return;
     
@@ -81,7 +82,6 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         let finalRep = 0;
 
         if (p.rewardsClaimed) {
-            // أخذ القيم المحفوظة إذا تم سحبها مسبقاً (للإنسحاب الفردي)
             finalMora = p.finalMora || 0;
             finalXp = p.finalXp || 0;
             finalChests = p.finalChests || 0;
@@ -135,7 +135,7 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
                 }
             } catch(e) {}
 
-            // 🔥 الدفع الحقيقي للصناديق والسمعة 🔥
+            // 🔥 الدفع الحقيقي للصناديق والسمعة باستخدام الدالة الآمنة 🔥
             if (finalChests > 0 || finalRep > 0) {
                 await safeUpdateRepAndChests(sql, p.id, guildId, finalRep, finalChests);
             }
