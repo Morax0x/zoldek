@@ -105,7 +105,7 @@ module.exports = {
     name: 'rob',
     aliases: ['سرقة', 'نهب'],
     category: "Economy",
-    description: 'محاولة سرقة المورا من عضو آخر.',
+    description: 'محاولة سرقة المورا من عضو آخـر.',
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
