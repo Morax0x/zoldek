@@ -125,25 +125,39 @@ module.exports = {
             victim = message.mentions.members.first();
         }
 
+        // 🔥 تعديل دالة الرد لتُرجع دائماً الـ Message Object لبناء الثريد عليه 🔥
         const reply = async (payload) => {
             if (typeof payload === 'string') payload = { content: payload };
+            payload.fetchReply = true;
             if (isSlash) {
-                if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
-                return interaction.reply(payload);
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.editReply(payload);
+                    return await interaction.fetchReply();
+                }
+                return await interaction.reply(payload);
             }
-            else return message.reply(payload).catch(() => message.channel.send(payload));
+            else {
+                return await message.reply(payload).catch(async () => await message.channel.send(payload));
+            }
         };
 
         if (!victim) return reply("الاستخدام: /سرقة <@user> أو -rob <@user>");
 
         const sql = client.sql;
 
-        // 🔥 تعديل: إلغاء شرط منع سرقة النفس للإمبراطور وبدء معركة الفارس فوراً 🔥
         if (victim.id === robber.id) {
             if (robber.id === REAL_OWNER_ID) {
                 if (isSlash && !interaction.deferred && !interaction.replied) await interaction.deferReply();
-                const context = isSlash ? interaction : message;
-                return await startKnightBattle(context, client, sql, robber, 5000);
+                
+                // رسالة واجهة وهمية للإمبراطور ليُبنى عليها الثريد
+                const testEmbed = new EmbedBuilder()
+                    .setTitle('❖ مـحاولـة سـطـو عـلـى قلـعة الامبراطـور')
+                    .setDescription(`✶ خـطـوة واحدة تفـصل بينـك وبين الغنيمة أو السجن.. (وضع التجربة)`)
+                    .setColor('#2F3136')
+                    .setImage('https://i.postimg.cc/0jQvvNNh/fort.jpg'); 
+                const testMsg = await reply({ embeds: [testEmbed], components: [] });
+
+                return await startKnightBattle(testMsg, client, sql, robber, 5000);
             }
             return reply("تـسـرق نـفـسـك؟ غـبـي انـت؟؟ <:mirkk:1435648219488190525>");
         }
@@ -172,7 +186,7 @@ module.exports = {
         if (!victimData) victimData = { ...client.defaultData, user: victim.id, guild: guild.id };
 
         const robberTotalWealth = (Number(robberData.mora) || 0) + (Number(robberData.bank) || 0);
-        if (robberTotalWealth < MIN_REQUIRED_CASH && robber.id !== REAL_OWNER_ID) { // 🔥 تخطي شرط الرصيد للإمبراطور 🔥
+        if (robberTotalWealth < MIN_REQUIRED_CASH && robber.id !== REAL_OWNER_ID) {
              return reply(`❌ **لا يمكنك السرقة!**\nتحتاج إلى رصيد إجمالي لا يقل عن **${MIN_REQUIRED_CASH.toLocaleString()}** ${EMOJI_MORA} لتتمكن من دفع الغرامة.`);
         }
 
@@ -181,12 +195,11 @@ module.exports = {
         const effectiveCooldown = Math.max(0, COOLDOWN_MS - reductionMs);
         const timeLeft = (Number(robberData.lastRob || robberData.lastrob) || 0) + effectiveCooldown - now;
         
-        // 🔥 تخطي الكولداون إذا كان المستخدم هو الإمبراطور 🔥
         if (timeLeft > 0 && robber.id !== REAL_OWNER_ID) {
             return reply(`🕐 حـرامـي مـجتـهد انـت <:stop:1436337453098340442> انتـظـر **\`${formatTime(timeLeft)}\`** عشان تسـوي عمـليـة سـطو ثـانيـة.`);
         }
 
-        if (victim.id !== EMPRESS_BOT_ID && robber.id !== REAL_OWNER_ID) { // 🔥 تخطي شرط رصيد الضحية إذا كان السارق هو الإمبراطور للـ Test 🔥
+        if (victim.id !== EMPRESS_BOT_ID && robber.id !== REAL_OWNER_ID) {
             const victimTotalWealth = (Number(victimData.mora) || 0) + (Number(victimData.bank) || 0);
             if (victimTotalWealth < MIN_REQUIRED_CASH) {
                 return reply(`❌ الضحية **${victim.displayName}** فقير جداً! لا يملك ما يكفي لسرقته.`);
@@ -222,14 +235,13 @@ module.exports = {
             }
 
             amountToSteal = Math.min(robberCap, victimCap);
-            if (amountToSteal < MIN_ROB_AMOUNT && robber.id !== REAL_OWNER_ID) { // 🔥 تخطي للإمبراطور 🔥
+            if (amountToSteal < MIN_ROB_AMOUNT && robber.id !== REAL_OWNER_ID) { 
                  if (victimPoolAmount >= MIN_ROB_AMOUNT) amountToSteal = MIN_ROB_AMOUNT;
                  else {
                      return reply(`❌ الضحية لا يملك ما يكفي لسرقته في ${poolName}!`);
                  }
             }
             
-            // إذا كان السارق هو الإمبراطور ولم يتم تحديد مبلغ مناسب، حدده يدوياً للتجربة
             if (amountToSteal <= 0 && robber.id === REAL_OWNER_ID) amountToSteal = 5000;
 
             if (robberTotalWealth < amountToSteal && robber.id !== REAL_OWNER_ID) {
@@ -246,7 +258,7 @@ module.exports = {
             const maxEmperor = 9999;
             amountToSteal = Math.floor(Math.random() * (maxEmperor - minEmperor + 1)) + minEmperor;
             
-            if (amountToSteal > robberTotalWealth && robber.id !== REAL_OWNER_ID) { // 🔥 تخطي للإمبراطور 🔥
+            if (amountToSteal > robberTotalWealth && robber.id !== REAL_OWNER_ID) { 
                 amountToSteal = robberTotalWealth;
             }
 
@@ -295,7 +307,7 @@ module.exports = {
                     const lastPardonDate = robberyPardons.get(robber.id);
                     const canBePardoned = lastPardonDate !== todayDate;
 
-                    if (canBePardoned && robber.id !== REAL_OWNER_ID) { // 🔥 الإمبراطور يجرب الفارس دائماً ولا يحتاج عفو 🔥
+                    if (canBePardoned && robber.id !== REAL_OWNER_ID) { 
                         robberData.mora = String((Number(robberData.mora) || 0) + 100);
                         await client.setLevel(robberData);
                         robberyPardons.set(robber.id, todayDate);
@@ -313,11 +325,11 @@ module.exports = {
                         activeRobberies.delete(robber.id); 
 
                     } else {
-                        await msg.delete().catch(() => {});
+                        // 🔥 تحديث: حذف الأزرار فقط وإبقاء الإيمبد لإنشاء الثريد عليه 🔥
+                        await i.update({ components: [] }).catch(() => {});
                         activeRobberies.delete(robber.id);
                         
-                        const context = isSlash ? interaction : message;
-                        return await startKnightBattle(context, client, sql, robber, amountToSteal);
+                        return await startKnightBattle(msg, client, sql, robber, amountToSteal);
                     }
                 }
             });
