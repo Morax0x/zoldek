@@ -146,8 +146,8 @@
       "description": "قم بعمل بومب للسيرفر في قناة البومب.",
       "stat": "disboard_bumps",
       "goal": 1,
-      "reward": { "mora": 500, "xp": 300 },
-      "repReward": 5,
+      "reward": { "mora": 2500, "xp": 500 },
+      "repReward": 3,
       "emoji": "🚀",
       "rarity": "epic"
     },
@@ -158,7 +158,7 @@
       "stat": "topgg_votes",
       "goal": 1,
       "reward": { "mora": 2500, "xp": 500 },
-      "repReward": 5,
+      "repReward": 2,
       "emoji": "🗳️",
       "rarity": "legendary"
     }
