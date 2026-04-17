@@ -17,6 +17,22 @@ function parseDuration(durationStr) {
     }
 }
 
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { res = await db.query(qPg, params); } catch(e) { res = { rows: [] }; }
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg.replace(/"messageID"/gi, "messageid").replace(/"isFinished"/gi, "isfinished").replace(/"endsAt"/gi, "endsat").replace(/"roleID"/gi, "roleid");
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            return { rows: Array.isArray(res2) ? res2 : (res2?.rows || []) };
+        } catch(e2) { }
+    }
+    return { rows: [] };
+};
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('giveaway-admin')
@@ -53,7 +69,7 @@ module.exports = {
     description: "إدارة وتكوين القيفاواي",
 
     async execute(interactionOrMessage, args) {
-        const isSlash = !!interactionOrMessage.isChatInputCommand;
+        const isSlash = typeof interactionOrMessage.isChatInputCommand === 'function' && interactionOrMessage.isChatInputCommand();
         const client = interactionOrMessage.client;
         const db = client.sql;
         const guild = interactionOrMessage.guild;
@@ -81,12 +97,7 @@ module.exports = {
                 targetRole = interactionOrMessage.options.getRole('role');
                 targetWeight = interactionOrMessage.options.getInteger('amount');
             }
-            
-            if (subcommand !== 'start') {
-                await interactionOrMessage.deferReply({ flags: [MessageFlags.Ephemeral] }); 
-            } else {
-                await interactionOrMessage.deferReply({ flags: [MessageFlags.Ephemeral] }); 
-            }
+            await interactionOrMessage.deferReply({ flags: [MessageFlags.Ephemeral] }); 
         } else {
             const cmdName = interactionOrMessage.content.split(' ')[0].toLowerCase().slice(1);
             if (cmdName.includes('giveaway') || cmdName.includes('قيف') || cmdName.includes('g-admin')) subcommand = 'start';
@@ -101,10 +112,13 @@ module.exports = {
 
         const reply = async (payload) => {
             try {
-                if (isSlash) return await interactionOrMessage.editReply(payload);
+                if (isSlash) {
+                    if (interactionOrMessage.deferred || interactionOrMessage.replied) return await interactionOrMessage.editReply(payload);
+                    return await interactionOrMessage.reply(payload);
+                }
                 return await interactionOrMessage.reply(payload);
             } catch (e) {
-                if (e.code === 10062) return;
+                if (e.code === 10062) return null;
             }
         };
 
@@ -141,12 +155,8 @@ module.exports = {
                     );
                 };
 
-                let msg;
-                if (isSlash) {
-                    msg = await interactionOrMessage.editReply({ embeds: [updateEmbed()], components: [getRows()] });
-                } else {
-                    msg = await interactionOrMessage.reply({ embeds: [updateEmbed()], components: [getRows()] });
-                }
+                const msg = await reply({ embeds: [updateEmbed()], components: [getRows()], fetchReply: true });
+                if (!msg) return;
 
                 const collector = msg.createMessageComponentCollector({ 
                     filter: i => i.user.id === member.id && ['g_core_data', 'g_extra_data', 'g_send_final'].includes(i.customId), 
@@ -248,43 +258,34 @@ module.exports = {
             }
 
             if (subcommand === 'end') {
-                if (!targetMessageId) return reply("❌ يرجى وضع آيدي رسالة القيفاواي.");
+                if (!targetMessageId) return reply({ content: "❌ يرجى وضع آيدي رسالة القيفاواي.", flags: [MessageFlags.Ephemeral] });
                 
-                let dbRes;
-                try {
-                    dbRes = await db.query(`SELECT * FROM active_giveaways WHERE "messageID" = $1`, [targetMessageId]);
-                } catch(e) {
-                    dbRes = await db.query(`SELECT * FROM active_giveaways WHERE messageid = $1`, [targetMessageId]).catch(()=>({rows:[]}));
-                }
-                const giveaway = dbRes.rows[0];
+                const giveawayRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "messageID" = $1', [targetMessageId]);
+                const giveaway = giveawayRes.rows[0];
 
-                if (!giveaway) return reply("❌ لم يتم العثور على قيفاواي بهذا الآيدي.");
-                if (Number(giveaway.isFinished || giveaway.isfinished) === 1) return reply("⚠️ هذا القيفاواي منتهي بالفعل.");
+                if (!giveaway) return reply({ content: "❌ لم يتم العثور على قيفاواي بهذا الآيدي.", flags: [MessageFlags.Ephemeral] });
+                if (Number(giveaway.isFinished || giveaway.isfinished) === 1) return reply({ content: "⚠️ هذا القيفاواي منتهي بالفعل.", flags: [MessageFlags.Ephemeral] });
 
                 await endGiveaway(client, targetMessageId, true); 
-                return reply(`✅ تم إنهاء القيفاواي (ID: ${targetMessageId}) واختيار الفائزين بنجاح!`);
+                return reply({ content: `✅ تم إنهاء القيفاواي (ID: ${targetMessageId}) واختيار الفائزين بنجاح!`, flags: [MessageFlags.Ephemeral] });
             }
 
+            // 🔥 حل جذري وتحديث لقائمة واسكربت الريرول (إعادة السحب) 🔥
             if (subcommand === 'reroll') {
                 if (targetMessageId) {
                     try {
                         await rerollGiveaway(client, interactionOrMessage, targetMessageId);
                         return;
                     } catch (err) {
-                        return reply(`❌ حدث خطأ. تأكد من الآيدي وأن القيفاواي مسجل في قاعدة البيانات.`);
+                        return reply({ content: `❌ حدث خطأ. تأكد من الآيدي وأن القيفاواي مسجل في قاعدة البيانات.`, flags: [MessageFlags.Ephemeral] });
                     }
                 }
 
                 const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-                let gRes;
-                try {
-                    gRes = await db.query(`SELECT * FROM active_giveaways WHERE ("isFinished" = 1 OR "endsAt" <= $1) AND "endsAt" > $2 ORDER BY "endsAt" DESC LIMIT 25`, [Date.now(), sevenDaysAgo]);
-                } catch(e) {
-                    gRes = await db.query(`SELECT * FROM active_giveaways WHERE (isfinished = 1 OR endsat <= $1) AND endsat > $2 ORDER BY endsat DESC LIMIT 25`, [Date.now(), sevenDaysAgo]).catch(()=>({rows:[]}));
-                }
+                const gRes = await safeQuery(db, `SELECT * FROM active_giveaways WHERE ("isFinished" = 1 OR "endsAt" <= $1) AND "endsAt" > $2 ORDER BY "endsAt" DESC LIMIT 25`, [Date.now(), sevenDaysAgo]);
                 const giveawaysList = gRes.rows;
 
-                if (giveawaysList.length === 0) return reply("❌ لا يوجد أي قيفاوايز حديثة لعمل ريرول لها.\nجرب وضع الآيدي يدوياً.");
+                if (giveawaysList.length === 0) return reply({ content: "❌ لا يوجد أي قيفاوايز حديثة لعمل ريرول لها.\nجرب وضع الآيدي يدوياً.", flags: [MessageFlags.Ephemeral] });
 
                 const options = giveawaysList.map(g => {
                     let endsDate = "تاريخ غير معروف";
@@ -304,28 +305,54 @@ module.exports = {
                         .setEmoji((g.isFinished === 1 || g.isfinished === 1) ? '✅' : '⏳');
                 });
 
-                const selectMenu = new StringSelectMenuBuilder().setCustomId('g_reroll_select').setPlaceholder('اختر القيفاواي الذي تريد عمل ريرول له...').addOptions(options);
+                const selectMenu = new StringSelectMenuBuilder().setCustomId('g_reroll_select_local').setPlaceholder('اختر القيفاواي الذي تريد عمل ريرول له...').addOptions(options);
                 const row = new ActionRowBuilder().addComponents(selectMenu);
 
-                return reply({ content: "الرجاء اختيار قيفاواي من القائمة أدناه:", components: [row] });
+                const rMsg = await reply({ content: "الرجاء اختيار قيفاواي من القائمة أدناه:", components: [row], fetchReply: true });
+                if (!rMsg) return;
+
+                // إنشاء Collector محلي يعمل بدون أخطاء خارجية
+                const rerollCollector = rMsg.createMessageComponentCollector({ filter: i => i.user.id === member.id && i.customId === 'g_reroll_select_local', time: 60000 });
+                rerollCollector.on('collect', async i => {
+                    await i.deferUpdate().catch(()=>{});
+                    const msgId = i.values[0];
+                    await rerollGiveaway(client, i, msgId);
+                });
+                rerollCollector.on('end', () => {
+                    if (isSlash) interactionOrMessage.editReply({ components: [] }).catch(()=>{});
+                    else rMsg.edit({ components: [] }).catch(()=>{});
+                });
+                return;
             }
 
             if (subcommand === 'weight') {
                 if (!targetRole || isNaN(targetWeight) || targetWeight < 1) {
-                    return reply("❌ الاستخدام: `/giveaway-admin weight <@Role> <Weight>` (أقل شيء 1).");
+                    return reply({ content: "❌ الاستخدام: `/giveaway-admin weight <@Role> <Weight>` (أقل شيء 1).", flags: [MessageFlags.Ephemeral] });
                 }
                 
                 try {
-                    await db.query(`INSERT INTO giveaway_weights ("guildID", "roleID", "weight") VALUES ($1, $2, $3) ON CONFLICT ("roleID") DO UPDATE SET "weight" = EXCLUDED."weight"`, [guild.id, targetRole.id, targetWeight]);
+                    let wRes = await safeQuery(db, `SELECT * FROM giveaway_weights WHERE "roleID" = $1`, [targetRole.id]);
+                    if (wRes.rows.length > 0) {
+                        await db.query(`UPDATE giveaway_weights SET "weight" = $1 WHERE "roleID" = $2`, [targetWeight, targetRole.id]);
+                    } else {
+                        await db.query(`INSERT INTO giveaway_weights ("guildID", "roleID", "weight") VALUES ($1, $2, $3)`, [guild.id, targetRole.id, targetWeight]);
+                    }
                 } catch(e) {
-                    await db.query(`INSERT INTO giveaway_weights (guildid, roleid, weight) VALUES ($1, $2, $3) ON CONFLICT (roleid) DO UPDATE SET weight = EXCLUDED.weight`, [guild.id, targetRole.id, targetWeight]).catch(()=>{});
+                    try {
+                        let wRes2 = await db.query(`SELECT * FROM giveaway_weights WHERE roleid = '${targetRole.id}'`).catch(()=>({rows:[]}));
+                        if(wRes2.rows && wRes2.rows.length > 0) {
+                            await db.query(`UPDATE giveaway_weights SET weight = ${targetWeight} WHERE roleid = '${targetRole.id}'`);
+                        } else {
+                            await db.query(`INSERT INTO giveaway_weights (guildid, roleid, weight) VALUES ('${guild.id}', '${targetRole.id}', ${targetWeight})`);
+                        }
+                    } catch(e2) { }
                 }
-                return reply(`✅ تم تحديد وزن رتبة ${targetRole.name} إلى **${targetWeight}** تذكرة.`);
+                return reply({ content: `✅ تم تحديد وزن رتبة ${targetRole.name} إلى **${targetWeight}** تذكرة.`, flags: [MessageFlags.Ephemeral] });
             }
 
         } catch (err) {
             console.error("[Giveaway Admin Error]:", err);
-            return reply("❌ حدث خطأ داخلي.");
+            return reply({ content: "❌ حدث خطأ داخلي.", flags: [MessageFlags.Ephemeral] });
         }
     }
 };
