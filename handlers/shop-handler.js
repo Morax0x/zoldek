@@ -313,6 +313,7 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     });
 }
 
+// 🔥 دالة فحص القيود ومعالجة الشراء 🔥
 async function _handleShopButton(i, client, db, explicitItemId = null) {
     try {
         try { if (!i.replied && !i.deferred) await i.deferReply({ flags: [MessageFlags.Ephemeral] }); } catch(e) {}
@@ -405,7 +406,6 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
     }
 }
 
-// 🔥 إضافة الطعوم بشكل صحيح في Inventory 🔥
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
     let bal = await getUserBal(db, interaction.user.id, interaction.guild.id);
     const totalWealth = bal.mora + bal.bank;
@@ -420,8 +420,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     }
 
     if (callbackType === 'item') {
-        // 🔥 تم إصلاح الشرط للتعرف على الطعوم وعدم تجاوزها 🔥
-        if (itemData.category === 'potions' || itemData.id.startsWith('potion_') || finalBaits.some(b => b.id === itemData.id)) {
+        if (itemData.category === 'potions' || itemData.id.startsWith('potion_')) {
             let inv = await safeGetInv(db, interaction.user.id, interaction.guild.id, itemData.id);
             let currQty = inv ? Number(inv.quantity || inv.Quantity || 0) : 0;
             if (currQty + quantity > MAX_POTION_LIMIT) return await errorReply(`🚫 **لا يمكنك الشراء!**\nحقيبتك ممتلئة من هذا العنصر.`);
@@ -468,10 +467,9 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     } catch(e){}
                 }
             }
-            // 🔥 إضافة الطعوم والجرعات للحقيبة 🔥
-            else if (itemData.category === 'potions' || itemData.id.startsWith('potion_') || finalBaits.some(b => b.id === itemData.id)) { 
+            else if (itemData.category === 'potions' || itemData.id.startsWith('potion_')) { 
                 if(ensureInventoryTable) await ensureInventoryTable(db); 
-                let added = await safeAddInv(db, interaction.user.id, interaction.guild.id, itemData.id, quantity);
+                let added = await safeAddInv(db, interaction.user.id, interaction.guild.id, itemData.id, 1);
                 if(!added) success = false;
             }
             else if (itemData.id === 'streak_shield') {
@@ -616,7 +614,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         if (success) {
             await execSafe(db, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
             
-            let successMsg = `📦 **العنصر:** ${itemData.name || 'Unknown'} × ${quantity}\n💰 **التكلفة:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
+            let successMsg = `📦 **العنصر:** ${itemData.name || 'Unknown'}\n💰 **التكلفة:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
             if (discountUsed > 0) successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
             if (itemData.id === 'farm_worker_3d') successMsg += `\n👨‍🌾 **عامل المزرعة بدأ العمل!** سيقوم بحصاد المحاصيل وإطعام الحيوانات (أضيف لك 3 أيام).`;
             if (itemData.id === 'change_race') successMsg += `\n🧬 **تم مسح عرقك القديم بنجاح!** و تم تطبيق عقوبة النقصان.`;
@@ -644,6 +642,53 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     if (!success) {
         await refundMora(client, db, interaction.user.id, interaction.guild.id, finalPrice);
         return await errorReply(`❌ **حدث خطأ بالحفظ!**\nتم إرجاع **${finalPrice.toLocaleString()}** مورا لحسابك.`);
+    }
+}
+
+// 🔥 دالة شراء الطعوم المستقلة والمباشرة لضمان وضعها بالحقيبة 🔥
+async function _handleBaitBuy(i, client, db, baitId) {
+    try {
+        try { if (!i.replied && !i.deferred) await i.deferUpdate(); } catch(e) {}
+
+        const item = finalBaits.find(b => b.id === baitId);
+        if (!item) return await i.followUp({ content: '❌ هذا الطعم غير موجود!', flags: [MessageFlags.Ephemeral] });
+
+        const packQty = 5;
+        const totalCost = Math.round(item.price / packQty) * packQty || item.price;
+
+        let bal = await getUserBal(db, i.user.id, i.guild.id);
+        if ((bal.mora + bal.bank) < totalCost) {
+            return await i.followUp({ content: `❌ رصيدك (كاش + بنك) لا يكفي! تحتاج **${totalCost.toLocaleString()}** مورا.`, flags: [MessageFlags.Ephemeral] });
+        }
+
+        // فحص الحد الأقصى للطعوم في الحقيبة
+        let invRow = await safeGetInv(db, i.user.id, i.guild.id, baitId);
+        let currentQty = invRow ? Number(invRow.quantity || invRow.Quantity || 0) : 0;
+        if (currentQty + packQty > 999) {
+            return await i.followUp({ content: `🚫 **الحقيبة ممتلئة!**\nلديك **${currentQty}** طعم من هذا النوع. الحد الأقصى 999.`, flags: [MessageFlags.Ephemeral] });
+        }
+
+        let deducted = await deductMora(client, db, i.user.id, i.guild.id, totalCost);
+        if (!deducted) return await i.followUp({ content: '❌ صار خطأ بخصم الفلوس، جرب ثانية.', flags: [MessageFlags.Ephemeral] });
+
+        if (ensureInventoryTable) await ensureInventoryTable(db);
+        let added = await safeAddInv(db, i.user.id, i.guild.id, baitId, packQty);
+        if (!added) {
+            await refundMora(client, db, i.user.id, i.guild.id, totalCost);
+            return await i.followUp({ content: '❌ السيرفر علق وما حفظ الطعوم، رجعنا لك فلوسك.', flags: [MessageFlags.Ephemeral] });
+        }
+
+        const successEmbed = new EmbedBuilder()
+            .setTitle('✅ تمت عملية الشراء بنجاح')
+            .setColor(Colors.Green)
+            .setDescription(`📦 **العنصر:** ${item.emoji || '🪱'} ${item.name} × ${packQty}\n💰 **التكلفة:** ${totalCost.toLocaleString()} ${EMOJI_MORA}`)
+            .setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
+
+        await i.followUp({ embeds: [successEmbed], flags: [MessageFlags.Ephemeral] });
+        await sendShopLog(client, db, i.guild.id, i.member, `${item.name} × ${packQty}`, totalCost, "شراء طعوم");
+    } catch (error) {
+        console.error("[Shop] _handleBaitBuy error:", error);
+        try { await i.followUp({ content: '❌ حدث خطأ غير متوقع.', flags: [MessageFlags.Ephemeral] }); } catch(e) {}
     }
 }
 
@@ -758,20 +803,6 @@ async function _handleBoatUpgrade(i, client, db) {
     }
     
     await i.editReply({ embeds: [refreshEmbed], components: [refreshRow] }).catch(()=>{});
-}
-
-async function _handleBaitBuy(i, client, db, baitId) {
-    try {
-        if (!i.replied && !i.deferred) await i.deferReply({ flags: [MessageFlags.Ephemeral] });
-    } catch(e) {}
-    
-    const itemData = finalBaits.find(b => b.id === baitId);
-    if (!itemData) return await i.editReply({ content: '❌ لم يتم العثور على هذا الطعم.' });
-    
-    const unitPrice = Math.round(itemData.price / 5);
-    const totalPrice = unitPrice * 5; 
-    
-    await handlePurchaseWithCoupons(i, itemData, 5, totalPrice, client, db, 'item');
 }
 
 async function _handleReplaceBuffButton(i, client, db) {
@@ -921,6 +952,32 @@ async function _handleBoatSelect(i, client, db) {
         row.addComponents(new ButtonBuilder().setCustomId('upgrade_boat').setLabel('شراء').setStyle(ButtonStyle.Success).setEmoji('🚤'));
     }
     await i.editReply({ embeds: [embed], components: [row] });
+}
+
+async function _handleBaitSelect(i, client, db) {
+    try {
+        if(i.replied || i.deferred) await i.editReply({ content: "جاري التحميل..." }); 
+        else await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+    } catch(e) {}
+    
+    if (finalBaits.length === 0) return i.editReply({ content: "❌ لا توجد طعوم في المتجر حالياً." });
+    
+    const baitOptions = finalBaits.map(b => ({
+        label: b.name,
+        description: `${b.price} مورا | حزمة (5 حبات)`,
+        value: `buy_bait_${b.id}`,
+        emoji: '🪱'
+    }));
+    
+    const row = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('shop_buy_bait_menu')
+            .setPlaceholder('اختر الطعم لشرائه...')
+            .addOptions(baitOptions)
+    );
+    
+    const embed = new EmbedBuilder().setTitle('🪱 متجر الطعوم').setDescription('اختر الطعم الذي تود شراءه من القائمة السفلية (يتم بيع الطعوم كحزم، كل حزمة تحتوي على 5 طعوم).').setColor(Colors.Orange);
+    await i.editReply({ content: null, embeds: [embed], components: [row] });
 }
 
 async function handleShopModal(i, client, db) {
