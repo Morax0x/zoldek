@@ -70,48 +70,51 @@ const safeExecute = async (db, qPg, params) => {
     }
 };
 
+// 🔥 إصلاح جذري لدوال سحب وإضافة المشاركين لجعلها Bulletproof 🔥
 async function getGiveawayEntries(db, msgId) {
-    let res;
-    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE "giveawayID" = $1`, [msgId]); if(res?.rows?.length) return res.rows; } catch(e) {}
-    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE giveawayid = $1`, [msgId]); if(res?.rows?.length) return res.rows; } catch(e) {}
-    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE "messageID" = $1`, [msgId]); if(res?.rows?.length) return res.rows; } catch(e) {}
-    try { res = await db.query(`SELECT * FROM giveaway_entries WHERE messageid = $1`, [msgId]); if(res?.rows?.length) return res.rows; } catch(e) {}
-    return [];
+    let res = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "giveawayID" = $1', [msgId]);
+    if (res.rows.length > 0) return res.rows;
+    
+    res = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "messageID" = $1', [msgId]);
+    return res.rows;
 }
 
-// 🔥 الإصلاح الجذري لحل مشكلة عدم التسجيل في القيفاوي 🔥
 async function addGiveawayEntry(db, msgId, userId, weight) {
     let w = Number(weight) || 1;
 
-    // 1. المحاولة المباشرة مع الوزن (الوضع الطبيعي)
-    try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries (messageid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
+    // 1. المحاولة المباشرة مع الوزن
+    let success = await safeExecute(db, `INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
+    if (success) return true;
 
-    // 2. إذا فشل، فقد تكون قاعدة البيانات قديمة وتحتاج لإضافة الأعمدة الناقصة
-    await db.query(`ALTER TABLE giveaway_entries ADD COLUMN "weight" INTEGER DEFAULT 1`).catch(()=>{});
-    await db.query(`ALTER TABLE giveaway_entries ADD COLUMN weight INTEGER DEFAULT 1`).catch(()=>{});
+    success = await safeExecute(db, `INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
+    if (success) return true;
+
+    // 2. ترقيع الجداول في حال كانت الأعمدة ناقصة (أثناء الرن تايم)
+    try { await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER DEFAULT 1)`); } catch(e) {}
+    try { await db.query(`ALTER TABLE giveaway_entries ADD COLUMN "weight" INTEGER DEFAULT 1`); } catch(e) {}
+    try { await db.query(`ALTER TABLE giveaway_entries ADD COLUMN "giveawayID" TEXT`); } catch(e) {}
 
     // إعادة المحاولة بعد الترقيع
-    try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
+    success = await safeExecute(db, `INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
+    if (success) return true;
 
-    // 3. كحل أخير (Fallback) في الجداول التالفة تماماً، الإدخال بدون عمود الوزن
-    try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID") VALUES ($1, $2)`, [msgId, userId]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid) VALUES ($1, $2)`, [msgId, userId]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries ("messageID", "userID") VALUES ($1, $2)`, [msgId, userId]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries (messageid, userid) VALUES ($1, $2)`, [msgId, userId]); return true; } catch(e) {}
-    
-    return false;
+    success = await safeExecute(db, `INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
+    if (success) return true;
+
+    // 3. المحاولة كحل أخير بدون عمود الوزن (Fallback)
+    success = await safeExecute(db, `INSERT INTO giveaway_entries ("giveawayID", "userID") VALUES ($1, $2)`, [msgId, userId]);
+    if (success) return true;
+
+    success = await safeExecute(db, `INSERT INTO giveaway_entries ("messageID", "userID") VALUES ($1, $2)`, [msgId, userId]);
+    return success;
 }
 
 async function removeGiveawayEntry(db, msgId, userId) {
-    try { await db.query(`DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [msgId, userId]); return true; } catch(e) {}
-    try { await db.query(`DELETE FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [msgId, userId]); return true; } catch(e) {}
-    try { await db.query(`DELETE FROM giveaway_entries WHERE "messageID" = $1 AND "userID" = $2`, [msgId, userId]); return true; } catch(e) {}
-    try { await db.query(`DELETE FROM giveaway_entries WHERE messageid = $1 AND userid = $2`, [msgId, userId]); return true; } catch(e) {}
-    return false;
+    let success = await safeExecute(db, `DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [msgId, userId]);
+    if (success) return true;
+    
+    success = await safeExecute(db, `DELETE FROM giveaway_entries WHERE "messageID" = $1 AND "userID" = $2`, [msgId, userId]);
+    return success;
 }
 
 async function getUserWeight(member, db) {
@@ -200,9 +203,6 @@ async function handleGiveawayInteraction(client, interaction) {
         const messageID = interaction.message.id;
         const userID = interaction.user.id;
 
-        // دعم وإنشاء الجداول بحال غيابها
-        await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER DEFAULT 1)`).catch(()=>{});
-
         const giveawayRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "messageID" = $1 AND "isFinished" = 0', [messageID]);
         const giveaway = giveawayRes.rows[0];
         
@@ -224,12 +224,19 @@ async function handleGiveawayInteraction(client, interaction) {
         } else {
             const weight = await getUserWeight(interaction.member, db);
             const isSuccess = await addGiveawayEntry(db, messageID, userID, weight);
+            
             if (!isSuccess) {
-                return interaction.editReply({ content: "❌ حدث خطأ داخلي في قاعدة البيانات، يرجى المحاولة مرة أخرى." });
+                // الفحص التأكيدي بحال حدوث تعارض (Race Condition)
+                const checkAgain = await getGiveawayEntries(db, messageID);
+                const stillExists = checkAgain.find(e => e.userID === userID || e.userid === userID);
+                if (!stillExists) {
+                    return interaction.editReply({ content: "❌ حدث خطأ داخلي في قاعدة البيانات أثناء تسجيلك، يرجى المحاولة مرة أخرى." });
+                }
             }
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة 🎟️`;
         }
 
+        // تحديث رسالة القيفاواي مع العدد الجديد
         try {
             const newEntries = await getGiveawayEntries(db, messageID);
             const count = newEntries.length;
