@@ -220,7 +220,7 @@ async function sendItemDetailsEmbed(i, itemId, itemType = 'general') {
         }
     }
 
-    if (!item) return await i.reply({ content: '❌ هذا العنصر غير موجود!', flags: MessageFlags.Ephemeral });
+    if (!item) return await i.reply({ content: '❌ هذا العنصر غير موجود!', flags: [MessageFlags.Ephemeral] });
 
     const detailEmbed = new EmbedBuilder()
         .setTitle(`${item.emoji || '📦'} ${item.name}`)
@@ -235,9 +235,9 @@ async function sendItemDetailsEmbed(i, itemId, itemType = 'general') {
     const row = new ActionRowBuilder().addComponents(buyBtn);
 
     if(i.replied || i.deferred) {
-        return await i.followUp({ embeds: [detailEmbed], components: [row], flags: MessageFlags.Ephemeral });
+        return await i.followUp({ embeds: [detailEmbed], components: [row], flags: [MessageFlags.Ephemeral] });
     } else {
-        return await i.reply({ embeds: [detailEmbed], components: [row], flags: MessageFlags.Ephemeral });
+        return await i.reply({ embeds: [detailEmbed], components: [row], flags: [MessageFlags.Ephemeral] });
     }
 }
 
@@ -291,7 +291,7 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     }
     row.addComponents(new ButtonBuilder().setCustomId('skip_coupon').setLabel('تخـطـي (دفع كامل)').setStyle(ButtonStyle.Primary));
 
-    const replyData = { content: `**🛍️ خيـارات الـدفع:**\n\n${couponMessage}`, components: [row], flags: MessageFlags.Ephemeral, fetchReply: true };
+    const replyData = { content: `**🛍️ خيـارات الـدفع:**\n\n${couponMessage}`, components: [row], flags: [MessageFlags.Ephemeral], fetchReply: true };
     let msg; 
     try {
         if (interaction.replied || interaction.deferred) msg = await interaction.followUp(replyData); 
@@ -319,8 +319,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     const totalWealth = bal.mora + bal.bank;
 
     const errorReply = async (msgContent) => {
-        if (interaction.deferred || interaction.replied) return await interaction.followUp({ content: msgContent, flags: MessageFlags.Ephemeral }); 
-        else return await interaction.reply({ content: msgContent, flags: MessageFlags.Ephemeral });
+        if (interaction.deferred || interaction.replied) return await interaction.followUp({ content: msgContent, flags: [MessageFlags.Ephemeral] }); 
+        else return await interaction.reply({ content: msgContent, flags: [MessageFlags.Ephemeral] });
     };
 
     if (totalWealth < finalPrice) {
@@ -408,9 +408,9 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             else if (itemData.id.startsWith('xp_buff_')) {
                 let multiplier = 0, buffPercent = 0, duration = 0;
                 switch (itemData.id) {
-                    case 'xp_buff_1d_3': multiplier = 0.45; buffPercent = 45; duration = 24 * 60 * 60 * 1000; break;
-                    case 'xp_buff_1d_7': multiplier = 0.70; buffPercent = 70; duration = 48 * 60 * 60 * 1000; break;
-                    case 'xp_buff_2d_10': multiplier = 0.90; buffPercent = 90; duration = 72 * 60 * 60 * 1000; break;
+                    case 'xp_buff_small': multiplier = 0.15; buffPercent = 15; duration = 12 * 60 * 60 * 1000; break;
+                    case 'xp_buff_medium': multiplier = 0.25; buffPercent = 25; duration = 24 * 60 * 60 * 1000; break;
+                    case 'xp_buff_large': multiplier = 0.30; buffPercent = 30; duration = 35 * 60 * 60 * 1000; break;
                 }
                 if (duration > 0) {
                     const expiresAt = Date.now() + duration;
@@ -727,9 +727,9 @@ async function _handleReplaceBuffButton(i, client, db) {
             
             let expiresAt, multiplier, buffPercent;
             switch (item.id) {
-                case 'xp_buff_1d_3': multiplier = 0.45; buffPercent = 45; expiresAt = Date.now() + (24 * 60 * 60 * 1000); break;
-                case 'xp_buff_1d_7': multiplier = 0.70; buffPercent = 70; expiresAt = Date.now() + (48 * 60 * 60 * 1000); break;
-                case 'xp_buff_2d_10': multiplier = 0.90; buffPercent = 90; expiresAt = Date.now() + (72 * 60 * 60 * 1000); break;
+                case 'xp_buff_small': multiplier = 0.15; buffPercent = 15; expiresAt = Date.now() + (12 * 60 * 60 * 1000); break;
+                case 'xp_buff_medium': multiplier = 0.25; buffPercent = 25; expiresAt = Date.now() + (24 * 60 * 60 * 1000); break;
+                case 'xp_buff_large': multiplier = 0.30; buffPercent = 30; expiresAt = Date.now() + (35 * 60 * 60 * 1000); break;
             }
             
             if (multiplier > 0) {
