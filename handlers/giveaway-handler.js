@@ -79,11 +79,30 @@ async function getGiveawayEntries(db, msgId) {
     return [];
 }
 
+// 🔥 الإصلاح الجذري لحل مشكلة عدم التسجيل في القيفاوي 🔥
 async function addGiveawayEntry(db, msgId, userId, weight) {
-    try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
-    try { await db.query(`INSERT INTO giveaway_entries (messageid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, weight]); return true; } catch(e) {}
+    let w = Number(weight) || 1;
+
+    // 1. المحاولة المباشرة مع الوزن (الوضع الطبيعي)
+    try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries (messageid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
+
+    // 2. إذا فشل، فقد تكون قاعدة البيانات قديمة وتحتاج لإضافة الأعمدة الناقصة
+    await db.query(`ALTER TABLE giveaway_entries ADD COLUMN "weight" INTEGER DEFAULT 1`).catch(()=>{});
+    await db.query(`ALTER TABLE giveaway_entries ADD COLUMN weight INTEGER DEFAULT 1`).catch(()=>{});
+
+    // إعادة المحاولة بعد الترقيع
+    try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, w]); return true; } catch(e) {}
+
+    // 3. كحل أخير (Fallback) في الجداول التالفة تماماً، الإدخال بدون عمود الوزن
+    try { await db.query(`INSERT INTO giveaway_entries ("giveawayID", "userID") VALUES ($1, $2)`, [msgId, userId]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries (giveawayid, userid) VALUES ($1, $2)`, [msgId, userId]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries ("messageID", "userID") VALUES ($1, $2)`, [msgId, userId]); return true; } catch(e) {}
+    try { await db.query(`INSERT INTO giveaway_entries (messageid, userid) VALUES ($1, $2)`, [msgId, userId]); return true; } catch(e) {}
+    
     return false;
 }
 
@@ -111,13 +130,12 @@ async function getUserWeight(member, db) {
             WHERE "guildID" = $1 AND "roleID" IN (${placeholders})
         `, [guildId, ...userRoles]);
         
-        return res.rows[0]?.maxweight || res.rows[0]?.MAXWEIGHT || 1;
+        return Number(res.rows[0]?.maxweight || res.rows[0]?.MAXWEIGHT || 1);
     } catch (e) {
         return 1;
     }
 }
 
-// 🔥 تم استدعاء الوصف المخصص ونقل الجائزة إلى العنوان 🔥
 async function startGiveaway(client, interaction, channel, duration, winnerCount, prize, xpReward, moraReward, image = null, color = null, customDesc = null) {
     const db = client.sql; 
     if (!db) return;
@@ -182,7 +200,8 @@ async function handleGiveawayInteraction(client, interaction) {
         const messageID = interaction.message.id;
         const userID = interaction.user.id;
 
-        await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER)`).catch(()=>{});
+        // دعم وإنشاء الجداول بحال غيابها
+        await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER DEFAULT 1)`).catch(()=>{});
 
         const giveawayRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "messageID" = $1 AND "isFinished" = 0', [messageID]);
         const giveaway = giveawayRes.rows[0];
@@ -206,7 +225,7 @@ async function handleGiveawayInteraction(client, interaction) {
             const weight = await getUserWeight(interaction.member, db);
             const isSuccess = await addGiveawayEntry(db, messageID, userID, weight);
             if (!isSuccess) {
-                return interaction.editReply({ content: "❌ حدث خطأ، تأكد من التسجيل وحاول مجدداً." });
+                return interaction.editReply({ content: "❌ حدث خطأ داخلي في قاعدة البيانات، يرجى المحاولة مرة أخرى." });
             }
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة 🎟️`;
         }
@@ -286,7 +305,6 @@ async function endGiveaway(client, messageID, force = false) {
                 const originalEmbed = originalMessage.embeds[0];
                 const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
                 
-                // الحفاظ على الوصف الأصلي
                 let oldDesc = originalEmbed.description || "";
                 let cleanDesc = oldDesc.split('✶ عـدد الـمـشاركـيـن:')[0].trim();
                 let newDesc = cleanDesc ? `${cleanDesc}\n\n` : "";
@@ -368,7 +386,6 @@ async function endGiveaway(client, messageID, force = false) {
             const originalEmbed = originalMessage.embeds[0];
             const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
             
-            // الحفاظ على الوصف المخصص
             let oldDesc = originalEmbed.description || "";
             let cleanDesc = oldDesc.split('✶ عـدد الـمـشاركـيـن:')[0].trim();
             let newDesc = cleanDesc ? `${cleanDesc}\n\n` : "";
@@ -413,7 +430,6 @@ async function rerollGiveaway(client, interaction, messageID) {
     await interaction.reply(`🎉 **الري-رول الجديد!** الفائز هو: <@${winner}>! 🥳`);
 }
 
-// 🔥 تم تعديل القيفاواي التلقائي (Drop) لتطبيق نفس نظام العناوين 🔥
 async function createRandomDropGiveaway(client, guild) {
     try {
         const db = client.sql; 
