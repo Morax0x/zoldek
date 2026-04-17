@@ -220,7 +220,7 @@ async function sendItemDetailsEmbed(i, itemId, itemType = 'general') {
         }
     }
 
-    if (!item) return await i.reply({ content: '❌ هذا العنصر غير موجود!', flags: [MessageFlags.Ephemeral] });
+    if (!item) return await i.reply({ content: '❌ هذا العنصر غير مـوجود!', flags: [MessageFlags.Ephemeral] });
 
     const detailEmbed = new EmbedBuilder()
         .setTitle(`${item.emoji || '📦'} ${item.name}`)
