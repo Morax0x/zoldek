@@ -70,11 +70,9 @@ const safeExecute = async (db, qPg, params) => {
     }
 };
 
-// 🔥 إصلاح جذري لدوال سحب وإضافة المشاركين لجعلها Bulletproof 🔥
 async function getGiveawayEntries(db, msgId) {
     let res = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "giveawayID" = $1', [msgId]);
     if (res.rows.length > 0) return res.rows;
-    
     res = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "messageID" = $1', [msgId]);
     return res.rows;
 }
@@ -82,19 +80,16 @@ async function getGiveawayEntries(db, msgId) {
 async function addGiveawayEntry(db, msgId, userId, weight) {
     let w = Number(weight) || 1;
 
-    // 1. المحاولة المباشرة مع الوزن
     let success = await safeExecute(db, `INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
     if (success) return true;
 
     success = await safeExecute(db, `INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
     if (success) return true;
 
-    // 2. ترقيع الجداول في حال كانت الأعمدة ناقصة أو كان المفتاح الأساسي مكسور
     try { await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER DEFAULT 1)`); } catch(e) {}
     try { await db.query(`ALTER TABLE giveaway_entries ADD COLUMN "weight" INTEGER DEFAULT 1`); } catch(e) {}
     try { await db.query(`ALTER TABLE giveaway_entries ADD COLUMN "giveawayID" TEXT`); } catch(e) {}
 
-    // إعادة المحاولة بعد الترقيع (مع توليد ID عشوائي لتجاوز خطأ Primary Key القديم)
     const fallbackId = Math.floor(Math.random() * 1000000000);
     success = await safeExecute(db, `INSERT INTO giveaway_entries ("id", "giveawayID", "userID", "weight") VALUES ($4, $1, $2, $3)`, [msgId, userId, w, fallbackId]);
     if (success) return true;
@@ -102,7 +97,6 @@ async function addGiveawayEntry(db, msgId, userId, weight) {
     success = await safeExecute(db, `INSERT INTO giveaway_entries ("id", "messageID", "userID", "weight") VALUES ($4, $1, $2, $3)`, [msgId, userId, w, fallbackId]);
     if (success) return true;
 
-    // 3. المحاولة كحل أخير بدون عمود الوزن (Fallback)
     success = await safeExecute(db, `INSERT INTO giveaway_entries ("giveawayID", "userID") VALUES ($1, $2)`, [msgId, userId]);
     if (success) return true;
 
@@ -113,7 +107,6 @@ async function addGiveawayEntry(db, msgId, userId, weight) {
 async function removeGiveawayEntry(db, msgId, userId) {
     let success = await safeExecute(db, `DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [msgId, userId]);
     if (success) return true;
-    
     success = await safeExecute(db, `DELETE FROM giveaway_entries WHERE "messageID" = $1 AND "userID" = $2`, [msgId, userId]);
     return success;
 }
@@ -126,14 +119,8 @@ async function getUserWeight(member, db) {
     if (userRoles.length === 0) return 1;
 
     const placeholders = userRoles.map((_, i) => `$${i + 2}`).join(',');
-    
     try {
-        const res = await safeQuery(db, `
-            SELECT MAX(weight) as maxweight
-            FROM giveaway_weights
-            WHERE "guildID" = $1 AND "roleID" IN (${placeholders})
-        `, [guildId, ...userRoles]);
-        
+        const res = await safeQuery(db, `SELECT MAX(weight) as maxweight FROM giveaway_weights WHERE "guildID" = $1 AND "roleID" IN (${placeholders})`, [guildId, ...userRoles]);
         return Number(res.rows[0]?.maxweight || res.rows[0]?.MAXWEIGHT || 1);
     } catch (e) {
         return 1;
@@ -144,7 +131,7 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     const db = client.sql; 
     if (!db) return;
 
-    await db.query(`CREATE TABLE IF NOT EXISTS active_giveaways ("messageID" TEXT PRIMARY KEY, "guildID" TEXT, "channelID" TEXT, "prize" TEXT, "endsAt" BIGINT, "winnerCount" INTEGER, "xpReward" INTEGER, "moraReward" INTEGER, "isFinished" INTEGER DEFAULT 0)`).catch(()=>{});
+    await db.query(`CREATE TABLE IF NOT EXISTS active_giveaways ("messageID" TEXT PRIMARY KEY, "guildID" TEXT, "channelID" TEXT, "prize" TEXT, "endsAt" BIGINT, "winnerCount" INTEGER, "xpReward" INTEGER, "moraReward" INTEGER, "isFinished" INTEGER DEFAULT 0, "winners" TEXT)`).catch(()=>{});
     await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER)`).catch(()=>{});
 
     const endsAt = Date.now() + duration;
@@ -296,6 +283,10 @@ async function endGiveaway(client, messageID, force = false) {
 
         if (!force && isFinished === 1) return;
 
+        // 🔥 إضافة عمود لحفظ الفائزين إذا لم يكن موجوداً لضمان سحبهم في الريرول 🔥
+        try { await db.query(`ALTER TABLE active_giveaways ADD COLUMN "winners" TEXT`).catch(()=>{}); } catch(e) {}
+        try { await db.query(`ALTER TABLE active_giveaways ADD COLUMN winners TEXT`).catch(()=>{}); } catch(e) {}
+
         await safeExecute(db, 'UPDATE active_giveaways SET "isFinished" = 1 WHERE "messageID" = $1', [messageID]);
 
         const entries = await getGiveawayEntries(db, messageID);
@@ -375,6 +366,9 @@ async function endGiveaway(client, messageID, force = false) {
             }
         }
 
+        // 🔥 حفظ الفائزين في قاعدة البيانات لاسترجاعهم وقت الريرول 🔥
+        await safeExecute(db, `UPDATE active_giveaways SET "winners" = $1 WHERE "messageID" = $2`, [JSON.stringify(winnerIDs), messageID]);
+
         const announcementEmbed = new EmbedBuilder().setTitle(`✥ انـتـهى الـقـيفـاواي`).setColor(Colors.DarkGrey);
         const winnerLabel = winnerIDs.length > 1 ? "✦ الـفـائـزون:" : "✦ الـفـائـز:";
         
@@ -412,7 +406,7 @@ async function endGiveaway(client, messageID, force = false) {
     }
 }
 
-// 🔥 دالة الريرول مع إعلان عام للمسابقة 🔥
+// 🔥 نظام الريرول (إعادة السحب) مع سحب الجوائز والإعلان في الشات العام 🔥
 async function rerollGiveaway(client, interaction, messageID) {
     const db = client.sql; 
     if (!db) return;
@@ -445,6 +439,32 @@ async function rerollGiveaway(client, interaction, messageID) {
         return safeReply({ content: "❌ لا يمكن العثور على القناة لإرسال رسالة الفوز.", flags: [MessageFlags.Ephemeral] });
     } 
 
+    // 🔥 سحب الجوائز من الفائزين القدامى 🔥
+    let oldWinners = [];
+    try {
+        const wStr = giveaway.winners || giveaway.WINNERS;
+        if (wStr) oldWinners = JSON.parse(wStr);
+    } catch(e) {}
+
+    const moraReward = Number(giveaway.moraReward || giveaway.morareward || 0);
+    const xpReward = Number(giveaway.xpReward || giveaway.xpreward || 0);
+    const guildId = giveaway.guildID || giveaway.guildid;
+
+    if ((moraReward > 0 || xpReward > 0) && oldWinners.length > 0) {
+        for (const oldId of oldWinners) {
+            await safeExecute(db, `UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora", '0') AS BIGINT) - $1), "xp" = GREATEST(0, CAST(COALESCE("xp", '0') AS BIGINT) - $2) WHERE "user" = $3 AND "guild" = $4`, [moraReward, xpReward, oldId, guildId]);
+            
+            if (client && typeof client.getLevel === 'function') {
+                let cache = await client.getLevel(oldId, guildId);
+                if (cache) {
+                    cache.mora = String(Math.max(0, Number(cache.mora || 0) - moraReward));
+                    cache.xp = String(Math.max(0, Number(cache.xp || 0) - xpReward));
+                    await client.setLevel(cache);
+                }
+            }
+        }
+    }
+
     const pool = [];
     for (const entry of entries) {
         const uid = entry.userid || entry.userID || entry.user_id;
@@ -452,30 +472,47 @@ async function rerollGiveaway(client, interaction, messageID) {
             pool.push(uid);
         }
     }
-    const winnerID = pool[Math.floor(Math.random() * pool.length)];
-    const winnerString = `<@${winnerID}>`;
 
-    const moraReward = Number(giveaway.moraReward || giveaway.morareward || 0);
-    const xpReward = Number(giveaway.xpReward || giveaway.xpreward || 0);
-    const guildId = giveaway.guildID || giveaway.guildid;
+    // استبعاد القدامى من السحب الجديد
+    let newPool = pool.filter(id => !oldWinners.includes(id));
+    if (newPool.length === 0) newPool = pool; 
+
+    const countToWin = Math.min(Number(giveaway.winnerCount || giveaway.winnercount), entries.length);
+    const winners = new Set();
+    let attempts = 0;
+
+    while (winners.size < countToWin && attempts < 1000 && newPool.length > 0) {
+        const randomIndex = Math.floor(Math.random() * newPool.length);
+        winners.add(newPool[randomIndex]);
+        attempts++;
+    }
+
+    const winnerIDs = Array.from(winners);
+    const winnerString = winnerIDs.map(id => `<@${id}>`).join(', ');
 
     // إعطاء المكافآت للفائز الجديد في السحب
     if (moraReward > 0 || xpReward > 0) {
-        try {
-            const guildObj = channel.guild;
-            const member = await guildObj.members.fetch(winnerID).catch(() => null);
-            
-            if (member && addXPAndCheckLevel) {
-                await addXPAndCheckLevel(client, member, db, xpReward, moraReward, false);
-            } else {
-                await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [moraReward, xpReward, winnerID, guildId]);
-            }
-        } catch (err) { }
+        for (const newId of winnerIDs) {
+            try {
+                const guildObj = channel.guild;
+                const member = await guildObj.members.fetch(newId).catch(() => null);
+                
+                if (member && addXPAndCheckLevel) {
+                    await addXPAndCheckLevel(client, member, db, xpReward, moraReward, false);
+                } else {
+                    await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [moraReward, xpReward, newId, guildId]);
+                }
+            } catch (err) { }
+        }
     }
 
-    // إرسال الإعلان بنفس شكل الانتهاء الطبيعي
-    const announcementEmbed = new EmbedBuilder().setTitle(`✥ انـتـهى الـقـيفـاواي`).setColor(Colors.DarkGrey);
-    let winDescription = `✦ الـفـائـز: ${winnerString}\n✦ الـجـائـزة: **${giveaway.prize}**`;
+    // تحديث الداتابيز لحفظ الفائزين الجدد لضمان الريرول المستقبلي
+    await safeExecute(db, `UPDATE active_giveaways SET "winners" = $1 WHERE "messageID" = $2`, [JSON.stringify(winnerIDs), messageID]);
+
+    // إرسال الإعلان بنفس شكل الانتهاء الطبيعي في الشات العام
+    const announcementEmbed = new EmbedBuilder().setTitle(`✥ سحـب جـديـد (Reroll)`).setColor(Colors.DarkGrey);
+    const winnerLabel = winnerIDs.length > 1 ? "✦ الـفـائـزون:" : "✦ الـفـائـز:";
+    let winDescription = `${winnerLabel} ${winnerString}\n✦ الـجـائـزة: **${giveaway.prize}**`;
     announcementEmbed.setDescription(winDescription);
 
     if (moraReward > 0 || xpReward > 0) {
@@ -487,8 +524,8 @@ async function rerollGiveaway(client, interaction, messageID) {
     
     await channel.send({ content: winnerString, embeds: [announcementEmbed] }).catch(()=>{});
 
-    // الرد المخفي للآدمن لتأكيد تنفيذ الأمر
-    await safeReply({ content: `✅ تم عمل السحب الجديد وإعلان الفائز (${winnerString}) في القناة بنجاح!`, flags: [MessageFlags.Ephemeral] });
+    // الرد المخفي للآدمن
+    await safeReply({ content: `✅ تم عمل السحب الجديد وإعلان الفائز (${winnerString}) في القناة بنجاح! \n*(تم سحب الجوائز من الفائز القديم تلقائياً)*`, flags: [MessageFlags.Ephemeral] });
 }
 
 async function createRandomDropGiveaway(client, guild) {
