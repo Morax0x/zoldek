@@ -194,19 +194,16 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     return message;
 }
 
-// 🔥 نظام المشاركة المتين ضد أخطاء قاعدة البيانات 🔥
 async function handleGiveawayInteraction(client, interaction) {
     try {
         const db = client.sql; 
         if (!db) return interaction.reply({ content: "❌ خطأ في الاتصال بقاعدة البيانات.", flags: [MessageFlags.Ephemeral] });
 
-        // الرد الصامت والسريع جداً لتجنب أخطاء Timeout
         await interaction.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(()=>{});
 
         const messageID = interaction.message.id;
         const userID = interaction.user.id;
 
-        // دعم وإنشاء الجداول بحال غيابها
         await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER DEFAULT 1)`).catch(()=>{});
 
         const giveawayRes = await safeQuery(db, 'SELECT * FROM active_giveaways WHERE "messageID" = $1 AND "isFinished" = 0', [messageID]);
@@ -232,7 +229,6 @@ async function handleGiveawayInteraction(client, interaction) {
             const isSuccess = await addGiveawayEntry(db, messageID, userID, weight);
             
             if (!isSuccess) {
-                // الفحص التأكيدي بحال حدوث تعارض (Race Condition)
                 const checkAgain = await getGiveawayEntries(db, messageID);
                 const stillExists = checkAgain.find(e => e.userID === userID || e.userid === userID);
                 if (!stillExists) {
@@ -242,7 +238,6 @@ async function handleGiveawayInteraction(client, interaction) {
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة 🎟️`;
         }
 
-        // تحديث رسالة القيفاواي مع العدد الجديد بأمان
         try {
             const newEntries = await getGiveawayEntries(db, messageID);
             const count = newEntries.length;
@@ -261,7 +256,7 @@ async function handleGiveawayInteraction(client, interaction) {
 
             const newRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
-                    .setCustomId(interaction.customId) // استخدام نفس الآيدي (عادي أو دروب)
+                    .setCustomId(interaction.customId)
                     .setLabel(`مشاركة (${count})`)
                     .setEmoji('🎉')
                     .setStyle(ButtonStyle.Primary)
@@ -417,7 +412,7 @@ async function endGiveaway(client, messageID, force = false) {
     }
 }
 
-// 🔥 نظام الريرول (إعادة السحب) مع الحماية المتكاملة ضد الأخطاء 🔥
+// 🔥 دالة الريرول مع إعلان عام للمسابقة 🔥
 async function rerollGiveaway(client, interaction, messageID) {
     const db = client.sql; 
     if (!db) return;
@@ -442,6 +437,14 @@ async function rerollGiveaway(client, interaction, messageID) {
     const entries = await getGiveawayEntries(db, messageID);
     if (entries.length === 0) return safeReply({ content: "❌ لا يوجد مشاركين لعمل سحب عليهم.", flags: [MessageFlags.Ephemeral] });
 
+    let channel;
+    try {
+        const guild = await client.guilds.fetch(giveaway.guildID || giveaway.guildid);
+        channel = await guild.channels.fetch(giveaway.channelID || giveaway.channelid);
+    } catch (e) { 
+        return safeReply({ content: "❌ لا يمكن العثور على القناة لإرسال رسالة الفوز.", flags: [MessageFlags.Ephemeral] });
+    } 
+
     const pool = [];
     for (const entry of entries) {
         const uid = entry.userid || entry.userID || entry.user_id;
@@ -449,8 +452,43 @@ async function rerollGiveaway(client, interaction, messageID) {
             pool.push(uid);
         }
     }
-    const winner = pool[Math.floor(Math.random() * pool.length)];
-    await safeReply({ content: `🎉 **الري-رول الجديد!** الفائز هو: <@${winner}>! 🥳`});
+    const winnerID = pool[Math.floor(Math.random() * pool.length)];
+    const winnerString = `<@${winnerID}>`;
+
+    const moraReward = Number(giveaway.moraReward || giveaway.morareward || 0);
+    const xpReward = Number(giveaway.xpReward || giveaway.xpreward || 0);
+    const guildId = giveaway.guildID || giveaway.guildid;
+
+    // إعطاء المكافآت للفائز الجديد في السحب
+    if (moraReward > 0 || xpReward > 0) {
+        try {
+            const guildObj = channel.guild;
+            const member = await guildObj.members.fetch(winnerID).catch(() => null);
+            
+            if (member && addXPAndCheckLevel) {
+                await addXPAndCheckLevel(client, member, db, xpReward, moraReward, false);
+            } else {
+                await safeExecute(db, `UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1, "xp" = CAST(COALESCE("xp", '0') AS BIGINT) + $2, "totalXP" = CAST(COALESCE("totalXP", '0') AS BIGINT) + $2 WHERE "user" = $3 AND "guild" = $4`, [moraReward, xpReward, winnerID, guildId]);
+            }
+        } catch (err) { }
+    }
+
+    // إرسال الإعلان بنفس شكل الانتهاء الطبيعي
+    const announcementEmbed = new EmbedBuilder().setTitle(`✥ انـتـهى الـقـيفـاواي`).setColor(Colors.DarkGrey);
+    let winDescription = `✦ الـفـائـز: ${winnerString}\n✦ الـجـائـزة: **${giveaway.prize}**`;
+    announcementEmbed.setDescription(winDescription);
+
+    if (moraReward > 0 || xpReward > 0) {
+        announcementEmbed.addFields(
+            { name: "✬ اكس بي", value: `${xpReward.toLocaleString()}`, inline: true },
+            { name: "✬ مـورا", value: `${moraReward.toLocaleString()}`, inline: true }
+        );
+    }
+    
+    await channel.send({ content: winnerString, embeds: [announcementEmbed] }).catch(()=>{});
+
+    // الرد المخفي للآدمن لتأكيد تنفيذ الأمر
+    await safeReply({ content: `✅ تم عمل السحب الجديد وإعلان الفائز (${winnerString}) في القناة بنجاح!`, flags: [MessageFlags.Ephemeral] });
 }
 
 async function createRandomDropGiveaway(client, guild) {
@@ -494,7 +532,6 @@ async function createRandomDropGiveaway(client, guild) {
             );
 
         const row = new ActionRowBuilder().addComponents(
-            // 🔥 تعديل ليوافق تحديثات الـ ID لكي يعمل الزر بأمان 🔥
             new ButtonBuilder()
                 .setCustomId('g_enter_drop') 
                 .setLabel("مشاركة (0)")
