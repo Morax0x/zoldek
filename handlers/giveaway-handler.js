@@ -73,6 +73,7 @@ const safeExecute = async (db, qPg, params) => {
 async function getGiveawayEntries(db, msgId) {
     let res = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "giveawayID" = $1', [msgId]);
     if (res.rows.length > 0) return res.rows;
+    
     res = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "messageID" = $1', [msgId]);
     return res.rows;
 }
@@ -107,6 +108,7 @@ async function addGiveawayEntry(db, msgId, userId, weight) {
 async function removeGiveawayEntry(db, msgId, userId) {
     let success = await safeExecute(db, `DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [msgId, userId]);
     if (success) return true;
+    
     success = await safeExecute(db, `DELETE FROM giveaway_entries WHERE "messageID" = $1 AND "userID" = $2`, [msgId, userId]);
     return success;
 }
@@ -119,8 +121,14 @@ async function getUserWeight(member, db) {
     if (userRoles.length === 0) return 1;
 
     const placeholders = userRoles.map((_, i) => `$${i + 2}`).join(',');
+    
     try {
-        const res = await safeQuery(db, `SELECT MAX(weight) as maxweight FROM giveaway_weights WHERE "guildID" = $1 AND "roleID" IN (${placeholders})`, [guildId, ...userRoles]);
+        const res = await safeQuery(db, `
+            SELECT MAX(weight) as maxweight
+            FROM giveaway_weights
+            WHERE "guildID" = $1 AND "roleID" IN (${placeholders})
+        `, [guildId, ...userRoles]);
+        
         return Number(res.rows[0]?.maxweight || res.rows[0]?.MAXWEIGHT || 1);
     } catch (e) {
         return 1;
@@ -283,7 +291,6 @@ async function endGiveaway(client, messageID, force = false) {
 
         if (!force && isFinished === 1) return;
 
-        // 🔥 إضافة عمود لحفظ الفائزين إذا لم يكن موجوداً لضمان سحبهم في الريرول 🔥
         try { await db.query(`ALTER TABLE active_giveaways ADD COLUMN "winners" TEXT`).catch(()=>{}); } catch(e) {}
         try { await db.query(`ALTER TABLE active_giveaways ADD COLUMN winners TEXT`).catch(()=>{}); } catch(e) {}
 
@@ -366,7 +373,6 @@ async function endGiveaway(client, messageID, force = false) {
             }
         }
 
-        // 🔥 حفظ الفائزين في قاعدة البيانات لاسترجاعهم وقت الريرول 🔥
         await safeExecute(db, `UPDATE active_giveaways SET "winners" = $1 WHERE "messageID" = $2`, [JSON.stringify(winnerIDs), messageID]);
 
         const announcementEmbed = new EmbedBuilder().setTitle(`✥ انـتـهى الـقـيفـاواي`).setColor(Colors.DarkGrey);
@@ -406,7 +412,6 @@ async function endGiveaway(client, messageID, force = false) {
     }
 }
 
-// 🔥 نظام الريرول (إعادة السحب) مع سحب الجوائز والإعلان في الشات العام 🔥
 async function rerollGiveaway(client, interaction, messageID) {
     const db = client.sql; 
     if (!db) return;
@@ -439,7 +444,6 @@ async function rerollGiveaway(client, interaction, messageID) {
         return safeReply({ content: "❌ لا يمكن العثور على القناة لإرسال رسالة الفوز.", flags: [MessageFlags.Ephemeral] });
     } 
 
-    // 🔥 سحب الجوائز من الفائزين القدامى 🔥
     let oldWinners = [];
     try {
         const wStr = giveaway.winners || giveaway.WINNERS;
@@ -473,7 +477,6 @@ async function rerollGiveaway(client, interaction, messageID) {
         }
     }
 
-    // استبعاد القدامى من السحب الجديد
     let newPool = pool.filter(id => !oldWinners.includes(id));
     if (newPool.length === 0) newPool = pool; 
 
@@ -490,7 +493,6 @@ async function rerollGiveaway(client, interaction, messageID) {
     const winnerIDs = Array.from(winners);
     const winnerString = winnerIDs.map(id => `<@${id}>`).join(', ');
 
-    // إعطاء المكافآت للفائز الجديد في السحب
     if (moraReward > 0 || xpReward > 0) {
         for (const newId of winnerIDs) {
             try {
@@ -506,11 +508,9 @@ async function rerollGiveaway(client, interaction, messageID) {
         }
     }
 
-    // تحديث الداتابيز لحفظ الفائزين الجدد لضمان الريرول المستقبلي
     await safeExecute(db, `UPDATE active_giveaways SET "winners" = $1 WHERE "messageID" = $2`, [JSON.stringify(winnerIDs), messageID]);
 
-    // إرسال الإعلان بنفس شكل الانتهاء الطبيعي في الشات العام
-    const announcementEmbed = new EmbedBuilder().setTitle(`✥ سحـب جـديـد (Reroll)`).setColor(Colors.DarkGrey);
+    const announcementEmbed = new EmbedBuilder().setTitle(`✥ انـتـهى الـقـيفـاواي`).setColor(Colors.DarkGrey);
     const winnerLabel = winnerIDs.length > 1 ? "✦ الـفـائـزون:" : "✦ الـفـائـز:";
     let winDescription = `${winnerLabel} ${winnerString}\n✦ الـجـائـزة: **${giveaway.prize}**`;
     announcementEmbed.setDescription(winDescription);
@@ -524,8 +524,27 @@ async function rerollGiveaway(client, interaction, messageID) {
     
     await channel.send({ content: winnerString, embeds: [announcementEmbed] }).catch(()=>{});
 
-    // الرد المخفي للآدمن
-    await safeReply({ content: `✅ تم عمل السحب الجديد وإعلان الفائز (${winnerString}) في القناة بنجاح! \n*(تم سحب الجوائز من الفائز القديم تلقائياً)*`, flags: [MessageFlags.Ephemeral] });
+    // تحديث الرسالة الأصلية عشان يبين كأنه انتهى لأول مرة بالفائز الجديد
+    const originalMessage = await channel.messages.fetch(messageID).catch(() => null);
+    if (originalMessage) {
+        const originalEmbed = originalMessage.embeds[0];
+        const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
+        
+        let oldDesc = originalEmbed.description || "";
+        let cleanDesc = oldDesc.split('✶ عـدد الـمـشاركـيـن:')[0].trim();
+        let newDesc = cleanDesc ? `${cleanDesc}\n\n` : "";
+        newDesc += `${winnerLabel} ${winnerString}\n✶ عـدد الـمـشاركـيـن: ${entries.length}`;
+        
+        newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى: ${giveaway.prize || ''}`).setColor(Colors.DarkGrey);
+        newEmbed.setDescription(newDesc);
+
+        const disabledRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('g_ended').setLabel(`انتهى (${entries.length})`).setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🏁')
+        );
+        await originalMessage.edit({ embeds: [newEmbed], components: [disabledRow] }).catch(()=>{});
+    }
+
+    await safeReply({ content: `✅ تم إعلان الفائز الجديد بنجاح في القناة العامة!`, flags: [MessageFlags.Ephemeral] });
 }
 
 async function createRandomDropGiveaway(client, guild) {
