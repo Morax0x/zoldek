@@ -70,51 +70,67 @@ const safeExecute = async (db, qPg, params) => {
     }
 };
 
-// 🔥 إصلاح جذري لدوال سحب وإضافة المشاركين لجعلها Bulletproof 🔥
+// 🔥 استخراج المشاركين مع تسجيل الأخطاء في الكونسول 🔥
 async function getGiveawayEntries(db, msgId) {
-    let res = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "giveawayID" = $1', [msgId]);
-    if (res.rows.length > 0) return res.rows;
+    let errors = [];
     
-    res = await safeQuery(db, 'SELECT * FROM giveaway_entries WHERE "messageID" = $1', [msgId]);
-    return res.rows;
+    try { let res = await db.query(`SELECT * FROM giveaway_entries WHERE "giveawayID" = $1`, [msgId]); if(res?.rows) return res.rows; } catch(e) { errors.push(e.message); }
+    try { let res = await db.query(`SELECT * FROM giveaway_entries WHERE giveawayid = $1`, [msgId]); if(res?.rows) return res.rows; } catch(e) { errors.push(e.message); }
+    try { let res = await db.query(`SELECT * FROM giveaway_entries WHERE "messageID" = $1`, [msgId]); if(res?.rows) return res.rows; } catch(e) { errors.push(e.message); }
+    try { let res = await db.query(`SELECT * FROM giveaway_entries WHERE messageid = $1`, [msgId]); if(res?.rows) return res.rows; } catch(e) { errors.push(e.message); }
+    
+    if (errors.length === 4) {
+        console.error("[Giveaway DB Error] فشل في استخراج قائمة المشاركين. السبب: ", [...new Set(errors)].join(' | '));
+    }
+    return [];
 }
 
+// 🔥 إضافة مشارك مع طباعة الخطأ الدقيق في الكونسول 🔥
 async function addGiveawayEntry(db, msgId, userId, weight) {
     let w = Number(weight) || 1;
+    let errors = [];
 
-    // 1. المحاولة المباشرة مع الوزن
-    let success = await safeExecute(db, `INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
-    if (success) return true;
+    const run = async (q, params) => {
+        try { await db.query(q, params); return true; } 
+        catch(e) { errors.push(e.message); return false; }
+    };
 
-    success = await safeExecute(db, `INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
-    if (success) return true;
+    if (await run(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w])) return true;
+    if (await run(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, w])) return true;
+    if (await run(`INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w])) return true;
+    if (await run(`INSERT INTO giveaway_entries (messageid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, w])) return true;
 
-    // 2. ترقيع الجداول في حال كانت الأعمدة ناقصة (أثناء الرن تايم)
-    try { await db.query(`CREATE TABLE IF NOT EXISTS giveaway_entries ("giveawayID" TEXT, "userID" TEXT, "weight" INTEGER DEFAULT 1)`); } catch(e) {}
     try { await db.query(`ALTER TABLE giveaway_entries ADD COLUMN "weight" INTEGER DEFAULT 1`); } catch(e) {}
-    try { await db.query(`ALTER TABLE giveaway_entries ADD COLUMN "giveawayID" TEXT`); } catch(e) {}
+    try { await db.query(`ALTER TABLE giveaway_entries ADD COLUMN weight INTEGER DEFAULT 1`); } catch(e) {}
 
-    // إعادة المحاولة بعد الترقيع
-    success = await safeExecute(db, `INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
-    if (success) return true;
+    if (await run(`INSERT INTO giveaway_entries ("giveawayID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w])) return true;
+    if (await run(`INSERT INTO giveaway_entries (giveawayid, userid, weight) VALUES ($1, $2, $3)`, [msgId, userId, w])) return true;
 
-    success = await safeExecute(db, `INSERT INTO giveaway_entries ("messageID", "userID", "weight") VALUES ($1, $2, $3)`, [msgId, userId, w]);
-    if (success) return true;
-
-    // 3. المحاولة كحل أخير بدون عمود الوزن (Fallback)
-    success = await safeExecute(db, `INSERT INTO giveaway_entries ("giveawayID", "userID") VALUES ($1, $2)`, [msgId, userId]);
-    if (success) return true;
-
-    success = await safeExecute(db, `INSERT INTO giveaway_entries ("messageID", "userID") VALUES ($1, $2)`, [msgId, userId]);
-    return success;
+    if (await run(`INSERT INTO giveaway_entries ("giveawayID", "userID") VALUES ($1, $2)`, [msgId, userId])) return true;
+    if (await run(`INSERT INTO giveaway_entries (giveawayid, userid) VALUES ($1, $2)`, [msgId, userId])) return true;
+    if (await run(`INSERT INTO giveaway_entries ("messageID", "userID") VALUES ($1, $2)`, [msgId, userId])) return true;
+    if (await run(`INSERT INTO giveaway_entries (messageid, userid) VALUES ($1, $2)`, [msgId, userId])) return true;
+    
+    // طباعة كل الأخطاء في الكونسول لتحديد المشكلة
+    console.error(`\n[❌ Giveaway DB Error] فشل في إضافة المشارك! الأسباب:\n`, [...new Set(errors)].join('\n '));
+    return false;
 }
 
+// 🔥 حذف مشارك مع طباعة الخطأ الدقيق في الكونسول 🔥
 async function removeGiveawayEntry(db, msgId, userId) {
-    let success = await safeExecute(db, `DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [msgId, userId]);
-    if (success) return true;
+    let errors = [];
+    const run = async (q, params) => {
+        try { await db.query(q, params); return true; } 
+        catch(e) { errors.push(e.message); return false; }
+    };
+
+    if (await run(`DELETE FROM giveaway_entries WHERE "giveawayID" = $1 AND "userID" = $2`, [msgId, userId])) return true;
+    if (await run(`DELETE FROM giveaway_entries WHERE giveawayid = $1 AND userid = $2`, [msgId, userId])) return true;
+    if (await run(`DELETE FROM giveaway_entries WHERE "messageID" = $1 AND "userID" = $2`, [msgId, userId])) return true;
+    if (await run(`DELETE FROM giveaway_entries WHERE messageid = $1 AND userid = $2`, [msgId, userId])) return true;
     
-    success = await safeExecute(db, `DELETE FROM giveaway_entries WHERE "messageID" = $1 AND "userID" = $2`, [msgId, userId]);
-    return success;
+    console.error(`\n[❌ Giveaway DB Error] فشل في حذف المشارك! الأسباب:\n`, [...new Set(errors)].join('\n '));
+    return false;
 }
 
 async function getUserWeight(member, db) {
@@ -219,7 +235,8 @@ async function handleGiveawayInteraction(client, interaction) {
         let replyMessage = "";
 
         if (existingEntry) {
-            await removeGiveawayEntry(db, messageID, userID);
+            const removed = await removeGiveawayEntry(db, messageID, userID);
+            if (!removed) return interaction.editReply({ content: "❌ حدث خطأ داخلي أثناء إلغاء المشاركة، راجع الكونسول." });
             replyMessage = "✅ تـم الـغـاء الـمـشاركـة.. حظاً أوفر في المرات القادمة!";
         } else {
             const weight = await getUserWeight(interaction.member, db);
@@ -230,7 +247,7 @@ async function handleGiveawayInteraction(client, interaction) {
                 const checkAgain = await getGiveawayEntries(db, messageID);
                 const stillExists = checkAgain.find(e => e.userID === userID || e.userid === userID);
                 if (!stillExists) {
-                    return interaction.editReply({ content: "❌ حدث خطأ داخلي في قاعدة البيانات أثناء تسجيلك، يرجى المحاولة مرة أخرى." });
+                    return interaction.editReply({ content: "❌ حدث خطأ داخلي في قاعدة البيانات أثناء تسجيلك، تحقق من الكونسول لمعرفة السبب." });
                 }
             }
             replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح! دخـلت بـ: **${weight}** تذكـرة 🎟️`;
