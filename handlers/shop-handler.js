@@ -313,7 +313,6 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     });
 }
 
-// 🔥 دالة فحص القيود ومعالجة الشراء (Shop Button) 🔥
 async function _handleShopButton(i, client, db, explicitItemId = null) {
     try {
         try { if (!i.replied && !i.deferred) await i.deferReply({ flags: [MessageFlags.Ephemeral] }); } catch(e) {}
@@ -406,7 +405,7 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
     }
 }
 
-// 🔥 تنفيذ الشراء النهائي بإصلاحات البيانات الرقمية (BigInt) 🔥
+// 🔥 إضافة الطعوم بشكل صحيح في Inventory 🔥
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
     let bal = await getUserBal(db, interaction.user.id, interaction.guild.id);
     const totalWealth = bal.mora + bal.bank;
@@ -421,7 +420,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     }
 
     if (callbackType === 'item') {
-        if (itemData.category === 'potions' || itemData.id.startsWith('potion_')) {
+        // 🔥 تم إصلاح الشرط للتعرف على الطعوم وعدم تجاوزها 🔥
+        if (itemData.category === 'potions' || itemData.id.startsWith('potion_') || finalBaits.some(b => b.id === itemData.id)) {
             let inv = await safeGetInv(db, interaction.user.id, interaction.guild.id, itemData.id);
             let currQty = inv ? Number(inv.quantity || inv.Quantity || 0) : 0;
             if (currQty + quantity > MAX_POTION_LIMIT) return await errorReply(`🚫 **لا يمكنك الشراء!**\nحقيبتك ممتلئة من هذا العنصر.`);
@@ -468,9 +468,10 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     } catch(e){}
                 }
             }
-            else if (itemData.category === 'potions' || itemData.id.startsWith('potion_')) { 
+            // 🔥 إضافة الطعوم والجرعات للحقيبة 🔥
+            else if (itemData.category === 'potions' || itemData.id.startsWith('potion_') || finalBaits.some(b => b.id === itemData.id)) { 
                 if(ensureInventoryTable) await ensureInventoryTable(db); 
-                let added = await safeAddInv(db, interaction.user.id, interaction.guild.id, itemData.id, 1);
+                let added = await safeAddInv(db, interaction.user.id, interaction.guild.id, itemData.id, quantity);
                 if(!added) success = false;
             }
             else if (itemData.id === 'streak_shield') {
@@ -515,11 +516,19 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                         await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]);
                         try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
                         
+                        let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
                         let insXP = await execSafe(db, 
-                            `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`, 
-                            `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'xp', $3, $4, $5)`, 
-                            [interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
+                            `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'xp', $4, $5, $6)`, 
+                            `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, 'xp', $4, $5, $6)`, 
+                            [newId, interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
                         );
+                        if(insXP.error) {
+                            insXP = await execSafe(db, 
+                                `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, 
+                                `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, 
+                                [interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
+                            );
+                        }
                         if(insXP.error) success = false;
                     }
                 }
@@ -550,11 +559,20 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]);
                     try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
                     
+                    let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
                     let insWorker = await execSafe(db,
-                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                        [interaction.user.id, interaction.guild.id, newExpiresAt]
+                        `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
+                        `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
+                        [newId, interaction.user.id, interaction.guild.id, newExpiresAt]
                     );
+                    
+                    if (insWorker.error) {
+                        insWorker = await execSafe(db,
+                            `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                            `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                            [interaction.user.id, interaction.guild.id, newExpiresAt]
+                        );
+                    }
                     if (insWorker.error) success = false;
                 }
             }
@@ -577,11 +595,19 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]);
                     try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
                     
+                    let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000);
                     let insXP = await execSafe(db, 
-                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`, 
-                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'xp', $3, $4, $5)`, 
-                        [interaction.user.id, interaction.guild.id, -0.05, expiresAt, -5]
+                        `INSERT INTO user_buffs ("id", "guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, 
+                        `INSERT INTO user_buffs (id, guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, 
+                        [newId, interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]
                     );
+                    if (insXP.error) {
+                        insXP = await execSafe(db, 
+                            `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'xp', $5)`, 
+                            `INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'xp', $5)`, 
+                            [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]
+                        );
+                    }
                     if(insXP.error) success = false;
                 }
             }
@@ -590,7 +616,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         if (success) {
             await execSafe(db, `UPDATE levels SET "shop_purchases" = COALESCE("shop_purchases", 0) + 1 WHERE "user" = $1 AND "guild" = $2`, `UPDATE levels SET shop_purchases = COALESCE(shop_purchases, 0) + 1 WHERE userid = $1 AND guildid = $2`, [interaction.user.id, interaction.guild.id]);
             
-            let successMsg = `📦 **العنصر:** ${itemData.name || 'Unknown'}\n💰 **التكلفة:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
+            let successMsg = `📦 **العنصر:** ${itemData.name || 'Unknown'} × ${quantity}\n💰 **التكلفة:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
             if (discountUsed > 0) successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
             if (itemData.id === 'farm_worker_3d') successMsg += `\n👨‍🌾 **عامل المزرعة بدأ العمل!** سيقوم بحصاد المحاصيل وإطعام الحيوانات (أضيف لك 3 أيام).`;
             if (itemData.id === 'change_race') successMsg += `\n🧬 **تم مسح عرقك القديم بنجاح!** و تم تطبيق عقوبة النقصان.`;
@@ -621,7 +647,6 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     }
 }
 
-// 🎣 استرجاع دوال صيد السمك والقوارب والجرعات المفقودة 🎣
 async function _handleRodUpgrade(i, client, db) {
     try { if (!i.replied && !i.deferred) await i.deferUpdate(); } catch(e) {}
     
@@ -780,11 +805,11 @@ async function _handleReplaceBuffButton(i, client, db) {
             
             if (multiplier > 0) {
                 try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                let ins = await execSafe(db, 
-                    `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`, 
-                    `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'xp', $3, $4, $5)`, 
-                    [userId, guildId, multiplier, expiresAt, buffPercent]
-                );
+                let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
+                let ins = await execSafe(db, `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6, $7)`, `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [newId, userId, guildId, 'xp', multiplier, expiresAt, buffPercent]);
+                if (ins.error) {
+                    ins = await execSafe(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]);
+                }
                 if (ins.error) throw new Error("BUFF_INS_ERR");
             }
 
@@ -896,32 +921,6 @@ async function _handleBoatSelect(i, client, db) {
         row.addComponents(new ButtonBuilder().setCustomId('upgrade_boat').setLabel('شراء').setStyle(ButtonStyle.Success).setEmoji('🚤'));
     }
     await i.editReply({ embeds: [embed], components: [row] });
-}
-
-async function _handleBaitSelect(i, client, db) {
-    try {
-        if(i.replied || i.deferred) await i.editReply({ content: "جاري التحميل..." }); 
-        else await i.deferReply({ flags: [MessageFlags.Ephemeral] });
-    } catch(e) {}
-    
-    if (finalBaits.length === 0) return i.editReply({ content: "❌ لا توجد طعوم في المتجر حالياً." });
-    
-    const baitOptions = finalBaits.map(b => ({
-        label: b.name,
-        description: `${b.price} مورا | حزمة (5 حبات)`,
-        value: `buy_bait_${b.id}`,
-        emoji: '🪱'
-    }));
-    
-    const row = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId('shop_buy_bait_menu')
-            .setPlaceholder('اختر الطعم لشرائه...')
-            .addOptions(baitOptions)
-    );
-    
-    const embed = new EmbedBuilder().setTitle('🪱 متجر الطعوم').setDescription('اختر الطعم الذي تود شراءه من القائمة السفلية (يتم بيع الطعوم كحزم، كل حزمة تحتوي على 5 طعوم).').setColor(Colors.Orange);
-    await i.editReply({ content: null, embeds: [embed], components: [row] });
 }
 
 async function handleShopModal(i, client, db) {
