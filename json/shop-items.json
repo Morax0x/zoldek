@@ -56,28 +56,28 @@
     "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/streak_shield_media.png"
   },
   {
-    "id": "xp_buff_1d_3",
+    "id": "xp_buff_small",
     "name": "تعزيز خبرة (صغير)",
-    "description": "زيادة +45% XP لمدة 24 ساعة.",
-    "price": 1500,
+    "description": "يزيد من اكتساب الخبرة بنسبة 15% لمدة 12 ساعة.",
+    "price": 2000,
     "emoji": "✨",
     "category": "premium",
     "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/xp_buff_1d_3.png"
   },
   {
-    "id": "xp_buff_1d_7",
+    "id": "xp_buff_medium",
     "name": "تعزيز خبرة (متوسط)",
-    "description": "زيادة +70% XP لمدة 48 ساعة.",
-    "price": 2000,
+    "description": "يزيد من اكتساب الخبرة بنسبة 25% لمدة 24 ساعة.",
+    "price": 5000,
     "emoji": "🚀",
     "category": "premium",
     "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/xp_buff_1d_7.png"
   },
   {
-    "id": "xp_buff_2d_10",
+    "id": "xp_buff_large",
     "name": "تعزيز خبرة (كبير)",
-    "description": "زيادة +90% XP لمدة 72 ساعة.",
-    "price": 5000,
+    "description": "يزيد من اكتساب الخبرة بنسبة 30% لمدة 35 ساعة.",
+    "price": 8000,
     "emoji": "☄️",
     "category": "premium",
     "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/shop/xp_buff_2d_10.png"
