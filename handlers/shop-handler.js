@@ -313,110 +313,96 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     });
 }
 
-// 🔥 إضافة التنبه الذكي والحدود القصوى للحقيبة قبل الشراء 🔥
-async function _handleShopButton(i, client, db, itemId) {
+// 🔥 دالة فحص القيود ومعالجة الشراء (Shop Button) 🔥
+async function _handleShopButton(i, client, db, explicitItemId = null) {
     try {
-        if (!i.replied && !i.deferred) await i.deferReply({ flags: [MessageFlags.Ephemeral] });
-    } catch(e) {}
-    
-    const itemData = shopItems.find(it => it.id === itemId) || finalPotionItems.find(it => it.id === itemId);
-    if (!itemData) return await i.editReply({ content: '❌ لم يتم العثور على هذا العنصر.' });
-
-    const userId = i.user.id;
-    const guildId = i.guild.id;
-
-    let userDataRes = await execSafe(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
-    let userData = userDataRes.rows[0] || { mora: 0, bank: 0 };
-      
-    const NON_DISCOUNTABLE = ['xp_buff_small', 'xp_buff_medium', 'xp_buff_large', 'farm_worker_3d'];
-    
-    // 🛡️ حماية: حدود الحارس الشخصي
-    if (itemData.id === 'personal_guard_1d') {
-        if (Number(userData.hasGuard || userData.hasguard || 0) >= 6) {
-            return await i.editReply({ content: `🚫 **لا يمكنك الشراء!**\nلديك بالفعل أقصى عدد من محاولات حماية الحارس الشخصي (الحد الأقصى 6).` });
+        try { if (!i.replied && !i.deferred) await i.deferReply({ flags: [MessageFlags.Ephemeral] }); } catch(e) {}
+        
+        const userId = i.user.id; 
+        const guildId = i.guild.id; 
+        const boughtItemId = explicitItemId || i.customId.replace('buy_item_', ''); 
+          
+        let item = shopItems.find(it => it.id === boughtItemId) || finalPotionItems.find(it => it.id === boughtItemId);
+        if (!item) return await i.editReply({ content: '❌ هذا العنصر غير موجود!' });
+        
+        let userDataRes = await execSafe(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, `SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+        let userData = userDataRes.rows[0] || { mora: 0, bank: 0 };
+          
+        const NON_DISCOUNTABLE = ['xp_buff_small', 'xp_buff_medium', 'xp_buff_large', 'farm_worker_3d'];
+        
+        // 🛡️ حدود الحارس الشخصي
+        if (item.id === 'personal_guard_1d') {
+            if (Number(userData.hasGuard || userData.hasguard || 0) >= 6) {
+                return await i.editReply({ content: `🚫 **لا يمكنك الشراء!**\nلديك بالفعل أقصى عدد من محاولات حماية الحارس الشخصي (الحد الأقصى 6).` });
+            }
         }
-    }
-    // 🛡️ حماية: حدود درع الستريك
-    else if (itemData.id === 'streak_shield') {
-        let existingRes = await execSafe(db, `SELECT * FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
-        const currentShields = Number(existingRes.rows[0]?.hasItemShield || existingRes.rows[0]?.hasitemshield || 0);
-        if (currentShields >= 3) {
-            return await i.editReply({ content: `🚫 **درعك ممتلئ!**\nلديك **${currentShields}** دروع ستريك نشطة حالياً. لا يمكنك شراء المزيد.` });
+        // 🛡️ حدود درع الستريك
+        else if (item.id === 'streak_shield') {
+            let existingRes = await execSafe(db, `SELECT * FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+            const currentShields = Number(existingRes.rows[0]?.hasItemShield || existingRes.rows[0]?.hasitemshield || 0);
+            if (currentShields >= 3) {
+                return await i.editReply({ content: `🚫 **درعك ممتلئ!**\nلديك **${currentShields}** دروع ستريك نشطة حالياً. لا يمكنك شراء المزيد.` });
+            }
         }
-    }
-    // 🛡️ حماية: حدود درع الميديا
-    else if (itemData.id === 'streak_shield_media') {
-        let existingRes = await execSafe(db, `SELECT * FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM media_streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
-        const currentShields = Number(existingRes.rows[0]?.hasItemShield || existingRes.rows[0]?.hasitemshield || 0);
-        if (currentShields >= 3) {
-            return await i.editReply({ content: `🚫 **درع الميديا ممتلئ!**\nلديك **${currentShields}** دروع نشطة حالياً. لا يمكنك شراء المزيد.` });
+        // 🛡️ حدود درع الميديا
+        else if (item.id === 'streak_shield_media') {
+            let existingRes = await execSafe(db, `SELECT * FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, `SELECT * FROM media_streaks WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+            const currentShields = Number(existingRes.rows[0]?.hasItemShield || existingRes.rows[0]?.hasitemshield || 0);
+            if (currentShields >= 3) {
+                return await i.editReply({ content: `🚫 **درع الميديا ممتلئ!**\nلديك **${currentShields}** دروع نشطة حالياً. لا يمكنك شراء المزيد.` });
+            }
         }
-    }
-    // 🛡️ حماية: حدود عمال المزرعة
-    else if (itemData.id === 'farm_worker_3d') {
-        let wBuf = await execSafe(db,
-            `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
-            `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
-            [userId, guildId]
-        );
-        if (wBuf.rows.length > 0) {
-            const expiresAtMs = Number(wBuf.rows[0].expiresAt || wBuf.rows[0].expiresat || 0);
-            if (expiresAtMs > Date.now()) {
-                const remainingDays = (expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000);
-                if (remainingDays >= 6) {
-                    return await i.editReply({ content: `🚫 **الحد الأقصى من العمال!**\nلديك بالفعل **2 عاملان نشطان** (الحد الأقصى)، سيستمران بالعمل لمدة **${Math.ceil(remainingDays)} يوماً** القادمة.` });
+        // 🛡️ حدود عمال المزرعة
+        else if (item.id === 'farm_worker_3d') {
+            let wBuf = await execSafe(db,
+                `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`,
+                `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`,
+                [userId, guildId]
+            );
+            if (wBuf.rows.length > 0) {
+                const expiresAtMs = Number(wBuf.rows[0].expiresAt || wBuf.rows[0].expiresat || 0);
+                if (expiresAtMs > Date.now()) {
+                    const remainingDays = (expiresAtMs - Date.now()) / (24 * 60 * 60 * 1000);
+                    if (remainingDays >= 6) {
+                        return await i.editReply({ content: `🚫 **الحد الأقصى من العمال!**\nلديك بالفعل **2 عاملان نشطان** (الحد الأقصى)، سيستمران بالعمل لمدة **${Math.ceil(remainingDays)} يوماً** القادمة.` });
+                    }
                 }
             }
         }
-    }
-    // 🛡️ تنبيه واستبدال معززات الخبرة (XP Buffs)
-    else if (itemData.id.startsWith('xp_buff_')) {
-        let getActiveBuffRes = await execSafe(db, 
-            `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp' AND "expiresAt" > $3`, 
-            `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp' AND expiresat > $3`, 
-            [userId, guildId, Date.now()]
-        );
-        
-        if (getActiveBuffRes.rows.length > 0) {
-            const activeBuff = getActiveBuffRes.rows[0];
-            const currentPercent = activeBuff.buffPercent || activeBuff.buffpercent || 0;
-            
-            const replaceButton = new ButtonBuilder()
-                .setCustomId(`replace_buff_${itemData.id}`)
-                .setLabel("استبدال المعزز")
-                .setStyle(ButtonStyle.Danger)
-                .setEmoji('🔄');
+        // 🛡️ تنبيه واستبدال تعزيزات الخبرة
+        else if (item.id.startsWith('xp_buff_')) {
+            let getActiveBuffRes = await execSafe(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp' AND "expiresAt" > $3`, `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp' AND expiresat > $3`, [userId, guildId, Date.now()]);
+            if (getActiveBuffRes.rows[0]) {
+                const activeBuff = getActiveBuffRes.rows[0];
+                const currentPercent = activeBuff.buffPercent || activeBuff.buffpercent || 0;
                 
-            const cancelButton = new ButtonBuilder()
-                .setCustomId('cancel_purchase')
-                .setLabel("إلغاء")
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji('✖️');
-                
-            const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
-            
-            return await i.editReply({ 
-                content: `⚠️ **لديك معزز خبرة فعال بنسبة: ${currentPercent}%!**\nهل تريد تعطيل القديم وشراء الجديد؟ (لا يمكن دمج معززين في نفس الوقت)`, 
-                components: [row], 
-                embeds: [] 
-            });
+                const replaceButton = new ButtonBuilder().setCustomId(`replace_buff_${item.id}`).setLabel("إلغاء القديم وشراء الجديد").setStyle(ButtonStyle.Danger);
+                const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغاء").setStyle(ButtonStyle.Secondary);
+                const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
+                return await i.editReply({ content: `⚠️ لديك معزز خبرة فعال بنسبة ${currentPercent}% بالفعل! (لا يمكن دمج معززين في نفس الوقت)`, components: [row], embeds: [] });
+            }
         }
-    }
 
-    // الدفع للسلع المستثناة من التخفيضات والكوبونات مباشرة
-    if (NON_DISCOUNTABLE.includes(itemData.id) || itemData.id.startsWith('xp_buff_')) {
-         let bal = await getUserBal(db, userId, guildId);
-         if ((bal.mora + bal.bank) < itemData.price) {
-             return await i.editReply({ content: `❌ رصيدك (كاش + بنك) ما يكفي. تحتاج **${itemData.price.toLocaleString()}** مورا.` });
-         }
-         await processFinalPurchase(i, itemData, 1, itemData.price, 0, 'none', client, db, 'item');
-         return;
+        // الدفع المباشر للعناصر غير القابلة للخصم
+        if (NON_DISCOUNTABLE.includes(item.id) || item.id.startsWith('xp_buff_')) {
+             let bal = await getUserBal(db, userId, guildId);
+             if ((bal.mora + bal.bank) < item.price) {
+                 return await i.editReply({ content: `❌ رصيدك (كاش + بنك) ما يكفي. تحتاج **${item.price.toLocaleString()}** مورا.` });
+             }
+             await processFinalPurchase(i, item, 1, item.price, 0, 'none', client, db, 'item');
+             return;
+        }
+        
+        await handlePurchaseWithCoupons(i, item, 1, item.price, client, db, 'item');
+
+    } catch (error) { 
+        console.error("[Shop System Error] _handleShopButton:", error);
+        if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: [MessageFlags.Ephemeral] }); 
+        else await i.reply({ content: '❌ حدث خطأ.', flags: [MessageFlags.Ephemeral] }); 
     }
-    
-    // المتابعة بنظام الكوبونات والتخفيضات لباقي السلع
-    await handlePurchaseWithCoupons(i, itemData, 1, itemData.price, client, db, 'item');
 }
 
+// 🔥 تنفيذ الشراء النهائي 🔥
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
     let bal = await getUserBal(db, interaction.user.id, interaction.guild.id);
     const totalWealth = bal.mora + bal.bank;
@@ -507,7 +493,6 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     if(r2.error) success = false;
                 }
             }
-            // 🔥 تصحيح تعزيز الخبرة: الأرقام تسجل بوضوح كنطاق رياضي (Math) 🔥
             else if (itemData.id.startsWith('xp_buff_')) {
                 let multiplier = 0, buffPercent = 0, duration = 0;
                 switch (itemData.id) {
@@ -840,6 +825,17 @@ async function _handleReplaceBuffButton(i, client, db) {
     } catch (error) {}
 }
 
+async function _handleReplaceGuard(i, client, db) {
+    try {
+        if (!i.replied && !i.deferred) await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+    } catch(e) {}
+    
+    const itemData = shopItems.find(it => it.id === 'personal_guard_1d');
+    if (!itemData) return await i.editReply({ content: '❌ لم يتم العثور على عنصر الحارس.' });
+    
+    await handlePurchaseWithCoupons(i, itemData, 1, itemData.price, client, db, 'item');
+}
+
 async function handleShopModal(i, client, db) {
     if (i.customId === 'exchange_xp_modal') {
         const userId = i.user.id; 
@@ -947,6 +943,7 @@ async function handleShopInteractions(i, client, db) {
         i.customId.startsWith('buy_confirm_bait_') || 
         i.customId === 'upgrade_rod' || 
         i.customId === 'upgrade_boat' || 
+        i.customId.startsWith('buy_item_') || 
         i.customId.startsWith('replace_buff_') || 
         i.customId === 'replace_guard'
     );
@@ -965,6 +962,10 @@ async function handleShopInteractions(i, client, db) {
         }
         else if (i.isButton() && i.customId === 'upgrade_rod') await _handleRodUpgrade(i, client, db);
         else if (i.isButton() && i.customId === 'upgrade_boat') await _handleBoatUpgrade(i, client, db);
+        else if (i.isButton() && i.customId.startsWith('buy_item_')) {
+            const boughtItemId = i.customId.replace('buy_item_', ''); 
+            await _handleShopButton(i, client, db, boughtItemId);
+        }
         else if (i.customId.startsWith('replace_buff_')) await _handleReplaceBuffButton(i, client, db);
         else if (i.customId === 'replace_guard') await _handleReplaceGuard(i, client, db);
         else if (i.customId === 'cancel_purchase') { 
