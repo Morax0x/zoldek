@@ -124,7 +124,8 @@ module.exports = {
                             { name: "👥 الفائزون (*)", value: `\`${giveawayData.winnerCount}\``, inline: true },
                             { name: "📢 القناة", value: `<#${giveawayData.targetChannel.id}>`, inline: true },
                             { name: "💎 المكافآت الإضافية", value: `مورا: \`${giveawayData.moraReward}\` | XP: \`${giveawayData.xpReward}\``, inline: true },
-                            { name: "🎨 لون الإمبد", value: giveawayData.color ? `\`${giveawayData.color}\`` : "الافتراضي (أزرق)", inline: true }
+                            { name: "🎨 لون الإمبد", value: giveawayData.color ? `\`${giveawayData.color}\`` : "الافتراضي (أزرق)", inline: true },
+                            { name: "📝 الوصف المخصص", value: giveawayData.description ? "✅ تم تعيين وصف" : "لم يُحدد", inline: true }
                         ])
                         .setFooter({ text: "نظام إدارة الهبات الإمبراطوري", iconURL: client.user.displayAvatarURL() });
                     if (giveawayData.image) embed.setImage(giveawayData.image);
@@ -184,27 +185,27 @@ module.exports = {
 
                         else if (i.customId === 'g_extra_data') {
                             const modal = new ModalBuilder().setCustomId('modal_g_extra').setTitle('الإعدادات الإضافية');
+                            const descInput = new TextInputBuilder().setCustomId('m_desc').setLabel("وصف مخصص للقيفاواي (يظهر فوق العداد)").setStyle(TextInputStyle.Paragraph).setRequired(false);
                             const channelInput = new TextInputBuilder().setCustomId('m_channel').setLabel("آيدي القناة (اتركه فارغاً للحالية)").setStyle(TextInputStyle.Short).setRequired(false);
                             const moraInput = new TextInputBuilder().setCustomId('m_mora').setLabel("مكافأة مورا (تلقائي للفائز)").setStyle(TextInputStyle.Short).setRequired(false);
                             const xpInput = new TextInputBuilder().setCustomId('m_xp').setLabel("مكافأة خبرة (تلقائي للفائز)").setStyle(TextInputStyle.Short).setRequired(false);
                             const imageInput = new TextInputBuilder().setCustomId('m_image').setLabel("رابط الصورة (https://...)").setStyle(TextInputStyle.Short).setRequired(false);
-                            const colorInput = new TextInputBuilder().setCustomId('m_color').setLabel("لون الإمبد (مثال: #ff0000 أو Red)").setStyle(TextInputStyle.Short).setRequired(false);
                             
+                            if (giveawayData.description) descInput.setValue(giveawayData.description);
                             if (giveawayData.image) imageInput.setValue(giveawayData.image);
                             if (giveawayData.moraReward > 0) moraInput.setValue(String(giveawayData.moraReward));
                             if (giveawayData.xpReward > 0) xpInput.setValue(String(giveawayData.xpReward));
-                            if (giveawayData.color) colorInput.setValue(giveawayData.color);
 
-                            modal.addComponents(new ActionRowBuilder().addComponents(channelInput), new ActionRowBuilder().addComponents(moraInput), new ActionRowBuilder().addComponents(xpInput), new ActionRowBuilder().addComponents(imageInput), new ActionRowBuilder().addComponents(colorInput));
+                            modal.addComponents(new ActionRowBuilder().addComponents(descInput), new ActionRowBuilder().addComponents(channelInput), new ActionRowBuilder().addComponents(moraInput), new ActionRowBuilder().addComponents(xpInput), new ActionRowBuilder().addComponents(imageInput));
                             await i.showModal(modal);
 
                             try {
                                 const submit = await i.awaitModalSubmit({ time: 60000, filter: s => s.user.id === i.user.id && s.customId === 'modal_g_extra' });
+                                const d = submit.fields.getTextInputValue('m_desc');
                                 const chID = submit.fields.getTextInputValue('m_channel');
                                 const m = parseInt(submit.fields.getTextInputValue('m_mora')) || 0;
                                 const x = parseInt(submit.fields.getTextInputValue('m_xp')) || 0;
                                 const img = submit.fields.getTextInputValue('m_image'); 
-                                const c = submit.fields.getTextInputValue('m_color');
 
                                 if (chID) {
                                     const ch = member.guild.channels.cache.get(chID);
@@ -212,12 +213,11 @@ module.exports = {
                                     else return await submit.reply({ content: "❌ القناة غير موجودة أو الآيدي خطأ.", flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                                 }
 
+                                giveawayData.description = d ? d.trim() : null;
                                 giveawayData.moraReward = m; giveawayData.xpReward = x;
                                 if (img && img.startsWith('http')) giveawayData.image = img;
                                 else giveawayData.image = null;
                                 
-                                giveawayData.color = c ? c.trim() : null;
-
                                 await submit.update({ embeds: [updateEmbed()], components: [getRows()] }).catch(()=>{});
                             } catch (e) {}
                         }
@@ -226,8 +226,8 @@ module.exports = {
                             if (!i.deferred && !i.replied) await i.deferUpdate().catch(()=>{}); 
                             try {
                                 collector.stop('sent');
-                                // إرسال بيانات القيفاواي إلى دالة `startGiveaway` مع اللون
-                                await startGiveaway(client, i, giveawayData.targetChannel, giveawayData.durationMs, giveawayData.winnerCount, giveawayData.prize, giveawayData.xpReward, giveawayData.moraReward, giveawayData.image, giveawayData.color);
+                                // 🔥 تم تمرير giveawayData.description إلى دالة startGiveaway 🔥
+                                await startGiveaway(client, i, giveawayData.targetChannel, giveawayData.durationMs, giveawayData.winnerCount, giveawayData.prize, giveawayData.xpReward, giveawayData.moraReward, giveawayData.image, giveawayData.color, giveawayData.description);
                                 const successEmbed = new EmbedBuilder().setColor("Green").setTitle("✅ تم إطلاق القيفاواي!").setDescription(`تم بدء السحب بنجاح في <#${giveawayData.targetChannel.id}>!\n\nتم حفظ البيانات بأمان ولن تتأثر بإعادة تشغيل البوت.`);
                                 await i.editReply({ embeds: [successEmbed], components: [] }).catch(()=>{});
                             } catch (error) {
@@ -251,7 +251,6 @@ module.exports = {
             if (subcommand === 'end') {
                 if (!targetMessageId) return reply("❌ يرجى وضع آيدي رسالة القيفاواي.");
                 
-                // جلب القيفاواي للتأكد من وجوده
                 let dbRes;
                 try {
                     dbRes = await db.query(`SELECT * FROM active_giveaways WHERE "messageID" = $1`, [targetMessageId]);
@@ -267,7 +266,6 @@ module.exports = {
                 return reply(`✅ تم إنهاء القيفاواي (ID: ${targetMessageId}) واختيار الفائزين بنجاح!`);
             }
 
-            // 🔥 تم ضبط أمر الريرول (إعادة السحب) ليعمل بتكامل مع قاعدة البيانات 🔥
             if (subcommand === 'reroll') {
                 if (targetMessageId) {
                     try {
@@ -278,7 +276,6 @@ module.exports = {
                     }
                 }
 
-                // إذا لم يحدد الآيدي، اعرض أحدث القيفاوايز
                 const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
                 let gRes;
                 try {
