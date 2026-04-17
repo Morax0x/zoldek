@@ -313,7 +313,7 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     });
 }
 
-// 🔥 الدالة التي فُقدت بالخطأ وتم استرجاعها هنا 🔥
+// 🔥 دالة فحص القيود ومعالجة الشراء (Shop Button) 🔥
 async function _handleShopButton(i, client, db, explicitItemId = null) {
     try {
         try { if (!i.replied && !i.deferred) await i.deferReply({ flags: [MessageFlags.Ephemeral] }); } catch(e) {}
@@ -366,15 +366,25 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
             }
         }
         else if (item.id.startsWith('xp_buff_')) {
-            let getActiveBuffRes = await execSafe(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp' AND "expiresAt" > $3`, `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp' AND expiresat > $3`, [userId, guildId, Date.now()]);
-            if (getActiveBuffRes.rows[0]) {
+            let getActiveBuffRes = await execSafe(db, 
+                `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp' AND "expiresAt" > $3`, 
+                `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp' AND expiresat > $3`, 
+                [userId, guildId, Date.now()]
+            );
+            
+            if (getActiveBuffRes.rows.length > 0) {
                 const activeBuff = getActiveBuffRes.rows[0];
                 const currentPercent = activeBuff.buffPercent || activeBuff.buffpercent || 0;
                 
-                const replaceButton = new ButtonBuilder().setCustomId(`replace_buff_${item.id}`).setLabel("إلغاء القديم وشراء الجديد").setStyle(ButtonStyle.Danger);
-                const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغاء").setStyle(ButtonStyle.Secondary);
+                const replaceButton = new ButtonBuilder().setCustomId(`replace_buff_${item.id}`).setLabel("استبدال المعزز").setStyle(ButtonStyle.Danger).setEmoji('🔄');
+                const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغاء").setStyle(ButtonStyle.Secondary).setEmoji('✖️');
                 const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
-                return await i.editReply({ content: `⚠️ لديك معزز خبرة فعال بنسبة ${currentPercent}% بالفعل! (لا يمكن دمج معززين في نفس الوقت)`, components: [row], embeds: [] });
+                
+                return await i.editReply({ 
+                    content: `⚠️ **لديك معزز خبرة فعال بنسبة: ${currentPercent}%!**\nهل تريد تعطيل القديم وشراء الجديد؟ (لا يمكن دمج معززين في نفس الوقت)`, 
+                    components: [row], 
+                    embeds: [] 
+                });
             }
         }
 
@@ -396,6 +406,7 @@ async function _handleShopButton(i, client, db, explicitItemId = null) {
     }
 }
 
+// 🔥 تنفيذ الشراء النهائي بإصلاحات البيانات الرقمية (BigInt) 🔥
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, db, callbackType, couponIdToDelete = null) {
     let bal = await getUserBal(db, interaction.user.id, interaction.guild.id);
     const totalWealth = bal.mora + bal.bank;
@@ -504,19 +515,11 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                         await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]);
                         try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
                         
-                        let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
                         let insXP = await execSafe(db, 
-                            `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'xp', $4, $5, $6)`, 
-                            `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, 'xp', $4, $5, $6)`, 
-                            [newId, interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
+                            `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`, 
+                            `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'xp', $3, $4, $5)`, 
+                            [interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
                         );
-                        if(insXP.error) {
-                            insXP = await execSafe(db, 
-                                `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, 
-                                `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, 
-                                [interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
-                            );
-                        }
                         if(insXP.error) success = false;
                     }
                 }
@@ -547,20 +550,11 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]);
                     try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
                     
-                    let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
                     let insWorker = await execSafe(db,
-                        `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
-                        `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
-                        [newId, interaction.user.id, interaction.guild.id, newExpiresAt]
+                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        [interaction.user.id, interaction.guild.id, newExpiresAt]
                     );
-                    
-                    if (insWorker.error) {
-                        insWorker = await execSafe(db,
-                            `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                            `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                            [interaction.user.id, interaction.guild.id, newExpiresAt]
-                        );
-                    }
                     if (insWorker.error) success = false;
                 }
             }
@@ -583,19 +577,11 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]);
                     try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
                     
-                    let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000);
                     let insXP = await execSafe(db, 
-                        `INSERT INTO user_buffs ("id", "guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, 
-                        `INSERT INTO user_buffs (id, guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, 
-                        [newId, interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]
+                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`, 
+                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'xp', $3, $4, $5)`, 
+                        [interaction.user.id, interaction.guild.id, -0.05, expiresAt, -5]
                     );
-                    if (insXP.error) {
-                        insXP = await execSafe(db, 
-                            `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'xp', $5)`, 
-                            `INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'xp', $5)`, 
-                            [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]
-                        );
-                    }
                     if(insXP.error) success = false;
                 }
             }
@@ -635,6 +621,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     }
 }
 
+// 🎣 استرجاع دوال صيد السمك والقوارب والجرعات المفقودة 🎣
 async function _handleRodUpgrade(i, client, db) {
     try { if (!i.replied && !i.deferred) await i.deferUpdate(); } catch(e) {}
     
@@ -793,11 +780,11 @@ async function _handleReplaceBuffButton(i, client, db) {
             
             if (multiplier > 0) {
                 try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
-                let ins = await execSafe(db, `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6, $7)`, `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [newId, userId, guildId, 'xp', multiplier, expiresAt, buffPercent]);
-                if (ins.error) {
-                    ins = await execSafe(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]);
-                }
+                let ins = await execSafe(db, 
+                    `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`, 
+                    `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'xp', $3, $4, $5)`, 
+                    [userId, guildId, multiplier, expiresAt, buffPercent]
+                );
                 if (ins.error) throw new Error("BUFF_INS_ERR");
             }
 
@@ -827,6 +814,114 @@ async function _handleReplaceGuard(i, client, db) {
     if (!itemData) return await i.editReply({ content: '❌ لم يتم العثور على عنصر الحارس.' });
     
     await handlePurchaseWithCoupons(i, itemData, 1, itemData.price, client, db, 'item');
+}
+
+async function _handlePotionSelect(i, client, db) {
+    try {
+        if(i.replied || i.deferred) await i.followUp({ content: "جاري التحميل...", flags: [MessageFlags.Ephemeral] });
+        else await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+    } catch(e) {}
+      
+    if (finalPotionItems.length === 0) return i.editReply({ content: "❌ لا توجد جرعات متاحة حالياً." });
+
+    const potionOptions = finalPotionItems.slice(0, 25).map(p => {
+        return { label: p.name, description: `${p.price.toLocaleString()} مورا | ${p.description.substring(0, 50)}`, value: `buy_item_${p.id}`, emoji: p.emoji };
+    });
+
+    const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop_buy_potion_menu').setPlaceholder('اختر الجرعة لشرائها...').addOptions(potionOptions));
+    const embed = new EmbedBuilder().setTitle('🧪 متجر الجرعات السحرية').setDescription('اختر الجرعة التي تريد شراءها من القائمة بالأسفل.').setColor(Colors.Purple).setImage(BANNER_URL);
+
+    await i.editReply({ embeds: [embed], components: [row] });
+}
+
+async function _handleFishingMenu(i, client, db) {
+    try { if (!i.replied && !i.deferred) await i.deferReply({ flags: [MessageFlags.Ephemeral] }); } catch(e) {} 
+    const embed = new EmbedBuilder().setTitle('🎣 عـدة الـصـيـد').setDescription('اختر القسم الذي تريد تصفحه:').setColor(Colors.Aqua).setImage(BANNER_URL);
+    const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('fishing_gear_sub_menu').setPlaceholder('اختر الفئة...').addOptions(
+        { label: 'السنارات', value: 'gear_rods', emoji: '🎣' }, { label: 'القوارب', value: 'gear_boats', emoji: '🚤' }, { label: 'الطعوم', value: 'gear_baits', emoji: '🪱' }
+    ));
+    await i.editReply({ embeds: [embed], components: [row] });
+}
+
+async function _handleRodSelect(i, client, db) {
+    try {
+        if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+    } catch(e) {}
+    
+    let fishData = await safeGetFishing(db, i.user.id, i.guild.id);
+    const currentLevel = fishData ? (Number(fishData.rodLevel || fishData.rodlevel) || 1) : 1;
+    const nextLevel = currentLevel + 1;
+    const currentRod = finalRods.find(r => r.level === currentLevel) || finalRods[0];
+    const nextRod = finalRods.find(r => r.level === nextLevel);
+    
+    if(!currentRod) return i.editReply("❌ بيانات السنارات غير متوفرة.");
+
+    const embed = new EmbedBuilder().setTitle(`🎣 سنارة الصيد`).setDescription(`**السنارة الحالية:** ${currentRod.name}`).setColor(Colors.Aqua).setImage(BANNER_URL)
+        .addFields({ name: 'المستوى الحالي', value: `Lv. ${currentLevel}`, inline: true }, { name: 'أقصى صيد', value: `${currentRod.max_fish} سمكات`, inline: true }, { name: 'الحظ', value: `+${currentRod.luck_bonus}%`, inline: true });
+    if(currentRod.image) embed.setThumbnail(currentRod.image);
+    
+    const row = new ActionRowBuilder();
+    if (!nextRod) {
+        embed.addFields({ name: "التطوير القادم", value: "الحد الأقصى", inline: true });
+        row.addComponents(new ButtonBuilder().setCustomId('max_rod').setLabel('MAX').setStyle(ButtonStyle.Secondary).setDisabled(true));
+    } else {
+        embed.addFields({ name: "التالي", value: nextRod.name, inline: true }, { name: "السعر", value: `${nextRod.price.toLocaleString()}`, inline: true });
+        row.addComponents(new ButtonBuilder().setCustomId('upgrade_rod').setLabel('تطوير').setStyle(ButtonStyle.Success).setEmoji('⬆️'));
+    }
+    await i.editReply({ embeds: [embed], components: [row] });
+}
+
+async function _handleBoatSelect(i, client, db) {
+    try {
+        if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+    } catch(e) {}
+    
+    let fishData = await safeGetFishing(db, i.user.id, i.guild.id);
+    const currentLevel = fishData ? (Number(fishData.boatLevel || fishData.boatlevel) || 1) : 1;
+    const nextLevel = currentLevel + 1;
+    const currentBoat = finalBoats.find(b => b.level === currentLevel) || finalBoats[0];
+    const nextBoat = finalBoats.find(b => b.level === nextLevel);
+    
+    if(!currentBoat) return i.editReply("❌ بيانات القوارب غير متوفرة.");
+
+    const embed = new EmbedBuilder().setTitle(`🚤 قـوارب الـصـيـد`).setDescription(`**القارب الحالي:** ${currentBoat.name}`).setColor(Colors.Blue).setImage(BANNER_URL);
+    if(currentBoat.image) embed.setThumbnail(currentBoat.image);
+    
+    const row = new ActionRowBuilder();
+    if (!nextBoat) {
+        embed.addFields({ name: "التطوير", value: "الحد الأقصى", inline: true });
+        row.addComponents(new ButtonBuilder().setCustomId('max_boat').setLabel('MAX').setStyle(ButtonStyle.Secondary).setDisabled(true));
+    } else {
+        embed.addFields({ name: "القادم", value: nextBoat.name, inline: true }, { name: "السعر", value: `${nextBoat.price.toLocaleString()}`, inline: true }, { name: "يفتح", value: nextBoat.location_id, inline: false });
+        row.addComponents(new ButtonBuilder().setCustomId('upgrade_boat').setLabel('شراء').setStyle(ButtonStyle.Success).setEmoji('🚤'));
+    }
+    await i.editReply({ embeds: [embed], components: [row] });
+}
+
+async function _handleBaitSelect(i, client, db) {
+    try {
+        if(i.replied || i.deferred) await i.editReply({ content: "جاري التحميل..." }); 
+        else await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+    } catch(e) {}
+    
+    if (finalBaits.length === 0) return i.editReply({ content: "❌ لا توجد طعوم في المتجر حالياً." });
+    
+    const baitOptions = finalBaits.map(b => ({
+        label: b.name,
+        description: `${b.price} مورا | حزمة (5 حبات)`,
+        value: `buy_bait_${b.id}`,
+        emoji: '🪱'
+    }));
+    
+    const row = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('shop_buy_bait_menu')
+            .setPlaceholder('اختر الطعم لشرائه...')
+            .addOptions(baitOptions)
+    );
+    
+    const embed = new EmbedBuilder().setTitle('🪱 متجر الطعوم').setDescription('اختر الطعم الذي تود شراءه من القائمة السفلية (يتم بيع الطعوم كحزم، كل حزمة تحتوي على 5 طعوم).').setColor(Colors.Orange);
+    await i.editReply({ content: null, embeds: [embed], components: [row] });
 }
 
 async function handleShopModal(i, client, db) {
