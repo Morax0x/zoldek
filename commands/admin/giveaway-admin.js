@@ -226,7 +226,6 @@ module.exports = {
                             if (!i.deferred && !i.replied) await i.deferUpdate().catch(()=>{}); 
                             try {
                                 collector.stop('sent');
-                                // 🔥 تم تمرير giveawayData.description إلى دالة startGiveaway 🔥
                                 await startGiveaway(client, i, giveawayData.targetChannel, giveawayData.durationMs, giveawayData.winnerCount, giveawayData.prize, giveawayData.xpReward, giveawayData.moraReward, giveawayData.image, giveawayData.color, giveawayData.description);
                                 const successEmbed = new EmbedBuilder().setColor("Green").setTitle("✅ تم إطلاق القيفاواي!").setDescription(`تم بدء السحب بنجاح في <#${giveawayData.targetChannel.id}>!\n\nتم حفظ البيانات بأمان ولن تتأثر بإعادة تشغيل البوت.`);
                                 await i.editReply({ embeds: [successEmbed], components: [] }).catch(()=>{});
