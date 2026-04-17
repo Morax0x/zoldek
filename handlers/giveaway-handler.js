@@ -117,7 +117,8 @@ async function getUserWeight(member, db) {
     }
 }
 
-async function startGiveaway(client, interaction, channel, duration, winnerCount, prize, xpReward, moraReward, image = null, color = null) {
+// 🔥 تم استدعاء الوصف المخصص ونقل الجائزة إلى العنوان 🔥
+async function startGiveaway(client, interaction, channel, duration, winnerCount, prize, xpReward, moraReward, image = null, color = null, customDesc = null) {
     const db = client.sql; 
     if (!db) return;
 
@@ -126,13 +127,15 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
 
     const endsAt = Date.now() + duration;
     
+    let descText = "";
+    if (customDesc) {
+        descText += `${customDesc}\n\n`;
+    }
+    descText += `✶ عـدد الـمـشاركـيـن: 0\n✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>`;
+
     const embed = new EmbedBuilder()
-        .setTitle("✥ قـيـفـاواي عـلـى:")
-        .setDescription(
-            `**${prize}**\n\n` +
-            `✶ عـدد الـمـشاركـيـن: 0\n` +
-            `✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>`
-        )
+        .setTitle(`✥ قـيـفـاواي عـلـى: ${prize}`)
+        .setDescription(descText)
         .setTimestamp(endsAt);
 
     try { embed.setColor(color || Colors.Blue); } catch (e) { embed.setColor(Colors.Blue); }
@@ -169,7 +172,6 @@ async function startGiveaway(client, interaction, channel, duration, winnerCount
     return message;
 }
 
-// 🔥 نظام الرد الذكي المحدث لتجنب أخطاء الديسكورد وتحديث العداد مباشرة 🔥
 async function handleGiveawayInteraction(client, interaction) {
     try {
         const db = client.sql; 
@@ -210,7 +212,6 @@ async function handleGiveawayInteraction(client, interaction) {
         }
 
         try {
-            // جلب العدد الجديد مباشرة بعد الإضافة/الحذف
             const newEntries = await getGiveawayEntries(db, messageID);
             const count = newEntries.length;
 
@@ -284,9 +285,14 @@ async function endGiveaway(client, messageID, force = false) {
             if (originalMessage) {
                 const originalEmbed = originalMessage.embeds[0];
                 const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
-                newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى:`).setColor(Colors.Red);
                 
-                let newDesc = `**${giveaway.prize}**\n\n✦ الـفـائـز: لا يوجد\n✶ عـدد الـمـشاركـيـن: 0`;
+                // الحفاظ على الوصف الأصلي
+                let oldDesc = originalEmbed.description || "";
+                let cleanDesc = oldDesc.split('✶ عـدد الـمـشاركـيـن:')[0].trim();
+                let newDesc = cleanDesc ? `${cleanDesc}\n\n` : "";
+                newDesc += `✦ الـفـائـز: لا يوجد\n✶ عـدد الـمـشاركـيـن: 0`;
+                
+                newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى: ${giveaway.prize || ''}`).setColor(Colors.Red);
                 newEmbed.setDescription(newDesc);
                 
                 const disabledRow = new ActionRowBuilder().addComponents(
@@ -361,9 +367,14 @@ async function endGiveaway(client, messageID, force = false) {
         if (originalMessage) {
             const originalEmbed = originalMessage.embeds[0];
             const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
-            newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى:`).setColor(Colors.DarkGrey);
             
-            let newDesc = `**${giveaway.prize}**\n\n${winnerLabel} ${winnerString}\n✶ عـدد الـمـشاركـيـن: ${entries.length}`;
+            // الحفاظ على الوصف المخصص
+            let oldDesc = originalEmbed.description || "";
+            let cleanDesc = oldDesc.split('✶ عـدد الـمـشاركـيـن:')[0].trim();
+            let newDesc = cleanDesc ? `${cleanDesc}\n\n` : "";
+            newDesc += `${winnerLabel} ${winnerString}\n✶ عـدد الـمـشاركـيـن: ${entries.length}`;
+            
+            newEmbed.setTitle(`[انـتـهـى] ✥ قـيـفـاواي عـلـى: ${giveaway.prize || ''}`).setColor(Colors.DarkGrey);
             newEmbed.setDescription(newDesc);
 
             const disabledRow = new ActionRowBuilder().addComponents(
@@ -402,6 +413,7 @@ async function rerollGiveaway(client, interaction, messageID) {
     await interaction.reply(`🎉 **الري-رول الجديد!** الفائز هو: <@${winner}>! 🥳`);
 }
 
+// 🔥 تم تعديل القيفاواي التلقائي (Drop) لتطبيق نفس نظام العناوين 🔥
 async function createRandomDropGiveaway(client, guild) {
     try {
         const db = client.sql; 
@@ -427,13 +439,12 @@ async function createRandomDropGiveaway(client, guild) {
 
         const prize = `جوائز عشوائية`;
 
-        const description = `**${prize}**\n\n` +
+        const description = `اضغط على الزر بالأسفل للمشاركة! ⤵️\n\n` +
                             `✶ عـدد الـمـشاركـيـن: 0\n` +
-                            `✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>\n\n` +
-                            `اضغط على الزر بالأسفل للمشاركة! ⤵️`;
+                            `✶ ينتـهـى بعـد: <t:${Math.floor(endsAt / 1000)}:R>`;
 
         const embed = new EmbedBuilder()
-            .setTitle("🎉 **GIVEAWAY DROP** 🎉")
+            .setTitle(`🎉 **DROP: ${prize}** 🎉`)
             .setDescription(description)
             .setColor(settings.dropColor || settings.dropcolor || "Gold")
             .setImage("https://i.postimg.cc/mgffs90m/giv.png")  
