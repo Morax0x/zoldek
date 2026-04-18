@@ -257,6 +257,7 @@ module.exports = {
                     { label: '🎒 إدارة العناصر', value: 'items', emoji: '🎒' },
                     { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', emoji: '⚔️' },
                     { label: '🕵️ إدارة التعزيز المخفي', value: 'hidden_buff', description: 'تعديل لفل سلاح/مهارة في الخفاء!', emoji: '🕵️' },
+                    { label: '🪄 إزالة تأثير (بف/لعنة)', value: 'remove_buffs', description: 'إلغاء تعزيز أو لعنة مؤقتة', emoji: '🪄' },
                     { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', emoji: '🎣' }, 
                     { label: '🔥 إدارة الستريك (شات/ميديا)', value: 'manage_streaks', description: 'تعديل أيام الستريك والدروع', emoji: '🔥' },
                     { label: '🗑️ تصفير الأسلحة والمهارات', value: 'reset_combat', emoji: '🗑️' },
@@ -422,6 +423,70 @@ module.exports = {
                     await modalSubmit.editReply({ content: successMsg });
 
                 } catch(e) {}
+            }
+            // 🔥 نظام إزالة التأثيرات/اللعنات المؤقتة الجديد 🔥
+            else if (val === 'remove_buffs') {
+                let activeBuffsRes = await safeQuery(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                let activeBuffs = activeBuffsRes.rows || [];
+
+                if (activeBuffs.length === 0) {
+                    return i.reply({ content: "❌ هذا اللاعب لا يمتلك أي تعزيزات أو لعنات مؤقتة حالياً.", flags: [MessageFlags.Ephemeral] });
+                }
+
+                let options = activeBuffs.map(b => {
+                    let bType = b.buffType || b.bufftype;
+                    let bPercent = b.buffPercent || b.buffpercent;
+                    
+                    let labelName = bType;
+                    if (bType === 'xp') labelName = 'خبرة (XP)';
+                    else if (bType === 'mora') labelName = 'مورا (Mora)';
+                    else if (bType === 'pvp_wounded') labelName = 'لعنة النزاع';
+                    else if (bType === 'farm_worker') labelName = 'عامل المزرعة';
+                    else if (bType.startsWith('hidden_')) labelName = 'تعزيز مخفي';
+                    
+                    let valStr = Number(bPercent) !== 0 ? `${Number(bPercent) > 0 ? '+' : ''}${bPercent}%` : 'مفعل';
+                    
+                    return {
+                        label: `${labelName} | ${valStr}`.substring(0, 100),
+                        value: `rmbuff_${bType}`.substring(0, 100),
+                        description: `إزالة هذا التأثير من اللاعب`
+                    };
+                }).slice(0, 24);
+
+                // إزالة التكرارات من القائمة إذا كان لديه نفس نوع البف مرتين
+                options = options.filter((v, idx, a) => a.findIndex(t => (t.value === v.value)) === idx);
+
+                options.push({
+                    label: '🗑️ إزالة الكل',
+                    value: 'rmbuff_all',
+                    description: 'إزالة جميع التعزيزات واللعنات دفعة واحدة'
+                });
+
+                const buffMenu = new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(`mod_rm_buff_${Date.now()}`)
+                        .setPlaceholder('🪄 اختر التعزيز أو اللعنة لإزالتها...')
+                        .addOptions(options)
+                );
+
+                await i.update({ content: `🪄 **إدارة تأثيرات ${targetUser}:**\nاختر التأثير الذي تريد إزالته:`, embeds: [], components: [buffMenu] });
+
+                const buffCollector = interaction.channel.createMessageComponentCollector({ filter: subI => subI.user.id === i.user.id && subI.customId.startsWith('mod_rm_buff_'), time: 60000 });
+
+                buffCollector.on('collect', async subI => {
+                    await subI.deferUpdate();
+                    const selectedVal = subI.values[0];
+                    
+                    if (selectedVal === 'rmbuff_all') {
+                        await safeQuery(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                        await subI.editReply({ content: `✅ **تمت إزالة جميع التعزيزات واللعنات المؤقتة لـ ${targetUser} بنجاح!**`, components: [] });
+                    } else {
+                        const buffType = selectedVal.replace('rmbuff_', '');
+                        await safeQuery(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = $3`, [userID, guildID, buffType]);
+                        await subI.editReply({ content: `✅ **تمت إزالة تأثير (${buffType}) بنجاح!**`, components: [] });
+                    }
+                    buffCollector.stop();
+                });
             }
             else if (val === 'swap_accounts') {
                 const modalId = `mod_swap_${Date.now()}`;
