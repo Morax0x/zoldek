@@ -282,13 +282,14 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
                             if (afkP.skipCount >= 5) {
                                 afkP.hp = 0; afkP.isDead = true; afkP.isPermDead = true; afkP.deathFloor = floor;
                                 
+                                // 🔥 تم تصحيح مضاعف اللعنة ليكون آمن رياضياً (-0.50 بدلاً من -1.0) لمنع الخلل الفلكي 🔥
                                 const debuffDuration = 60 * 60 * 1000; const expiresAt = Date.now() + debuffDuration;
                                 if (db) {
-                                    await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, afkP.id, -100, expiresAt, 'mora', -1.0]).catch(()=>{});
-                                    await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, afkP.id, -100, expiresAt, 'xp', -1.0]).catch(()=>{});
+                                    await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, afkP.id, -50, expiresAt, 'mora', -0.50]).catch(()=>{});
+                                    await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, afkP.id, -50, expiresAt, 'xp', -0.50]).catch(()=>{});
                                 }
                                 log.push(`☠️ **${afkP.name}** ابتـلعـه الدانـجون بسبب الخمـول!`);
-                                await threadChannel.send(`✶ <@${afkP.id}> <:emoji_69:1451172248173023263> خـرقـت قوانين الدانجـون بسبب خمولك المستمـر... ابتلعك الدانجون وتم لعنـك بـ -100% اضعاف`).catch(()=>{});
+                                await threadChannel.send(`✶ <@${afkP.id}> <:emoji_69:1451172248173023263> خـرقـت قوانين الدانجـون بسبب خمولك المستمـر... ابتلعك الدانجون وتم لعنـك بـ -50% اضعاف`).catch(()=>{});
 
                                 if (afkP.class === 'Priest') {
                                     players.forEach(ally => {
