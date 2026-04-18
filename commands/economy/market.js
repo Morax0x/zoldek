@@ -91,9 +91,10 @@ async function buildDetailViewImage(item, userId, guildId, sql) {
         } catch(err) {}
     }
     const userQuantity = userPortfolio ? Number(userPortfolio.quantity || userPortfolio.Quantity || 0) : 0;
-    const changePercent = Number(item.lastChangePercent || item.lastchangepercent || 0);
     const currentPrice = Number(item.currentPrice || item.currentprice || item.price || 0);
-    
+    const lastPrice = Number(item.lastPrice || item.lastprice || 0);
+    const changePercent = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
+
     const imageBuffer = await marketGen.drawMarketDetail(item, userQuantity, currentPrice, changePercent);
     const attachment = new AttachmentBuilder(imageBuffer, { name: 'market_detail.png' });
 
