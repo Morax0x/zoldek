@@ -196,15 +196,19 @@ async function sendEndMessage(mainChannel, thread, activePlayers, retreatedPlaye
         const expiresAt = Date.now() + debuffDuration;
         
         for (const p of allParticipants) {
+            await safeExecute(sql, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'mora'`, [p.id, guildId]);
             await safeExecute(sql, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, p.id, -15, expiresAt, 'mora', -0.15]);
+            await safeExecute(sql, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [p.id, guildId]);
             await safeExecute(sql, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, p.id, -15, expiresAt, 'xp', -0.15]);
         }
     }
 
     if (floor >= 10 && status !== 'lose' && status !== 'camp' && mvpPlayer) {
-        const buffDuration = 15 * 60 * 1000; 
+        const buffDuration = 15 * 60 * 1000;
         const expiresAt = Date.now() + buffDuration;
+        await safeExecute(sql, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'mora'`, [mvpPlayer.id, guildId]);
         await safeExecute(sql, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, mvpPlayer.id, 15, expiresAt, 'mora', 0.15]);
+        await safeExecute(sql, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [mvpPlayer.id, guildId]);
         await safeExecute(sql, `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, mvpPlayer.id, 15, expiresAt, 'xp', 0.15]);
     }
 

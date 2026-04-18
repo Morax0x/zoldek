@@ -464,7 +464,9 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
                 }
                 
                 if (winner.member) {
+                    await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [winner.member.id, guildId]).catch(()=>{});
                     await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, winner.member.id, 15, expireTime, 'xp', 0.15]).catch(()=>{});
+                    await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'mora'`, [winner.member.id, guildId]).catch(()=>{});
                     await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, winner.member.id, 15, expireTime, 'mora', 0.15]).catch(()=>{});
                     embed.setThumbnail(winner.member.displayAvatarURL());
                 }
@@ -474,6 +476,7 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
                     .setDescription(`💰 **الغنيمة:** ${rewardMora} ${EMOJI_MORA}\n✨ **خبرة:** ${rewardXP} XP\n✦ حصلت على تعزيز +15% لمدة 15د`);
             } else {
                 if (loser.member) {
+                    await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'mora'`, [loser.member.id, guildId]).catch(()=>{});
                     await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, loser.member.id, -15, expireTime, 'mora', -0.15]).catch(()=>{});
                 }
                 embed.setColor(Colors.DarkRed).setImage(LOSE_IMAGES[Math.floor(Math.random() * LOSE_IMAGES.length)])
@@ -582,7 +585,9 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
             }
 
             if (!loser.isBot && loser.member) {
+                await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'mora'`, [loserId, guildId]).catch(()=>{});
                 await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, loserId, -15, expireTime, 'mora', -0.15]).catch(()=>{});
+                await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'pvp_wounded'`, [loserId, guildId]).catch(()=>{});
                 await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guildId, loserId, 0, expireTime, 'pvp_wounded', 0]).catch(()=>{});
             }
 
