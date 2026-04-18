@@ -125,72 +125,98 @@ function drawSciFiPanel(ctx, x, y, width, height, borderColor, glowColor) {
     ctx.stroke();
 }
 
-// 📊 نظام مخطط الشموع اليابانية الاحترافي (Professional Candlestick Chart)
+// 📊 نظام مخطط الشموع اليابانية الاحترافي والأكثر دقة (TradingView Style)
 function drawSparkline(ctx, x, y, width, height, priceHistory, color) {
     if (!Array.isArray(priceHistory) || priceHistory.length < 2) return;
 
-    const prices = priceHistory.map(Number).filter(p => !isNaN(p) && p > 0);
+    // أخذ آخر 30 تسعيرة فقط لكي لا تتداخل الشموع وتصبح غير واضحة
+    let prices = priceHistory.map(Number).filter(p => !isNaN(p) && p > 0);
+    if (prices.length > 30) prices = prices.slice(-30);
     if (prices.length < 2) return;
 
-    // توليد بيانات الشموع (OHLC) بشكل ذكي
+    // توليد بيانات الشموع (OHLC)
     const ohlc = [];
     for (let i = 0; i < prices.length; i++) {
-        const open = i === 0 ? prices[0] : prices[i - 1]; // الافتتاح هو الإغلاق السابق
+        const open = i === 0 ? prices[0] : prices[i - 1]; 
         const close = prices[i];
+        const isUp = close >= open;
         
-        // خوارزمية عشوائية ثابتة (Deterministic Random) لرسم ذيول الشموع لتبدو واقعية
-        const seed1 = ((open * 13.37) % 1) || 0.5;
-        const seed2 = ((close * 42.11) % 1) || 0.5;
-        const variance = Math.max(open, close) * 0.015; // 1.5% تذبذب علوي وسفلي
+        // خوارزمية ذكية لاستنتاج ذيول الشموع بحدود منطقية بناءً على التغير الفعلي
+        const seed1 = ((open * 13.37) % 1);
+        const seed2 = ((close * 42.11) % 1);
+        const move = Math.abs(close - open);
+        const baseVariance = open * 0.003; // 0.3% تذبذب طبيعي كحد أدنى
         
-        const high = Math.max(open, close) + (variance * seed1);
-        const low = Math.min(open, close) - (variance * seed2);
+        const high = Math.max(open, close) + (baseVariance + move * 0.2) * seed1;
+        const low = Math.min(open, close) - (baseVariance + move * 0.2) * seed2;
 
-        ohlc.push({ open, close, high, low, isUp: close >= open });
+        ohlc.push({ open, close, high, low, isUp });
     }
 
-    // حساب الحدود القصوى والدنيا لضبط مقاس المخطط بالكانفاس
     const minPrice = Math.min(...ohlc.map(c => c.low));
     const maxPrice = Math.max(...ohlc.map(c => c.high));
     const priceRange = maxPrice - minPrice;
     const effectiveRange = priceRange === 0 ? Math.max(minPrice * 0.01, 1) : priceRange;
     const padding = height * 0.15; 
 
-    // دالة تحويل السعر إلى إحداثيات Y
+    // دالة تحويل السعر إلى إحداثيات (Y)
     const toY = (price) => y + height - padding - ((price - minPrice) / effectiveRange) * (height - padding * 2);
     
-    // حساب عرض الشمعة والمسافة بين الشموع
-    const candleWidth = Math.max(3, (width / ohlc.length) * 0.6);
-    const gap = ohlc.length > 1 ? (width - (candleWidth * ohlc.length)) / (ohlc.length - 1) : 0;
+    // 1. رسم خطوط شبكة خلفية خفيفة جداً (Grid) لتعطي إحساس منصات التداول
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < 4; i++) {
+        const gridY = Math.floor(y + (height / 4) * i) + 0.5; // 0.5 للحدة (Crisp line)
+        ctx.moveTo(x, gridY);
+        ctx.lineTo(x + width, gridY);
+    }
+    ctx.stroke();
 
-    // رسم الشموع اليابانية
+    // 2. حساب أبعاد ومسافات الشموع بدقة متناهية لمنع التداخل
+    const maxCandles = Math.max(prices.length, 10); // توزيع المساحة على 10 شمعات كحد أدنى
+    const candleTotalSpace = width / maxCandles;
+    const candleWidth = Math.max(3, Math.floor(candleTotalSpace * 0.6)); // 60% عرض الشمعة
+    const startX = x + width - (prices.length * candleTotalSpace); // محاذاة لليمين
+
+    // 3. رسم الشموع (الجسم والذيل)
+    ctx.shadowBlur = 0; // إيقاف التوهج تماماً لضمان حدة الرسم (Sharpness)
+    
     for (let i = 0; i < ohlc.length; i++) {
         const candle = ohlc[i];
-        const cX = x + i * (candleWidth + gap) + candleWidth / 2;
-
+        const cX = Math.floor(startX + i * candleTotalSpace + (candleTotalSpace / 2));
         const cColor = candle.isUp ? '#00ff88' : '#ff0055'; // أخضر للارتفاع، أحمر للهبوط
-        
-        // رسم ذيل الشمعة (Wick)
+
+        // رسم الذيل (Wick)
         ctx.strokeStyle = cColor;
+        ctx.lineWidth = Math.max(1, Math.floor(candleWidth * 0.15));
         ctx.beginPath();
-        ctx.moveTo(cX, toY(candle.high));
-        ctx.lineTo(cX, toY(candle.low));
-        ctx.lineWidth = 1.5;
+        ctx.moveTo(cX, Math.floor(toY(candle.high)));
+        ctx.lineTo(cX, Math.floor(toY(candle.low)));
         ctx.stroke();
 
-        // رسم جسم الشمعة (Body)
+        // رسم الجسم (Body)
         ctx.fillStyle = cColor;
-        ctx.shadowColor = cColor;
-        ctx.shadowBlur = 5; // إعطاء توهج خفيف للشموع
-        
-        const bodyTop = toY(Math.max(candle.open, candle.close));
-        const bodyBottom = toY(Math.min(candle.open, candle.close));
-        let bodyH = Math.abs(bodyTop - bodyBottom);
-        if (bodyH < 2) bodyH = 2; // أقل ارتفاع لتظهر الشمعة بوضوح حتى لو لم يتغير السعر
+        const yTop = Math.floor(toY(Math.max(candle.open, candle.close)));
+        const yBottom = Math.floor(toY(Math.min(candle.open, candle.close)));
+        const bodyH = Math.max(2, yBottom - yTop); // حد أدنى 2 بكسل للجسم (Doji)
 
-        ctx.fillRect(cX - candleWidth / 2, bodyTop, candleWidth, bodyH);
-        
-        ctx.shadowBlur = 0; // إيقاف التوهج للشموع التالية
+        // رسم مستطيل الجسم بدقة لمنع التشويش
+        ctx.fillRect(Math.floor(cX - candleWidth / 2), yTop, candleWidth, bodyH);
+    }
+
+    // 4. رسم خط السعر الحالي المتقطع (Current Price Line)
+    const lastCandle = ohlc[ohlc.length - 1];
+    if (lastCandle) {
+        const lastY = Math.floor(toY(lastCandle.close)) + 0.5;
+        ctx.strokeStyle = lastCandle.isUp ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 0, 85, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]); // خط متقطع
+        ctx.beginPath();
+        ctx.moveTo(x, lastY);
+        ctx.lineTo(x + width, lastY);
+        ctx.stroke();
+        ctx.setLineDash([]); // إعادة الضبط
     }
 }
 
@@ -323,7 +349,7 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
             priceHistory = lastPrice > 0 ? [lastPrice, currentPrice] : [currentPrice, currentPrice];
         }
         
-        // رسم مخطط الشموع اليابانية داخل الكرت
+        // رسم مخطط الشموع اليابانية الحاد والمحاذي لليمين
         drawSparkline(ctx, x + 20, y + sparkY, cardW - 40, sparkH, priceHistory, mainColor);
 
         const assetImg = await getAssetImage(item);
@@ -478,10 +504,12 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
         detailHistory = detailLastPrice > 0 ? [detailLastPrice, currentPrice] : null;
     }
     if (detailHistory && detailHistory.length >= 2) {
+        // تم إزالة تعبئة الخلفية (Fill) للبطاقة التفصيلية لتتناسق مع الشموع الجديدة الحادة
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         ctx.lineWidth = 1;
         roundRect(ctx, 300, 368, 520, 50, 6, false, true);
-        // رسم مخطط الشموع اليابانية لبطاقة التفاصيل
+        
+        // رسم الشموع في بطاقة التفصيل
         drawSparkline(ctx, 305, 372, 510, 42, detailHistory, mainColor);
     }
 
