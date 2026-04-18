@@ -257,7 +257,7 @@ module.exports = {
                     { label: '🎒 إدارة العناصر', value: 'items', emoji: '🎒' },
                     { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', emoji: '⚔️' },
                     { label: '🕵️ إدارة التعزيز المخفي', value: 'hidden_buff', description: 'تعديل لفل سلاح/مهارة في الخفاء!', emoji: '🕵️' },
-                    { label: '🪄 إزالة تأثير (بف/لعنة)', value: 'remove_buffs', description: 'إلغاء تعزيز أو لعنة مؤقتة', emoji: '🪄' },
+                    { label: '🪄 إزالة تأثير (بف/لعنة)', value: 'remove_buffs', description: 'إلغاء تعزيز أو لعنة مؤقتة وتصفيرها', emoji: '🪄' },
                     { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', emoji: '🎣' }, 
                     { label: '🔥 إدارة الستريك (شات/ميديا)', value: 'manage_streaks', description: 'تعديل أيام الستريك والدروع', emoji: '🔥' },
                     { label: '🗑️ تصفير الأسلحة والمهارات', value: 'reset_combat', emoji: '🗑️' },
@@ -449,7 +449,7 @@ module.exports = {
                     return {
                         label: `${labelName} | ${valStr}`.substring(0, 100),
                         value: `rmbuff_${bType}`.substring(0, 100),
-                        description: `إزالة هذا التأثير من اللاعب`
+                        description: `إزالة وتصفير هذا التأثير من اللاعب`
                     };
                 }).slice(0, 24);
 
@@ -457,9 +457,9 @@ module.exports = {
                 options = options.filter((v, idx, a) => a.findIndex(t => (t.value === v.value)) === idx);
 
                 options.push({
-                    label: '🗑️ إزالة الكل',
+                    label: '🗑️ إزالة الكل (المؤقت فقط)',
                     value: 'rmbuff_all',
-                    description: 'إزالة جميع التعزيزات واللعنات دفعة واحدة'
+                    description: 'تصفير جميع التعزيزات واللعنات المؤقتة (خبرة/مورا/نزاع)'
                 });
 
                 const buffMenu = new ActionRowBuilder().addComponents(
@@ -469,7 +469,7 @@ module.exports = {
                         .addOptions(options)
                 );
 
-                await i.update({ content: `🪄 **إدارة تأثيرات ${targetUser}:**\nاختر التأثير الذي تريد إزالته:`, embeds: [], components: [buffMenu] });
+                await i.update({ content: `🪄 **إدارة تأثيرات ${targetUser}:**\nاختر التأثير الذي تريد تصفيره وإزالته:`, embeds: [], components: [buffMenu] });
 
                 const buffCollector = interaction.channel.createMessageComponentCollector({ filter: subI => subI.user.id === i.user.id && subI.customId.startsWith('mod_rm_buff_'), time: 60000 });
 
@@ -478,12 +478,13 @@ module.exports = {
                     const selectedVal = subI.values[0];
                     
                     if (selectedVal === 'rmbuff_all') {
-                        await safeQuery(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-                        await subI.editReply({ content: `✅ **تمت إزالة جميع التعزيزات واللعنات المؤقتة لـ ${targetUser} بنجاح!**`, components: [] });
+                        // 🔥 الحماية: يمسح فقط الأشياء المؤقتة (الخبرة، المورا، النزاع) لكي لا يطير عامل المزرعة أو التعزيز المخفي 🔥
+                        await safeQuery(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" IN ('xp', 'mora', 'pvp_wounded')`, [userID, guildID]);
+                        await subI.editReply({ content: `✅ **تمت إزالة جميع التعزيزات واللعنات المؤقتة (الخبرة والمورا) لـ ${targetUser} وتصفيرها بالكامل بنجاح!**`, components: [] });
                     } else {
                         const buffType = selectedVal.replace('rmbuff_', '');
                         await safeQuery(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = $3`, [userID, guildID, buffType]);
-                        await subI.editReply({ content: `✅ **تمت إزالة تأثير (${buffType}) بنجاح!**`, components: [] });
+                        await subI.editReply({ content: `✅ **تمت إزالة تأثير (${buffType}) وتصفيره بنجاح!**`, components: [] });
                     }
                     buffCollector.stop();
                 });
