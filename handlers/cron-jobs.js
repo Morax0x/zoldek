@@ -12,7 +12,7 @@ const { checkUnjailTask } = require('./report-handler.js');
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 
 module.exports = (client, db) => {
-    // 1. تحديث أسعار السوق (معزول ومحمي بالكامل)
+    // 1. تحديث أسعار السوق (معزول ومحمي بالكامل ويدعم الشموع)
     async function updateMarketPrices() {
         try {
             if (!client.marketLocks) client.marketLocks = new Set();
@@ -65,10 +65,20 @@ module.exports = (client, db) => {
                 const changeAmount = newPrice - oldPrice;
                 const displayPercent = oldPrice > 0 ? ((changeAmount / oldPrice) * 100).toFixed(2) : 0;
                 
+                // 🔥 تحديث سجل الرسم البياني للشموع اليابانية كل ساعة 🔥
+                let pHistory = [];
+                try { pHistory = JSON.parse(item.priceHistory || item.pricehistory || '[]'); } catch(e) {}
+                if (!Array.isArray(pHistory)) pHistory = [oldPrice];
+                pHistory.push(newPrice);
+                if (pHistory.length > 30) pHistory.shift(); // الاحتفاظ بآخر 30 نقطة فقط
+
+                try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "lastPrice" BIGINT DEFAULT 0`); } catch(e){}
+                try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "priceHistory" TEXT DEFAULT '[]'`); } catch(e){}
+
                 try { 
-                    await db.query(`UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2, "lastChange" = $3 WHERE "id" = $4`, [newPrice, displayPercent, changeAmount, itemId]); 
+                    await db.query(`UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2, "lastChange" = $3, "lastPrice" = $4, "priceHistory" = $5 WHERE "id" = $6`, [newPrice, displayPercent, changeAmount, oldPrice, JSON.stringify(pHistory), itemId]); 
                 } catch(e) { 
-                    await db.query(`UPDATE market_items SET currentprice = $1, lastchangepercent = $2, lastchange = $3 WHERE id = $4`, [newPrice, displayPercent, changeAmount, itemId]).catch(()=>{}); 
+                    await db.query(`UPDATE market_items SET currentprice = $1, lastchangepercent = $2, lastchange = $3, lastprice = $4, pricehistory = $5 WHERE id = $6`, [newPrice, displayPercent, changeAmount, oldPrice, JSON.stringify(pHistory), itemId]).catch(()=>{}); 
                 }
             }
             await db.query('COMMIT');
