@@ -946,8 +946,16 @@ async function endBattle(battleState, winnerId, db, reason = "win", buffCalculat
         winnerData.mora = Number(winnerData.mora) + finalWinnings;
         await db.query(`UPDATE levels SET "mora" = $1 WHERE "user" = $2 AND "guild" = $3`, [winnerData.mora, winnerId, battleState.message.guild.id]);
 
-        if (updateGuildStat) {
-            updateGuildStat(battleState.message.client, battleState.message.guild.id, winnerId, 'pvp_wins', 1);
+        // 🔥 نظام تصنيف المعارك وتوزيع النقاط في الخلفية (بدون إظهارها) 🔥
+        if (updateGuildStat && reason !== "forfeit") {
+            let earnedPoints = 1;
+            if (battleState.bet >= 50000) earnedPoints = 3;      // تصنيف S
+            else if (battleState.bet >= 20000) earnedPoints = 2; // تصنيف A
+            else if (battleState.bet >= 10000) earnedPoints = 2; // تصنيف B
+            else if (battleState.bet >= 5000) earnedPoints = 1;  // تصنيف C
+            else earnedPoints = 1;                               // تصنيف D
+            
+            updateGuildStat(battleState.message.client, battleState.message.guild.id, winnerId, 'pvp_wins', earnedPoints);
         }
 
         await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [battleState.message.guild.id, winnerId, 15, expireTime, 'mora', 0.15]);
