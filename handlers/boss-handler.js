@@ -216,26 +216,29 @@ async function handleBossInteraction(interaction, client, db) {
             await db.query('INSERT INTO user_coupons ("guildID", "userID", "discountPercent") VALUES ($1, $2, $3)', [guildID, userID, discount]);
             rewardString = `${discount}% كـوبـون خـصـم للمتجـر`;
         } else {
-            const duration = getRandomDuration(10, 180); 
-            const percent = Math.floor(Math.random() * 46) + 5; 
+            const duration = getRandomDuration(10, 180);
+            const percent = Math.floor(Math.random() * 46) + 5;
             const expiresAt = Date.now() + duration;
+            await db.query('DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = \'xp\'', [userID, guildID]).catch(()=>{});
             await db.query('INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)', [guildID, userID, percent, expiresAt, 'xp', percent / 100]);
-            
+
             rewardString = `${percent}% تعـزيـز خبرة ${EMOJI_XP} (لمدة ${formatDuration(duration)})`;
         }
 
-    } else if (roll > 90) { 
+    } else if (roll > 90) {
         const duration = getRandomDuration(10, 180);
-        const percent = Math.floor(Math.random() * 46) + 5; 
+        const percent = Math.floor(Math.random() * 46) + 5;
         const expiresAt = Date.now() + duration;
+        await db.query('DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = \'xp\'', [userID, guildID]).catch(()=>{});
         await db.query('INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)', [guildID, userID, percent, expiresAt, 'xp', percent / 100]);
-        
+
         rewardString = `${percent}% تعـزيـز خبرة${EMOJI_XP} (لمدة ${formatDuration(duration)})`;
 
-    } else if (roll > 80) { 
+    } else if (roll > 80) {
         const duration = getRandomDuration(10, 180);
-        const percent = Math.floor(Math.random() * 8) + 1; 
+        const percent = Math.floor(Math.random() * 8) + 1;
         const expiresAt = Date.now() + duration;
+        await db.query('DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = \'mora\'', [userID, guildID]).catch(()=>{});
         await db.query('INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)', [guildID, userID, percent, expiresAt, 'mora', percent / 100]);
         
         rewardString = `${percent}% تعـزيـز مورا${EMOJI_MORA} (لمدة ${formatDuration(duration)})`;

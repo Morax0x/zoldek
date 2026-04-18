@@ -285,7 +285,9 @@ async function runDungeon(threadChannel, mainChannel, partyIDs, theme, db, hostI
                                 // 🔥 تم تصحيح مضاعف اللعنة ليكون آمن رياضياً (-0.50 بدلاً من -1.0) لمنع الخلل الفلكي 🔥
                                 const debuffDuration = 60 * 60 * 1000; const expiresAt = Date.now() + debuffDuration;
                                 if (db) {
+                                    await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'mora'`, [afkP.id, guild.id]).catch(()=>{});
                                     await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, afkP.id, -50, expiresAt, 'mora', -0.50]).catch(()=>{});
+                                    await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [afkP.id, guild.id]).catch(()=>{});
                                     await db.query(`INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, $6)`, [guild.id, afkP.id, -50, expiresAt, 'xp', -0.50]).catch(()=>{});
                                 }
                                 log.push(`☠️ **${afkP.name}** ابتـلعـه الدانـجون بسبب الخمـول!`);
