@@ -125,54 +125,73 @@ function drawSciFiPanel(ctx, x, y, width, height, borderColor, glowColor) {
     ctx.stroke();
 }
 
-// 📈 دالة رسم المخطط البياني (تم تحسينها وإضافة تعبئة متدرجة لاحترافية أكثر)
+// 📊 نظام مخطط الشموع اليابانية الاحترافي (Professional Candlestick Chart)
 function drawSparkline(ctx, x, y, width, height, priceHistory, color) {
     if (!Array.isArray(priceHistory) || priceHistory.length < 2) return;
 
     const prices = priceHistory.map(Number).filter(p => !isNaN(p) && p > 0);
     if (prices.length < 2) return;
 
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
+    // توليد بيانات الشموع (OHLC) بشكل ذكي
+    const ohlc = [];
+    for (let i = 0; i < prices.length; i++) {
+        const open = i === 0 ? prices[0] : prices[i - 1]; // الافتتاح هو الإغلاق السابق
+        const close = prices[i];
+        
+        // خوارزمية عشوائية ثابتة (Deterministic Random) لرسم ذيول الشموع لتبدو واقعية
+        const seed1 = ((open * 13.37) % 1) || 0.5;
+        const seed2 = ((close * 42.11) % 1) || 0.5;
+        const variance = Math.max(open, close) * 0.015; // 1.5% تذبذب علوي وسفلي
+        
+        const high = Math.max(open, close) + (variance * seed1);
+        const low = Math.min(open, close) - (variance * seed2);
+
+        ohlc.push({ open, close, high, low, isUp: close >= open });
+    }
+
+    // حساب الحدود القصوى والدنيا لضبط مقاس المخطط بالكانفاس
+    const minPrice = Math.min(...ohlc.map(c => c.low));
+    const maxPrice = Math.max(...ohlc.map(c => c.high));
     const priceRange = maxPrice - minPrice;
-    // ترك مساحة فوق وتحت الخط حتى لا يلمس الحواف
     const effectiveRange = priceRange === 0 ? Math.max(minPrice * 0.01, 1) : priceRange;
     const padding = height * 0.15; 
 
-    // معادلة دقيقة لقلب الإحداثيات وضبطها داخل المربع
+    // دالة تحويل السعر إلى إحداثيات Y
     const toY = (price) => y + height - padding - ((price - minPrice) / effectiveRange) * (height - padding * 2);
-    const stepX = width / (prices.length - 1);
-
-    // 1. رسم الظل المتدرج أسفل الخط (Fill)
-    ctx.beginPath();
-    ctx.moveTo(x, y + height); // نقطة البداية أسفل اليسار
-    ctx.lineTo(x, toY(prices[0]));
     
-    for (let i = 1; i < prices.length; i++) {
-        ctx.lineTo(x + i * stepX, toY(prices[i]));
+    // حساب عرض الشمعة والمسافة بين الشموع
+    const candleWidth = Math.max(3, (width / ohlc.length) * 0.6);
+    const gap = ohlc.length > 1 ? (width - (candleWidth * ohlc.length)) / (ohlc.length - 1) : 0;
+
+    // رسم الشموع اليابانية
+    for (let i = 0; i < ohlc.length; i++) {
+        const candle = ohlc[i];
+        const cX = x + i * (candleWidth + gap) + candleWidth / 2;
+
+        const cColor = candle.isUp ? '#00ff88' : '#ff0055'; // أخضر للارتفاع، أحمر للهبوط
+        
+        // رسم ذيل الشمعة (Wick)
+        ctx.strokeStyle = cColor;
+        ctx.beginPath();
+        ctx.moveTo(cX, toY(candle.high));
+        ctx.lineTo(cX, toY(candle.low));
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // رسم جسم الشمعة (Body)
+        ctx.fillStyle = cColor;
+        ctx.shadowColor = cColor;
+        ctx.shadowBlur = 5; // إعطاء توهج خفيف للشموع
+        
+        const bodyTop = toY(Math.max(candle.open, candle.close));
+        const bodyBottom = toY(Math.min(candle.open, candle.close));
+        let bodyH = Math.abs(bodyTop - bodyBottom);
+        if (bodyH < 2) bodyH = 2; // أقل ارتفاع لتظهر الشمعة بوضوح حتى لو لم يتغير السعر
+
+        ctx.fillRect(cX - candleWidth / 2, bodyTop, candleWidth, bodyH);
+        
+        ctx.shadowBlur = 0; // إيقاف التوهج للشموع التالية
     }
-    
-    ctx.lineTo(x + width, y + height); // نقطة النهاية أسفل اليمين
-    ctx.closePath();
-
-    // التدرج اللوني للتعبئة
-    const fillGradient = ctx.createLinearGradient(0, y, 0, y + height);
-    fillGradient.addColorStop(0, color.replace('rgb', 'rgba').replace(')', ', 0.3)')); // لون شفاف في الأعلى
-    fillGradient.addColorStop(1, 'rgba(0, 0, 0, 0)'); // شفاف تماماً في الأسفل
-    ctx.fillStyle = fillGradient;
-    ctx.fill();
-
-    // 2. رسم الخط الأساسي (Stroke)
-    ctx.beginPath();
-    ctx.moveTo(x, toY(prices[0]));
-    for (let i = 1; i < prices.length; i++) {
-        ctx.lineTo(x + i * stepX, toY(prices[i]));
-    }
-
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2.5;
-    ctx.lineJoin = 'round'; // لجعل الزوايا ناعمة
-    ctx.stroke();
 }
 
 // 🔥🔥 اللوحة الرئيسية 🔥🔥
@@ -303,6 +322,8 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         if (!Array.isArray(priceHistory) || priceHistory.length < 2) {
             priceHistory = lastPrice > 0 ? [lastPrice, currentPrice] : [currentPrice, currentPrice];
         }
+        
+        // رسم مخطط الشموع اليابانية داخل الكرت
         drawSparkline(ctx, x + 20, y + sparkY, cardW - 40, sparkH, priceHistory, mainColor);
 
         const assetImg = await getAssetImage(item);
@@ -460,6 +481,7 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         ctx.lineWidth = 1;
         roundRect(ctx, 300, 368, 520, 50, 6, false, true);
+        // رسم مخطط الشموع اليابانية لبطاقة التفاصيل
         drawSparkline(ctx, 305, 372, 510, 42, detailHistory, mainColor);
     }
 
