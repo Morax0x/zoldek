@@ -201,7 +201,7 @@ async function buildDetailView(item, userId, guildId, db, category, client) {
             
         new ButtonBuilder()
             .setCustomId(`sell_btn_farm|${category}|${item.id}`)
-            .setLabel(`بيع (نصف السعر) 💰`)
+            .setLabel(`بيع 💰 (تتغير القيمة بالعمر)`)
             .setStyle(ButtonStyle.Danger)
             .setDisabled(userQuantity === 0)
     );
@@ -326,7 +326,7 @@ async function handleFarmShopModal(i, client, db) {
                     if (client && typeof client.getLevel === 'function') {
                         let u = await client.getLevel(i.user.id, i.guild.id);
                         if (u) { 
-                            u.mora = String(Number(u.mora || 0) + totalPrice); // 🔥 تم تصليح ثغرة الدمج هنا 🔥
+                            u.mora = String(Number(u.mora || 0) + totalPrice); 
                             await client.setLevel(u); 
                         }
                     }
@@ -344,7 +344,7 @@ async function handleFarmShopModal(i, client, db) {
                     if (client && typeof client.getLevel === 'function') {
                         let u = await client.getLevel(i.user.id, i.guild.id);
                         if (u) { 
-                            u.mora = String(Number(u.mora || 0) + totalPrice); // 🔥 تم تصليح ثغرة الدمج هنا 🔥
+                            u.mora = String(Number(u.mora || 0) + totalPrice); 
                             await client.setLevel(u); 
                         }
                     }
@@ -383,7 +383,7 @@ async function handleFarmShopModal(i, client, db) {
                 if (client && typeof client.getLevel === 'function') {
                     let u = await client.getLevel(i.user.id, i.guild.id);
                     if (u) { 
-                        u.mora = String(Number(u.mora || 0) + totalPrice); // 🔥 تم تصليح ثغرة الدمج هنا 🔥
+                        u.mora = String(Number(u.mora || 0) + totalPrice); 
                         await client.setLevel(u); 
                     }
                 }
@@ -393,14 +393,11 @@ async function handleFarmShopModal(i, client, db) {
             await i.editReply(`✅ <@${i.user.id}> اشتريت **${quantity.toLocaleString()}x ${itemData.name}** بنجاح!\nالتكلفة: ${totalPrice.toLocaleString()} مورا`);
 
         } else if (action === 'sell') {
-            const sellPrice = Math.floor(itemData.price * 0.5); 
-            const totalGain = sellPrice * quantity;
-
             try {
                 if (category === 'animals') {
                     let farmRes;
-                    try { farmRes = await executeDB(db, `SELECT "id", "quantity" FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 AND "animalID" = $3 ORDER BY "purchaseTimestamp" ASC`, [i.user.id, i.guild.id, itemData.id]); }
-                    catch(e) { farmRes = await executeDB(db, `SELECT id, quantity FROM user_farm WHERE userid = $1 AND guildid = $2 AND animalid = $3 ORDER BY purchasetimestamp ASC`, [i.user.id, i.guild.id, itemData.id]).catch(()=>({rows:[]})); }
+                    try { farmRes = await executeDB(db, `SELECT "id", "quantity", "purchaseTimestamp" FROM user_farm WHERE "userID" = $1 AND "guildID" = $2 AND "animalID" = $3 ORDER BY "purchaseTimestamp" ASC`, [i.user.id, i.guild.id, itemData.id]); }
+                    catch(e) { farmRes = await executeDB(db, `SELECT id, quantity, purchasetimestamp as "purchaseTimestamp" FROM user_farm WHERE userid = $1 AND guildid = $2 AND animalid = $3 ORDER BY purchasetimestamp ASC`, [i.user.id, i.guild.id, itemData.id]).catch(()=>({rows:[]})); }
                     
                     let totalOwned = 0;
                     farmRes.rows.forEach(row => totalOwned += Number(row.quantity || row.Quantity || 0));
@@ -409,11 +406,39 @@ async function handleFarmShopModal(i, client, db) {
                         return await i.editReply(`❌ لا تملك هذه الكمية للبيع! (تمتلك ${totalOwned})`);
                     }
 
+                    const lifespanDays = itemData.lifespan || 30; // افتراضي 30 يوم
+                    const lifespanMs = lifespanDays * 24 * 60 * 60 * 1000;
+                    const now = Date.now();
+                    
+                    let totalGain = 0;
+                    let soldQuantity = 0;
+                    let oldOrRejectedCount = 0;
                     let remainingToSell = quantity;
+
                     for (const row of farmRes.rows) {
                         if (remainingToSell <= 0) break;
+
+                        const purchaseTime = Number(row.purchaseTimestamp || row.purchasetimestamp || now);
+                        const ageMs = now - purchaseTime;
+                        
+                        let lifeLivedPercent = ageMs / lifespanMs;
+                        if (lifeLivedPercent > 1) lifeLivedPercent = 1;
+
+                        // الحيوان عجز ومات سوقه (تجاوز 90% من عمره)
+                        if (lifeLivedPercent >= 0.90) {
+                            oldOrRejectedCount += Number(row.quantity || row.Quantity || 0);
+                            continue; 
+                        }
+
+                        // المعادلة: 50% من السعر الأصلي تنقص تدريجياً مع العمر
+                        let currentAnimalSellPrice = Math.floor((itemData.price * 0.5) * (1 - lifeLivedPercent));
+                        if (currentAnimalSellPrice < 1) currentAnimalSellPrice = 1;
+
                         const qtyInRow = Number(row.quantity || row.Quantity || 0);
                         const sellFromRow = Math.min(qtyInRow, remainingToSell);
+                        
+                        totalGain += (currentAnimalSellPrice * sellFromRow);
+                        soldQuantity += sellFromRow;
                         remainingToSell -= sellFromRow;
 
                         if (qtyInRow === sellFromRow) {
@@ -424,7 +449,37 @@ async function handleFarmShopModal(i, client, db) {
                             catch(e) { await executeDB(db, `UPDATE user_farm SET quantity = quantity - $1 WHERE id = $2`, [sellFromRow, row.id || row.ID]); }
                         }
                     }
+
+                    if (soldQuantity === 0 && oldOrRejectedCount > 0) {
+                        return await i.editReply(`🚫 **لا يمكن إتمام البيع!**\nالحيوانات التي تمتلكها طاعنة في السن ولا يقبلها السوق للبيع.`);
+                    } else if (soldQuantity < quantity) {
+                        return await i.editReply(`🚫 **تم بيع جزء فقط!**\nتم بيع \`${soldQuantity}\` حيوان فقط بقيمة \`${totalGain}\` مورا، والباقي لا يقبله السوق بسبب كبر السن.`);
+                    }
+
+                    // إيداع الأرباح للحساب
+                    try {
+                        await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalGain, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalGain, i.user.id, i.guild.id]));
+                        if (client && typeof client.getLevel === 'function') {
+                            let u = await client.getLevel(i.user.id, i.guild.id);
+                            if (u) { 
+                                u.mora = String(Number(u.mora || 0) + totalGain); 
+                                await client.setLevel(u); 
+                            }
+                        }
+                    } catch (moneyError) {}
+
+                    const sellEmbed = new EmbedBuilder()
+                        .setTitle('📈 عملية بيع زراعية')
+                        .setColor(Colors.Blue)
+                        .setDescription(`📦 **الكمية المباعة:** ${soldQuantity.toLocaleString()}x ${itemData.name}\n💰 **الأرباح الإجمالية:** ${totalGain.toLocaleString()} مورا (يختلف السعر بناءً على عمر كل حيوان)`);
+                    
+                    await i.editReply({ content: `<@${i.user.id}>`, embeds: [sellEmbed] });
+
                 } else {
+                    // بيع البذور والأعلاف (ثابت النصف لأنه لا يوجد عمر افتراضي لها)
+                    const sellPrice = Math.floor(itemData.price * 0.5); 
+                    const totalGain = sellPrice * quantity;
+
                     let invCheckRes;
                     try { invCheckRes = await executeDB(db, `SELECT "id", "quantity" FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [i.user.id, i.guild.id, itemData.id]); }
                     catch(e) { invCheckRes = await executeDB(db, `SELECT id, quantity FROM user_inventory WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [i.user.id, i.guild.id, itemData.id]).catch(()=>({rows:[]})); }
@@ -442,27 +497,25 @@ async function handleFarmShopModal(i, client, db) {
                         try { await executeDB(db, `UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [quantity, invCheckRes.rows[0].id || invCheckRes.rows[0].ID]); }
                         catch(e) { await executeDB(db, `UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [quantity, invCheckRes.rows[0].id || invCheckRes.rows[0].ID]); }
                     }
-                }
 
-                try {
-                    await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalGain, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalGain, i.user.id, i.guild.id]));
-                    if (client && typeof client.getLevel === 'function') {
-                        let u = await client.getLevel(i.user.id, i.guild.id);
-                        if (u) { 
-                            u.mora = String(Number(u.mora || 0) + totalGain); // 🔥 تم تصليح ثغرة الدمج هنا 🔥
-                            await client.setLevel(u); 
+                    try {
+                        await executeDB(db, `UPDATE levels SET "mora" = CAST("mora" AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3`, [totalGain, i.user.id, i.guild.id]).catch(()=> executeDB(db, `UPDATE levels SET mora = CAST(mora AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3`, [totalGain, i.user.id, i.guild.id]));
+                        if (client && typeof client.getLevel === 'function') {
+                            let u = await client.getLevel(i.user.id, i.guild.id);
+                            if (u) { 
+                                u.mora = String(Number(u.mora || 0) + totalGain); 
+                                await client.setLevel(u); 
+                            }
                         }
-                    }
-                } catch (moneyError) {
-                    return await i.editReply('❌ حدث خطأ داخلي أثناء إضافة الأموال.');
+                    } catch (moneyError) {}
+
+                    const sellEmbed = new EmbedBuilder()
+                        .setTitle('📈 عملية بيع زراعية')
+                        .setColor(Colors.Blue)
+                        .setDescription(`📦 **الكمية المباعة:** ${quantity.toLocaleString()}x ${itemData.name}\n💰 **الأرباح:** ${totalGain.toLocaleString()} مورا (نصف السعر)`);
+                    
+                    await i.editReply({ content: `<@${i.user.id}>`, embeds: [sellEmbed] });
                 }
-                
-                const sellEmbed = new EmbedBuilder()
-                    .setTitle('📈 عملية بيع زراعية')
-                    .setColor(Colors.Blue)
-                    .setDescription(`📦 **الكمية المباعة:** ${quantity.toLocaleString()}x ${itemData.name}\n💰 **الأرباح:** ${totalGain.toLocaleString()} مورا (نصف السعر)`);
-                
-                await i.editReply({ content: `<@${i.user.id}>`, embeds: [sellEmbed] });
 
             } catch (sellError) {
                 return await i.editReply('❌ حدث خطأ داخلي أثناء إزالة العنصر، لم يتم البيع.');
