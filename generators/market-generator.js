@@ -125,7 +125,7 @@ function drawSciFiPanel(ctx, x, y, width, height, borderColor, glowColor) {
     ctx.stroke();
 }
 
-// 📊 نظام مخطط الشموع اليابانية الاحترافي والأكثر دقة (TradingView Style)
+// 📊 نظام مخطط الشموع اليابانية الاحترافي (موسع ومحسّن)
 function drawSparkline(ctx, x, y, width, height, priceHistory, color) {
     if (!Array.isArray(priceHistory) || priceHistory.length < 2) return;
 
@@ -141,11 +141,11 @@ function drawSparkline(ctx, x, y, width, height, priceHistory, color) {
         const close = prices[i];
         const isUp = close >= open;
         
-        // خوارزمية ذكية لاستنتاج ذيول الشموع بحدود منطقية بناءً على التغير الفعلي
+        // خوارزمية ذكية لاستنتاج ذيول الشموع بحدود منطقية
         const seed1 = ((open * 13.37) % 1);
         const seed2 = ((close * 42.11) % 1);
         const move = Math.abs(close - open);
-        const baseVariance = open * 0.003; // 0.3% تذبذب طبيعي كحد أدنى
+        const baseVariance = open * 0.003; 
         
         const high = Math.max(open, close) + (baseVariance + move * 0.2) * seed1;
         const low = Math.min(open, close) - (baseVariance + move * 0.2) * seed2;
@@ -157,66 +157,65 @@ function drawSparkline(ctx, x, y, width, height, priceHistory, color) {
     const maxPrice = Math.max(...ohlc.map(c => c.high));
     const priceRange = maxPrice - minPrice;
     const effectiveRange = priceRange === 0 ? Math.max(minPrice * 0.01, 1) : priceRange;
-    const padding = height * 0.15; 
+    const padding = height * 0.10; // تقليل الهامش الداخلي لاستغلال المساحة بشكل أفضل
 
     // دالة تحويل السعر إلى إحداثيات (Y)
-    const toY = (price) => y + height - padding - ((price - minPrice) / effectiveRange) * (height - padding * 2);
+    const toY = (price) => Math.floor(y + height - padding - ((price - minPrice) / effectiveRange) * (height - padding * 2));
     
-    // 1. رسم خطوط شبكة خلفية خفيفة جداً (Grid) لتعطي إحساس منصات التداول
+    // 1. رسم خطوط شبكة خلفية خفيفة جداً (Grid)
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let i = 1; i < 4; i++) {
-        const gridY = Math.floor(y + (height / 4) * i) + 0.5; // 0.5 للحدة (Crisp line)
+        const gridY = Math.floor(y + (height / 4) * i) + 0.5; 
         ctx.moveTo(x, gridY);
         ctx.lineTo(x + width, gridY);
     }
     ctx.stroke();
 
-    // 2. حساب أبعاد ومسافات الشموع بدقة متناهية لمنع التداخل
-    const maxCandles = Math.max(prices.length, 10); // توزيع المساحة على 10 شمعات كحد أدنى
+    // 2. حساب أبعاد ومسافات الشموع 
+    const maxCandles = Math.max(prices.length, 10); 
     const candleTotalSpace = width / maxCandles;
-    const candleWidth = Math.max(3, Math.floor(candleTotalSpace * 0.6)); // 60% عرض الشمعة
+    const candleWidth = Math.max(4, Math.floor(candleTotalSpace * 0.65)); // جعل الشمعة أعرض قليلاً
     const startX = x + width - (prices.length * candleTotalSpace); // محاذاة لليمين
 
     // 3. رسم الشموع (الجسم والذيل)
-    ctx.shadowBlur = 0; // إيقاف التوهج تماماً لضمان حدة الرسم (Sharpness)
+    ctx.shadowBlur = 0; 
     
     for (let i = 0; i < ohlc.length; i++) {
         const candle = ohlc[i];
         const cX = Math.floor(startX + i * candleTotalSpace + (candleTotalSpace / 2));
-        const cColor = candle.isUp ? '#00ff88' : '#ff0055'; // أخضر للارتفاع، أحمر للهبوط
+        const cColor = candle.isUp ? '#00ff88' : '#ff0055'; 
 
         // رسم الذيل (Wick)
         ctx.strokeStyle = cColor;
         ctx.lineWidth = Math.max(1, Math.floor(candleWidth * 0.15));
         ctx.beginPath();
-        ctx.moveTo(cX, Math.floor(toY(candle.high)));
-        ctx.lineTo(cX, Math.floor(toY(candle.low)));
+        ctx.moveTo(cX, toY(candle.high));
+        ctx.lineTo(cX, toY(candle.low));
         ctx.stroke();
 
         // رسم الجسم (Body)
         ctx.fillStyle = cColor;
-        const yTop = Math.floor(toY(Math.max(candle.open, candle.close)));
-        const yBottom = Math.floor(toY(Math.min(candle.open, candle.close)));
-        const bodyH = Math.max(2, yBottom - yTop); // حد أدنى 2 بكسل للجسم (Doji)
+        const yTop = toY(Math.max(candle.open, candle.close));
+        const yBottom = toY(Math.min(candle.open, candle.close));
+        const bodyH = Math.max(2, yBottom - yTop); 
 
-        // رسم مستطيل الجسم بدقة لمنع التشويش
         ctx.fillRect(Math.floor(cX - candleWidth / 2), yTop, candleWidth, bodyH);
     }
 
     // 4. رسم خط السعر الحالي المتقطع (Current Price Line)
     const lastCandle = ohlc[ohlc.length - 1];
     if (lastCandle) {
-        const lastY = Math.floor(toY(lastCandle.close)) + 0.5;
+        const lastY = toY(lastCandle.close) + 0.5;
         ctx.strokeStyle = lastCandle.isUp ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 0, 85, 0.4)';
         ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 4]); // خط متقطع
+        ctx.setLineDash([4, 4]); 
         ctx.beginPath();
         ctx.moveTo(x, lastY);
         ctx.lineTo(x + width, lastY);
         ctx.stroke();
-        ctx.setLineDash([]); // إعادة الضبط
+        ctx.setLineDash([]); 
     }
 }
 
@@ -270,6 +269,7 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         await drawUserAvatar(ctx, userAvatarUrl, 50, 10, 80);
     }
 
+    // 💡 تم تعديل المقاسات لاستغلال المساحة السفلية بالكامل
     let layout;
     if (items.length === 1) {
         layout = {
@@ -277,8 +277,8 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
             imgSize: 280, imgX: 40, imgY: 40,
             titleX: 360, titleY: 100, fontTitle: 48,
             badgeX: 360, badgeY: 130, badgeW: 150, badgeH: 50, fontPercent: 28, percentYOff: 34,
-            priceY: 340, fontPrice: 70,
-            sparkY: 350, sparkH: 80,
+            priceY: 310, fontPrice: 70, // رُفع للأعلى
+            sparkY: 330, // يبدأ المخطط من هنا
             boxSize: 80, boxXOff: 20, boxYOff: 20, trendIconSize: 60
         };
     } else if (items.length === 2) {
@@ -287,8 +287,8 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
             imgSize: 180, imgX: 30, imgY: 30,
             titleX: 240, titleY: 80, fontTitle: 34,
             badgeX: 240, badgeY: 110, badgeW: 120, badgeH: 40, fontPercent: 22, percentYOff: 26,
-            priceY: 280, fontPrice: 55,
-            sparkY: 300, sparkH: 60,
+            priceY: 250, fontPrice: 55, // رُفع للأعلى
+            sparkY: 270, // يبدأ المخطط من هنا
             boxSize: 65, boxXOff: 15, boxYOff: 15, trendIconSize: 50
         };
     } else if (items.length <= 4) {
@@ -297,8 +297,8 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
             imgSize: 150, imgX: 25, imgY: 25,
             titleX: 200, titleY: 70, fontTitle: 30,
             badgeX: 200, badgeY: 95, badgeW: 110, badgeH: 38, fontPercent: 20, percentYOff: 25,
-            priceY: 230, fontPrice: 48,
-            sparkY: 240, sparkH: 45,
+            priceY: 215, fontPrice: 48, // رُفع للأعلى
+            sparkY: 230, // يبدأ المخطط من هنا
             boxSize: 55, boxXOff: 15, boxYOff: 15, trendIconSize: 45
         };
     } else {
@@ -307,13 +307,13 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
             imgSize: 120, imgX: 15, imgY: 20,
             titleX: 140, titleY: 55, fontTitle: 24,
             badgeX: 140, badgeY: 70, badgeW: 95, badgeH: 35, fontPercent: 18, percentYOff: 23,
-            priceY: 165, fontPrice: 42,
-            sparkY: 161, sparkH: 50,
+            priceY: 150, fontPrice: 42, // رُفع للأعلى
+            sparkY: 165, // يبدأ المخطط من هنا
             boxSize: 50, boxXOff: 15, boxYOff: 15, trendIconSize: 40
         };
     }
 
-    const { cols, cardW, cardH, gapX, gapY, imgSize, imgX, imgY, titleX, titleY, fontTitle, badgeX, badgeY, badgeW, badgeH, fontPercent, percentYOff, priceY, fontPrice, sparkY, sparkH, boxSize, boxXOff, boxYOff, trendIconSize } = layout;
+    const { cols, cardW, cardH, gapX, gapY, imgSize, imgX, imgY, titleX, titleY, fontTitle, badgeX, badgeY, badgeW, badgeH, fontPercent, percentYOff, priceY, fontPrice, sparkY, boxSize, boxXOff, boxYOff, trendIconSize } = layout;
 
     const actualCols = Math.min(items.length, cols);
     const actualRows = Math.ceil(items.length / cols);
@@ -349,8 +349,9 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
             priceHistory = lastPrice > 0 ? [lastPrice, currentPrice] : [currentPrice, currentPrice];
         }
         
-        // رسم مخطط الشموع اليابانية الحاد والمحاذي لليمين
-        drawSparkline(ctx, x + 20, y + sparkY, cardW - 40, sparkH, priceHistory, mainColor);
+        // 💡 حساب الارتفاع الديناميكي للمخطط بحيث يملأ المساحة لأسفل البطاقة تماماً!
+        const calculatedSparkH = cardH - sparkY - 15; // 15 بكسل هامش سفلي
+        drawSparkline(ctx, x + 15, y + sparkY, cardW - 30, calculatedSparkH, priceHistory, mainColor);
 
         const assetImg = await getAssetImage(item);
         if (assetImg) {
@@ -488,13 +489,13 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
     }
 
     ctx.fillStyle = 'rgba(0, 255, 255, 0.05)';
-    roundRect(ctx, 300, 280, 520, 80, 10, true);
+    roundRect(ctx, 300, 280, 520, 50, 10, true);
     ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
     ctx.stroke();
     
     ctx.fillStyle = '#00ffff';
-    ctx.font = `bold 26px ${FONT_FAMILY}`;
-    ctx.fillText(`الرصيد المملوك في المحفظة: ${userQuantity.toLocaleString()} سهم`, 320, 330);
+    ctx.font = `bold 22px ${FONT_FAMILY}`;
+    ctx.fillText(`الرصيد المملوك في المحفظة: ${userQuantity.toLocaleString()} سهم`, 320, 313);
 
     const rawDetailHistory = item.priceHistory || item.price_history;
     let detailHistory;
@@ -504,13 +505,13 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
         detailHistory = detailLastPrice > 0 ? [detailLastPrice, currentPrice] : null;
     }
     if (detailHistory && detailHistory.length >= 2) {
-        // تم إزالة تعبئة الخلفية (Fill) للبطاقة التفصيلية لتتناسق مع الشموع الجديدة الحادة
+        // 💡 تم توسيع مساحة الشموع في بطاقة التفاصيل بشكل عملاق!
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         ctx.lineWidth = 1;
-        roundRect(ctx, 300, 368, 520, 50, 6, false, true);
+        roundRect(ctx, 300, 345, 560, 80, 8, false, true); // صندوق أكبر وأعرض
         
-        // رسم الشموع في بطاقة التفصيل
-        drawSparkline(ctx, 305, 372, 510, 42, detailHistory, mainColor);
+        // رسم مخطط الشموع بشكل يملأ المربع بالكامل
+        drawSparkline(ctx, 310, 350, 540, 70, detailHistory, mainColor);
     }
 
     return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
