@@ -5,111 +5,207 @@ module.exports = {
         .setName('fix-buffs')
         .setDescription('كشف وتحليل ومسح التعزيزات واللعنات المؤقتة العالقة')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
-        .addUserOption(option => 
+        .addUserOption(option =>
             option.setName('user')
             .setDescription('العضو المراد فحصه وتطهير حسابه')
-            .setRequired(true)), // جعلناه إجبارياً هنا لعمل الكشف الدقيق
-    
+            .setRequired(true))
+        .addBooleanOption(option =>
+            option.setName('show-only')
+            .setDescription('عرض البفات فقط دون حذف')
+            .setRequired(false)),
+
     name: 'fix-buffs',
     aliases: ['كشف-البفات', 'فحص-اللعنات', 'تطهير'],
     category: 'Admin',
-    
+
     async execute(interactionOrMessage, args) {
-        const isSlash = !!interactionOrMessage.isChatInputCommand;
+        const isSlash = typeof interactionOrMessage.isChatInputCommand === 'function'
+            && interactionOrMessage.isChatInputCommand();
         const client = interactionOrMessage.client;
         const db = client.sql;
-        const guildId = interactionOrMessage.guild.id;
+        const guild = interactionOrMessage.guild;
+        const guildId = guild.id;
 
-        const member = isSlash ? interactionOrMessage.member : interactionOrMessage.member;
+        const member = interactionOrMessage.member;
         if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return isSlash ? interactionOrMessage.reply({ content: '❌ صلاحياتك لا تسمح.', flags: [MessageFlags.Ephemeral] }) : interactionOrMessage.reply('❌ صلاحياتك لا تسمح.');
+            const msg = '❌ صلاحياتك لا تسمح.';
+            return isSlash
+                ? interactionOrMessage.reply({ content: msg, flags: [MessageFlags.Ephemeral] })
+                : interactionOrMessage.reply(msg);
         }
 
         let targetUser = null;
+        let showOnly = false;
+
         if (isSlash) {
             targetUser = interactionOrMessage.options.getUser('user');
+            showOnly = interactionOrMessage.options.getBoolean('show-only') ?? false;
         } else {
             targetUser = interactionOrMessage.mentions.users.first();
-            if (!targetUser && args && args[0]) {
-                try { targetUser = await client.users.fetch(args[0].replace(/[<@!>]/g, '')); } catch(e){}
+            if (!targetUser && args?.[0]) {
+                try { targetUser = await client.users.fetch(args[0].replace(/[<@!>]/g, '')); } catch (e) {}
             }
+            if (args?.includes('--show')) showOnly = true;
         }
 
-        if (!targetUser) return interactionOrMessage.reply("⚠️ يرجى تحديد العضو (منشن أو آيدي).");
+        if (!targetUser) {
+            return interactionOrMessage.reply('⚠️ يرجى تحديد العضو (منشن أو آيدي).');
+        }
 
         if (isSlash) await interactionOrMessage.deferReply({ flags: [MessageFlags.Ephemeral] });
 
         try {
-            // 🔍 1. مرحلة الكشف والتحليل
-            const checkQuery = `SELECT * FROM user_buffs WHERE "guildID" = $1 AND "userID" = $2`;
-            let results;
-            try {
-                const res = await db.query(checkQuery, [guildId, targetUser.id]);
-                results = res.rows || [];
-            } catch (e) {
-                const fallbackCheck = checkQuery.replace(/"guildID"/g, "guildid").replace(/"userID"/g, "userid");
-                const res = await db.query(fallbackCheck, [guildId, targetUser.id]);
-                results = res.rows || [];
+            // جلب بيانات العضو للوصول إلى رتبه
+            let targetMember = null;
+            try { targetMember = await guild.members.fetch(targetUser.id); } catch (e) {}
+
+            // ── 1. جلب كل بفات user_buffs بدون فلتر انتهاء الصلاحية ──
+            const userBuffsRes = await db.query(
+                `SELECT * FROM user_buffs WHERE "guildID" = $1 AND "userID" = $2 ORDER BY "buffType", "expiresAt"`,
+                [guildId, targetUser.id]
+            );
+            const userBuffs = userBuffsRes.rows;
+
+            // ── 2. جلب بفات الرتب (XP و Mora) بناءً على رتب العضو ──
+            let roleXpBuffs = [];
+            let roleMoraBuffs = [];
+
+            if (targetMember) {
+                const userRoles = targetMember.roles.cache.map(r => r.id);
+                if (userRoles.length > 0) {
+                    const ph = userRoles.map((_, i) => `$${i + 1}`).join(',');
+                    try {
+                        const xpRes = await db.query(
+                            `SELECT * FROM role_buffs WHERE "roleID" IN (${ph})`,
+                            userRoles
+                        );
+                        roleXpBuffs = xpRes.rows;
+                    } catch (e) {}
+                    try {
+                        const moraRes = await db.query(
+                            `SELECT * FROM role_mora_buffs WHERE "roleID" IN (${ph})`,
+                            userRoles
+                        );
+                        roleMoraBuffs = moraRes.rows;
+                    } catch (e) {}
+                }
             }
 
-            let reportLogs = [];
-            if (results.length === 0) {
-                reportLogs.push("✅ لا توجد أي بيانات بفات مسجلة حالياً في الداتابيز.");
+            // ── 3. بناء جدول user_buffs ──
+            const now = Date.now();
+            let userBuffTable = '';
+            if (userBuffs.length === 0) {
+                userBuffTable = '> لا توجد بيانات مؤقتة مسجلة.';
             } else {
-                results.forEach(row => {
-                    const type = row.buffType || row.bufftype;
-                    const percent = row.buffPercent || row.buffpercent || 0;
-                    const multiplier = row.multiplier || 0;
-                    
-                    let source = "❓ مصدر مجهول";
-                    if (type === 'xp') {
-                        if (percent === -100 || percent === -50) source = "💀 لعنة الخمول (الدانجون)";
-                        else if (percent === 15) source = "✨ جائزة (نجم الدانجون) أو (فوز PvP)";
-                        else source = "🧪 جرعة خبرة من المتجر";
-                    } else if (type === 'mora') {
-                        if (percent === -15) source = "📉 لعنة الهزيمة (دانجون/PvP)";
-                        else source = "💰 تعزيز مورا (متجر/جوائز)";
-                    } else if (type === 'pvp_wounded') {
-                        source = "🩸 جرح قتال (لعنة نزاع PvP)";
-                    } else if (type === 'farm_worker') {
-                        source = "👨‍🌾 عقد عمل (مزارع)";
-                    } else if (type.startsWith('hidden_')) {
-                        source = "🕵️ تعزيز إمبراطوري مخفي (Admin)";
-                    }
-
-                    reportLogs.push(`🔹 **النوع:** \`${type}\` | **القيمة:** \`${percent}%\`\n**السبب المرجح:** ${source}\n**المضاعف التقني:** \`${multiplier}\``);
+                const lines = userBuffs.map(row => {
+                    const type    = row.buffType    ?? row.bufftype    ?? '?';
+                    const pct     = row.buffPercent ?? row.buffpercent ?? 0;
+                    const mult    = row.multiplier  != null ? row.multiplier : '-';
+                    const exp     = row.expiresAt   ?? row.expiresat;
+                    const expStr  = exp
+                        ? (Number(exp) < now ? '⛔ منتهي' : `<t:${Math.floor(Number(exp) / 1000)}:R>`)
+                        : '♾️ دائم';
+                    const multStr = mult !== '-' ? `\`${(Number(mult) * 100).toFixed(0)}%\`` : `\`${pct}%\``;
+                    return `> \`${type.padEnd(14)}\` ${multStr.padEnd(8)} ${expStr}`;
                 });
+                userBuffTable = lines.join('\n');
             }
 
-            // 🧹 2. مرحلة التطهير (Wipe)
-            // نمسح كل شيء ما عدا المزارع والمخفي
-            const deleteQuery = `DELETE FROM user_buffs WHERE "guildID" = $1 AND "userID" = $2 AND "buffType" NOT LIKE 'hidden_%' AND "buffType" != 'farm_worker'`;
-            try {
-                await db.query(deleteQuery, [guildId, targetUser.id]);
-            } catch (e) {
-                const fallbackDel = deleteQuery.replace(/"guildID"/g, "guildid").replace(/"userID"/g, "userid").replace(/"buffType"/g, "bufftype");
-                await db.query(fallbackDel, [guildId, targetUser.id]);
+            // ── 4. بناء جدول بفات الرتب (XP) ──
+            let roleXpTable = '';
+            if (roleXpBuffs.length === 0) {
+                roleXpTable = '> لا توجد رتب مرتبطة ببفات XP.';
+            } else {
+                const lines = roleXpBuffs.map(row => {
+                    const roleId = row.roleID ?? row.roleid;
+                    const pct    = row.buffPercent ?? row.buffpercent ?? 0;
+                    const role   = guild.roles.cache.get(roleId);
+                    const name   = role ? role.name : roleId;
+                    return `> \`${name.substring(0, 18).padEnd(18)}\` \`+${pct}%\``;
+                });
+                roleXpTable = lines.join('\n');
             }
+
+            // ── 5. بناء جدول بفات الرتب (Mora) ──
+            let roleMoraTable = '';
+            if (roleMoraBuffs.length === 0) {
+                roleMoraTable = '> لا توجد رتب مرتبطة ببفات Mora.';
+            } else {
+                const lines = roleMoraBuffs.map(row => {
+                    const roleId = row.roleID ?? row.roleid;
+                    const pct    = row.buffPercent ?? row.buffpercent ?? 0;
+                    const role   = guild.roles.cache.get(roleId);
+                    const name   = role ? role.name : roleId;
+                    return `> \`${name.substring(0, 18).padEnd(18)}\` \`+${pct}%\``;
+                });
+                roleMoraTable = lines.join('\n');
+            }
+
+            // ── 6. حساب الإجماليات المتوقعة بعد الحذف ──
+            const totalRoleXp   = roleXpBuffs.reduce((s, r) => s + Number(r.buffPercent ?? r.buffpercent ?? 0), 0);
+            const totalRoleMora = roleMoraBuffs.reduce((s, r) => s + Number(r.buffPercent ?? r.buffpercent ?? 0), 0);
+            const isWeekend     = [0, 5, 6].includes(new Date().getUTCDay());
+            const weekendBonus  = isWeekend ? 10 : 0;
+            const finalXp       = 100 + totalRoleXp + weekendBonus;
+            const finalMora     = 100 + totalRoleMora + weekendBonus;
+
+            // ── 7. حذف كل بفات user_buffs (إجباري ما لم يكن show-only) ──
+            let deletedCount = 0;
+            if (!showOnly && userBuffs.length > 0) {
+                const delRes = await db.query(
+                    `DELETE FROM user_buffs WHERE "guildID" = $1 AND "userID" = $2`,
+                    [guildId, targetUser.id]
+                );
+                deletedCount = delRes.rowCount ?? userBuffs.length;
+            }
+
+            // ── 8. بناء الـ Embed ──
+            const actionLabel = showOnly
+                ? '🔍 وضع العرض فقط — لم يُحذف شيء'
+                : (deletedCount > 0
+                    ? `🧹 تم حذف **${deletedCount}** بفة/لعنة من قاعدة البيانات`
+                    : '✅ لا توجد بفات مؤقتة لحذفها');
 
             const embed = new EmbedBuilder()
-                .setColor(Colors.Blue)
-                .setTitle(`🕵️ تقرير فحص وتطهير: ${targetUser.username}`)
+                .setColor(showOnly ? Colors.Blue : Colors.Orange)
+                .setTitle(`🕵️ تقرير البفات — ${targetUser.username}`)
                 .setThumbnail(targetUser.displayAvatarURL())
-                .setDescription(`**[ السجلات المكتشفة قبل المسح ]**\n\n${reportLogs.join('\n\n')}\n\n---`)
-                .addFields({ 
-                    name: '✨ النتيجة النهائية', 
-                    value: `تم تصفير جميع التعزيزات واللعنات المؤقتة المذكورة أعلاه. اللاعب الآن سيعتمد على **رتبه فقط** في حساب الحوافز.` 
-                })
-                .setFooter({ text: 'نظام كشف الخلل - الإمبراطورية' })
+                .addFields(
+                    {
+                        name: '📋 البفات المؤقتة (user_buffs) — قبل الحذف',
+                        value: `\`النوع          \` \`القيمة\` الانتهاء\n${userBuffTable}`,
+                    },
+                    {
+                        name: '🎯 بفات الرتب — تعزيز XP',
+                        value: `\`الرتبة            \` \`القيمة\`\n${roleXpTable}`,
+                    },
+                    {
+                        name: '💰 بفات الرتب — تعزيز Mora',
+                        value: `\`الرتبة            \` \`القيمة\`\n${roleMoraTable}`,
+                    },
+                    {
+                        name: '📊 التوقع بعد التطهير',
+                        value: [
+                            `> **XP الفعلي:** \`${finalXp}%\` (رتب: +${totalRoleXp}%${isWeekend ? ' + عطلة: +10%' : ''})`,
+                            `> **Mora الفعلي:** \`${finalMora}%\` (رتب: +${totalRoleMora}%${isWeekend ? ' + عطلة: +10%' : ''})`,
+                        ].join('\n'),
+                    },
+                    {
+                        name: '⚡ النتيجة',
+                        value: actionLabel,
+                    }
+                )
+                .setFooter({ text: 'نظام كشف الخلل — الإمبراطورية' })
                 .setTimestamp();
 
             if (isSlash) await interactionOrMessage.editReply({ embeds: [embed] });
             else await interactionOrMessage.reply({ embeds: [embed] });
 
         } catch (err) {
-            console.error("[Fix Buffs Error]:", err);
-            if (isSlash) await interactionOrMessage.editReply('❌ فشل الفحص، تأكد من إعدادات قاعدة البيانات.');
-            else await interactionOrMessage.reply('❌ فشل الفحص.');
+            console.error('[Fix Buffs Error]:', err);
+            const errMsg = '❌ فشل الفحص، تأكد من إعدادات قاعدة البيانات.';
+            if (isSlash) await interactionOrMessage.editReply(errMsg).catch(() => {});
+            else await interactionOrMessage.reply(errMsg).catch(() => {});
         }
     }
 };
