@@ -125,22 +125,26 @@ function drawSciFiPanel(ctx, x, y, width, height, borderColor, glowColor) {
     ctx.stroke();
 }
 
-// 📈 دالة رسم "مخطط بياني" هولوغرامي مصغر أسفل الكرت
-function drawSparkline(ctx, x, y, width, height, isUp, isDown, color) {
+// 📈 دالة رسم المخطط البياني بناءً على بيانات الأسعار الفعلية
+function drawSparkline(ctx, x, y, width, height, priceHistory, color) {
+    if (!Array.isArray(priceHistory) || priceHistory.length < 2) return;
+
+    const prices = priceHistory.map(Number).filter(p => !isNaN(p) && p > 0);
+    if (prices.length < 2) return;
+
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const priceRange = maxPrice - minPrice;
+    const effectiveRange = priceRange === 0 ? Math.max(minPrice * 0.01, 1) : priceRange;
+    const padding = height * 0.05;
+
+    const toY = (price) => y + height - padding - ((price - minPrice) / effectiveRange) * (height - padding * 2);
+    const stepX = width / (prices.length - 1);
+
     ctx.beginPath();
-    let currentY = isUp ? y + height : (isDown ? y : y + height / 2);
-    ctx.moveTo(x, currentY);
-
-    const points = 6;
-    const stepX = width / points;
-
-    for (let i = 1; i <= points; i++) {
-        let randomFluctuation = (Math.random() - 0.5) * 20; 
-        if (isUp) currentY -= (height / points) + randomFluctuation;
-        else if (isDown) currentY += (height / points) + randomFluctuation;
-        else currentY += randomFluctuation;
-        currentY = Math.max(y, Math.min(currentY, y + height)); 
-        ctx.lineTo(x + (i * stepX), currentY);
+    ctx.moveTo(x, toY(prices[0]));
+    for (let i = 1; i < prices.length; i++) {
+        ctx.lineTo(x + i * stepX, toY(prices[i]));
     }
 
     ctx.strokeStyle = color;
@@ -263,17 +267,24 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         const x = START_X + col * (cardW + gapX);
         const y = START_Y + row * (cardH + gapY);
 
-        const changePercent = Number(item.lastChangePercent || item.lastchangepercent || 0);
         const currentPrice = Number(item.currentPrice || item.currentprice || item.price || 0);
-        const isUp = changePercent > 0.01;
-        const isDown = changePercent < -0.01;
+        const lastPrice = Number(item.lastPrice || item.lastprice || 0);
+        const changePercent = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
+        const isUp = changePercent > 0;
+        const isDown = changePercent < 0;
 
         const mainColor = isUp ? '#00ff88' : (isDown ? '#ff0055' : '#00ccff');
         const glowColor = isUp ? 'rgba(0, 255, 136, 0.6)' : (isDown ? 'rgba(255, 0, 85, 0.6)' : 'rgba(0, 204, 255, 0.6)');
         const borderColor = isUp ? 'rgba(0, 255, 136, 0.8)' : (isDown ? 'rgba(255, 0, 85, 0.8)' : 'rgba(0, 204, 255, 0.8)');
 
         drawSciFiPanel(ctx, x, y, cardW, cardH, borderColor, glowColor);
-        drawSparkline(ctx, x + 20, y + sparkY, cardW - 40, sparkH, isUp, isDown, mainColor);
+        const rawHistory = item.priceHistory || item.price_history;
+        let priceHistory;
+        try { priceHistory = typeof rawHistory === 'string' ? JSON.parse(rawHistory) : rawHistory; } catch (e) {}
+        if (!Array.isArray(priceHistory) || priceHistory.length < 2) {
+            priceHistory = lastPrice > 0 ? [lastPrice, currentPrice] : [currentPrice, currentPrice];
+        }
+        drawSparkline(ctx, x + 20, y + sparkY, cardW - 40, sparkH, priceHistory, mainColor);
 
         // اللوغو العملاق في اليسار
         const assetImg = await getAssetImage(item);
@@ -299,7 +310,7 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         ctx.fillStyle = mainColor;
         ctx.font = `bold ${fontPercent}px ${FONT_FAMILY}`;
         const sign = changePercent > 0 ? '+' : '';
-        ctx.fillText(`${sign}${(changePercent * 100).toFixed(2)}%`, x + badgeX + 10, y + badgeY + percentYOff);
+        ctx.fillText(`${sign}${changePercent.toFixed(2)}%`, x + badgeX + 10, y + badgeY + percentYOff);
 
         // 🔥🏹 مربع الأسهم المصغر 
         const boxXAct = x + cardW - boxSize - boxXOff; 
@@ -351,8 +362,8 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
     const ctx = canvas.getContext("2d");
     const FONT_FAMILY = '"Arial", sans-serif';
 
-    const isUp = changePercent > 0.01;
-    const isDown = changePercent < -0.01;
+    const isUp = changePercent > 0;
+    const isDown = changePercent < 0;
 
     const mainColor = isUp ? '#00ff88' : (isDown ? '#ff0055' : '#00ccff');
     const glowColor = isUp ? 'rgba(0, 255, 136, 0.6)' : (isDown ? 'rgba(255, 0, 85, 0.6)' : 'rgba(0, 204, 255, 0.6)');
@@ -408,7 +419,7 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
     const sign = changePercent > 0 ? '+' : '';
     ctx.fillStyle = mainColor;
     ctx.font = `bold 38px ${FONT_FAMILY}`;
-    ctx.fillText(`${sign}${(changePercent * 100).toFixed(2)}%`, 590, 245);
+    ctx.fillText(`${sign}${changePercent.toFixed(2)}%`, 590, 245);
 
     const trendImg = isUp ? trendImages.up : (isDown ? trendImages.down : trendImages.neutral);
     if (trendImg) {
@@ -423,6 +434,21 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
     ctx.fillStyle = '#00ffff';
     ctx.font = `bold 26px ${FONT_FAMILY}`;
     ctx.fillText(`الرصيد المملوك في المحفظة: ${userQuantity.toLocaleString()} سهم`, 320, 330);
+
+    // مخطط بياني للسجل التاريخي للأسعار
+    const rawDetailHistory = item.priceHistory || item.price_history;
+    let detailHistory;
+    try { detailHistory = typeof rawDetailHistory === 'string' ? JSON.parse(rawDetailHistory) : rawDetailHistory; } catch (e) {}
+    const detailLastPrice = Number(item.lastPrice || item.lastprice || 0);
+    if (!Array.isArray(detailHistory) || detailHistory.length < 2) {
+        detailHistory = detailLastPrice > 0 ? [detailLastPrice, currentPrice] : null;
+    }
+    if (detailHistory && detailHistory.length >= 2) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+        roundRect(ctx, 300, 368, 520, 50, 6, false, true);
+        drawSparkline(ctx, 305, 372, 510, 42, detailHistory, mainColor);
+    }
 
     return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 };
