@@ -318,7 +318,7 @@ async function generateForgeUI(userObj, view, data) {
         else if (activeView === 'synthesis') msg = "🔄 تمت عملية دمج العناصر بنجاح! 🔄";
         else if (activeView === 'smelting') msg = "🔥 تمت عملية الصهر بنجاح! 🔥";
 
-        ctx.fillText(msg, width/2, panelY + 80);
+        ctx.fillText(msg, width/2, panelY + 60); // رُفعت للأعلى لتوفير مساحة
         ctx.shadowBlur = 0;
 
         if (activeView === 'weapon' || activeView === 'skill') {
@@ -328,40 +328,46 @@ async function generateForgeUI(userObj, view, data) {
             ctx.fillText(resolveText(data.nextStat), width/2, panelY + 280);
         }
         else if (activeView === 'synthesis') {
-            // 🔥 تعديل صورة الدمج المتعدد لتوضيح الكميات 🔥
-            const itemSize = 180;
-            const leftItemX = panelX + 160;
+            // 🔥 تصليح التداخل في شاشة نجاح الدمج 🔥
+            const itemSize = 160; // تصغير الصناديق قليلاً
+            const leftItemX = panelX + 180;
             const rightItemX = panelX + panelW - 340;
-            const itemY = panelY + 150; 
+            const itemY = panelY + 140; 
             
             const qty = data.quantity || 1;
             const consumedCount = qty * 4;
 
+            // صندوق النص فوق التضحية
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
-            ctx.beginPath(); roundRect(ctx, leftItemX - 20, itemY - 70, itemSize + 40, 45, 12); ctx.fill();
-            ctx.fillStyle = '#E74C3C'; ctx.font = 'bold 28px "Bein"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(`تم استهلاك (${consumedCount}x)`, leftItemX + itemSize/2, itemY - 45);
-            // رسم صورة المادة اللي تم التضحية بها لو كانت متوفرة، وإلا بتطلع استفهام (ممكن ما ترسل اسمها من الدالة الأصلية في حالة النجاح بس أنا ضفتها لك هنا كدعم)
+            ctx.beginPath(); roundRect(ctx, leftItemX - 20, itemY - 45, itemSize + 40, 35, 10); ctx.fill();
+            ctx.fillStyle = '#E74C3C'; ctx.font = 'bold 22px "Bein"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(`مستهلك (${consumedCount}x)`, leftItemX + itemSize/2, itemY - 25);
+            
+            // رسم العنصر المُضحّى به
             if (reqMatImg1) drawItemBox(ctx, leftItemX, itemY, itemSize, reqMatImg1, data.sacMatRarity || 'Rare', data.sacMatName, null, null); 
             else {
                 ctx.fillStyle = 'rgba(255,255,255,0.05)';
                 ctx.beginPath(); roundRect(ctx, leftItemX, itemY, itemSize, itemSize, 20); ctx.fill();
-                ctx.fillStyle = '#777777'; ctx.font = 'bold 26px "Arial"'; ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#777777'; ctx.font = 'bold 24px "Arial"'; ctx.textBaseline = 'middle';
                 ctx.fillText('مواد الدمج', leftItemX + itemSize/2, itemY + itemSize/2);
             }
 
-            drawFantasyArrow(ctx, width/2 - 70, panelY + 220, 140, '#F1C40F');
+            drawFantasyArrow(ctx, width/2 - 70, panelY + 200, 140, '#F1C40F');
 
+            // صندوق النص فوق النتيجة
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
-            ctx.beginPath(); roundRect(ctx, rightItemX - 20, itemY - 70, itemSize + 40, 45, 12); ctx.fill();
-            ctx.fillStyle = '#2ECC71'; ctx.font = 'bold 28px "Bein"'; ctx.textBaseline = 'middle';
-            ctx.fillText(`حصلت على (${qty}x)`, rightItemX + itemSize/2, itemY - 45);
+            ctx.beginPath(); roundRect(ctx, rightItemX - 20, itemY - 45, itemSize + 40, 35, 10); ctx.fill();
+            ctx.fillStyle = '#2ECC71'; ctx.font = 'bold 22px "Bein"'; ctx.textBaseline = 'middle';
+            ctx.fillText(`مكتسب (${qty}x)`, rightItemX + itemSize/2, itemY - 25);
+            
+            // رسم العنصر الناتج
             drawItemBox(ctx, rightItemX, itemY, itemSize, targetMatImg, data.targetMatRarity || 'Rare', data.targetMatName, null, null); 
 
+            // الصندوق السفلي للإجمالي
             ctx.fillStyle = 'rgba(0,0,0,0.6)';
-            ctx.beginPath(); roundRect(ctx, width/2 - 200, panelY + 360, 400, 45, 15); ctx.fill();
-            ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 30px "Bein"'; ctx.textBaseline = 'middle';
-            drawAutoScaledArabicText(ctx, `الكمية الإجمالية المكتسبة: ${qty}`, width/2, panelY + 382, 360, 30, 16);
+            ctx.beginPath(); roundRect(ctx, width/2 - 200, panelY + 340, 400, 45, 15); ctx.fill();
+            ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 28px "Bein"'; ctx.textBaseline = 'middle';
+            drawAutoScaledArabicText(ctx, `الكمية الإجمالية التي حصلت عليها: ${qty}`, width/2, panelY + 362, 360, 28, 16);
         }
         else if (activeView === 'smelting') {
             ctx.fillStyle = '#2ECC71'; ctx.font = 'bold 100px "Arial"';
