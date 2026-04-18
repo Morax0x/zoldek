@@ -1,4 +1,4 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, AttachmentBuilder, Colors, EmbedBuilder } = require("discord.js");
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, AttachmentBuilder, Colors, EmbedBuilder, MessageFlags } = require("discord.js");
 const fs = require('fs');
 const path = require('path');
 
@@ -93,6 +93,8 @@ async function buildDetailViewImage(item, userId, guildId, sql) {
     const userQuantity = userPortfolio ? Number(userPortfolio.quantity || userPortfolio.Quantity || 0) : 0;
     const currentPrice = Number(item.currentPrice || item.currentprice || item.price || 0);
     const lastPrice = Number(item.lastPrice || item.lastprice || 0);
+    
+    // الحسبة الحقيقية للتغير بالنسبة المئوية
     const changePercent = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
 
     const imageBuffer = await marketGen.drawMarketDetail(item, userQuantity, currentPrice, changePercent);
@@ -101,12 +103,13 @@ async function buildDetailViewImage(item, userId, guildId, sql) {
     const actionRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`market_next_detail_${item.id}`).setEmoji(EMOJI_LEFT).setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(`market_prev_detail_${item.id}`).setEmoji(EMOJI_RIGHT).setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`buy_asset_${item.id}`).setLabel('شراء 🛒').setStyle(ButtonStyle.Success)
+        // توجيه صحيح للهاندلر المركزي ليتولى هو العمل!
+        new ButtonBuilder().setCustomId(`buy_modal_${item.id}`).setLabel('شراء 🛒').setStyle(ButtonStyle.Success)
     );
 
     if (userQuantity > 0) {
         actionRow.addComponents(
-            new ButtonBuilder().setCustomId(`sell_asset_${item.id}`).setLabel(`بيع 💰`).setStyle(ButtonStyle.Danger)
+            new ButtonBuilder().setCustomId(`sell_modal_${item.id}`).setLabel(`بيع 💰`).setStyle(ButtonStyle.Danger)
         );
     }
 
@@ -119,7 +122,7 @@ async function buildDetailViewImage(item, userId, guildId, sql) {
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('سوق')
+        .setName('market')
         .setDescription('يعرض لوحة أسعار الأسهم والعقارات الحالية بشكل مرئي.'),
 
     name: 'market',
@@ -240,18 +243,17 @@ module.exports = {
                             await i.editReply({ files: [gridAttachment], attachments: [], components: gridComponents, content: '' });
 
                         } 
-                        // 🚀 نظام البيع والشراء المتكامل والمستقل تماماً
-                        else if (i.customId.startsWith('buy_asset_') || i.customId.startsWith('sell_asset_')) {
-                            const isBuy = i.customId.startsWith('buy_asset_');
-                            const assetId = i.customId.replace(isBuy ? 'buy_asset_' : 'sell_asset_', '');
+                        // 🔥 التصحيح: الأزرار تفتح نافذة الإدخال فوراً دون تعارض مع ملف interaction-handler 🔥
+                        else if (i.customId.startsWith('buy_modal_') || i.customId.startsWith('sell_modal_')) {
+                            const isBuy = i.customId.startsWith('buy_modal_');
+                            const assetId = i.customId.replace(isBuy ? 'buy_modal_' : 'sell_modal_', '');
                             const item = allItems.find(it => it.id === assetId);
 
                             if (!item) return;
 
-                            // تغيير الـ Custom ID عشان الهاندلر المركزي ما يتدخل فيه
                             const modal = new ModalBuilder()
-                                .setCustomId(`safe_market_${isBuy ? 'buy' : 'sell'}_${assetId}`)
-                                .setTitle("أدخل الكمية");
+                                .setCustomId(i.customId) // تمرير الآيدي مباشرة للهاندلر
+                                .setTitle(isBuy ? "شراء أصل" : "بيع أصل");
 
                             const quantityInput = new TextInputBuilder()
                                 .setCustomId('quantity_input')
@@ -262,129 +264,6 @@ module.exports = {
 
                             modal.addComponents(new ActionRowBuilder().addComponents(quantityInput));
                             await i.showModal(modal);
-
-                            try {
-                                const submitted = await i.awaitModalSubmit({
-                                    filter: x => x.user.id === i.user.id && x.customId === modal.data.custom_id,
-                                    time: 60000 
-                                });
-                                
-                                await submitted.deferReply({ ephemeral: false }).catch(()=>{});
-                                
-                                const quantityStr = submitted.fields.getTextInputValue('quantity_input');
-                                const quantity = parseInt(quantityStr.trim().replace(/,/g, ''));
-                                
-                                if (isNaN(quantity) || quantity <= 0) {
-                                    return await submitted.editReply({ content: '❌ الكمية المدخلة غير صالحة. الرجاء إدخال رقم صحيح.' });
-                                }
-
-                                // 🚀 تسريع: طلب بيانات المستخدم والمحفظة بالتوازي
-                                const [dbUserRes, pfItemRes] = await Promise.all([
-                                    sql.query(`SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, [i.user.id, i.guild.id]).catch(() => sql.query(`SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [i.user.id, i.guild.id]).catch(()=>({rows:[]}))),
-                                    sql.query(`SELECT * FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2 AND "itemID" = $3`, [i.user.id, i.guild.id, assetId]).catch(() => sql.query(`SELECT * FROM user_portfolio WHERE userid = $1 AND guildid = $2 AND itemid = $3`, [i.user.id, i.guild.id, assetId]).catch(()=>({rows:[]})))
-                                ]);
-
-                                let dbUser = dbUserRes.rows[0];
-                                let userMora = Number(dbUser?.mora || dbUser?.Mora) || 0;
-                                let pfItem = pfItemRes.rows[0];
-                                
-                                const basePrice = Number(item.currentPrice || item.currentprice || item.price);
-                                const slippageFactor = 0.0001; 
-                                const impact = quantity * slippageFactor;
-
-                                if (isBuy) {
-                                    const avgPrice = Math.max(Math.floor(basePrice * (1 + (impact / 2))), 1);
-                                    const totalCost = Math.floor(avgPrice * quantity);
-                                    
-                                    if (userMora < totalCost) {
-                                        return await submitted.editReply({ content: `❌ **رصيدك غير كافي!**\nتحتاج إلى: **${totalCost.toLocaleString()}** مورا` });
-                                    }
-
-                                    try {
-                                        await sql.query("BEGIN").catch(()=>{});
-                                        
-                                        let updateRes = await sql.query(`UPDATE levels SET "mora" = CAST("mora" AS BIGINT) - $1 WHERE "user" = $2 AND "guild" = $3 AND CAST("mora" AS BIGINT) >= $1 RETURNING "mora"`, [totalCost, i.user.id, i.guild.id]).catch(() => sql.query(`UPDATE levels SET mora = CAST(mora AS BIGINT) - $1 WHERE userid = $2 AND guildid = $3 AND CAST(mora AS BIGINT) >= $1 RETURNING mora`, [totalCost, i.user.id, i.guild.id]));
-                                        
-                                        if (!updateRes || !updateRes.rows || updateRes.rows.length === 0) {
-                                            await sql.query("ROLLBACK").catch(()=>{});
-                                            return await submitted.editReply({ content: `❌ **رصيدك غير كافي!** تم إلغاء العملية لحماية حسابك.` });
-                                        }
-
-                                        if (pfItem) {
-                                            await sql.query(`UPDATE user_portfolio SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [quantity, pfItem.id || pfItem.ID]).catch(() => sql.query(`UPDATE user_portfolio SET quantity = quantity + $1 WHERE id = $2`, [quantity, pfItem.id || pfItem.ID]));
-                                        } else {
-                                            await sql.query(`INSERT INTO user_portfolio ("guildID", "userID", "itemID", "quantity", "purchasePrice") VALUES ($1, $2, $3, $4, $5)`, [i.guild.id, i.user.id, item.id, quantity, avgPrice]).catch(() => sql.query(`INSERT INTO user_portfolio (guildid, userid, itemid, quantity, purchaseprice) VALUES ($1, $2, $3, $4, $5)`, [i.guild.id, i.user.id, item.id, quantity, avgPrice]));
-                                        }
-                                        
-                                        await sql.query("COMMIT").catch(()=>{});
-
-                                        if (client.getLevel && client.setLevel) {
-                                            let cacheData = await client.getLevel(i.user.id, i.guild.id);
-                                            if (cacheData) { cacheData.mora = Number(updateRes.rows[0].mora); await client.setLevel(cacheData); }
-                                        }
-
-                                        const embed = new EmbedBuilder()
-                                            .setTitle('✅ تمت عملية الشراء بنجاح')
-                                            .setColor(Colors.Green)
-                                            .setDescription(`📦 الأسهم المشتراة: **${quantity.toLocaleString()}** سهم من **${cleanNameForMenu(item.name)}**\n💵 التكلفة الإجمالية: **${totalCost.toLocaleString()}** مورا`);
-                                        
-                                        await submitted.editReply({ content: `<@${i.user.id}>`, embeds: [embed] });
-
-                                        // تحديث لوحة السوق تلقائياً في الخلفية
-                                        const { attachment: detailImage, components: detailComponents } = await buildDetailViewImage(item, i.user.id, i.guild.id, sql); 
-                                        await i.message.edit({ files: [detailImage], attachments: [], components: detailComponents, content: '' }).catch(()=>{});
-
-                                    } catch (txErr) {
-                                        await sql.query("ROLLBACK").catch(()=>{});
-                                        await submitted.editReply("❌ حدث خطأ داخلي أثناء العملية.");
-                                    }
-
-                                } else {
-                                    const userQty = pfItem ? Number(pfItem.quantity || pfItem.Quantity) : 0;
-                                    if (userQty < quantity) {
-                                        return await submitted.editReply({ content: `❌ لا تملك هذه الكمية للبيع! (رصيدك الحالي: **${userQty.toLocaleString()}** سهم).` });
-                                    }
-                                    
-                                    const avgPrice = Math.max(Math.floor(basePrice * (1 - (impact / 2))), 1);
-                                    const totalGain = Math.floor(avgPrice * quantity);
-
-                                    try {
-                                        await sql.query("BEGIN").catch(()=>{});
-                                        
-                                        if (userQty - quantity > 0) {
-                                            await sql.query(`UPDATE user_portfolio SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [quantity, pfItem.id || pfItem.ID]).catch(()=>sql.query(`UPDATE user_portfolio SET quantity = quantity - $1 WHERE id = $2`, [quantity, pfItem.id || pfItem.ID]));
-                                        } else {
-                                            await sql.query(`DELETE FROM user_portfolio WHERE "id" = $1`, [pfItem.id || pfItem.ID]).catch(()=>sql.query(`DELETE FROM user_portfolio WHERE id = $1`, [pfItem.id || pfItem.ID]));
-                                        }
-
-                                        let updateRes = await sql.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora", '0') AS BIGINT) + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [totalGain, i.user.id, i.guild.id]).catch(()=>sql.query(`UPDATE levels SET mora = CAST(COALESCE(mora, '0') AS BIGINT) + $1 WHERE userid = $2 AND guildid = $3 RETURNING mora`, [totalGain, i.user.id, i.guild.id]));
-                                        
-                                        await sql.query("COMMIT").catch(()=>{});
-
-                                        if (client.getLevel && client.setLevel) {
-                                            let cacheData = await client.getLevel(i.user.id, i.guild.id);
-                                            if (cacheData) { cacheData.mora = Number(updateRes.rows[0].mora); await client.setLevel(cacheData); }
-                                        }
-                                        
-                                        const embed = new EmbedBuilder()
-                                            .setTitle('📈 تمت عملية البيع بنجاح')
-                                            .setColor(Colors.Blue)
-                                            .setDescription(`📦 الأسهم المباعة: **${quantity.toLocaleString()}** سهم من **${cleanNameForMenu(item.name)}**\n💰 الأرباح المستلمة: **${totalGain.toLocaleString()}** مورا`);
-
-                                        await submitted.editReply({ content: `<@${i.user.id}>`, embeds: [embed] });
-
-                                        // تحديث اللوحة تلقائياً
-                                        const { attachment: detailImage, components: detailComponents } = await buildDetailViewImage(item, i.user.id, i.guild.id, sql); 
-                                        await i.message.edit({ files: [detailImage], attachments: [], components: detailComponents, content: '' }).catch(()=>{});
-
-                                    } catch (txErr) {
-                                        await sql.query("ROLLBACK").catch(()=>{});
-                                        await submitted.editReply("❌ حدث خطأ داخلي أثناء العملية.");
-                                    }
-                                }
-                            } catch (err) {
-                                // المستخدم ألغى النافذة أو تأخر (يتم تجاهل الخطأ بصمت)
-                            }
                         }
                     }
 
@@ -412,7 +291,7 @@ module.exports = {
             });
 
         } catch (globalError) {
-            return reply({ content: `❌ **حدث خطأ غير متوقع:**\n\`${globalError.message}\`` });
+            return reply({ content: `❌ **حدث خطأ غير متوقع:**\n\`${globalError.message}\``, flags: [MessageFlags.Ephemeral] });
         }
     }
 };
