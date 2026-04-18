@@ -3,7 +3,7 @@ const { SlashCommandBuilder, PermissionsBitField, EmbedBuilder, Colors, MessageF
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('fix-buffs')
-        .setDescription('إزالة جميع التعزيزات واللعنات المؤقتة (خبرة، مورا، نزاع) المعلقة')
+        .setDescription('فورمات شامل لتنظيف جميع التعزيزات واللعنات المعلقة (ما عدا المزرعة والمخفي)')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
         .addUserOption(option => 
             option.setName('user')
@@ -11,7 +11,7 @@ module.exports = {
             .setRequired(false)),
     
     name: 'fix-buffs',
-    aliases: ['تنظيف-البفات', 'تصفير-اللعنات'],
+    aliases: ['تنظيف-البفات', 'تصفير-اللعنات', 'فورمات-بف'],
     category: 'Admin',
     
     async execute(interactionOrMessage, args) {
@@ -43,14 +43,15 @@ module.exports = {
             let params = [];
             let msg = "";
 
+            // 🔥 التعديل الجذري هنا: مسح كل شيء ما عدا (عامل المزرعة) و (التعزيز المخفي للأسلحة والمهارات)
             if (targetUser) {
-                query = `DELETE FROM user_buffs WHERE "guildID" = $1 AND "userID" = $2 AND "buffType" IN ('xp', 'mora', 'pvp_wounded')`;
+                query = `DELETE FROM user_buffs WHERE "guildID" = $1 AND "userID" = $2 AND "buffType" NOT LIKE 'hidden_%' AND "buffType" != 'farm_worker'`;
                 params = [guildId, targetUser.id];
-                msg = `✅ **تم مسح جميع تعزيزات ولعنات (المورا والخبرة والنزاع) المعلقة للاعب <@${targetUser.id}> بنجاح!**\n*(لم يتم المساس بعامل المزرعة أو التعزيزات المخفية)*`;
+                msg = `✅ **تم عمل "فورمات شامل" لجميع التعزيزات واللعنات للاعب <@${targetUser.id}> بنجاح!**\n\n💡 *ملاحظة:* النظام الآن سيعيد حساب تعزيزاته من الصفر بناءً على (رتبه الحالية) فقط بمجرد أن يتفاعل!`;
             } else {
-                query = `DELETE FROM user_buffs WHERE "guildID" = $1 AND "buffType" IN ('xp', 'mora', 'pvp_wounded')`;
+                query = `DELETE FROM user_buffs WHERE "guildID" = $1 AND "buffType" NOT LIKE 'hidden_%' AND "buffType" != 'farm_worker'`;
                 params = [guildId];
-                msg = `✅ **تم مسح جميع تعزيزات ولعنات (المورا والخبرة والنزاع) المعلقة لجميع لاعبي السيرفر بنجاح!**\n*(الآن السيرفر نظيف بالكامل من أي أرقام فلكية أو لعنات قديمة عالقة)*`;
+                msg = `✅ **تم عمل "فورمات شامل" لجميع تعزيزات ولعنات السيرفر بالكامل!**\n\n💡 *ملاحظة:* سيرجع كل لاعب لنسبته الطبيعية المستمدة من الرتب بمجرد تفاعله بالدردشة.`;
             }
 
             try {
@@ -62,7 +63,7 @@ module.exports = {
 
             const embed = new EmbedBuilder()
                 .setColor(Colors.Green)
-                .setTitle('🪄 تمت عملية التطهير بنجاح')
+                .setTitle('🪄 تمت عملية الفورمات والتطهير بنجاح')
                 .setDescription(msg);
 
             if (isSlash) {
