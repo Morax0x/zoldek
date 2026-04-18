@@ -15,11 +15,28 @@ module.exports = async function handleMarketCrash(client, db, item) {
     try {
         console.log(`[Market Crash] Stock ${item.id} crashed! Processing...`);
 
-        // 1. إعادة ضبط سعر السهم
+        // 🔥 1. تحديث تاريخ الأسعار ليرسم الشموع اليابانية للانهيار 🔥
+        const oldPrice = Number(item.currentPrice || item.currentprice || 0);
+        let pHistory = [];
+        try { pHistory = JSON.parse(item.priceHistory || item.pricehistory || '[]'); } catch(e) {}
+        
+        if (!Array.isArray(pHistory)) pHistory = [oldPrice];
+        
+        // تسجيل السعر المنهار قبل الإرجاع (اختياري لزيادة وضوح الانهيار)
+        if (oldPrice > CRASH_PRICE_TRIGGER) pHistory.push(CRASH_PRICE_TRIGGER); 
+        
+        // إضافة سعر إعادة الضبط الجديد
+        pHistory.push(RESET_PRICE);
+        if (pHistory.length > 30) pHistory.shift();
+
+        try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "lastPrice" BIGINT DEFAULT 0`); } catch(e){}
+        try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "priceHistory" TEXT DEFAULT '[]'`); } catch(e){}
+
+        // إعادة ضبط سعر السهم وتحديث المخطط البياني (الشموع)
         try {
-            await db.query(`UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = 0, "lastChange" = 0 WHERE "id" = $2`, [RESET_PRICE, item.id]);
+            await db.query(`UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = 0, "lastChange" = 0, "lastPrice" = $2, "priceHistory" = $3 WHERE "id" = $4`, [RESET_PRICE, oldPrice, JSON.stringify(pHistory), item.id]);
         } catch(e) {
-            await db.query(`UPDATE market_items SET currentprice = $1, lastchangepercent = 0, lastchange = 0 WHERE id = $2`, [RESET_PRICE, item.id]).catch(console.error);
+            await db.query(`UPDATE market_items SET currentprice = $1, lastchangepercent = 0, lastchange = 0, lastprice = $2, pricehistory = $3 WHERE id = $4`, [RESET_PRICE, oldPrice, JSON.stringify(pHistory), item.id]).catch(console.error);
         }
 
         // 2. جلب المستثمرين (تم إضافة guildID هنا ليفيدنا في الكاش)
@@ -96,6 +113,9 @@ module.exports = async function handleMarketCrash(client, db, item) {
 
         // 5. إرسال الإشعارات ببطء (لتجنب الحظر من ديسكورد)
         if (channel) {
+            // تنظيف الاسم للإشعار
+            const cleanStockName = (item.name || '').replace(/<a?:.+?:\d+>/g, '').replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿]/gu, '').trim() || 'سهم';
+
             investors.forEach((inv, index) => {
                 const uID = inv.userID || inv.userid;
                 const qty = Number(inv.quantity || inv.Quantity || 0);
@@ -110,11 +130,11 @@ module.exports = async function handleMarketCrash(client, db, item) {
                         const embed = new EmbedBuilder()
                             .setTitle(`❖ بـيـان صـادر عـن خـزانـة الإمبـراطوريـة`)
                             .setDescription(
-                                `إن سـهـم **[ ${item.name} ]** قـد هوى واعلن افلاسـه، وتهاوى حتى بلـغ أقصـى دركٍ في السـوق\n\n` +
+                                `إن سـهـم **[ ${cleanStockName} ]** قـد هوى واعلن افلاسـه، وتهاوى حتى بلـغ أقصـى دركٍ في السـوق\n\n` +
                                 `**التـدابـيـر الإمبـراطوريـة لإعـادة البعـث:**\n` +
                                 `✶ إعلان إفلاس السهم \n` +
                                 `✶ نزع محافظ المستثمرين كاملة بلا أي استثناء\n` +
-                                `✶ إحياء السهم بأمرٍ سامٍ من الإمبراطور وطرحه بسعره الجديد **${RESET_PRICE}**\n\n` +
+                                `✶ إحياء السهم بأمرٍ سامٍ من الإمبراطور وطرحه بسعره الجديد **${RESET_PRICE.toLocaleString()}**\n\n` +
                                 `✬ لانك احد مستثمري هذا السهم تم منحـك قيمتـه\n` +
                                 `✬ حصـلـت عـلـى: **${refundAmount.toLocaleString()}** ${EMOJI_MORA}`
                             )
