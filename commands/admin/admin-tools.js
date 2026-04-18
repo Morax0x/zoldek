@@ -50,7 +50,6 @@ const kingStatsMap = {
     'rolePvPKing': 'pvp_wins'
 };
 
-// 🔥 نظام المعالجة الذاتية لقاعدة البيانات المُحسّن لحماية الأدمن تولز 🔥
 const safeQuery = async (db, qPg, params) => {
     let res;
     try { 
@@ -88,6 +87,42 @@ const safeQuery = async (db, qPg, params) => {
     
     return { rows: [] };
 };
+
+// 🔥 دالة طلب التأكيد النهائي لمنع تصفير الحسابات والأدوار بالغلط 🔥
+async function confirmAction(interaction, title, description) {
+    const confirmId = `confirm_${Date.now()}`;
+    const cancelId = `cancel_${Date.now()}`;
+    
+    const embed = new EmbedBuilder()
+        .setTitle(`⚠️ تأكيد الإجراء الخطير: ${title}`)
+        .setDescription(description + "\n\n**هل أنت متأكد من هذا الإجراء؟ لا يمكن التراجع عنه!**")
+        .setColor(Colors.Red);
+        
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(confirmId).setLabel('تأكيد التصفير النهائي').setStyle(ButtonStyle.Danger).setEmoji('✅'),
+        new ButtonBuilder().setCustomId(cancelId).setLabel('إلغاء التصفير').setStyle(ButtonStyle.Secondary).setEmoji('❌')
+    );
+    
+    const replyMsg = await interaction.editReply({ content: '', embeds: [embed], components: [row], fetchReply: true });
+    
+    try {
+        const btnInt = await replyMsg.awaitMessageComponent({
+            filter: btn => btn.user.id === interaction.user.id && (btn.customId === confirmId || btn.customId === cancelId),
+            time: 30000
+        });
+        
+        if (btnInt.customId === cancelId) {
+            await btnInt.update({ content: '❌ تم الإلغاء بأمان، لم يتم المساس بشيء.', embeds: [], components: [] });
+            return false;
+        }
+        
+        await btnInt.deferUpdate(); 
+        return true;
+    } catch (err) {
+        await interaction.editReply({ content: '❌ انتهى وقت التأكيد، تم إلغاء الإجراء التلقائي.', embeds: [], components: [] });
+        return false;
+    }
+}
 
 async function getUserRace(member, db) {
     if (!member || !member.guild) return null;
@@ -178,7 +213,6 @@ module.exports = {
         const targetMember = await message.guild.members.fetch(targetUser.id).catch(() => null);
         if (!targetMember) return message.reply("❌ العضو غير موجود في السيرفر.");
 
-        // 🔥 التصميم الجديد الخارجي المطلوب 🔥
         const randomColor = Math.floor(Math.random()*16777215); 
 
         const embed = new EmbedBuilder()
@@ -204,7 +238,6 @@ module.exports = {
         });
     },
 
-    // دالة جديدة لعرض القائمة بشكل مخفي (Ephemeral)
     async sendHiddenUserPanel(interaction, targetUser, targetMember, db, client, initMsg) {
         const row = new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
@@ -216,7 +249,7 @@ module.exports = {
                     { label: '🔄 تبديل ونقل حسابين', value: 'swap_accounts', description: 'نقل البيانات بين شخصين', emoji: '🔄' }, 
                     { label: '🎭 تغيير العرق', value: 'change_race', description: 'تغيير العرق وتصحيح بيانات الأسلحة', emoji: '🎭' },
                     { label: '👑 تعيين ملك يدوي', value: 'set_king', description: 'تتويج العضو', emoji: '👑' },
-                    { label: '🗑️ إخلاء عرش ملك', value: 'empty_king', description: 'طرد الملك الحالي', emoji: '🗑️' },
+                    { label: '🗑️ إخلاء عرش ملك', value: 'empty_king', description: 'طرد الملك الحالي وتصفير نقاطه', emoji: '🗑️' },
                     { label: '🌟 إدارة السمعة', value: 'reputation', emoji: '🌟' },
                     { label: '🗳️ فرص التزكية', value: 'rep_chances', emoji: '🗳️' },
                     { label: '🎟️ إدارة التذاكر', value: 'tickets', emoji: '🎟️' },
@@ -225,9 +258,9 @@ module.exports = {
                     { label: '⚔️ تعديل الأسلحة والمهارات', value: 'combat_gear', emoji: '⚔️' },
                     { label: '🕵️ إدارة التعزيز المخفي', value: 'hidden_buff', description: 'تعديل لفل سلاح/مهارة في الخفاء!', emoji: '🕵️' },
                     { label: '⛵ معدات وموقع الصيد', value: 'fishing_gear', emoji: '🎣' }, 
+                    { label: '🔥 إدارة الستريك (شات/ميديا)', value: 'manage_streaks', description: 'تعديل أيام الستريك والدروع', emoji: '🔥' },
                     { label: '🗑️ تصفير الأسلحة والمهارات', value: 'reset_combat', emoji: '🗑️' },
-                    { label: '🛡️ إعطاء درع ميديا', value: 'media_shield', emoji: '🛡️' },
-                    { label: '⚠️ تصفير الحساب', value: 'reset', emoji: '⚠️' }
+                    { label: '⚠️ تصفير الحساب بالكامل', value: 'reset', emoji: '⚠️' }
                 ])
         );
 
@@ -465,8 +498,16 @@ module.exports = {
                     await i.followUp({content: "❌ حدث خطأ.", flags: [MessageFlags.Ephemeral]}).catch(()=>{});
                 }
             }
+            // 🔥 إضافة التأكيد للإخلاء والتصفير 🔥
             else if (val === 'set_king' || val === 'empty_king') {
                 const isEmpting = val === 'empty_king';
+                
+                if (isEmpting) {
+                    await i.deferUpdate();
+                    const confirm = await confirmAction(i, 'إخلاء عرش ملك', `هل أنت متأكد أنك تريد إخلاء وطرد الملك وتصفير نقاط هذا العرش بالكامل لليوم؟`);
+                    if (!confirm) return;
+                }
+                
                 const kingMenu = new ActionRowBuilder().addComponents(
                     new StringSelectMenuBuilder()
                         .setCustomId(`mod_king_${Date.now()}`)
@@ -483,7 +524,11 @@ module.exports = {
                         ])
                 );
                 
-                await i.update({ content: isEmpting ? `🗑️ **اختر العرش الذي تريد إخلائه بالكامل:**` : `👑 **اختر اللقب الذي تريد إعطاءه لـ ${targetUser}:**`, embeds: [], components: [kingMenu] });
+                if (isEmpting) {
+                    await i.editReply({ content: `🗑️ **اختر العرش الذي تريد إخلائه بالكامل:**`, embeds: [], components: [kingMenu] });
+                } else {
+                    await i.update({ content: `👑 **اختر اللقب الذي تريد إعطاءه لـ ${targetUser}:**`, embeds: [], components: [kingMenu] });
+                }
 
                 const kingCollector = i.channel.createMessageComponentCollector({ filter: subI => subI.user.id === i.user.id && subI.customId.startsWith('mod_king_'), time: 60000 });
                 
@@ -656,14 +701,17 @@ module.exports = {
                     await modalSubmit.editReply({ content: `✅ تم نصب خيمة الحفظ لـ ${targetUser} في **الطابق ${floor}** من الدانجون ⛺.` });
                 } catch(e) {}
             }
+            // 🔥 إضافة التأكيد لتصفير القتال 🔥
             else if (val === 'reset_combat') {
-                await i.deferReply({ flags: [MessageFlags.Ephemeral] });
+                await i.deferUpdate();
+                const confirm = await confirmAction(i, 'تصفير الأسلحة والمهارات', `هل أنت متأكد من مسح جميع أسلحة ومهارات **${targetUser.username}** القتالية بشكل نهائي؟`);
+                if (!confirm) return;
                 
                 await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
                 await safeQuery(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
                 
                 const summaryEmbed = await getGearSummaryEmbed(userID, guildID, db, targetUser);
-                await i.editReply({ content: `🗑️ ✅ تم تصفير جميع الأسلحة والمهارات القتالية لـ ${targetUser} بنجاح!`, embeds: [summaryEmbed] });
+                await i.editReply({ content: `🗑️ ✅ تم تصفير جميع الأسلحة والمهارات القتالية لـ ${targetUser} بنجاح!`, embeds: [summaryEmbed], components: [] });
             }
             else if (val === 'combat_gear') {
                 const modalId = `mod_gear_${Date.now()}`;
@@ -880,11 +928,69 @@ module.exports = {
                     }
                 } catch(e) {}
             }
-            else if (val === 'media_shield') {
-                await this.giveMediaShield(i, client, db, targetUser);
+            // 🔥 إدارة الستريك المتطورة (عادي / ميديا) 🔥
+            else if (val === 'manage_streaks') {
+                const modalId = `mod_streak_${Date.now()}`;
+                const modal = new ModalBuilder().setCustomId(modalId).setTitle('إدارة الستريك والدروع');
+                const typeInput = new TextInputBuilder().setCustomId('s_type').setLabel('نوع الستريك (اكتب: عادي أو ميديا)').setStyle(TextInputStyle.Short).setRequired(true);
+                const actionInput = new TextInputBuilder().setCustomId('s_action').setLabel('تعديل ماذا؟ (اكتب: ستريك أو درع)').setStyle(TextInputStyle.Short).setRequired(true);
+                const amountInput = new TextInputBuilder().setCustomId('s_val').setLabel('القيمة أو العدد').setStyle(TextInputStyle.Short).setRequired(true);
+                
+                modal.addComponents(new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(actionInput), new ActionRowBuilder().addComponents(amountInput));
+                await i.showModal(modal);
+
+                try {
+                    const modalSubmit = await i.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === i.user.id, time: 120000 });
+                    await modalSubmit.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+                    const typeStr = normalize(modalSubmit.fields.getTextInputValue('s_type'));
+                    const actionStr = normalize(modalSubmit.fields.getTextInputValue('s_action'));
+                    const valNum = parseInt(modalSubmit.fields.getTextInputValue('s_val'));
+
+                    if (isNaN(valNum) || valNum < 0) return modalSubmit.editReply("❌ يرجى إدخال رقم صحيح للإجراء.");
+
+                    const isMedia = typeStr.includes('ميديا') || typeStr.includes('صور') || typeStr.includes('فيديو');
+                    const isShield = actionStr.includes('درع') || actionStr.includes('حماي');
+
+                    const tableName = isMedia ? 'media_streaks' : 'streaks';
+                    const colName = isShield ? 'hasItemShield' : 'streakCount';
+                    const pkId = `${guildID}-${userID}`;
+
+                    await safeQuery(db, `CREATE TABLE IF NOT EXISTS ${tableName} ("id" TEXT PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "streakCount" BIGINT, "hasItemShield" BIGINT)`);
+                    
+                    await safeQuery(db, `
+                        INSERT INTO ${tableName} ("id", "guildID", "userID", "${colName}") 
+                        VALUES ($1, $2, $3, $4) 
+                        ON CONFLICT("id") DO UPDATE SET "${colName}" = $4
+                    `, [pkId, guildID, userID, valNum]);
+
+                    const kindText = isMedia ? 'الميديا' : 'الشات (العادي)';
+                    const actText = isShield ? 'دروع ستريك' : 'أيام ستريك';
+
+                    await modalSubmit.editReply({ content: `✅ تم تعيين **${actText}** (${kindText}) لـ ${targetUser} لتصبح **${valNum}** بنجاح. 🔥🛡️` });
+                } catch(e) {}
             }
+            // 🔥 إضافة التأكيد لتصفير الحساب بالكامل 🔥
             else if (val === 'reset') {
-                await this.resetUser(i, client, db, targetUser);
+                await i.deferUpdate();
+                const confirm = await confirmAction(i, 'تصفير الحساب بالكامل', `هل أنت متأكد أنك تريد مسح جميع بيانات واقتصاد وأدوات **${targetUser.username}** بشكل لا رجعة فيه؟`);
+                if (!confirm) return;
+
+                await safeQuery(db, `DELETE FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM user_farm WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM dungeon_stats WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                await safeQuery(db, `DELETE FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
+                
+                await client.setLevel({ ...client.defaultData, user: userID, guild: guildID });
+
+                await i.editReply({ content: `☢️ **تم تصفير حساب ${targetUser} ومسح جميع بياناته بالكامل!**`, embeds: [], components: [] });
             }
         });
     },
@@ -921,12 +1027,24 @@ module.exports = {
                 for (const item of allItemsRes.rows) {
                     if (!REAL_MARKET_IDS.includes(item.id)) continue;
                     const dropPercent = (Math.random() * 0.20) + 0.20; 
-                    const newPrice = Math.max(10, Math.floor(Number(item.currentPrice || item.currentprice) * (1 - dropPercent)));
-                    const changePercent = ((newPrice - Number(item.currentPrice || item.currentprice)) / Number(item.currentPrice || item.currentprice));
                     
-                    await safeQuery(db, `UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2 WHERE "id" = $3`, [newPrice, changePercent.toFixed(2), item.id]);
+                    const oldPrice = Number(item.currentPrice || item.currentprice) || 100;
+                    const newPrice = Math.max(10, Math.floor(oldPrice * (1 - dropPercent)));
+                    const changePercent = ((newPrice - oldPrice) / oldPrice).toFixed(4); // حساب دقيق
                     
-                    report.push(`${item.name || item.id}: ${item.currentPrice || item.currentprice} ➔ ${newPrice}`);
+                    // 🔥 تحديث سجل الرسم البياني فوراً 🔥
+                    let pHistory = [];
+                    try { pHistory = JSON.parse(item.priceHistory || item.pricehistory || '[]'); } catch(e) {}
+                    if (!Array.isArray(pHistory)) pHistory = [oldPrice];
+                    pHistory.push(newPrice);
+                    if (pHistory.length > 25) pHistory.shift();
+                    
+                    try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "lastPrice" BIGINT DEFAULT 0`); } catch(e){}
+                    try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "priceHistory" TEXT DEFAULT '[]'`); } catch(e){}
+
+                    await safeQuery(db, `UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2, "lastPrice" = $3, "priceHistory" = $4 WHERE "id" = $5`, [newPrice, changePercent, oldPrice, JSON.stringify(pHistory), item.id]);
+                    
+                    report.push(`${item.name || item.id}: ${oldPrice} ➔ ${newPrice}`);
                 }
                 await interaction.reply({ content: `📉 **انهيار السوق!**\n\`\`\`\n${report.join('\n')}\n\`\`\``, flags: [MessageFlags.Ephemeral] });
             }
@@ -936,12 +1054,24 @@ module.exports = {
                 for (const item of allItemsRes.rows) {
                     if (!REAL_MARKET_IDS.includes(item.id)) continue;
                     const risePercent = (Math.random() * 0.20) + 0.15; 
-                    const newPrice = Math.floor(Number(item.currentPrice || item.currentprice) * (1 + risePercent));
-                    const changePercent = ((newPrice - Number(item.currentPrice || item.currentprice)) / Number(item.currentPrice || item.currentprice));
                     
-                    await safeQuery(db, `UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2 WHERE "id" = $3`, [newPrice, changePercent.toFixed(2), item.id]);
+                    const oldPrice = Number(item.currentPrice || item.currentprice) || 100;
+                    const newPrice = Math.floor(oldPrice * (1 + risePercent));
+                    const changePercent = ((newPrice - oldPrice) / oldPrice).toFixed(4); // حساب دقيق
                     
-                    report.push(`${item.name || item.id}: ${item.currentPrice || item.currentprice} ➔ ${newPrice}`);
+                    // 🔥 تحديث سجل الرسم البياني فوراً 🔥
+                    let pHistory = [];
+                    try { pHistory = JSON.parse(item.priceHistory || item.pricehistory || '[]'); } catch(e) {}
+                    if (!Array.isArray(pHistory)) pHistory = [oldPrice];
+                    pHistory.push(newPrice);
+                    if (pHistory.length > 25) pHistory.shift();
+
+                    try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "lastPrice" BIGINT DEFAULT 0`); } catch(e){}
+                    try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "priceHistory" TEXT DEFAULT '[]'`); } catch(e){}
+
+                    await safeQuery(db, `UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2, "lastPrice" = $3, "priceHistory" = $4 WHERE "id" = $5`, [newPrice, changePercent, oldPrice, JSON.stringify(pHistory), item.id]);
+                    
+                    report.push(`${item.name || item.id}: ${oldPrice} ➔ ${newPrice}`);
                 }
                 await interaction.reply({ content: `📈 **انتعاش السوق!**\n\`\`\`\n${report.join('\n')}\n\`\`\``, flags: [MessageFlags.Ephemeral] });
             }
@@ -986,18 +1116,37 @@ module.exports = {
                     if (!item) return modalSubmit.editReply({ content: "❌ السهم غير موجود." });
 
                     let dbItemRes = await safeQuery(db, `SELECT * FROM market_items WHERE "id" = $1`, [item.id]);
-
                     const dbItem = dbItemRes.rows[0];
-                    const currentPrice = dbItem ? Number(dbItem.currentPrice || dbItem.currentprice) : item.price;
-                    const changePercent = ((price - currentPrice) / currentPrice).toFixed(2);
+                    const oldPrice = dbItem ? Number(dbItem.currentPrice || dbItem.currentprice) : item.price;
+                    const changePercent = oldPrice > 0 ? ((price - oldPrice) / oldPrice).toFixed(4) : 0;
                     
-                    await safeQuery(db, `UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2 WHERE "id" = $3`, [price, changePercent, item.id]);
+                    // 🔥 تحديث سجل الرسم البياني للسهم المعدل يدوياً ليتفاعل الخط فوراً 🔥
+                    let pHistory = [];
+                    try { pHistory = JSON.parse(dbItem.priceHistory || dbItem.pricehistory || '[]'); } catch(e) {}
+                    if (!Array.isArray(pHistory)) pHistory = [oldPrice];
+                    pHistory.push(price);
+                    if (pHistory.length > 25) pHistory.shift();
 
-                    await modalSubmit.editReply({ content: `✅ تم ضبط سعر **${item.name}** إلى **${price}**` });
+                    try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "lastPrice" BIGINT DEFAULT 0`); } catch(e){}
+                    try { await db.query(`ALTER TABLE market_items ADD COLUMN IF NOT EXISTS "priceHistory" TEXT DEFAULT '[]'`); } catch(e){}
+
+                    await safeQuery(db, `UPDATE market_items SET "currentPrice" = $1, "lastChangePercent" = $2, "lastPrice" = $3, "priceHistory" = $4 WHERE "id" = $5`, [price, changePercent, oldPrice, JSON.stringify(pHistory), item.id]);
+
+                    await modalSubmit.editReply({ content: `✅ تم ضبط سعر **${item.name}** إلى **${price}** (سيتم تحديث الرسم البياني الآن!)` });
                 } catch(e) {}
             }
+            // 🔥 إضافة التأكيد لتصفير السوق الإجباري 🔥
             else if (val === 'reset_market') {
-                await interaction.reply({ content: "☢️ سيتم تنفيذ تصفير السوق يدوياً، يرجى كتابة `-ادمن تصفير-السوق` للتأكيد.", flags: [MessageFlags.Ephemeral] });
+                await interaction.deferUpdate();
+                const confirm = await confirmAction(interaction, 'تصفير السوق الإجباري', `هل أنت متأكد أنك تريد إرجاع جميع أسعار الأسهم إلى السعر الافتراضي ومسح تاريخ التداول بالكامل؟`);
+                if (!confirm) return;
+
+                // تصفير السوق واسترجاع الأسعار الأساسية من الكونفيج
+                for (const item of marketItems) {
+                    await safeQuery(db, `UPDATE market_items SET "currentPrice" = $1, "lastPrice" = $1, "lastChangePercent" = 0, "priceHistory" = '[]' WHERE "id" = $2`, [item.price, item.id]);
+                }
+                
+                await interaction.editReply({ content: `☢️ **تم مسح سجلات السوق وإعادة أسعار جميع الأسهم للوضع الافتراضي بنجاح!**`, embeds: [], components: [] });
             }
         });
     },
@@ -1042,34 +1191,5 @@ module.exports = {
             );
 
         await interaction.editReply({ embeds: [embed] });
-    },
-
-    async giveMediaShield(interaction, client, db, targetUser) {
-        try { await interaction.deferReply({ flags: [MessageFlags.Ephemeral] }); } catch(e){}
-        const id = `${interaction.guild.id}-${targetUser.id}`;
-        await safeQuery(db, `INSERT INTO media_streaks ("id", "guildID", "userID", "hasItemShield") VALUES ($1, $2, $3, 1) ON CONFLICT("id") DO UPDATE SET "hasItemShield" = 1`, [id, interaction.guild.id, targetUser.id]);
-        await interaction.editReply({ content: `✅ تم تفعيل درع ميديا لـ ${targetUser}.` });
-    },
-
-    async resetUser(interaction, client, db, targetUser) {
-        try { await interaction.deferReply({ flags: [MessageFlags.Ephemeral] }); } catch(e){}
-        const guildID = interaction.guild.id;
-        const userID = targetUser.id;
-
-        await safeQuery(db, `DELETE FROM levels WHERE "user" = $1 AND "guild" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM user_farm WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM user_achievements WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM dungeon_stats WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM streaks WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        await safeQuery(db, `DELETE FROM media_streaks WHERE "userID" = $1 AND "guildID" = $2`, [userID, guildID]);
-        
-        await client.setLevel({ ...client.defaultData, user: userID, guild: guildID });
-
-        await interaction.editReply({ content: `☢️ **تم تصفير حساب ${targetUser} ومسح جميع بياناته بالكامل!**` });
     }
 };
