@@ -497,6 +497,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 }
             }
             else if (itemData.id.startsWith('xp_buff_')) {
+                // 🔥 التصحيح هنا: جعل multiplier عشري (للحساب) و buffPercent صحيح (للعرض)
                 let multiplier = 0, buffPercent = 0, duration = 0;
                 switch (itemData.id) {
                     case 'xp_buff_small': multiplier = 0.15; buffPercent = 15; duration = 12 * 60 * 60 * 1000; break;
@@ -524,7 +525,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                             insXP = await execSafe(db, 
                                 `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, 
                                 `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, 
-                                [interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
+                                [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]
                             );
                         }
                         if(insXP.error) success = false;
@@ -827,6 +828,7 @@ async function _handleReplaceBuffButton(i, client, db) {
         try {
             await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [userId, guildId]);
             
+            // 🔥 التصحيح هنا أيضاً: multiplier عشري للحسابات، buffPercent للعرض
             let expiresAt, multiplier, buffPercent;
             switch (item.id) {
                 case 'xp_buff_small': multiplier = 0.15; buffPercent = 15; expiresAt = Date.now() + (12 * 60 * 60 * 1000); break;
@@ -837,9 +839,17 @@ async function _handleReplaceBuffButton(i, client, db) {
             if (multiplier > 0) {
                 try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
                 let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
-                let ins = await execSafe(db, `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6, $7)`, `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [newId, userId, guildId, 'xp', multiplier, expiresAt, buffPercent]);
+                let ins = await execSafe(db, 
+                    `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6, $7)`, 
+                    `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, 
+                    [newId, userId, guildId, 'xp', multiplier, expiresAt, buffPercent]
+                );
                 if (ins.error) {
-                    ins = await execSafe(db, `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]);
+                    ins = await execSafe(db, 
+                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, 
+                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, 
+                        [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]
+                    );
                 }
                 if (ins.error) throw new Error("BUFF_INS_ERR");
             }
