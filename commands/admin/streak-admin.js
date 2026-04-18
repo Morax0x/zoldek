@@ -102,7 +102,6 @@ module.exports = {
             const sub = interactionOrMessage.options.getSubcommand();
             route = group ? `${group}_${sub}` : sub;
             
-            // تأخير الرد السلاش كومانند فقط للأوامر اللي ما فيها مودال
             if (route !== 'set' && route !== 'panel') {
                 await interactionOrMessage.deferReply({ flags: [MessageFlags.Ephemeral] });
             }
@@ -132,7 +131,6 @@ module.exports = {
         };
 
         try {
-            // 🔥 نظام تحديد الستريك المتطور باستخدام المودال 🔥
             if (route === 'set') {
                 if (isSlash) {
                     targetUser = interactionOrMessage.options.getUser('user');
@@ -147,7 +145,6 @@ module.exports = {
                     return isSlash ? interactionOrMessage.reply({ content: "❌ | يرجى تحديد العضو المطلوب.", flags: [MessageFlags.Ephemeral] }) : interactionOrMessage.reply("❌ | يرجى تحديد العضو المطلوب.");
                 }
 
-                // إرسال نافذة إدخال (Modal) لاختيار نوع الستريك والعدد
                 const modalId = `str_set_${Date.now()}`;
                 const modal = new ModalBuilder().setCustomId(modalId).setTitle(`تعديل ستريك ${targetUser.username}`);
                 
@@ -155,14 +152,14 @@ module.exports = {
                     .setCustomId('streak_type')
                     .setLabel('النوع (اكتب: عادي أو ميديا)')
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('عادي')
+                    .setPlaceholder('عادي / ميديا')
                     .setRequired(true);
                     
                 const amountInput = new TextInputBuilder()
                     .setCustomId('streak_amount')
                     .setLabel('العدد الجديد (أرقام فقط)')
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('0')
+                    .setPlaceholder('مثال: 50')
                     .setRequired(true);
 
                 modal.addComponents(new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(amountInput));
@@ -170,8 +167,7 @@ module.exports = {
                 if (isSlash) {
                     await interactionOrMessage.showModal(modal);
                 } else {
-                    // في حال كان الأمر رسالة عادية لا يمكن فتح مودال، نرسل رسالة لطلب البيانات
-                    const msg = await interactionOrMessage.reply("اكتب الآن `عادي <الرقم>` لتعديل ستريك الشات، أو `ميديا <الرقم>` لتعديل الميديا. (مثال: `عادي 50`):");
+                    const msg = await interactionOrMessage.reply("اكتب الآن `عادي <الرقم>` لتعديل ستريك الشات، أو `ميديا <الرقم>` لتعديل الميديا. (مثال: `ميديا 50`):");
                     const filter = m => m.author.id === interactionOrMessage.author.id;
                     try {
                         const collected = await interactionOrMessage.channel.awaitMessages({ filter, max: 1, time: 60000, errors: ['time'] });
@@ -181,7 +177,8 @@ module.exports = {
                         
                         if (isNaN(amount) || amount < 0) return msg.edit("❌ عدد غير صالح.");
                         
-                        const isMedia = type.includes('ميديا');
+                        // الفحص الذكي للكلمة
+                        const isMedia = type.includes('ميديا') || type.includes('صورة') || type.includes('فيديو') || type.includes('media');
                         const tableName = isMedia ? 'media_streaks' : 'streaks';
                         const streakId = `${guild.id}-${targetUser.id}`;
                         
@@ -198,7 +195,7 @@ module.exports = {
                             if(memberTarget) await updateNickname(memberTarget, amount, db).catch(()=>{});
                         }
 
-                        return msg.edit(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا' : 'العادي'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
+                        return msg.edit(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا 📸' : 'العادي 💬'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
                     } catch (e) {
                         return msg.edit("⏳ انتهى الوقت. تم إلغاء التعديل.");
                     }
@@ -214,7 +211,8 @@ module.exports = {
 
                         if (isNaN(amount) || amount < 0) return submitted.editReply("❌ يرجى إدخال عدد صحيح.");
 
-                        const isMedia = typeStr.includes('ميديا');
+                        // الفحص الذكي للكلمة
+                        const isMedia = typeStr.includes('ميديا') || typeStr.includes('صور') || typeStr.includes('فيديو') || typeStr.includes('media');
                         const tableName = isMedia ? 'media_streaks' : 'streaks';
                         const streakId = `${guild.id}-${targetUser.id}`;
 
@@ -231,7 +229,7 @@ module.exports = {
                             if(memberTarget) await updateNickname(memberTarget, amount, db).catch(()=>{});
                         }
 
-                        await submitted.editReply(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا' : 'العادي'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
+                        await submitted.editReply(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا 📸' : 'العادي 💬'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
                     } catch (e) {}
                 }
                 return;
