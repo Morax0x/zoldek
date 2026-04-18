@@ -125,7 +125,7 @@ function drawSciFiPanel(ctx, x, y, width, height, borderColor, glowColor) {
     ctx.stroke();
 }
 
-// 📈 دالة رسم المخطط البياني بناءً على بيانات الأسعار الفعلية
+// 📈 دالة رسم المخطط البياني (تم تحسينها وإضافة تعبئة متدرجة لاحترافية أكثر)
 function drawSparkline(ctx, x, y, width, height, priceHistory, color) {
     if (!Array.isArray(priceHistory) || priceHistory.length < 2) return;
 
@@ -135,12 +135,34 @@ function drawSparkline(ctx, x, y, width, height, priceHistory, color) {
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
     const priceRange = maxPrice - minPrice;
+    // ترك مساحة فوق وتحت الخط حتى لا يلمس الحواف
     const effectiveRange = priceRange === 0 ? Math.max(minPrice * 0.01, 1) : priceRange;
-    const padding = height * 0.05;
+    const padding = height * 0.15; 
 
+    // معادلة دقيقة لقلب الإحداثيات وضبطها داخل المربع
     const toY = (price) => y + height - padding - ((price - minPrice) / effectiveRange) * (height - padding * 2);
     const stepX = width / (prices.length - 1);
 
+    // 1. رسم الظل المتدرج أسفل الخط (Fill)
+    ctx.beginPath();
+    ctx.moveTo(x, y + height); // نقطة البداية أسفل اليسار
+    ctx.lineTo(x, toY(prices[0]));
+    
+    for (let i = 1; i < prices.length; i++) {
+        ctx.lineTo(x + i * stepX, toY(prices[i]));
+    }
+    
+    ctx.lineTo(x + width, y + height); // نقطة النهاية أسفل اليمين
+    ctx.closePath();
+
+    // التدرج اللوني للتعبئة
+    const fillGradient = ctx.createLinearGradient(0, y, 0, y + height);
+    fillGradient.addColorStop(0, color.replace('rgb', 'rgba').replace(')', ', 0.3)')); // لون شفاف في الأعلى
+    fillGradient.addColorStop(1, 'rgba(0, 0, 0, 0)'); // شفاف تماماً في الأسفل
+    ctx.fillStyle = fillGradient;
+    ctx.fill();
+
+    // 2. رسم الخط الأساسي (Stroke)
     ctx.beginPath();
     ctx.moveTo(x, toY(prices[0]));
     for (let i = 1; i < prices.length; i++) {
@@ -148,11 +170,9 @@ function drawSparkline(ctx, x, y, width, height, priceHistory, color) {
     }
 
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 10;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round'; // لجعل الزوايا ناعمة
     ctx.stroke();
-    ctx.shadowBlur = 0;
 }
 
 // 🔥🔥 اللوحة الرئيسية 🔥🔥
@@ -205,7 +225,6 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         await drawUserAvatar(ctx, userAvatarUrl, 50, 10, 80);
     }
 
-    // 🔥 النظام الذكي لاحتساب المقاسات بناءً على عدد الأسهم 🔥
     let layout;
     if (items.length === 1) {
         layout = {
@@ -273,7 +292,7 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         const isUp = changePercent > 0;
         const isDown = changePercent < 0;
 
-        const mainColor = isUp ? '#00ff88' : (isDown ? '#ff0055' : '#00ccff');
+        const mainColor = isUp ? 'rgb(0, 255, 136)' : (isDown ? 'rgb(255, 0, 85)' : 'rgb(0, 204, 255)');
         const glowColor = isUp ? 'rgba(0, 255, 136, 0.6)' : (isDown ? 'rgba(255, 0, 85, 0.6)' : 'rgba(0, 204, 255, 0.6)');
         const borderColor = isUp ? 'rgba(0, 255, 136, 0.8)' : (isDown ? 'rgba(255, 0, 85, 0.8)' : 'rgba(0, 204, 255, 0.8)');
 
@@ -286,7 +305,6 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         }
         drawSparkline(ctx, x + 20, y + sparkY, cardW - 40, sparkH, priceHistory, mainColor);
 
-        // اللوغو العملاق في اليسار
         const assetImg = await getAssetImage(item);
         if (assetImg) {
             ctx.shadowColor = glowColor; ctx.shadowBlur = 15;
@@ -294,7 +312,6 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
             ctx.shadowBlur = 0;
         }
 
-        // --- النصوص ---
         ctx.textAlign = "left";
         const cleanName = (item.name || "").replace(/<a?:.+?:\d+>/g, '').replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿]/gu, '').trim();
         
@@ -302,7 +319,6 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         ctx.font = `bold ${fontTitle}px ${FONT_FAMILY}`;
         ctx.fillText(cleanName, x + titleX, y + titleY);
         
-        // شارة النسبة
         ctx.fillStyle = isUp ? 'rgba(0, 255, 136, 0.15)' : (isDown ? 'rgba(255, 0, 85, 0.15)' : 'rgba(0, 204, 255, 0.15)');
         roundRect(ctx, x + badgeX, y + badgeY, badgeW, badgeH, 5, true);
         ctx.strokeStyle = mainColor; ctx.lineWidth = 1; ctx.stroke();
@@ -312,7 +328,6 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
         const sign = changePercent > 0 ? '+' : '';
         ctx.fillText(`${sign}${changePercent.toFixed(2)}%`, x + badgeX + 10, y + badgeY + percentYOff);
 
-        // 🔥🏹 مربع الأسهم المصغر 
         const boxXAct = x + cardW - boxSize - boxXOff; 
         const boxYAct = y + boxYOff; 
 
@@ -332,7 +347,6 @@ exports.drawMarketGrid = async function drawMarketGrid(items, timeRemaining, cur
             ctx.drawImage(trendImg, boxXAct + iconOffset, boxYAct + iconOffset, trendIconSize, trendIconSize); 
         }
 
-        // السعر
         ctx.textAlign = "center";
         ctx.fillStyle = '#ffffff';
         ctx.font = `bold ${fontPrice}px ${FONT_FAMILY}`;
@@ -365,7 +379,7 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
     const isUp = changePercent > 0;
     const isDown = changePercent < 0;
 
-    const mainColor = isUp ? '#00ff88' : (isDown ? '#ff0055' : '#00ccff');
+    const mainColor = isUp ? 'rgb(0, 255, 136)' : (isDown ? 'rgb(255, 0, 85)' : 'rgb(0, 204, 255)');
     const glowColor = isUp ? 'rgba(0, 255, 136, 0.6)' : (isDown ? 'rgba(255, 0, 85, 0.6)' : 'rgba(0, 204, 255, 0.6)');
     const borderColor = isUp ? 'rgba(0, 255, 136, 0.8)' : (isDown ? 'rgba(255, 0, 85, 0.8)' : 'rgba(0, 204, 255, 0.8)');
 
@@ -435,7 +449,6 @@ exports.drawMarketDetail = async function drawMarketDetail(item, userQuantity, c
     ctx.font = `bold 26px ${FONT_FAMILY}`;
     ctx.fillText(`الرصيد المملوك في المحفظة: ${userQuantity.toLocaleString()} سهم`, 320, 330);
 
-    // مخطط بياني للسجل التاريخي للأسعار
     const rawDetailHistory = item.priceHistory || item.price_history;
     let detailHistory;
     try { detailHistory = typeof rawDetailHistory === 'string' ? JSON.parse(rawDetailHistory) : rawDetailHistory; } catch (e) {}
