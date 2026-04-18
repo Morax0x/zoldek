@@ -51,6 +51,19 @@ const RACE_MAPPING = [
     { keys: ['hybrid', 'نصف', 'هجين', 'هجناء', 'هايبرد'], race: 'Hybrid' }
 ];
 
+// 🔥 نظام حماية النقرات المزدوجة (Anti-Spam Locks) 🔥
+const activeForgeLocks = new Set();
+
+function acquireLock(userId) {
+    if (activeForgeLocks.has(userId)) return false;
+    activeForgeLocks.add(userId);
+    return true;
+}
+
+function releaseLock(userId) {
+    activeForgeLocks.delete(userId);
+}
+
 function getSafeVal(row, keyName, fallback) {
     if (!row) return fallback;
     const key = Object.keys(row).find(k => k.toLowerCase() === keyName.toLowerCase());
@@ -249,7 +262,6 @@ async function getUserRaceName(user, guild, db) {
     return null;
 }
 
-// 🔥 تم الإصلاح هنا (توحيد معادلة السلاح مع البروفايل ليكون الحد 1000) 🔥
 function getWeaponDisplayDamage(weaponConfig, level) {
     if (!weaponConfig || level < 1) return 15;
     const base = weaponConfig.base_damage;
@@ -259,7 +271,7 @@ function getWeaponDisplayDamage(weaponConfig, level) {
         return Math.floor(base + (inc * (level - 1)));
     } else {
         const damageAt15 = base + (inc * 14);
-        const targetDamageAt30 = 1000; // كان 800 وتم تعديله ليتطابق
+        const targetDamageAt30 = 1000;
         const levelsRemaining = 15; 
         if (damageAt15 >= targetDamageAt30) return Math.floor(base + (inc * (level - 1)));
         const dynamicIncrement = (targetDamageAt30 - damageAt15) / levelsRemaining;
@@ -269,7 +281,6 @@ function getWeaponDisplayDamage(weaponConfig, level) {
     }
 }
 
-// 🔥 تم الإصلاح هنا (توحيد معادلة المهارات مع البروفايل ليكون الحد 70% للنسب و 200 للأرقام) 🔥
 function getSkillDisplayValue(skillConfig, currentLevel) {
     if (!skillConfig) return 0;
     const level = Math.max(1, currentLevel || 1);
@@ -282,7 +293,7 @@ function getSkillDisplayValue(skillConfig, currentLevel) {
         finalValue = base + (inc * (level - 1));
     } else {
         const valueAt15 = base + (inc * 14);
-        const targetValueAt30 = isPercentage ? 70 : 200; // كان 50 للنسب وتم تعديله لـ 70 ليتطابق
+        const targetValueAt30 = isPercentage ? 70 : 200;
         const levelsRemaining = 15;
         if (valueAt15 >= targetValueAt30) {
             finalValue = base + (inc * (level - 1));
@@ -529,48 +540,60 @@ async function buildWeaponForgeUI(i, user, guildId, db) {
 }
 
 async function handleWeaponBuy(i, user, guildId, db) {
-    const raceName = await getUserRaceName(user, i.guild, db);
-    const hasMora = await checkMora(i.client, db, user.id, guildId, LEARN_FEE);
-    if (!hasMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لصناعة السلاح!` }, [getReturnRow()]);
-
-    await deductMora(i.client, db, user.id, guildId, LEARN_FEE);
-    await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, raceName]);
-    await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, raceName]);
+    if (!acquireLock(user.id)) return await i.followUp({ content: '⏳ يرجى الانتظار، جاري معالجة طلبك السابق...', flags: [MessageFlags.Ephemeral] });
     
-    await buildWeaponForgeUI(i, user, guildId, db); 
+    try {
+        const raceName = await getUserRaceName(user, i.guild, db);
+        const hasMora = await checkMora(i.client, db, user.id, guildId, LEARN_FEE);
+        if (!hasMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لصناعة السلاح!` }, [getReturnRow()]);
+
+        await deductMora(i.client, db, user.id, guildId, LEARN_FEE);
+        await safeQuery(db, `DELETE FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, raceName]);
+        await safeQuery(db, `INSERT INTO user_weapons ("userID", "guildID", "raceName", "weaponLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, raceName]);
+        
+        await buildWeaponForgeUI(i, user, guildId, db); 
+    } finally {
+        releaseLock(user.id);
+    }
 }
 
 async function handleWeaponUpgrade(i, user, guildId, db) {
-    const roleRaceName = await getUserRaceName(user, i.guild, db);
-    const [weaponRes, lvlRes] = await Promise.all([
-        safeQuery(db, `SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId])
-    ]);
+    if (!acquireLock(user.id)) return await i.followUp({ content: '⏳ يرجى الانتظار، جاري معالجة طلبك السابق...', flags: [MessageFlags.Ephemeral] });
 
-    const wData = weaponRes?.rows?.[0];
-    if (!wData) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب صناعة السلاح الأساسي أولاً!' }, [getReturnRow()]);
+    try {
+        const roleRaceName = await getUserRaceName(user, i.guild, db);
+        const [weaponRes, lvlRes] = await Promise.all([
+            safeQuery(db, `SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]),
+            safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId])
+        ]);
 
-    const currentLevel = Number(getSafeVal(wData, 'weaponlevel', 0));
-    const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
-    if (currentLevel >= 15 && playerServerLevel < 30) return; 
+        const wData = weaponRes?.rows?.[0];
+        if (!wData) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'يجب صناعة السلاح الأساسي أولاً!' }, [getReturnRow()]);
 
-    const state = await getUpgradeState(i.client, db, user.id, guildId, currentLevel, false, null, roleRaceName, wData);
-    if (!state) return;
+        const currentLevel = Number(getSafeVal(wData, 'weaponlevel', 0));
+        const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
+        if (currentLevel >= 15 && playerServerLevel < 30) return; 
 
-    if (!state.hasMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك المورا الكافية للتطوير!' }, [getReturnRow()]);
-    if (!state.hasItems) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك الموارد الكافية للتطوير!' }, [getReturnRow()]);
+        const state = await getUpgradeState(i.client, db, user.id, guildId, currentLevel, false, null, roleRaceName, wData);
+        if (!state) return;
 
-    await deductMora(i.client, db, user.id, guildId, state.reqMora);
-    await deductItems(db, user.id, guildId, state.detailedReqs);
+        if (!state.hasMora) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك المورا الكافية للتطوير!' }, [getReturnRow()]);
+        if (!state.hasItems) return await replyWithCanvas(i, user, 'weapon_error', { mora: 0, title: 'الحدادة', hasError: true, errorMsg: 'لا تملك الموارد الكافية للتطوير!' }, [getReturnRow()]);
 
-    const dbRaceName = getSafeVal(wData, 'racename', state.raceName);
+        await deductMora(i.client, db, user.id, guildId, state.reqMora);
+        await deductItems(db, user.id, guildId, state.detailedReqs);
 
-    try { await db.query(`UPDATE user_weapons SET "weaponLevel" = "weaponLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, dbRaceName]); } 
-    catch(e) { await db.query(`UPDATE user_weapons SET weaponlevel = weaponlevel + 1 WHERE userid = $1 AND guildid = $2 AND racename = $3`, [user.id, guildId, dbRaceName]).catch(()=>{}); }
-    
-    const weaponConfig = getSafeWeaponConfig(state.raceName);
-    const nextLevel = currentLevel + 1;
-    await replyWithCanvas(i, user, 'success_weapon', { title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel: currentLevel, nextLevel: nextLevel, nextStat: `${getWeaponDisplayDamage(weaponConfig, nextLevel)} DMG` }, [getReturnRow()]);
+        const dbRaceName = getSafeVal(wData, 'racename', state.raceName);
+
+        try { await db.query(`UPDATE user_weapons SET "weaponLevel" = "weaponLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "raceName" = $3`, [user.id, guildId, dbRaceName]); } 
+        catch(e) { await db.query(`UPDATE user_weapons SET weaponlevel = weaponlevel + 1 WHERE userid = $1 AND guildid = $2 AND racename = $3`, [user.id, guildId, dbRaceName]).catch(()=>{}); }
+        
+        const weaponConfig = getSafeWeaponConfig(state.raceName);
+        const nextLevel = currentLevel + 1;
+        await replyWithCanvas(i, user, 'success_weapon', { title: `تطوير ${resolveText(weaponConfig.name)}`, currentLevel: currentLevel, nextLevel: nextLevel, nextStat: `${getWeaponDisplayDamage(weaponConfig, nextLevel)} DMG` }, [getReturnRow()]);
+    } finally {
+        releaseLock(user.id);
+    }
 }
 
 async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
@@ -662,50 +685,62 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
 }
 
 async function handleSkillLearn(i, user, guildId, db, skillId) {
-    const hasMora = await checkMora(i.client, db, user.id, guildId, LEARN_FEE);
-    if (!hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لتعلم المهارة!` }, [getReturnRow()]);
+    if (!acquireLock(user.id)) return await i.followUp({ content: '⏳ يرجى الانتظار...', flags: [MessageFlags.Ephemeral] });
 
-    await deductMora(i.client, db, user.id, guildId, LEARN_FEE);
     try {
-        await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]);
-        await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
-    } catch(e) {
-        await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]).catch(()=>{});
-        await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(()=>{});
+        const hasMora = await checkMora(i.client, db, user.id, guildId, LEARN_FEE);
+        if (!hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لتعلم المهارة!` }, [getReturnRow()]);
+
+        await deductMora(i.client, db, user.id, guildId, LEARN_FEE);
+        try {
+            await db.query(`DELETE FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]);
+            await db.query(`INSERT INTO user_skills ("userID", "guildID", "skillID", "skillLevel") VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]);
+        } catch(e) {
+            await db.query(`DELETE FROM user_skills WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]).catch(()=>{});
+            await db.query(`INSERT INTO user_skills (userid, guildid, skillid, skilllevel) VALUES ($1, $2, $3, 1)`, [user.id, guildId, skillId]).catch(()=>{});
+        }
+        await buildSkillUpgradeUI(i, user, guildId, db, skillId);
+    } finally {
+        releaseLock(user.id);
     }
-    await buildSkillUpgradeUI(i, user, guildId, db, skillId);
 }
 
 async function handleSkillUpgrade(i, user, guildId, db, skillId) {
-    const roleRaceName = await getUserRaceName(user, i.guild, db);
-    const [skillRes, lvlRes, wpnRes] = await Promise.all([
-        safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]),
-        safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
-        safeQuery(db, `SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
-    ]);
+    if (!acquireLock(user.id)) return await i.followUp({ content: '⏳ يرجى الانتظار...', flags: [MessageFlags.Ephemeral] });
 
-    if (!skillRes?.rows?.[0]) return;
-    const currentLevel = Number(getSafeVal(skillRes.rows[0], 'skilllevel', 0));
-    const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
-    if (currentLevel >= 15 && playerServerLevel < 30) return; 
+    try {
+        const roleRaceName = await getUserRaceName(user, i.guild, db);
+        const [skillRes, lvlRes, wpnRes] = await Promise.all([
+            safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]),
+            safeQuery(db, `SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [user.id, guildId]),
+            safeQuery(db, `SELECT * FROM user_weapons WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId])
+        ]);
 
-    const wData = wpnRes?.rows?.[0] || null;
+        if (!skillRes?.rows?.[0]) return;
+        const currentLevel = Number(getSafeVal(skillRes.rows[0], 'skilllevel', 0));
+        const playerServerLevel = Number(getSafeVal(lvlRes?.rows?.[0], 'level', 1));
+        if (currentLevel >= 15 && playerServerLevel < 30) return; 
 
-    const state = await getUpgradeState(i.client, db, user.id, guildId, currentLevel, true, skillId, roleRaceName, wData);
-    if (!state) return;
+        const wData = wpnRes?.rows?.[0] || null;
 
-    if (!state.hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
-    if (!state.hasItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
+        const state = await getUpgradeState(i.client, db, user.id, guildId, currentLevel, true, skillId, roleRaceName, wData);
+        if (!state) return;
 
-    await deductMora(i.client, db, user.id, guildId, state.reqMora);
-    await deductItems(db, user.id, guildId, state.detailedReqs);
+        if (!state.hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
+        if (!state.hasItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
 
-    try { await db.query(`UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]); } 
-    catch(e) { await db.query(`UPDATE user_skills SET skilllevel = skilllevel + 1 WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]).catch(()=>{}); }
-    
-    const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
-    const statSymbol = configSkill.stat_type === '%' ? '%' : '';
-    await replyWithCanvas(i, user, 'success_skill', { title: `صقل ${resolveText(configSkill.name)}`, currentLevel: currentLevel, nextLevel: currentLevel + 1, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}` }, [getReturnRow()]);
+        await deductMora(i.client, db, user.id, guildId, state.reqMora);
+        await deductItems(db, user.id, guildId, state.detailedReqs);
+
+        try { await db.query(`UPDATE user_skills SET "skillLevel" = "skillLevel" + 1 WHERE "userID" = $1 AND "guildID" = $2 AND "skillID" = $3`, [user.id, guildId, skillId]); } 
+        catch(e) { await db.query(`UPDATE user_skills SET skilllevel = skilllevel + 1 WHERE userid = $1 AND guildid = $2 AND skillid = $3`, [user.id, guildId, skillId]).catch(()=>{}); }
+        
+        const configSkill = skillsConfig.find(sc => sc.id === skillId) || skillsConfig[0];
+        const statSymbol = configSkill.stat_type === '%' ? '%' : '';
+        await replyWithCanvas(i, user, 'success_skill', { title: `صقل ${resolveText(configSkill.name)}`, currentLevel: currentLevel, nextLevel: currentLevel + 1, nextStat: `${getSkillDisplayValue(configSkill, currentLevel + 1)}${statSymbol}` }, [getReturnRow()]);
+    } finally {
+        releaseLock(user.id);
+    }
 }
 
 async function buildSynthesisUI(i, user, guildId, db, state, isInitial = false) {
@@ -823,60 +858,66 @@ async function handleSynthesisMultiModal(i, user, guildId, db, state, client) {
 }
 
 async function handleSynthesis(i, user, guildId, db, state, qtyToSynth = 1, isModal = false) {
-    if (!state.sacrificeItem || !state.targetItem) return;
-    if (isModal) await i.deferUpdate().catch(()=>{});
+    if (!acquireLock(user.id)) return;
 
-    const totalFee = SYNTHESIS_FEE * qtyToSynth;
-    const hasMora = await checkMora(i.client, db, user.id, guildId, totalFee);
-    
-    const synthReturnRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('forge_synthesis').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
-    );
+    try {
+        if (!state.sacrificeItem || !state.targetItem) return;
+        if (isModal) await i.deferUpdate().catch(()=>{});
 
-    if (!hasMora) {
-        const payload = { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك ${totalFee} مورا للدمج!` };
-        if (isModal) return await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'synthesis_error', payload, [synthReturnRow]);
-        else return await replyWithCanvas(i, user, 'synthesis_error', payload, [synthReturnRow]);
-    }
+        const totalFee = SYNTHESIS_FEE * qtyToSynth;
+        const hasMora = await checkMora(i.client, db, user.id, guildId, totalFee);
+        
+        const synthReturnRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('forge_synthesis').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
+        );
 
-    const totalSacrifice = 4 * qtyToSynth;
-    const hasItems = await checkItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: totalSacrifice }]);
-    
-    if (!hasItems) {
-        const payload = { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك ${totalSacrifice} عناصر متشابهة!` };
-        if (isModal) return await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'synthesis_error', payload, [synthReturnRow]);
-        else return await replyWithCanvas(i, user, 'synthesis_error', payload, [synthReturnRow]);
-    }
+        if (!hasMora) {
+            const payload = { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك ${totalFee} مورا للدمج!` };
+            if (isModal) return await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'synthesis_error', payload, [synthReturnRow]);
+            else return await replyWithCanvas(i, user, 'synthesis_error', payload, [synthReturnRow]);
+        }
 
-    await deductMora(i.client, db, user.id, guildId, totalFee);
-    await deductItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: totalSacrifice }]);
+        const totalSacrifice = 4 * qtyToSynth;
+        const hasItems = await checkItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: totalSacrifice }]);
+        
+        if (!hasItems) {
+            const payload = { mora: 0, title: 'فرن الدمج السحري', hasError: true, errorMsg: `لا تملك ${totalSacrifice} عناصر متشابهة!` };
+            if (isModal) return await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'synthesis_error', payload, [synthReturnRow]);
+            else return await replyWithCanvas(i, user, 'synthesis_error', payload, [synthReturnRow]);
+        }
 
-    const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
-    let targetRow = null;
-    if (invRes.rows) {
-        targetRow = invRes.rows.find(r => {
-            const dbItemId = getSafeVal(r, 'itemid', '').toString().toLowerCase().trim();
-            return dbItemId === String(state.targetItem).toLowerCase().trim();
-        });
-    }
+        await deductMora(i.client, db, user.id, guildId, totalFee);
+        await deductItems(db, user.id, guildId, [{ id: state.sacrificeItem, count: totalSacrifice }]);
 
-    if (targetRow) {
-        const rowId = getSafeVal(targetRow, 'id', null);
-        try { await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qtyToSynth, rowId]); } 
-        catch(e) { await db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qtyToSynth, rowId]).catch(()=>{}); }
-    } else {
-        try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, state.targetItem, qtyToSynth]); } 
-        catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, state.targetItem, qtyToSynth]).catch(()=>{}); }
-    }
-    
-    const targetInfo = getItemInfo(state.targetItem);
-    const payloadData = { title: 'فرن الدمج السحري', targetMatName: targetInfo.name, targetMatIcon: targetInfo.iconUrl, targetMatRarity: targetInfo.rarity, quantity: qtyToSynth };
-    
-    if (isModal) {
-        await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_synthesis', payloadData, [synthReturnRow]);
-        state.sacrificeItem = null; state.targetItem = null;
-    } else {
-        await replyWithCanvas(i, user, 'success_synthesis', payloadData, [synthReturnRow]);
+        const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+        let targetRow = null;
+        if (invRes.rows) {
+            targetRow = invRes.rows.find(r => {
+                const dbItemId = getSafeVal(r, 'itemid', '').toString().toLowerCase().trim();
+                return dbItemId === String(state.targetItem).toLowerCase().trim();
+            });
+        }
+
+        if (targetRow) {
+            const rowId = getSafeVal(targetRow, 'id', null);
+            try { await db.query(`UPDATE user_inventory SET "quantity" = "quantity" + $1 WHERE "id" = $2`, [qtyToSynth, rowId]); } 
+            catch(e) { await db.query(`UPDATE user_inventory SET quantity = quantity + $1 WHERE id = $2`, [qtyToSynth, rowId]).catch(()=>{}); }
+        } else {
+            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, state.targetItem, qtyToSynth]); } 
+            catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, state.targetItem, qtyToSynth]).catch(()=>{}); }
+        }
+        
+        const targetInfo = getItemInfo(state.targetItem);
+        const payloadData = { title: 'فرن الدمج السحري', targetMatName: targetInfo.name, targetMatIcon: targetInfo.iconUrl, targetMatRarity: targetInfo.rarity, quantity: qtyToSynth };
+        
+        if (isModal) {
+            await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_synthesis', payloadData, [synthReturnRow]);
+            state.sacrificeItem = null; state.targetItem = null;
+        } else {
+            await replyWithCanvas(i, user, 'success_synthesis', payloadData, [synthReturnRow]);
+        }
+    } finally {
+        releaseLock(user.id);
     }
 }
 
@@ -937,36 +978,42 @@ async function handleSmeltingMultiModal(i, user, guildId, db, state, client) {
 }
 
 async function handleSmelting(i, user, guildId, db, state, client, qtyToSmelt = 1, isModal = false) {
-    const itemIdToSmelt = state.item || (isModal ? i.customId.replace('modal_smelt_', '') : null);
-    if (!itemIdToSmelt) return;
-    if (isModal) await i.deferUpdate().catch(()=>{});
+    if (!acquireLock(user.id)) return;
 
-    const hasItems = await checkItems(db, user.id, guildId, [{ id: itemIdToSmelt, count: qtyToSmelt }]);
-    if (!hasItems) {
-        const payload = { mora: 0, title: 'محرقة التفكيك', hasError: true, errorMsg: `لا تملك ${qtyToSmelt} حبة للصهر.` };
-        if (isModal) return await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'smelting_error', payload, [getReturnRow()]);
-        else return await replyWithCanvas(i, user, 'smelting_error', payload, [getReturnRow()]);
-    }
+    try {
+        const itemIdToSmelt = state.item || (isModal ? i.customId.replace('modal_smelt_', '') : null);
+        if (!itemIdToSmelt) return;
+        if (isModal) await i.deferUpdate().catch(()=>{});
 
-    await deductItems(db, user.id, guildId, [{ id: itemIdToSmelt, count: qtyToSmelt }]);
+        const hasItems = await checkItems(db, user.id, guildId, [{ id: itemIdToSmelt, count: qtyToSmelt }]);
+        if (!hasItems) {
+            const payload = { mora: 0, title: 'محرقة التفكيك', hasError: true, errorMsg: `لا تملك ${qtyToSmelt} حبة للصهر.` };
+            if (isModal) return await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'smelting_error', payload, [getReturnRow()]);
+            else return await replyWithCanvas(i, user, 'smelting_error', payload, [getReturnRow()]);
+        }
 
-    const itemInfo = getItemInfo(itemIdToSmelt);
-    const xpReward = (SMELT_XP_RATES[itemInfo.rarity] || 10) * qtyToSmelt;
+        await deductItems(db, user.id, guildId, [{ id: itemIdToSmelt, count: qtyToSmelt }]);
 
-    const memberObj = await i.guild?.members?.fetch(user.id).catch(()=>{});
-    if (addXPAndCheckLevel && memberObj) await addXPAndCheckLevel(client, memberObj, db, xpReward, 0, false).catch(()=>{});
-    else {
-        try { await db.query(`UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, [xpReward, user.id, guildId]); }
-        catch(e) { await db.query(`UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [xpReward, user.id, guildId]).catch(()=>{}); }
-    }
+        const itemInfo = getItemInfo(itemIdToSmelt);
+        const xpReward = (SMELT_XP_RATES[itemInfo.rarity] || 10) * qtyToSmelt;
+
+        const memberObj = await i.guild?.members?.fetch(user.id).catch(()=>{});
+        if (addXPAndCheckLevel && memberObj) await addXPAndCheckLevel(client, memberObj, db, xpReward, 0, false).catch(()=>{});
+        else {
+            try { await db.query(`UPDATE levels SET "xp" = "xp" + $1, "totalXP" = "totalXP" + $1 WHERE "user" = $2 AND "guild" = $3`, [xpReward, user.id, guildId]); }
+            catch(e) { await db.query(`UPDATE levels SET xp = xp + $1, totalxp = totalxp + $1 WHERE userid = $2 AND guildid = $3`, [xpReward, user.id, guildId]).catch(()=>{}); }
+        }
+            
+        const successData = { title: 'محرقة التفكيك', xpGain: xpReward, sacMatName: itemInfo.name, reqMatIcon: itemInfo.iconUrl };
         
-    const successData = { title: 'محرقة التفكيك', xpGain: xpReward, sacMatName: itemInfo.name, reqMatIcon: itemInfo.iconUrl };
-    
-    if (isModal) { 
-        await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_smelting', successData, [getReturnRow()]); 
-        state.item = null; 
-    } else { 
-        await replyWithCanvas(i, user, 'success_smelting', successData, [getReturnRow()]); 
+        if (isModal) { 
+            await replyWithCanvas({ replied: false, deferred: false, editReply: async (p) => i.editReply(p) }, user, 'success_smelting', successData, [getReturnRow()]); 
+            state.item = null; 
+        } else { 
+            await replyWithCanvas(i, user, 'success_smelting', successData, [getReturnRow()]); 
+        }
+    } finally {
+        releaseLock(user.id);
     }
 }
 
