@@ -497,39 +497,25 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                 }
             }
             else if (itemData.id.startsWith('xp_buff_')) {
-                // 🔥 التصحيح هنا: جعل multiplier عشري (للحساب) و buffPercent صحيح (للعرض)
                 let multiplier = 0, buffPercent = 0, duration = 0;
                 switch (itemData.id) {
-                    case 'xp_buff_small': multiplier = 0.15; buffPercent = 15; duration = 12 * 60 * 60 * 1000; break;
+                    case 'xp_buff_small':  multiplier = 0.15; buffPercent = 15; duration = 12 * 60 * 60 * 1000; break;
                     case 'xp_buff_medium': multiplier = 0.25; buffPercent = 25; duration = 24 * 60 * 60 * 1000; break;
-                    case 'xp_buff_large': multiplier = 0.30; buffPercent = 30; duration = 35 * 60 * 60 * 1000; break;
+                    case 'xp_buff_large':  multiplier = 0.30; buffPercent = 30; duration = 35 * 60 * 60 * 1000; break;
                 }
                 if (duration > 0) {
                     const expiresAt = Date.now() + duration;
-                    let r = await execSafe(db, `SELECT * FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `SELECT * FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]);
-                    
-                    if (r.rows.length > 0) {
-                        let r2 = await execSafe(db, `UPDATE user_buffs SET "multiplier" = $1, "expiresAt" = $2, "buffPercent" = $3 WHERE "userID" = $4 AND "guildID" = $5 AND "buffType" = 'xp'`, `UPDATE user_buffs SET multiplier = $1, expiresat = $2, buffpercent = $3 WHERE userid = $4 AND guildid = $5 AND bufftype = 'xp'`, [multiplier, expiresAt, buffPercent, interaction.user.id, interaction.guild.id]);
-                        if(r2.error) success = false;
-                    } else {
-                        await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]);
-                        try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                        
-                        let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
-                        let insXP = await execSafe(db, 
-                            `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'xp', $4, $5, $6)`, 
-                            `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, 'xp', $4, $5, $6)`, 
-                            [newId, interaction.user.id, interaction.guild.id, multiplier, expiresAt, buffPercent]
-                        );
-                        if(insXP.error) {
-                            insXP = await execSafe(db, 
-                                `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, 
-                                `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, 
-                                [interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent]
-                            );
-                        }
-                        if(insXP.error) success = false;
-                    }
+                    await execSafe(db,
+                        `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`,
+                        `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`,
+                        [interaction.user.id, interaction.guild.id]
+                    );
+                    const insXP = await execSafe(db,
+                        `INSERT INTO user_buffs ("guildID", "userID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`,
+                        `INSERT INTO user_buffs (guildid, userid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'xp', $3, $4, $5)`,
+                        [interaction.guild.id, interaction.user.id, multiplier, expiresAt, buffPercent]
+                    );
+                    if (insXP.error) success = false;
                 }
             }
             else if (itemData.id === 'farm_worker_3d') {
@@ -555,23 +541,11 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     );
                     if (upd.error) success = false;
                 } else {
-                    await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'farm_worker'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'farm_worker'`, [interaction.user.id, interaction.guild.id]);
-                    try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                    
-                    let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
-                    let insWorker = await execSafe(db,
-                        `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
-                        `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, 'farm_worker', 1, $4, 0)`,
-                        [newId, interaction.user.id, interaction.guild.id, newExpiresAt]
+                    const insWorker = await execSafe(db,
+                        `INSERT INTO user_buffs ("guildID", "userID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        `INSERT INTO user_buffs (guildid, userid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
+                        [interaction.guild.id, interaction.user.id, newExpiresAt]
                     );
-                    
-                    if (insWorker.error) {
-                        insWorker = await execSafe(db,
-                            `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                            `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'farm_worker', 1, $3, 0)`,
-                            [interaction.user.id, interaction.guild.id, newExpiresAt]
-                        );
-                    }
                     if (insWorker.error) success = false;
                 }
             }
@@ -591,23 +565,12 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
                     if(r2.error) success = false;
                 }
                 else {
-                    await execSafe(db, `DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, `DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [interaction.user.id, interaction.guild.id]);
-                    try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                    
-                    let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000);
-                    let insXP = await execSafe(db, 
-                        `INSERT INTO user_buffs ("id", "guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, 
-                        `INSERT INTO user_buffs (id, guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, $5, 'xp', $6)`, 
-                        [newId, interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]
+                    const insXP = await execSafe(db,
+                        `INSERT INTO user_buffs ("guildID", "userID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`,
+                        `INSERT INTO user_buffs (guildid, userid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'xp', $3, $4, $5)`,
+                        [interaction.guild.id, interaction.user.id, -0.05, expiresAt, -5]
                     );
-                    if (insXP.error) {
-                        insXP = await execSafe(db, 
-                            `INSERT INTO user_buffs ("guildID", "userID", "buffPercent", "expiresAt", "buffType", "multiplier") VALUES ($1, $2, $3, $4, 'xp', $5)`, 
-                            `INSERT INTO user_buffs (guildid, userid, buffpercent, expiresat, bufftype, multiplier) VALUES ($1, $2, $3, $4, 'xp', $5)`, 
-                            [interaction.guild.id, interaction.user.id, -5, expiresAt, -0.05]
-                        );
-                    }
-                    if(insXP.error) success = false;
+                    if (insXP.error) success = false;
                 }
             }
         } 
@@ -836,21 +799,12 @@ async function _handleReplaceBuffButton(i, client, db) {
                 case 'xp_buff_large': multiplier = 0.30; buffPercent = 30; expiresAt = Date.now() + (35 * 60 * 60 * 1000); break;
             }
             
-            if (multiplier > 0) {
-                try { await db.query(`ALTER TABLE user_buffs DROP CONSTRAINT IF EXISTS user_buffs_pkey`); } catch(e) {}
-                let newId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000); 
-                let ins = await execSafe(db, 
-                    `INSERT INTO user_buffs ("id", "userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6, $7)`, 
-                    `INSERT INTO user_buffs (id, userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, 
-                    [newId, userId, guildId, 'xp', multiplier, expiresAt, buffPercent]
+            if (expiresAt) {
+                const ins = await execSafe(db,
+                    `INSERT INTO user_buffs ("guildID", "userID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, 'xp', $3, $4, $5)`,
+                    `INSERT INTO user_buffs (guildid, userid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, 'xp', $3, $4, $5)`,
+                    [guildId, userId, multiplier, expiresAt, buffPercent]
                 );
-                if (ins.error) {
-                    ins = await execSafe(db, 
-                        `INSERT INTO user_buffs ("userID", "guildID", "buffType", "multiplier", "expiresAt", "buffPercent") VALUES ($1, $2, $3, $4, $5, $6)`, 
-                        `INSERT INTO user_buffs (userid, guildid, bufftype, multiplier, expiresat, buffpercent) VALUES ($1, $2, $3, $4, $5, $6)`, 
-                        [userId, guildId, 'xp', multiplier, expiresAt, buffPercent]
-                    );
-                }
                 if (ins.error) throw new Error("BUFF_INS_ERR");
             }
 
