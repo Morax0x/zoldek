@@ -1,5 +1,39 @@
-const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ChannelType } = require("discord.js");
+const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } = require("discord.js");
 const { updateNickname } = require("../../streak-handler.js"); 
+
+// دالة المعالجة الآمنة للبيانات
+const safeQuery = async (db, qPg, params) => {
+    let res;
+    try { 
+        res = await db.query(qPg, params); 
+    } catch(e) { 
+        res = { rows: [] }; 
+    }
+
+    const rows1 = Array.isArray(res) ? res : (res?.rows || []);
+    if (rows1.length > 0) return { rows: rows1 };
+
+    let fallbackQuery = qPg
+        .replace(/"userID"/g, "userid")
+        .replace(/"guildID"/g, "guildid")
+        .replace(/"channelID"/g, "channelid")
+        .replace(/"streakCount"/g, "streakcount")
+        .replace(/"lastMessageTimestamp"/g, "lastmessagetimestamp")
+        .replace(/"hasGracePeriod"/g, "hasgraceperiod")
+        .replace(/"hasItemShield"/g, "hasitemshield")
+        .replace(/"streakEmoji"/g, "streakemoji")
+        .replace(/"id"/g, "id");
+    
+    if (fallbackQuery !== qPg) {
+        try { 
+            let res2 = await db.query(fallbackQuery, params); 
+            const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
+            return { rows: rows2 };
+        } catch(e2) { }
+    }
+    
+    return { rows: [] };
+};
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,9 +42,8 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
         .addSubcommand(sub => sub
             .setName('set')
-            .setDescription('يحدد ستريك مستخدم معين يدوياً ويحدث اسمه.')
+            .setDescription('يفتح نافذة لتحديد ستريك (عادي أو ميديا) لعضو معين يدوياً.')
             .addUserOption(option => option.setName('user').setDescription('المستخدم الذي تريد تعديل الستريك له').setRequired(true))
-            .addIntegerOption(option => option.setName('amount').setDescription('العدد الجديد للستريك').setRequired(true).setMinValue(0))
         )
         .addSubcommand(sub => sub
             .setName('emoji')
@@ -46,21 +79,21 @@ module.exports = {
         
         if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             const err = '❌ | ليس لديك صلاحية الإدارة!';
-            return isSlash ? interactionOrMessage.reply({ content: err, ephemeral: true }) : interactionOrMessage.reply(err);
+            return isSlash ? interactionOrMessage.reply({ content: err, flags: [MessageFlags.Ephemeral] }) : interactionOrMessage.reply(err);
         }
 
         try {
-            await db.query(`CREATE TABLE IF NOT EXISTS streaks ("id" TEXT PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "streakCount" INTEGER, "lastMessageTimestamp" BIGINT, "hasGracePeriod" INTEGER, "hasItemShield" INTEGER)`);
-            await db.query(`CREATE TABLE IF NOT EXISTS media_streak_channels ("guildID" TEXT, "channelID" TEXT, PRIMARY KEY ("guildID", "channelID"))`);
-            await db.query(`CREATE TABLE IF NOT EXISTS settings ("guild" TEXT PRIMARY KEY, "streakEmoji" TEXT)`);
-            await db.query(`INSERT INTO settings ("guild") VALUES ($1) ON CONFLICT ("guild") DO NOTHING`, [guild.id]);
+            await safeQuery(db, `CREATE TABLE IF NOT EXISTS streaks ("id" TEXT PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "streakCount" BIGINT, "lastMessageTimestamp" BIGINT, "hasGracePeriod" BIGINT, "hasItemShield" BIGINT)`);
+            await safeQuery(db, `CREATE TABLE IF NOT EXISTS media_streaks ("id" TEXT PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "streakCount" BIGINT, "lastMessageTimestamp" BIGINT, "hasGracePeriod" BIGINT, "hasItemShield" BIGINT)`);
+            await safeQuery(db, `CREATE TABLE IF NOT EXISTS media_streak_channels ("guildID" TEXT, "channelID" TEXT, PRIMARY KEY ("guildID", "channelID"))`);
+            await safeQuery(db, `CREATE TABLE IF NOT EXISTS settings ("guild" TEXT PRIMARY KEY, "streakEmoji" TEXT)`);
+            await safeQuery(db, `INSERT INTO settings ("guild") VALUES ($1) ON CONFLICT ("guild") DO NOTHING`, [guild.id]);
         } catch(e) {
             console.error("Streak Admin Setup DB Error:", e);
         }
 
         let route = '';
         let targetUser = null;
-        let amount = 0;
         let emojiStr = '';
         let targetChannel = null;
 
@@ -68,13 +101,16 @@ module.exports = {
             const group = interactionOrMessage.options.getSubcommandGroup();
             const sub = interactionOrMessage.options.getSubcommand();
             route = group ? `${group}_${sub}` : sub;
-            await interactionOrMessage.deferReply({ ephemeral: route !== 'panel' });
+            
+            // تأخير الرد السلاش كومانند فقط للأوامر اللي ما فيها مودال
+            if (route !== 'set' && route !== 'panel') {
+                await interactionOrMessage.deferReply({ flags: [MessageFlags.Ephemeral] });
+            }
         } else {
             const cmd = interactionOrMessage.content.split(' ')[0].toLowerCase().slice(1);
             if (cmd === 'setstreak' || cmd === 'تحديد-الستريك') {
                 route = 'set';
                 targetUser = interactionOrMessage.mentions.members.first() || guild.members.cache.get(args[0]);
-                amount = parseInt(args[1]);
             } else if (cmd === 'set-streak-emoji' || cmd === 'تغيير-ايموجي-الستريك' || cmd === 'setstreakemoji') {
                 route = 'emoji';
                 emojiStr = args[0];
@@ -91,37 +127,114 @@ module.exports = {
 
         const reply = async (payload) => {
             if (typeof payload === 'string') payload = { content: payload };
-            if (isSlash) return interactionOrMessage.editReply(payload);
+            if (isSlash && (route !== 'set' && route !== 'panel')) return interactionOrMessage.editReply(payload);
             return interactionOrMessage.reply(payload);
         };
 
         try {
+            // 🔥 نظام تحديد الستريك المتطور باستخدام المودال 🔥
             if (route === 'set') {
                 if (isSlash) {
-                    targetUser = interactionOrMessage.options.getMember('user');
-                    amount = interactionOrMessage.options.getInteger('amount');
+                    targetUser = interactionOrMessage.options.getUser('user');
+                } else {
+                    targetUser = interactionOrMessage.mentions.users.first();
+                    if (!targetUser && args[0]) {
+                        try { targetUser = await client.users.fetch(args[0].replace(/[<@!>]/g, '')); } catch(e){}
+                    }
                 }
                 
-                if (!targetUser || isNaN(amount) || amount < 0) {
-                    return reply("❌ | الاستخدام: يرجى تحديد العضو والعدد الجديد.");
+                if (!targetUser) {
+                    return isSlash ? interactionOrMessage.reply({ content: "❌ | يرجى تحديد العضو المطلوب.", flags: [MessageFlags.Ephemeral] }) : interactionOrMessage.reply("❌ | يرجى تحديد العضو المطلوب.");
                 }
 
-                const streakId = `${guild.id}-${targetUser.id}`;
-                await db.query(`
-                    INSERT INTO streaks ("id", "guildID", "userID", "streakCount", "lastMessageTimestamp", "hasGracePeriod", "hasItemShield") 
-                    VALUES ($1, $2, $3, $4, $5, 1, 0)
-                    ON CONFLICT("id") DO UPDATE SET 
-                    "streakCount" = EXCLUDED."streakCount",
-                    "lastMessageTimestamp" = EXCLUDED."lastMessageTimestamp"
-                `, [streakId, guild.id, targetUser.id, amount, Date.now()]);
+                // إرسال نافذة إدخال (Modal) لاختيار نوع الستريك والعدد
+                const modalId = `str_set_${Date.now()}`;
+                const modal = new ModalBuilder().setCustomId(modalId).setTitle(`تعديل ستريك ${targetUser.username}`);
+                
+                const typeInput = new TextInputBuilder()
+                    .setCustomId('streak_type')
+                    .setLabel('النوع (اكتب: عادي أو ميديا)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('عادي')
+                    .setRequired(true);
+                    
+                const amountInput = new TextInputBuilder()
+                    .setCustomId('streak_amount')
+                    .setLabel('العدد الجديد (أرقام فقط)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('0')
+                    .setRequired(true);
 
-                try {
-                    await updateNickname(targetUser, amount, db);
-                } catch(e) {
-                    console.error("Update nickname error:", e);
+                modal.addComponents(new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(amountInput));
+                
+                if (isSlash) {
+                    await interactionOrMessage.showModal(modal);
+                } else {
+                    // في حال كان الأمر رسالة عادية لا يمكن فتح مودال، نرسل رسالة لطلب البيانات
+                    const msg = await interactionOrMessage.reply("اكتب الآن `عادي <الرقم>` لتعديل ستريك الشات، أو `ميديا <الرقم>` لتعديل الميديا. (مثال: `عادي 50`):");
+                    const filter = m => m.author.id === interactionOrMessage.author.id;
+                    try {
+                        const collected = await interactionOrMessage.channel.awaitMessages({ filter, max: 1, time: 60000, errors: ['time'] });
+                        const content = collected.first().content;
+                        const [type, amountStr] = content.split(' ');
+                        const amount = parseInt(amountStr);
+                        
+                        if (isNaN(amount) || amount < 0) return msg.edit("❌ عدد غير صالح.");
+                        
+                        const isMedia = type.includes('ميديا');
+                        const tableName = isMedia ? 'media_streaks' : 'streaks';
+                        const streakId = `${guild.id}-${targetUser.id}`;
+                        
+                        await safeQuery(db, `
+                            INSERT INTO ${tableName} ("id", "guildID", "userID", "streakCount", "lastMessageTimestamp", "hasGracePeriod", "hasItemShield") 
+                            VALUES ($1, $2, $3, $4, $5, 1, 0)
+                            ON CONFLICT("id") DO UPDATE SET 
+                            "streakCount" = EXCLUDED."streakCount",
+                            "lastMessageTimestamp" = EXCLUDED."lastMessageTimestamp"
+                        `, [streakId, guild.id, targetUser.id, amount, Date.now()]);
+
+                        if (!isMedia) {
+                            const memberTarget = await guild.members.fetch(targetUser.id).catch(()=>null);
+                            if(memberTarget) await updateNickname(memberTarget, amount, db).catch(()=>{});
+                        }
+
+                        return msg.edit(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا' : 'العادي'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
+                    } catch (e) {
+                        return msg.edit("⏳ انتهى الوقت. تم إلغاء التعديل.");
+                    }
                 }
 
-                return reply(`✅ | تم تحديد ستريك ${targetUser.toString()} إلى **${amount}🔥** وتم تحديث اسمه.`);
+                if (isSlash) {
+                    try {
+                        const submitted = await interactionOrMessage.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === interactionOrMessage.user.id, time: 120000 });
+                        await submitted.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+                        const typeStr = submitted.fields.getTextInputValue('streak_type').toLowerCase();
+                        const amount = parseInt(submitted.fields.getTextInputValue('streak_amount'));
+
+                        if (isNaN(amount) || amount < 0) return submitted.editReply("❌ يرجى إدخال عدد صحيح.");
+
+                        const isMedia = typeStr.includes('ميديا');
+                        const tableName = isMedia ? 'media_streaks' : 'streaks';
+                        const streakId = `${guild.id}-${targetUser.id}`;
+
+                        await safeQuery(db, `
+                            INSERT INTO ${tableName} ("id", "guildID", "userID", "streakCount", "lastMessageTimestamp", "hasGracePeriod", "hasItemShield") 
+                            VALUES ($1, $2, $3, $4, $5, 1, 0)
+                            ON CONFLICT("id") DO UPDATE SET 
+                            "streakCount" = EXCLUDED."streakCount",
+                            "lastMessageTimestamp" = EXCLUDED."lastMessageTimestamp"
+                        `, [streakId, guild.id, targetUser.id, amount, Date.now()]);
+
+                        if (!isMedia) {
+                            const memberTarget = await guild.members.fetch(targetUser.id).catch(()=>null);
+                            if(memberTarget) await updateNickname(memberTarget, amount, db).catch(()=>{});
+                        }
+
+                        await submitted.editReply(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا' : 'العادي'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
+                    } catch (e) {}
+                }
+                return;
             }
 
             if (route === 'emoji') {
@@ -129,7 +242,7 @@ module.exports = {
                 
                 if (!emojiStr) return reply("الاستخدام: يرجى إدخال الإيموجي الجديد.");
 
-                await db.query(`UPDATE settings SET "streakEmoji" = $1 WHERE "guild" = $2`, [emojiStr, guild.id]);
+                await safeQuery(db, `UPDATE settings SET "streakEmoji" = $1 WHERE "guild" = $2`, [emojiStr, guild.id]);
                 return reply(`✅ | تم تغيير إيموجي الستريك بنجاح إلى ${emojiStr}.`);
             }
 
@@ -179,7 +292,7 @@ module.exports = {
 
                 await channel.send({ embeds: [embed], components: [row] });
 
-                if (isSlash) return interactionOrMessage.editReply({ content: '✅ تم نشر لوحة الستريك.', ephemeral: true });
+                if (isSlash) return interactionOrMessage.reply({ content: '✅ تم نشر لوحة الستريك.', flags: [MessageFlags.Ephemeral] });
                 else return interactionOrMessage.delete().catch(() => {});
             }
 
@@ -187,7 +300,7 @@ module.exports = {
                 if (isSlash) targetChannel = interactionOrMessage.options.getChannel('channel');
                 if (!targetChannel) return reply({ content: `❌ يجب تحديد القناة.` });
 
-                await db.query(`INSERT INTO media_streak_channels ("guildID", "channelID") VALUES ($1, $2) ON CONFLICT ("guildID", "channelID") DO NOTHING`, [guild.id, targetChannel.id]);
+                await safeQuery(db, `INSERT INTO media_streak_channels ("guildID", "channelID") VALUES ($1, $2) ON CONFLICT ("guildID", "channelID") DO NOTHING`, [guild.id, targetChannel.id]);
                 return reply({ embeds: [new EmbedBuilder().setColor(Colors.Green).setDescription(`✅ تم إضافة روم ${targetChannel} إلى رومات ستريك الميديا.`)] });
             }
 
@@ -195,13 +308,13 @@ module.exports = {
                 if (isSlash) targetChannel = interactionOrMessage.options.getChannel('channel');
                 if (!targetChannel) return reply({ content: `❌ يجب تحديد القناة.` });
 
-                const res = await db.query(`DELETE FROM media_streak_channels WHERE "guildID" = $1 AND "channelID" = $2`, [guild.id, targetChannel.id]);
-                if (res.rowCount > 0) return reply({ embeds: [new EmbedBuilder().setColor(Colors.Green).setDescription(`✅ تم إزالة روم ${targetChannel} من رومات ستريك الميديا.`)] });
+                const res = await safeQuery(db, `DELETE FROM media_streak_channels WHERE "guildID" = $1 AND "channelID" = $2`, [guild.id, targetChannel.id]);
+                if (res.rows.length > 0 || !res.error) return reply({ embeds: [new EmbedBuilder().setColor(Colors.Green).setDescription(`✅ تم إزالة روم ${targetChannel} من رومات ستريك الميديا.`)] });
                 return reply({ embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(`❌ روم ${targetChannel} غير موجود في القائمة أصلاً.`)] });
             }
 
             if (route === 'media_list') {
-                const res = await db.query(`SELECT * FROM media_streak_channels WHERE "guildID" = $1`, [guild.id]);
+                const res = await safeQuery(db, `SELECT * FROM media_streak_channels WHERE "guildID" = $1`, [guild.id]);
                 const channels = res.rows;
 
                 if (channels.length === 0) return reply({ embeds: [new EmbedBuilder().setColor(Colors.Yellow).setDescription("ℹ️ لا توجد أي رومات مخصصة لستريك الميديا حالياً.")] });
