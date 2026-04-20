@@ -108,23 +108,20 @@ async function deductMora(client, db, userId, guildId, amount) {
     if (mora >= amount) { moraDeduct = amount; }
     else { moraDeduct = mora; bankDeduct = amount - mora; }
 
-    let updateRes;
+    let newMora = Math.max(0, mora - moraDeduct);
+    let newBank = Math.max(0, bank - bankDeduct);
+
     try {
-        updateRes = await db.query(`UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora",'0') AS BIGINT) - $1), "bank" = GREATEST(0, CAST(COALESCE("bank",'0') AS BIGINT) - $2) WHERE "user" = $3 AND "guild" = $4 RETURNING "mora", "bank"`, [moraDeduct, bankDeduct, userId, guildId]);
+        await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2 WHERE "user" = $3 AND "guild" = $4`, [newMora, newBank, userId, guildId]);
     } catch(e) {
-        updateRes = await safeQuery(db, `UPDATE levels SET "mora" = GREATEST(0, CAST(COALESCE("mora",'0') AS BIGINT) - $1), "bank" = GREATEST(0, CAST(COALESCE("bank",'0') AS BIGINT) - $2) WHERE "user" = $3 AND "guild" = $4 RETURNING "mora", "bank"`, [moraDeduct, bankDeduct, userId, guildId]);
+        await db.query(`UPDATE levels SET mora = $1, bank = $2 WHERE userid = $3 AND guildid = $4`, [newMora, newBank, userId, guildId]).catch(()=>{});
     }
 
     if (client && typeof client.getLevel === 'function') {
         let u = await client.getLevel(userId, guildId);
         if (u) {
-            if (updateRes && updateRes.rows && updateRes.rows[0]) {
-                u.mora = String(Number(updateRes.rows[0].mora));
-                u.bank = String(Number(updateRes.rows[0].bank));
-            } else {
-                u.mora = String(Math.max(0, mora - moraDeduct));
-                u.bank = String(Math.max(0, bank - bankDeduct));
-            }
+            u.mora = String(newMora);
+            u.bank = String(newBank);
             if (typeof client.setLevel === 'function') await client.setLevel(u);
         }
     }
@@ -181,25 +178,25 @@ function performPull(pityData, userRace) {
 
 async function maintainChestInventory(db, userId, guildId) {
     const consolidate = async (itemId) => {
-        // Step 1: Get total count first (separate query, always works)
         let total = 0;
         try {
             const r = await db.query(
-                `SELECT COALESCE(SUM(GREATEST(0, CAST(COALESCE("quantity"::TEXT, '0') AS INTEGER))), 0) AS cnt FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = $3`,
+                `SELECT SUM(CAST(COALESCE("quantity", '0') AS INTEGER)) AS cnt FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = $3`,
                 [userId, guildId, itemId]
             );
-            total = r.rows[0] ? Number(r.rows[0].cnt) : 0;
+            total = r.rows[0] && r.rows[0].cnt ? Number(r.rows[0].cnt) : 0;
         } catch(e) {
             try {
                 const r2 = await db.query(
-                    `SELECT COALESCE(SUM(GREATEST(0, CAST(COALESCE(quantity::TEXT, '0') AS INTEGER))), 0) AS cnt FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(CAST(itemid AS TEXT)) = $3`,
+                    `SELECT SUM(CAST(COALESCE(quantity, '0') AS INTEGER)) AS cnt FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(CAST(itemid AS TEXT)) = $3`,
                     [userId, guildId, itemId]
                 );
-                total = r2.rows[0] ? Number(r2.rows[0].cnt) : 0;
+                total = r2.rows[0] && r2.rows[0].cnt ? Number(r2.rows[0].cnt) : 0;
             } catch(e2) { return 0; }
         }
+        
+        if (total < 0) total = 0;
 
-        // Step 2: Delete all rows for this item
         let deleted = false;
         try {
             await db.query(
@@ -217,9 +214,12 @@ async function maintainChestInventory(db, userId, guildId) {
             } catch(e2) { return total; }
         }
 
-        // Step 3: Re-insert single consolidated row
         if (deleted && total > 0) {
-            await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, total]);
+            try {
+                await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, total]);
+            } catch(e) {
+                await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, total]).catch(()=>{});
+            }
         }
 
         return total;
@@ -322,10 +322,9 @@ module.exports = {
                 await safeExecute(db, `INSERT INTO user_gacha_pity ("userID", "guildID", "last_free_claim") VALUES ($1, $2, '')`, [user.id, guildId]);
             }
 
-            // 🔥 التعديل هنا: تعديل كمية الصناديق اليومية للمرتبة الأولى 15 والثانية 30 🔥
             let dailyLimit = 0;
-            if (member && member.roles && member.roles.cache.has('1422160802416164885')) dailyLimit = 30; // 30 صندوق بدلاً من 20
-            else if (member && member.roles && member.roles.cache.has('1395674235002945636')) dailyLimit = 15; // 15 صندوق بدلاً من 10
+            if (member && member.roles && member.roles.cache.has('1422160802416164885')) dailyLimit = 30; 
+            else if (member && member.roles && member.roles.cache.has('1395674235002945636')) dailyLimit = 15; 
 
             const todaySaudi = new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' });
 
@@ -333,31 +332,26 @@ module.exports = {
                 await safeExecute(db, `UPDATE user_gacha_pity SET "last_free_claim" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [todaySaudi, user.id, guildId]);
                 pityData.last_free_claim = todaySaudi;
 
-                // حاول تحديث الصف الموجود أولاً، وإلا أدرج صفاً جديداً
-                let dailyUpdated = false;
+                let exists = false;
                 try {
-                    const updRes = await db.query(
-                        `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = 'free_gacha_chest' RETURNING "quantity"`,
-                        [dailyLimit, user.id, guildId]
-                    );
-                    dailyUpdated = updRes && updRes.rows && updRes.rows.length > 0;
+                    const check = await db.query(`SELECT 1 FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = 'free_gacha_chest'`, [user.id, guildId]);
+                    exists = check.rows.length > 0;
                 } catch(e) {
-                    try {
-                        const updRes2 = await db.query(
-                            `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity::TEXT,'0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND LOWER(CAST(itemid AS TEXT)) = 'free_gacha_chest' RETURNING quantity`,
-                            [dailyLimit, user.id, guildId]
-                        );
-                        dailyUpdated = updRes2 && updRes2.rows && updRes2.rows.length > 0;
-                    } catch(e2) {}
+                    const check2 = await db.query(`SELECT 1 FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(CAST(itemid AS TEXT)) = 'free_gacha_chest'`, [user.id, guildId]).catch(()=>({rows:[]}));
+                    exists = check2 && check2.rows && check2.rows.length > 0;
                 }
-                if (!dailyUpdated) {
-                    await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]);
+
+                if (exists) {
+                    try { await db.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = 'free_gacha_chest'`, [dailyLimit, user.id, guildId]); }
+                    catch(e) { await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND LOWER(CAST(itemid AS TEXT)) = 'free_gacha_chest'`, [dailyLimit, user.id, guildId]).catch(()=>{}); }
+                } else {
+                    try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]); }
+                    catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, 'free_gacha_chest', $3)`, [guildId, user.id, dailyLimit]).catch(()=>{}); }
                 }
                 
                 freeChests += dailyLimit;
                 totalChests = freeChests + paidChests;
 
-                // 🔥 الرسالة الفخمة المخصصة للتجديد اليومي 🔥
                 (isSlash ? interactionOrMessage.channel : interactionOrMessage.channel).send({ 
                     content: `❖ <@${user.id}>\n✦ لأنك احد داعمي الامبراطوريـة حـصـلـت عـلـى  «${dailyLimit}»  صندوق <:gboost:1439665966354268201>` 
                 }).catch(()=>{});
@@ -464,19 +458,21 @@ module.exports = {
                         let remainingFree = Math.min(freeChests, pCount);
                         let remainingPaid = Math.min(paidChests, pCount - remainingFree);
                         
-                        // خصم الصناديق مباشرة بالاسم (بعد الدمج يوجد صف واحد فقط لكل نوع)
                         if (remainingFree > 0) {
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = GREATEST(0, CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER) - $1) WHERE "id" = (SELECT "id" FROM user_inventory WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = 'free_gacha_chest' ORDER BY CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER) DESC LIMIT 1)`, [remainingFree, user.id, guildId]);
+                            try { await db.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = 'free_gacha_chest'`, [remainingFree, user.id, guildId]); }
+                            catch(e) { await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE userid = $2 AND guildid = $3 AND LOWER(CAST(itemid AS TEXT)) = 'free_gacha_chest'`, [remainingFree, user.id, guildId]).catch(()=>{}); }
                         }
                         if (remainingPaid > 0) {
-                            await safeExecute(db, `UPDATE user_inventory SET "quantity" = GREATEST(0, CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER) - $1) WHERE "id" = (SELECT "id" FROM user_inventory WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = 'gacha_chest' ORDER BY CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER) DESC LIMIT 1)`, [remainingPaid, user.id, guildId]);
+                            try { await db.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = 'gacha_chest'`, [remainingPaid, user.id, guildId]); }
+                            catch(e) { await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE userid = $2 AND guildid = $3 AND LOWER(CAST(itemid AS TEXT)) = 'gacha_chest'`, [remainingPaid, user.id, guildId]).catch(()=>{}); }
                         }
 
                         freeChests -= remainingFree;
                         paidChests -= remainingPaid;
                         totalChests = freeChests + paidChests;
 
-                        await safeExecute(db, `DELETE FROM user_inventory WHERE CAST(COALESCE("quantity"::TEXT, '0') AS INTEGER) <= 0 AND "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
+                        try { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0 AND "userID" = $1 AND "guildID" = $2`, [user.id, guildId]); }
+                        catch(e) { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE(quantity, '0') AS INTEGER) <= 0 AND userid = $1 AND guildid = $2`, [user.id, guildId]).catch(()=>{}); }
                     }
 
                     const resArr = [];
@@ -503,25 +499,22 @@ module.exports = {
                     }
 
                     for (const [itemId, qty] of Object.entries(itemsToAdd)) {
-                        // حاول التحديث أولاً، وإن لم يوجد الصف أدرج جديداً
-                        let itemUpdated = false;
+                        const safeItemId = itemId.toLowerCase();
+                        let exists = false;
                         try {
-                            const updRes = await db.query(
-                                `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER) + $1 WHERE "id" = (SELECT "id" FROM user_inventory WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = $4 LIMIT 1) RETURNING "quantity"`,
-                                [qty, user.id, guildId, itemId.toLowerCase()]
-                            );
-                            itemUpdated = updRes && updRes.rows && updRes.rows.length > 0;
+                            const check = await db.query(`SELECT 1 FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = $3`, [user.id, guildId, safeItemId]);
+                            exists = check.rows.length > 0;
                         } catch(e) {
-                            try {
-                                const updRes2 = await db.query(
-                                    `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity::TEXT,'0') AS INTEGER) + $1 WHERE id = (SELECT id FROM user_inventory WHERE userid = $2 AND guildid = $3 AND LOWER(CAST(itemid AS TEXT)) = $4 LIMIT 1) RETURNING quantity`,
-                                    [qty, user.id, guildId, itemId.toLowerCase()]
-                                );
-                                itemUpdated = updRes2 && updRes2.rows && updRes2.rows.length > 0;
-                            } catch(e2) {}
+                            const check2 = await db.query(`SELECT 1 FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(CAST(itemid AS TEXT)) = $3`, [user.id, guildId, safeItemId]).catch(()=>({rows:[]}));
+                            exists = check2 && check2.rows && check2.rows.length > 0;
                         }
-                        if (!itemUpdated) {
-                            await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, itemId, qty]);
+
+                        if (exists) {
+                            try { await db.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = $4`, [qty, user.id, guildId, safeItemId]); }
+                            catch(e) { await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND LOWER(CAST(itemid AS TEXT)) = $4`, [qty, user.id, guildId, safeItemId]).catch(()=>{}); }
+                        } else {
+                            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, user.id, safeItemId, qty]); }
+                            catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, user.id, safeItemId, qty]).catch(()=>{}); }
                         }
                     }
 
