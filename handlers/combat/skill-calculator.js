@@ -43,10 +43,10 @@ function makeTargetEffect(type) {
     switch (type) {
         case 'burn':       return { type: 'burn',        val: 100,  turns: 3 };
         case 'silence':    return { type: 'silence',     val: true, turns: 2 };
-        case 'vulnerable': return { type: 'vulnerable', val: 0.3,  turns: 2 };
+        case 'vulnerable': return { type: 'vulnerable',  val: 0.3,  turns: 2 };
         case 'weaken':     return { type: 'weaken',      val: 0.3,  turns: 2 };
         case 'stun':       return { type: 'stun',        val: true, turns: 1 };
-        case 'confusion':  return { type: 'confusion',  val: true, turns: 2 };
+        case 'confusion':  return { type: 'confusion',   val: true, turns: 2 };
         case 'poison':     return { type: 'poison',      val: 100,  turns: 3 };
         case 'bleed':      return { type: 'bleed',       val: 100,  turns: 3 };
         case 'blind':      return { type: 'blind',       val: true, turns: 2 };
@@ -116,11 +116,14 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
     }
 
     let skillPower = 0;
-    const hpBasedSkills = ['Reflect_Tank', 'Cleanse_Buff_Shield'];
+    
+    // 🔥 تم تفريغ هذه المصفوفة لأن المهارات الهجومية (مثل البشري والقزم) يجب ألا تتضاعف بناءً على دم اللاعب! 🔥
+    const hpBasedSkills = []; 
 
     if (skill.id.includes('heal') || skill.id.includes('shield') || hpBasedSkills.includes(activeStatType)) {
         skillPower = Math.floor(attacker.maxHp * (rawValue / 100));
     } else {
+        // الحسبة الطبيعية للمهارات الهجومية
         skillPower = Math.floor(rawValue * GLOBAL_SKILL_MULTIPLIER);
     }
 
