@@ -1,12 +1,12 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { getEmojiContext } = require('./emojis'); 
 const aiActionHandler = require('../../utils/aiActionHandler'); 
 require('dotenv').config();
 
-const MODELS = [
-    "gemini-2.0-flash",        
-    "gemini-1.5-flash",        
-    "gemini-1.5-pro"
+// 🚀 أذكى النماذج المجانية المفتوحة (لن تكلفك قرشاً واحداً)
+const OPENROUTER_MODELS = [
+    "meta-llama/llama-3-8b-instruct:free", // سريع وذكي جداً في المحادثات
+    "google/gemma-2-9b-it:free",           // نموذج جوجل المفتوح (كبديل)
+    "mistralai/mistral-7b-instruct:free"   // احتياطي ثالث
 ];
 
 const chatSessions = {}; 
@@ -48,23 +48,6 @@ function enforceSingleEmoji(text) {
     return cleanText;
 }
 
-async function urlToGenerativePart(url, mimeType) {
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-        const arrayBuffer = await response.arrayBuffer();
-        return {
-            inlineData: {
-                data: Buffer.from(arrayBuffer).toString("base64"),
-                mimeType
-            }
-        };
-    } catch (error) {
-        console.error("Error processing image:", error.message);
-        throw error; 
-    }
-}
-
 async function processAiActions(responseText, messageObject) {
     if (!responseText) return "";
     const actionRegex = /\[ACTION:([A-Z_]+)(?::(\w+))?\]/g;
@@ -81,11 +64,11 @@ async function processAiActions(responseText, messageObject) {
 }
 
 async function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
-    if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
+    // استخدام مفتاح OpenRouter بدلاً من Gemini
+    const openRouterKey = process.env.OPENROUTER_API_KEY;
+    if (!openRouterKey) return "⚠️ مفتاح OpenRouter (OPENROUTER_API_KEY) مفقود في ملف .env!";
 
-    const genAI = new GoogleGenerativeAI(apiKey);
     const sessionKey = `${channelId}-SFW`; 
-
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
 
     const contextInfo = `
@@ -99,83 +82,71 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     - Streak: ${userData.streak || 0}
     `;
 
-    // معالجة الصور
-    if (imageAttachment) {
-        for (const modelName of MODELS) {
-            try {
-                const model = genAI.getGenerativeModel({ 
-                    model: modelName,
-                    systemInstruction: { parts: [{ text: systemInstruction || "أنت مساعد ذكي." }], role: "model" }
-                });
-
-                const imagePart = await urlToGenerativePart(imageAttachment.url, imageAttachment.mimeType);
-                
-                const result = await model.generateContent([
-                    contextInfo,
-                    `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}`,
-                    imagePart
-                ]);
-
-                let responseText = result.response.text();
-                responseText = await processAiActions(responseText, messageObject);
-                return enforceSingleEmoji(responseText);
-
-            } catch (error) {
-                console.warn(`⚠️ [Image AI] ${modelName} failed: ${error.message}`);
-                if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
-                await sleep(2000);
-            }
-        }
+    // 🧠 بناء السجل السحري للمحادثة
+    if (!chatSessions[sessionKey]) {
+        chatSessions[sessionKey] = [
+            { role: "system", content: systemInstruction || "أنت مساعد ذكي." },
+            { role: "user", content: "[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak." },
+            { role: "assistant", content: "همم.. أنا أستمع لكم جميعاً. 👑" }
+        ];
     }
 
-    // معالجة النصوص والمحادثات المستمرة
-    for (const modelName of MODELS) {
+    // تنظيف الذاكرة إذا طالت المحادثة (حفظ التوكنات)
+    if (chatSessions[sessionKey].length > 15) {
+        chatSessions[sessionKey].splice(3, 2); 
+    }
+
+    const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage || "مرحباً"}`;
+    
+    let userMessageContent = fullMessage;
+    // دعم الصور في حال كان النموذج المفتوح يدعمها (الرؤية)
+    if (imageAttachment) {
+        userMessageContent = [
+            { type: "text", text: fullMessage },
+            { type: "image_url", image_url: { url: imageAttachment.url } }
+        ];
+    }
+
+    chatSessions[sessionKey].push({ role: "user", content: userMessageContent });
+
+    // 🚀 الإطلاق نحو نماذج OpenRouter
+    for (const modelName of OPENROUTER_MODELS) {
         try {
-            const model = genAI.getGenerativeModel({ 
-                model: modelName,
-                systemInstruction: { parts: [{ text: systemInstruction || "أنت مساعد ذكي." }], role: "model" }
+            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${openRouterKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: modelName,
+                    messages: chatSessions[sessionKey],
+                    max_tokens: 500 // للحد من الإطالة
+                })
             });
 
-            if (!chatSessions[sessionKey]) {
-                chatSessions[sessionKey] = model.startChat({
-                    history: [
-                        { 
-                            role: "user", 
-                            parts: [{ text: `[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak.` }] 
-                        },
-                        { 
-                            role: "model", 
-                            parts: [{ text: "همم.. أنا أستمع لكم جميعاً. 👑" }] 
-                        }
-                    ],
-                });
+            if (!response.ok) {
+                const errorData = await response.text();
+                throw new Error(`[${response.status}] ${errorData}`);
             }
 
-            const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage || "مرحباً"}`;
-            const result = await chatSessions[sessionKey].sendMessage(fullMessage);
-            
-            let responseText = result.response.text();
+            const data = await response.json();
+            let responseText = data.choices[0].message.content;
+
+            // حفظ رد البوت في الذاكرة لفهم السياق في الرسائل القادمة
+            chatSessions[sessionKey].push({ role: "assistant", content: responseText });
+
             responseText = await processAiActions(responseText, messageObject);
             return enforceSingleEmoji(responseText);
 
         } catch (error) {
-            if (chatSessions[sessionKey]) delete chatSessions[sessionKey];
+            console.warn(`⚠️ [OpenRouter] ${modelName} failed: ${error.message.split('\n')[0]}`);
             
-            // تم إصلاح السطر أدناه لإظهار الخطأ الحقيقي
-            console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message}`);
-
-            if (error.message.includes("429")) { // Rate Limit
-                await sleep(4000); 
-                continue; 
+            if (modelName === OPENROUTER_MODELS[OPENROUTER_MODELS.length - 1]) {
+                if (chatSessions[sessionKey]) delete chatSessions[sessionKey];
+                return "🌑 ... ";
             }
-            if (error.message.includes("503")) { // Service Unavailable
-                await sleep(2000); 
-                continue;
-            }
-
-            if (modelName === MODELS[MODELS.length - 1]) {
-                return "🌑 عـذرًا مـاذا قلـت؟ لم اسمعـك جيـدًا (خطأ في الاتصال)";
-            }
+            await sleep(2000); 
         }
     }
 }
@@ -184,7 +155,7 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
 setInterval(() => {
     const keys = Object.keys(chatSessions);
     if (keys.length > 0) {
-        console.log(`[AI Engine] Cleaning ${keys.length} cached sessions...`);
+        console.log(`[AI Engine] Cleaning ${keys.length} OpenRouter sessions...`);
         keys.forEach(key => delete chatSessions[key]);
     }
 }, 3600000); 
