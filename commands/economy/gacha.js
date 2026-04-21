@@ -181,45 +181,70 @@ function performPull(pityData, userRace) {
 
 async function maintainChestInventory(db, userId, guildId) {
     const consolidate = async (itemId) => {
-        // Step 1: Get total count first (separate query, always works)
-        let total = 0;
+        // Step 1: Get all rows with IDs and quantities (read-only, never loses data)
+        let rows = [];
         try {
             const r = await db.query(
-                `SELECT COALESCE(SUM(GREATEST(0, CAST(COALESCE("quantity"::TEXT, '0') AS INTEGER))), 0) AS cnt FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = $3`,
+                `SELECT "id", GREATEST(0, CAST(COALESCE("quantity"::TEXT, '0') AS INTEGER)) AS qty FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = $3 ORDER BY "id"`,
                 [userId, guildId, itemId]
             );
-            total = r.rows[0] ? Number(r.rows[0].cnt) : 0;
+            rows = r.rows || [];
         } catch(e) {
             try {
                 const r2 = await db.query(
-                    `SELECT COALESCE(SUM(GREATEST(0, CAST(COALESCE(quantity::TEXT, '0') AS INTEGER))), 0) AS cnt FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(CAST(itemid AS TEXT)) = $3`,
+                    `SELECT id, GREATEST(0, CAST(COALESCE(quantity::TEXT, '0') AS INTEGER)) AS qty FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(CAST(itemid AS TEXT)) = $3 ORDER BY id`,
                     [userId, guildId, itemId]
                 );
-                total = r2.rows[0] ? Number(r2.rows[0].cnt) : 0;
+                rows = r2.rows || [];
             } catch(e2) { return 0; }
         }
 
-        // Step 2: Delete all rows for this item
-        let deleted = false;
+        if (rows.length === 0) return 0;
+
+        const total = rows.reduce((sum, r) => sum + Number(r.qty || 0), 0);
+
+        // Single row: already consolidated, no DB modification needed
+        if (rows.length === 1) return total;
+
+        // Multiple rows: update first as keeper, delete/zero-out the rest
+        // IMPORTANT: never delete BEFORE the keeper has the total (prevents data loss)
+        const keeperId = rows[0].id;
+        const otherIds = rows.slice(1).map(r => r.id);
+
+        let keeperUpdated = false;
         try {
-            await db.query(
-                `DELETE FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2 AND LOWER(CAST("itemID" AS TEXT)) = $3`,
-                [userId, guildId, itemId]
-            );
-            deleted = true;
+            await db.query(`UPDATE user_inventory SET "quantity" = $1 WHERE "id" = $2`, [total, keeperId]);
+            keeperUpdated = true;
         } catch(e) {
             try {
-                await db.query(
-                    `DELETE FROM user_inventory WHERE userid = $1 AND guildid = $2 AND LOWER(CAST(itemid AS TEXT)) = $3`,
-                    [userId, guildId, itemId]
-                );
-                deleted = true;
-            } catch(e2) { return total; }
+                await db.query(`UPDATE user_inventory SET quantity = $1 WHERE id = $2`, [total, keeperId]);
+                keeperUpdated = true;
+            } catch(e2) {}
         }
 
-        // Step 3: Re-insert single consolidated row
-        if (deleted && total > 0) {
-            await safeExecute(db, `INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, total]);
+        // If keeper update failed, leave DB untouched and return the total we calculated
+        if (!keeperUpdated) return total;
+
+        // Keeper has total now; safe to remove (or zero-out) other rows
+        for (const otherId of otherIds) {
+            let removed = false;
+            try {
+                await db.query(`DELETE FROM user_inventory WHERE "id" = $1`, [otherId]);
+                removed = true;
+            } catch(e) {
+                try {
+                    await db.query(`DELETE FROM user_inventory WHERE id = $1`, [otherId]);
+                    removed = true;
+                } catch(e2) {}
+            }
+            if (!removed) {
+                // Fallback: zero out the row to prevent double-counting on next consolidation
+                try {
+                    await db.query(`UPDATE user_inventory SET "quantity" = 0 WHERE "id" = $1`, [otherId]);
+                } catch(e) {
+                    try { await db.query(`UPDATE user_inventory SET quantity = 0 WHERE id = $1`, [otherId]); } catch(e2) {}
+                }
+            }
         }
 
         return total;
@@ -333,18 +358,18 @@ module.exports = {
                 await safeExecute(db, `UPDATE user_gacha_pity SET "last_free_claim" = $1 WHERE "userID" = $2 AND "guildID" = $3`, [todaySaudi, user.id, guildId]);
                 pityData.last_free_claim = todaySaudi;
 
-                // حاول تحديث الصف الموجود أولاً، وإلا أدرج صفاً جديداً
+                // حاول تحديث صف واحد موجود (LIMIT 1 للسلامة)، وإلا أدرج صفاً جديداً
                 let dailyUpdated = false;
                 try {
                     const updRes = await db.query(
-                        `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = 'free_gacha_chest' RETURNING "quantity"`,
+                        `UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity"::TEXT,'0') AS INTEGER) + $1 WHERE "id" = (SELECT "id" FROM user_inventory WHERE "userID" = $2 AND "guildID" = $3 AND LOWER(CAST("itemID" AS TEXT)) = 'free_gacha_chest' ORDER BY "id" LIMIT 1) RETURNING "quantity"`,
                         [dailyLimit, user.id, guildId]
                     );
                     dailyUpdated = updRes && updRes.rows && updRes.rows.length > 0;
                 } catch(e) {
                     try {
                         const updRes2 = await db.query(
-                            `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity::TEXT,'0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND LOWER(CAST(itemid AS TEXT)) = 'free_gacha_chest' RETURNING quantity`,
+                            `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity::TEXT,'0') AS INTEGER) + $1 WHERE id = (SELECT id FROM user_inventory WHERE userid = $2 AND guildid = $3 AND LOWER(CAST(itemid AS TEXT)) = 'free_gacha_chest' ORDER BY id LIMIT 1) RETURNING quantity`,
                             [dailyLimit, user.id, guildId]
                         );
                         dailyUpdated = updRes2 && updRes2.rows && updRes2.rows.length > 0;
