@@ -22,6 +22,7 @@ function getAllowedEmojiIds() {
 const ALLOWED_EMOJI_IDS = getAllowedEmojiIds();
 
 function enforceSingleEmoji(text) {
+    if (!text) return "";
     let cleanText = text.replace(/(\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu, '');
 
     const customEmojiRegex = /<a?:\w+:(\d+)>/g;
@@ -65,6 +66,7 @@ async function urlToGenerativePart(url, mimeType) {
 }
 
 async function processAiActions(responseText, messageObject) {
+    if (!responseText) return "";
     const actionRegex = /\[ACTION:([A-Z_]+)(?::(\w+))?\]/g;
     let match;
     let cleanText = responseText;
@@ -72,39 +74,40 @@ async function processAiActions(responseText, messageObject) {
     while ((match = actionRegex.exec(responseText)) !== null) {
         const fullTag = match[0]; 
         await aiActionHandler.executeActions(messageObject, fullTag);
-        
         cleanText = cleanText.replace(fullTag, '');
     }
 
     return cleanText.trim();
 }
 
-async function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
-    if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
-
-    const genAI = new GoogleGenerativeAI(apiKey);
+async function generateResponse(apiKeyFallback, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
+    const keysRaw = process.env.GEMINI_API_KEY || apiKeyFallback || "";
+    const API_KEYS = keysRaw.includes(',') ? keysRaw.split(',').map(k => k.trim()).filter(k => k) : [keysRaw.trim()];
     
-    const sessionKey = `${channelId}-SFW`; 
+    if (API_KEYS.length === 0 || !API_KEYS[0]) return "⚠️ API Key Missing!";
 
+    const sessionKey = `${channelId}-SFW`; 
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
 
     const contextInfo = `
     [Current Speaker Stats]:
     - User ID: ${userId}
     - Name: ${username}
-    - Cash: ${userData.balance} Mora
+    - Cash: ${userData.balance || 0} Mora
     - Bank: ${userData.bank || 0} Mora
     - Total Wealth: ${totalWealth} Mora
-    - Level: ${userData.level}
-    - Streak: ${userData.streak}
+    - Level: ${userData.level || 1}
+    - Streak: ${userData.streak || 0}
     `;
 
     if (imageAttachment) {
         for (const modelName of MODELS) {
             try {
+                const currentKey = API_KEYS[Math.floor(Math.random() * API_KEYS.length)];
+                const genAI = new GoogleGenerativeAI(currentKey);
                 const model = genAI.getGenerativeModel({ 
                     model: modelName,
-                    systemInstruction: { parts: [{ text: systemInstruction }], role: "model" }
+                    systemInstruction: { parts: [{ text: systemInstruction || "أنت مساعد ذكي." }], role: "model" }
                 });
 
                 const imagePart = await urlToGenerativePart(imageAttachment.url, imageAttachment.mimeType);
@@ -116,13 +119,11 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
                 ]);
 
                 let responseText = result.response.text();
-                
                 responseText = await processAiActions(responseText, messageObject);
-
                 return enforceSingleEmoji(responseText);
 
             } catch (error) {
-                console.warn(`⚠️ [Image AI] ${modelName} failed, trying next...`);
+                console.warn(`⚠️ [Image AI] ${modelName} failed: ${error.message}`);
                 if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
                 await sleep(2000);
             }
@@ -131,9 +132,11 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
 
     for (const modelName of MODELS) {
         try {
+            const currentKey = API_KEYS[Math.floor(Math.random() * API_KEYS.length)];
+            const genAI = new GoogleGenerativeAI(currentKey);
             const model = genAI.getGenerativeModel({ 
                 model: modelName,
-                systemInstruction: { parts: [{ text: systemInstruction }], role: "model" }
+                systemInstruction: { parts: [{ text: systemInstruction || "أنت مساعد ذكي." }], role: "model" }
             });
 
             if (!chatSessions[sessionKey]) {
@@ -151,19 +154,17 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
                 });
             }
 
-            const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage}`;
+            const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage || "مرحباً"}`;
             const result = await chatSessions[sessionKey].sendMessage(fullMessage);
             
             let responseText = result.response.text();
-
             responseText = await processAiActions(responseText, messageObject);
-
             return enforceSingleEmoji(responseText);
 
         } catch (error) {
             if (chatSessions[sessionKey]) delete chatSessions[sessionKey];
             
-            console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message.split('[')[0]}`);
+            console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message}`);
 
             if (error.message.includes("429")) { 
                 await sleep(4000); 
