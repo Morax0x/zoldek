@@ -22,6 +22,7 @@ function getAllowedEmojiIds() {
 const ALLOWED_EMOJI_IDS = getAllowedEmojiIds();
 
 function enforceSingleEmoji(text) {
+    if (!text) return "";
     let cleanText = text.replace(/(\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu, '');
 
     const customEmojiRegex = /<a?:\w+:(\d+)>/g;
@@ -59,12 +60,13 @@ async function urlToGenerativePart(url, mimeType) {
             }
         };
     } catch (error) {
-        console.error("Error processing image:", error);
+        console.error("Error processing image:", error.message);
         throw error; 
     }
 }
 
 async function processAiActions(responseText, messageObject) {
+    if (!responseText) return "";
     const actionRegex = /\[ACTION:([A-Z_]+)(?::(\w+))?\]/g;
     let match;
     let cleanText = responseText;
@@ -72,7 +74,6 @@ async function processAiActions(responseText, messageObject) {
     while ((match = actionRegex.exec(responseText)) !== null) {
         const fullTag = match[0]; 
         await aiActionHandler.executeActions(messageObject, fullTag);
-        
         cleanText = cleanText.replace(fullTag, '');
     }
 
@@ -83,7 +84,6 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    
     const sessionKey = `${channelId}-SFW`; 
 
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
@@ -92,19 +92,20 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     [Current Speaker Stats]:
     - User ID: ${userId}
     - Name: ${username}
-    - Cash: ${userData.balance} Mora
+    - Cash: ${userData.balance || 0} Mora
     - Bank: ${userData.bank || 0} Mora
     - Total Wealth: ${totalWealth} Mora
-    - Level: ${userData.level}
-    - Streak: ${userData.streak}
+    - Level: ${userData.level || 1}
+    - Streak: ${userData.streak || 0}
     `;
 
+    // معالجة الصور
     if (imageAttachment) {
         for (const modelName of MODELS) {
             try {
                 const model = genAI.getGenerativeModel({ 
                     model: modelName,
-                    systemInstruction: { parts: [{ text: systemInstruction }], role: "model" }
+                    systemInstruction: { parts: [{ text: systemInstruction || "أنت مساعد ذكي." }], role: "model" }
                 });
 
                 const imagePart = await urlToGenerativePart(imageAttachment.url, imageAttachment.mimeType);
@@ -116,24 +117,23 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
                 ]);
 
                 let responseText = result.response.text();
-                
                 responseText = await processAiActions(responseText, messageObject);
-
                 return enforceSingleEmoji(responseText);
 
             } catch (error) {
-                console.warn(`⚠️ [Image AI] ${modelName} failed, trying next...`);
+                console.warn(`⚠️ [Image AI] ${modelName} failed: ${error.message}`);
                 if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
                 await sleep(2000);
             }
         }
     }
 
+    // معالجة النصوص والمحادثات المستمرة
     for (const modelName of MODELS) {
         try {
             const model = genAI.getGenerativeModel({ 
                 model: modelName,
-                systemInstruction: { parts: [{ text: systemInstruction }], role: "model" }
+                systemInstruction: { parts: [{ text: systemInstruction || "أنت مساعد ذكي." }], role: "model" }
             });
 
             if (!chatSessions[sessionKey]) {
@@ -151,36 +151,36 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
                 });
             }
 
-            const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage}`;
+            const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage || "مرحباً"}`;
             const result = await chatSessions[sessionKey].sendMessage(fullMessage);
             
             let responseText = result.response.text();
-
             responseText = await processAiActions(responseText, messageObject);
-
             return enforceSingleEmoji(responseText);
 
         } catch (error) {
             if (chatSessions[sessionKey]) delete chatSessions[sessionKey];
             
-            console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message.split('[')[0]}`);
+            // تم إصلاح السطر أدناه لإظهار الخطأ الحقيقي
+            console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message}`);
 
-            if (error.message.includes("429")) { 
+            if (error.message.includes("429")) { // Rate Limit
                 await sleep(4000); 
                 continue; 
             }
-            if (error.message.includes("503")) { 
+            if (error.message.includes("503")) { // Service Unavailable
                 await sleep(2000); 
                 continue;
             }
 
             if (modelName === MODELS[MODELS.length - 1]) {
-                return "🌑 عـذرًا مـاذا قلـت؟ لم اسمعـك جيـدًا";
+                return "🌑 عـذرًا مـاذا قلـت؟ لم اسمعـك جيـدًا (خطأ في الاتصال)";
             }
         }
     }
 }
 
+// تنظيف الجلسات لتخفيف الذاكرة
 setInterval(() => {
     const keys = Object.keys(chatSessions);
     if (keys.length > 0) {
