@@ -60,7 +60,6 @@ async function urlToGenerativePart(url, mimeType) {
             }
         };
     } catch (error) {
-        console.error("Error processing image:", error);
         throw error; 
     }
 }
@@ -114,7 +113,7 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
                 
                 const result = await model.generateContent([
                     contextInfo,
-                    `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}`,
+                    `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك؟"}`,
                     imagePart
                 ]);
 
@@ -124,7 +123,7 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
 
             } catch (error) {
                 console.warn(`⚠️ [Image AI] ${modelName} failed: ${error.message}`);
-                if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
+                if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من الرؤية بوضوح.";
                 await sleep(2000);
             }
         }
@@ -167,7 +166,7 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
             console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message}`);
 
             if (error.message.includes("429")) { 
-                await sleep(4000); 
+                await sleep(3000); 
                 continue; 
             }
             if (error.message.includes("503")) { 
@@ -176,7 +175,7 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
             }
 
             if (modelName === MODELS[MODELS.length - 1]) {
-                return "🌑 ... ";
+                return "🌑 ...";
             }
         }
     }
@@ -185,7 +184,6 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
 setInterval(() => {
     const keys = Object.keys(chatSessions);
     if (keys.length > 0) {
-        console.log(`[AI Engine] Cleaning ${keys.length} cached sessions...`);
         keys.forEach(key => delete chatSessions[key]);
     }
 }, 3600000); 
