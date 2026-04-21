@@ -192,7 +192,7 @@ module.exports = {
 
                         if (!isMedia) {
                             const memberTarget = await guild.members.fetch(targetUser.id).catch(()=>null);
-                            if(memberTarget) await updateNickname(memberTarget, amount, db).catch(()=>{});
+                            if(memberTarget) await updateNickname(memberTarget, db).catch(()=>{});
                         }
 
                         return msg.edit(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا 📸' : 'العادي 💬'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
@@ -226,7 +226,7 @@ module.exports = {
 
                         if (!isMedia) {
                             const memberTarget = await guild.members.fetch(targetUser.id).catch(()=>null);
-                            if(memberTarget) await updateNickname(memberTarget, amount, db).catch(()=>{});
+                            if(memberTarget) await updateNickname(memberTarget, db).catch(()=>{});
                         }
 
                         await submitted.editReply(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا 📸' : 'العادي 💬'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
