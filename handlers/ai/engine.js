@@ -5,8 +5,8 @@ require('dotenv').config();
 
 const MODELS = [
     "gemini-2.0-flash",        
-    "gemini-1.5-flash-002",        
-    "gemini-1.5-pro-002"
+    "gemini-1.5-flash",        
+    "gemini-1.5-pro"
 ];
 
 const chatSessions = {}; 
@@ -162,21 +162,12 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
 
         } catch (error) {
             if (chatSessions[sessionKey]) delete chatSessions[sessionKey];
-            
             console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message}`);
-
-            if (error.message.includes("429")) { 
-                await sleep(3000); 
-                continue; 
-            }
-            if (error.message.includes("503")) { 
-                await sleep(2000); 
-                continue;
-            }
 
             if (modelName === MODELS[MODELS.length - 1]) {
                 return "🌑 ...";
             }
+            await sleep(2000);
         }
     }
 }
