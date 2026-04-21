@@ -3,10 +3,9 @@ const aiActionHandler = require('../../utils/aiActionHandler');
 require('dotenv').config();
 
 const OPENROUTER_MODELS = [
-    "google/gemini-2.0-flash-lite-preview-02-05:free", 
-    "meta-llama/llama-3.1-8b-instruct:free",           
-    "qwen/qwen-2.5-72b-instruct:free",                 
-    "deepseek/deepseek-chat:free"                      
+    "google/gemini-2.0-pro-exp-02-05:free",
+    "meta-llama/llama-3-8b-instruct:free",
+    "huggingfaceh4/zephyr-7b-beta:free"
 ];
 
 const chatSessions = {}; 
@@ -148,7 +147,6 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
 setInterval(() => {
     const keys = Object.keys(chatSessions);
     if (keys.length > 0) {
-        console.log(`[AI Engine] Cleaning ${keys.length} OpenRouter sessions...`);
         keys.forEach(key => delete chatSessions[key]);
     }
 }, 3600000); 
