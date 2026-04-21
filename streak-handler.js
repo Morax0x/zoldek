@@ -203,9 +203,9 @@ async function checkDailyStreaks(client, db) {
         );
 
         if (diffDays === 2) {
-            if (Number(streakData.hasItemShield || streakData.hasitemshield) === 1) {
-                streakData.hasItemShield = 0;
-                streakData.lastMessageTimestamp = Date.now(); 
+            if (Number(streakData.hasItemShield || streakData.hasitemshield) > 0) {
+                streakData.hasItemShield = Number(streakData.hasItemShield || streakData.hasitemshield) - 1;
+                streakData.lastMessageTimestamp = Date.now();
                 await db.query(`UPDATE streaks SET "streakCount" = $1, "hasGracePeriod" = $2, "hasItemShield" = $3, "lastMessageTimestamp" = $4 WHERE "id" = $5`, [Number(streakData.streakCount || streakData.streakcount), Number(streakData.hasGracePeriod || streakData.hasgraceperiod), streakData.hasItemShield, streakData.lastMessageTimestamp, streakData.id]);
                 if (sendDM) {
                     const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Green)
@@ -287,9 +287,9 @@ async function checkDailyMediaStreaks(client, db) {
         );
 
         if (diffDays === 2) {
-            if (Number(streakData.hasItemShield || streakData.hasitemshield) === 1) {
-                streakData.hasItemShield = 0;
-                streakData.lastMediaTimestamp = Date.now(); 
+            if (Number(streakData.hasItemShield || streakData.hasitemshield) > 0) {
+                streakData.hasItemShield = Number(streakData.hasItemShield || streakData.hasitemshield) - 1;
+                streakData.lastMediaTimestamp = Date.now();
                 await db.query(`UPDATE media_streaks SET "streakCount" = $1, "hasGracePeriod" = $2, "hasItemShield" = $3, "lastMediaTimestamp" = $4 WHERE "id" = $5`, [Number(streakData.streakCount || streakData.streakcount), Number(streakData.hasGracePeriod || streakData.hasgraceperiod), streakData.hasItemShield, streakData.lastMediaTimestamp, streakData.id]);
                 if (sendDM) {
                     const embed = new EmbedBuilder().setTitle('✶ اشـعـارات ستـريـك المـيـديـا').setColor(Colors.Green)
