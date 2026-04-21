@@ -2,14 +2,38 @@ const { getEmojiContext } = require('./emojis');
 const aiActionHandler = require('../../utils/aiActionHandler'); 
 require('dotenv').config();
 
-// النماذج المجانية المستقرة (الأول هو Gemini 2.0 السريع!)
-const OPENROUTER_MODELS = [
-    "google/gemini-2.0-flash-lite-preview-02-05:free", 
-    "meta-llama/llama-3-8b-instruct:free"
-];
-
+let liveFreeModels = []; // مصفوفة تتحدث تلقائياً بالنماذج المتاحة
 const chatSessions = {}; 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// الدالة القاضية: تسحب النماذج المجانية الشغالة الآن بدون تخمين
+async function updateLiveModels() {
+    try {
+        const res = await fetch("https://openrouter.ai/api/v1/models");
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        // تصفية النماذج التي سعرها 0 بالضبط
+        const freeModels = data.data
+            .filter(m => m.pricing && parseFloat(m.pricing.prompt) === 0 && parseFloat(m.pricing.completion) === 0)
+            .map(m => m.id);
+            
+        // ترتيب النماذج: جيميناي أولاً، ثم لاما، ثم البقية
+        const gemini = freeModels.filter(id => id.toLowerCase().includes('gemini'));
+        const llama = freeModels.filter(id => id.toLowerCase().includes('llama'));
+        const others = freeModels.filter(id => !id.toLowerCase().includes('gemini') && !id.toLowerCase().includes('llama'));
+        
+        const combined = [...gemini, ...llama, ...others];
+        if (combined.length > 0) {
+            liveFreeModels = combined.slice(0, 5); // نأخذ أفضل 5 نماذج شغالة الآن
+        }
+    } catch (e) {
+        console.error("[AI Engine] Failed to fetch live models:", e);
+    }
+}
+
+// تحديث القائمة كل 12 ساعة لتجنب سقوط النماذج
+setInterval(updateLiveModels, 43200000);
 
 function getAllowedEmojiIds() {
     const context = getEmojiContext(); 
@@ -63,9 +87,17 @@ async function processAiActions(responseText, messageObject) {
 }
 
 async function generateResponse(apiKeyFallback, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
-    // جلب مفتاح OpenRouter من ريلواي
     const openRouterKey = process.env.OPENROUTER_API_KEY;
-    if (!openRouterKey) return "⚠️ مفتاح OpenRouter مفقود في المتغيرات (Variables)!";
+    if (!openRouterKey) return "⚠️ OPENROUTER_API_KEY Missing in .env!";
+
+    // إذا كانت القائمة فارغة، قم بجلبها فوراً
+    if (liveFreeModels.length === 0) {
+        await updateLiveModels();
+        // كود احتياطي في حال تعطل موقعهم
+        if (liveFreeModels.length === 0) {
+            liveFreeModels = ["google/gemini-2.0-flash:free", "meta-llama/llama-3-8b-instruct:free"];
+        }
+    }
 
     const sessionKey = `${channelId}-SFW`; 
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
@@ -105,13 +137,16 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
 
     chatSessions[sessionKey].push({ role: "user", content: userMessageContent });
 
-    for (const modelName of OPENROUTER_MODELS) {
+    // الدوران على النماذج الشغالة والمضمونة فقط
+    for (const modelName of liveFreeModels) {
         try {
             const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${openRouterKey}`,
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://discord.com", // يمنع حظر الـ 429 من المزودين
+                    "X-Title": "EmpressBot"
                 },
                 body: JSON.stringify({
                     model: modelName,
@@ -136,11 +171,11 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
         } catch (error) {
             console.warn(`⚠️ [OpenRouter] ${modelName} failed: ${error.message.split('\n')[0]}`);
             
-            if (modelName === OPENROUTER_MODELS[OPENROUTER_MODELS.length - 1]) {
+            if (modelName === liveFreeModels[liveFreeModels.length - 1]) {
                 if (chatSessions[sessionKey]) delete chatSessions[sessionKey];
-                return "🌑....";
+                return "🌑 النظام مشغول قليلاً... جرب ثانية.";
             }
-            await sleep(2000); 
+            await sleep(1500); 
         }
     }
 }
