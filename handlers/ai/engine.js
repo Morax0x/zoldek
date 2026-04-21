@@ -2,11 +2,11 @@ const { getEmojiContext } = require('./emojis');
 const aiActionHandler = require('../../utils/aiActionHandler'); 
 require('dotenv').config();
 
-// 🚀 أذكى النماذج المجانية المفتوحة (لن تكلفك قرشاً واحداً)
 const OPENROUTER_MODELS = [
-    "meta-llama/llama-3-8b-instruct:free", // سريع وذكي جداً في المحادثات
-    "google/gemma-2-9b-it:free",           // نموذج جوجل المفتوح (كبديل)
-    "mistralai/mistral-7b-instruct:free"   // احتياطي ثالث
+    "google/gemini-2.0-flash-lite-preview-02-05:free", 
+    "meta-llama/llama-3.1-8b-instruct:free",           
+    "qwen/qwen-2.5-72b-instruct:free",                 
+    "deepseek/deepseek-chat:free"                      
 ];
 
 const chatSessions = {}; 
@@ -64,9 +64,8 @@ async function processAiActions(responseText, messageObject) {
 }
 
 async function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
-    // استخدام مفتاح OpenRouter بدلاً من Gemini
     const openRouterKey = process.env.OPENROUTER_API_KEY;
-    if (!openRouterKey) return "⚠️ مفتاح OpenRouter (OPENROUTER_API_KEY) مفقود في ملف .env!";
+    if (!openRouterKey) return "⚠️ OPENROUTER_API_KEY Missing in .env!";
 
     const sessionKey = `${channelId}-SFW`; 
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
@@ -82,7 +81,6 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     - Streak: ${userData.streak || 0}
     `;
 
-    // 🧠 بناء السجل السحري للمحادثة
     if (!chatSessions[sessionKey]) {
         chatSessions[sessionKey] = [
             { role: "system", content: systemInstruction || "أنت مساعد ذكي." },
@@ -91,7 +89,6 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
         ];
     }
 
-    // تنظيف الذاكرة إذا طالت المحادثة (حفظ التوكنات)
     if (chatSessions[sessionKey].length > 15) {
         chatSessions[sessionKey].splice(3, 2); 
     }
@@ -99,7 +96,6 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage || "مرحباً"}`;
     
     let userMessageContent = fullMessage;
-    // دعم الصور في حال كان النموذج المفتوح يدعمها (الرؤية)
     if (imageAttachment) {
         userMessageContent = [
             { type: "text", text: fullMessage },
@@ -109,7 +105,6 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
 
     chatSessions[sessionKey].push({ role: "user", content: userMessageContent });
 
-    // 🚀 الإطلاق نحو نماذج OpenRouter
     for (const modelName of OPENROUTER_MODELS) {
         try {
             const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -121,7 +116,7 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
                 body: JSON.stringify({
                     model: modelName,
                     messages: chatSessions[sessionKey],
-                    max_tokens: 500 // للحد من الإطالة
+                    max_tokens: 500 
                 })
             });
 
@@ -133,7 +128,6 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
             const data = await response.json();
             let responseText = data.choices[0].message.content;
 
-            // حفظ رد البوت في الذاكرة لفهم السياق في الرسائل القادمة
             chatSessions[sessionKey].push({ role: "assistant", content: responseText });
 
             responseText = await processAiActions(responseText, messageObject);
@@ -151,7 +145,6 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     }
 }
 
-// تنظيف الجلسات لتخفيف الذاكرة
 setInterval(() => {
     const keys = Object.keys(chatSessions);
     if (keys.length > 0) {
