@@ -1,13 +1,12 @@
-const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } = require("discord.js");
-const { updateNickname } = require("../../streak-handler.js"); 
+const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ChannelType, MessageFlags } = require("discord.js");
+const { updateNickname } = require("../../streak-handler.js");
 
-// دالة المعالجة الآمنة للبيانات
 const safeQuery = async (db, qPg, params) => {
     let res;
-    try { 
-        res = await db.query(qPg, params); 
-    } catch(e) { 
-        res = { rows: [] }; 
+    try {
+        res = await db.query(qPg, params);
+    } catch(e) {
+        res = { rows: [] };
     }
 
     const rows1 = Array.isArray(res) ? res : (res?.rows || []);
@@ -19,19 +18,20 @@ const safeQuery = async (db, qPg, params) => {
         .replace(/"channelID"/g, "channelid")
         .replace(/"streakCount"/g, "streakcount")
         .replace(/"lastMessageTimestamp"/g, "lastmessagetimestamp")
+        .replace(/"lastMediaTimestamp"/g, "lastmediatimestamp")
         .replace(/"hasGracePeriod"/g, "hasgraceperiod")
         .replace(/"hasItemShield"/g, "hasitemshield")
         .replace(/"streakEmoji"/g, "streakemoji")
         .replace(/"id"/g, "id");
-    
+
     if (fallbackQuery !== qPg) {
-        try { 
-            let res2 = await db.query(fallbackQuery, params); 
+        try {
+            let res2 = await db.query(fallbackQuery, params);
             const rows2 = Array.isArray(res2) ? res2 : (res2?.rows || []);
             return { rows: rows2 };
         } catch(e2) { }
     }
-    
+
     return { rows: [] };
 };
 
@@ -42,8 +42,23 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
         .addSubcommand(sub => sub
             .setName('set')
-            .setDescription('يفتح نافذة لتحديد ستريك (عادي أو ميديا) لعضو معين يدوياً.')
-            .addUserOption(option => option.setName('user').setDescription('المستخدم الذي تريد تعديل الستريك له').setRequired(true))
+            .setDescription('تحديد ستريك لعضو معين يدوياً.')
+            .addUserOption(opt => opt.setName('user').setDescription('العضو المستهدف').setRequired(true))
+            .addStringOption(opt => opt
+                .setName('type')
+                .setDescription('نوع الستريك')
+                .setRequired(true)
+                .addChoices(
+                    { name: 'عادي 💬', value: 'normal' },
+                    { name: 'ميديا 📸', value: 'media' }
+                )
+            )
+            .addIntegerOption(opt => opt
+                .setName('amount')
+                .setDescription('العدد الجديد')
+                .setRequired(true)
+                .setMinValue(0)
+            )
         )
         .addSubcommand(sub => sub
             .setName('emoji')
@@ -75,8 +90,8 @@ module.exports = {
         const db = client.sql;
         const guild = interactionOrMessage.guild;
 
-        const member = isSlash ? interactionOrMessage.member : interactionOrMessage.member;
-        
+        const member = interactionOrMessage.member;
+
         if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             const err = '❌ | ليس لديك صلاحية الإدارة!';
             return isSlash ? interactionOrMessage.reply({ content: err, flags: [MessageFlags.Ephemeral] }) : interactionOrMessage.reply(err);
@@ -84,7 +99,7 @@ module.exports = {
 
         try {
             await safeQuery(db, `CREATE TABLE IF NOT EXISTS streaks ("id" TEXT PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "streakCount" BIGINT, "lastMessageTimestamp" BIGINT, "hasGracePeriod" BIGINT, "hasItemShield" BIGINT)`);
-            await safeQuery(db, `CREATE TABLE IF NOT EXISTS media_streaks ("id" TEXT PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "streakCount" BIGINT, "lastMessageTimestamp" BIGINT, "hasGracePeriod" BIGINT, "hasItemShield" BIGINT)`);
+            await safeQuery(db, `CREATE TABLE IF NOT EXISTS media_streaks ("id" TEXT PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "streakCount" BIGINT, "lastMediaTimestamp" BIGINT, "hasGracePeriod" BIGINT, "hasItemShield" BIGINT)`);
             await safeQuery(db, `CREATE TABLE IF NOT EXISTS media_streak_channels ("guildID" TEXT, "channelID" TEXT, PRIMARY KEY ("guildID", "channelID"))`);
             await safeQuery(db, `CREATE TABLE IF NOT EXISTS settings ("guild" TEXT PRIMARY KEY, "streakEmoji" TEXT)`);
             await safeQuery(db, `INSERT INTO settings ("guild") VALUES ($1) ON CONFLICT ("guild") DO NOTHING`, [guild.id]);
@@ -101,8 +116,8 @@ module.exports = {
             const group = interactionOrMessage.options.getSubcommandGroup();
             const sub = interactionOrMessage.options.getSubcommand();
             route = group ? `${group}_${sub}` : sub;
-            
-            if (route !== 'set' && route !== 'panel') {
+
+            if (route !== 'panel') {
                 await interactionOrMessage.deferReply({ flags: [MessageFlags.Ephemeral] });
             }
         } else {
@@ -126,118 +141,51 @@ module.exports = {
 
         const reply = async (payload) => {
             if (typeof payload === 'string') payload = { content: payload };
-            if (isSlash && (route !== 'set' && route !== 'panel')) return interactionOrMessage.editReply(payload);
+            if (isSlash && route !== 'panel') return interactionOrMessage.editReply(payload);
             return interactionOrMessage.reply(payload);
         };
 
         try {
             if (route === 'set') {
+                let amount, isMedia;
+
                 if (isSlash) {
                     targetUser = interactionOrMessage.options.getUser('user');
+                    isMedia = interactionOrMessage.options.getString('type') === 'media';
+                    amount = interactionOrMessage.options.getInteger('amount');
                 } else {
                     targetUser = interactionOrMessage.mentions.users.first();
                     if (!targetUser && args[0]) {
                         try { targetUser = await client.users.fetch(args[0].replace(/[<@!>]/g, '')); } catch(e){}
                     }
-                }
-                
-                if (!targetUser) {
-                    return isSlash ? interactionOrMessage.reply({ content: "❌ | يرجى تحديد العضو المطلوب.", flags: [MessageFlags.Ephemeral] }) : interactionOrMessage.reply("❌ | يرجى تحديد العضو المطلوب.");
-                }
 
-                const modalId = `str_set_${Date.now()}`;
-                const modal = new ModalBuilder().setCustomId(modalId).setTitle(`تعديل ستريك ${targetUser.username}`);
-                
-                const typeInput = new TextInputBuilder()
-                    .setCustomId('streak_type')
-                    .setLabel('النوع (اكتب: عادي أو ميديا)')
-                    .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('عادي / ميديا')
-                    .setRequired(true);
-                    
-                const amountInput = new TextInputBuilder()
-                    .setCustomId('streak_amount')
-                    .setLabel('العدد الجديد (أرقام فقط)')
-                    .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('مثال: 50')
-                    .setRequired(true);
+                    if (!targetUser) return interactionOrMessage.reply("❌ | يرجى تحديد العضو المطلوب.");
 
-                modal.addComponents(new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(amountInput));
-                
-                if (isSlash) {
-                    await interactionOrMessage.showModal(modal);
-                } else {
-                    const msg = await interactionOrMessage.reply("اكتب الآن `عادي <الرقم>` لتعديل ستريك الشات، أو `ميديا <الرقم>` لتعديل الميديا. (مثال: `ميديا 50`):");
+                    const msg = await interactionOrMessage.reply("اكتب الآن `عادي <الرقم>` أو `ميديا <الرقم>`. مثال: `ميديا 50`");
                     const filter = m => m.author.id === interactionOrMessage.author.id;
                     try {
                         const collected = await interactionOrMessage.channel.awaitMessages({ filter, max: 1, time: 60000, errors: ['time'] });
-                        const content = collected.first().content;
-                        const [type, amountStr] = content.split(' ');
-                        const amount = parseInt(amountStr);
-                        
+                        const parts = collected.first().content.trim().split(/\s+/);
+                        isMedia = parts[0].includes('ميديا') || parts[0].includes('media');
+                        amount = parseInt(parts[1]);
                         if (isNaN(amount) || amount < 0) return msg.edit("❌ عدد غير صالح.");
-                        
-                        // الفحص الذكي للكلمة
-                        const isMedia = type.includes('ميديا') || type.includes('صورة') || type.includes('فيديو') || type.includes('media');
-                        const tableName = isMedia ? 'media_streaks' : 'streaks';
-                        const streakId = `${guild.id}-${targetUser.id}`;
-                        
-                        await safeQuery(db, `
-                            INSERT INTO ${tableName} ("id", "guildID", "userID", "streakCount", "lastMessageTimestamp", "hasGracePeriod", "hasItemShield") 
-                            VALUES ($1, $2, $3, $4, $5, 1, 0)
-                            ON CONFLICT("id") DO UPDATE SET 
-                            "streakCount" = EXCLUDED."streakCount",
-                            "lastMessageTimestamp" = EXCLUDED."lastMessageTimestamp"
-                        `, [streakId, guild.id, targetUser.id, amount, Date.now()]);
-
-                        if (!isMedia) {
-                            const memberTarget = await guild.members.fetch(targetUser.id).catch(()=>null);
-                            if(memberTarget) await updateNickname(memberTarget, db).catch(()=>{});
-                        }
-
-                        return msg.edit(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا 📸' : 'العادي 💬'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
-                    } catch (e) {
+                    } catch(e) {
                         return msg.edit("⏳ انتهى الوقت. تم إلغاء التعديل.");
                     }
+
+                    await applyStreakSet(db, guild, targetUser, isMedia, amount);
+                    return msg.edit(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا 📸' : 'العادي 💬'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
                 }
 
-                if (isSlash) {
-                    try {
-                        const submitted = await interactionOrMessage.awaitModalSubmit({ filter: sub => sub.customId === modalId && sub.user.id === interactionOrMessage.user.id, time: 120000 });
-                        await submitted.deferReply({ flags: [MessageFlags.Ephemeral] });
+                if (!targetUser) return reply("❌ | يرجى تحديد العضو المطلوب.");
 
-                        const typeStr = submitted.fields.getTextInputValue('streak_type').toLowerCase();
-                        const amount = parseInt(submitted.fields.getTextInputValue('streak_amount'));
-
-                        if (isNaN(amount) || amount < 0) return submitted.editReply("❌ يرجى إدخال عدد صحيح.");
-
-                        // الفحص الذكي للكلمة
-                        const isMedia = typeStr.includes('ميديا') || typeStr.includes('صور') || typeStr.includes('فيديو') || typeStr.includes('media');
-                        const tableName = isMedia ? 'media_streaks' : 'streaks';
-                        const streakId = `${guild.id}-${targetUser.id}`;
-
-                        await safeQuery(db, `
-                            INSERT INTO ${tableName} ("id", "guildID", "userID", "streakCount", "lastMessageTimestamp", "hasGracePeriod", "hasItemShield") 
-                            VALUES ($1, $2, $3, $4, $5, 1, 0)
-                            ON CONFLICT("id") DO UPDATE SET 
-                            "streakCount" = EXCLUDED."streakCount",
-                            "lastMessageTimestamp" = EXCLUDED."lastMessageTimestamp"
-                        `, [streakId, guild.id, targetUser.id, amount, Date.now()]);
-
-                        if (!isMedia) {
-                            const memberTarget = await guild.members.fetch(targetUser.id).catch(()=>null);
-                            if(memberTarget) await updateNickname(memberTarget, db).catch(()=>{});
-                        }
-
-                        await submitted.editReply(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا 📸' : 'العادي 💬'}) لـ ${targetUser.username} ليصبح **${amount}🔥**.`);
-                    } catch (e) {}
-                }
-                return;
+                await applyStreakSet(db, guild, targetUser, isMedia, amount);
+                return reply(`✅ | تم تحديد ستريك (${isMedia ? 'الميديا 📸' : 'العادي 💬'}) لـ **${targetUser.username}** ليصبح **${amount}🔥**.`);
             }
 
             if (route === 'emoji') {
                 if (isSlash) emojiStr = interactionOrMessage.options.getString('emoji');
-                
+
                 if (!emojiStr) return reply("الاستخدام: يرجى إدخال الإيموجي الجديد.");
 
                 await safeQuery(db, `UPDATE settings SET "streakEmoji" = $1 WHERE "guild" = $2`, [emojiStr, guild.id]);
@@ -255,7 +203,7 @@ module.exports = {
                 ].join('\n');
 
                 const embed = new EmbedBuilder()
-                    .setColor(0xFF0000) 
+                    .setColor(0xFF0000)
                     .setTitle('✶ لـوحـة السـتريـك')
                     .setDescription(description)
                     .setImage('https://i.postimg.cc/NfLYXwD5/123.jpg');
@@ -306,9 +254,8 @@ module.exports = {
                 if (isSlash) targetChannel = interactionOrMessage.options.getChannel('channel');
                 if (!targetChannel) return reply({ content: `❌ يجب تحديد القناة.` });
 
-                const res = await safeQuery(db, `DELETE FROM media_streak_channels WHERE "guildID" = $1 AND "channelID" = $2`, [guild.id, targetChannel.id]);
-                if (res.rows.length > 0 || !res.error) return reply({ embeds: [new EmbedBuilder().setColor(Colors.Green).setDescription(`✅ تم إزالة روم ${targetChannel} من رومات ستريك الميديا.`)] });
-                return reply({ embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(`❌ روم ${targetChannel} غير موجود في القائمة أصلاً.`)] });
+                await safeQuery(db, `DELETE FROM media_streak_channels WHERE "guildID" = $1 AND "channelID" = $2`, [guild.id, targetChannel.id]);
+                return reply({ embeds: [new EmbedBuilder().setColor(Colors.Green).setDescription(`✅ تم إزالة روم ${targetChannel} من رومات ستريك الميديا.`)] });
             }
 
             if (route === 'media_list') {
@@ -316,7 +263,7 @@ module.exports = {
                 const channels = res.rows;
 
                 if (channels.length === 0) return reply({ embeds: [new EmbedBuilder().setColor(Colors.Yellow).setDescription("ℹ️ لا توجد أي رومات مخصصة لستريك الميديا حالياً.")] });
-                
+
                 const channelList = channels.map(c => `<#${c.channelID || c.channelid}>`).join('\n');
                 return reply({ embeds: [new EmbedBuilder().setColor(Colors.Green).setTitle('📸 رومات ستريك الميديا المسجلة').setDescription(channelList)] });
             }
@@ -327,3 +274,27 @@ module.exports = {
         }
     }
 };
+
+async function applyStreakSet(db, guild, targetUser, isMedia, amount) {
+    const streakId = `${guild.id}-${targetUser.id}`;
+
+    if (isMedia) {
+        await safeQuery(db, `
+            INSERT INTO media_streaks ("id", "guildID", "userID", "streakCount", "lastMediaTimestamp", "hasGracePeriod", "hasItemShield")
+            VALUES ($1, $2, $3, $4, $5, 1, 0)
+            ON CONFLICT("id") DO UPDATE SET
+            "streakCount" = EXCLUDED."streakCount",
+            "lastMediaTimestamp" = EXCLUDED."lastMediaTimestamp"
+        `, [streakId, guild.id, targetUser.id, amount, Date.now()]);
+    } else {
+        await safeQuery(db, `
+            INSERT INTO streaks ("id", "guildID", "userID", "streakCount", "lastMessageTimestamp", "hasGracePeriod", "hasItemShield")
+            VALUES ($1, $2, $3, $4, $5, 1, 0)
+            ON CONFLICT("id") DO UPDATE SET
+            "streakCount" = EXCLUDED."streakCount",
+            "lastMessageTimestamp" = EXCLUDED."lastMessageTimestamp"
+        `, [streakId, guild.id, targetUser.id, amount, Date.now()]);
+        const memberTarget = await guild.members.fetch(targetUser.id).catch(() => null);
+        if (memberTarget) await updateNickname(memberTarget, db).catch(() => {});
+    }
+}
