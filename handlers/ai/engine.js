@@ -2,13 +2,15 @@ const { getEmojiContext } = require('./emojis');
 const aiActionHandler = require('../../utils/aiActionHandler');
 require('dotenv').config();
 
-const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-const MODELS = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro"
+const TEXT_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768"
 ];
+
+const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const chatSessions = {};
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -48,48 +50,37 @@ function enforceSingleEmoji(text) {
     return cleanText;
 }
 
-async function urlToGenerativePart(url, mimeType) {
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-        const arrayBuffer = await response.arrayBuffer();
-        return {
-            inlineData: {
-                data: Buffer.from(arrayBuffer).toString("base64"),
-                mimeType
-            }
-        };
-    } catch (error) {
-        console.error("Error processing image:", error);
-        throw error;
-    }
+async function fetchImageAsBase64(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString("base64");
 }
 
-async function callGeminiAPI(apiKey, modelName, systemInstruction, contents) {
-    const url = `${GEMINI_API_BASE}/${modelName}:generateContent?key=${apiKey}`;
-
-    const body = {
-        system_instruction: {
-            parts: [{ text: systemInstruction }]
-        },
-        contents
-    };
-
-    const response = await fetch(url, {
+async function callGroqAPI(apiKey, model, messages) {
+    const response = await fetch(GROQ_API_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+            model,
+            messages,
+            max_tokens: 1024,
+            temperature: 1
+        })
     });
 
     if (!response.ok) {
         const errText = await response.text();
-        const err = new Error(`Gemini API error ${response.status}: ${errText}`);
+        const err = new Error(`Groq API error ${response.status}: ${errText}`);
         err.status = response.status;
         throw err;
     }
 
     const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    return data.choices?.[0]?.message?.content ?? "";
 }
 
 async function processAiActions(responseText, messageObject) {
@@ -100,7 +91,6 @@ async function processAiActions(responseText, messageObject) {
     while ((match = actionRegex.exec(responseText)) !== null) {
         const fullTag = match[0];
         await aiActionHandler.executeActions(messageObject, fullTag);
-
         cleanText = cleanText.replace(fullTag, '');
     }
 
@@ -108,7 +98,8 @@ async function processAiActions(responseText, messageObject) {
 }
 
 async function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
-    if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
+    const key = apiKey || process.env.GROQ_API_KEY;
+    if (!key) return "⚠️ مفتاح الخزينة (GROQ_API_KEY) مفقود!";
 
     const sessionKey = `${channelId}-SFW`;
 
@@ -126,57 +117,66 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     `;
 
     if (imageAttachment) {
-        for (const modelName of MODELS) {
-            try {
-                const imagePart = await urlToGenerativePart(imageAttachment.url, imageAttachment.mimeType);
+        try {
+            const base64 = await fetchImageAsBase64(imageAttachment.url);
 
-                const contents = [{
+            const messages = [
+                { role: "system", content: systemInstruction },
+                {
                     role: "user",
-                    parts: [
-                        { text: contextInfo },
-                        { text: `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}` },
-                        imagePart
+                    content: [
+                        {
+                            type: "text",
+                            text: `${contextInfo}\n[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}`
+                        },
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: `data:${imageAttachment.mimeType};base64,${base64}`
+                            }
+                        }
                     ]
-                }];
+                }
+            ];
 
-                let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, contents);
+            let responseText = await callGroqAPI(key, VISION_MODEL, messages);
+            responseText = await processAiActions(responseText, messageObject);
+            return enforceSingleEmoji(responseText);
 
-                responseText = await processAiActions(responseText, messageObject);
-
-                return enforceSingleEmoji(responseText);
-
-            } catch (error) {
-                console.warn(`⚠️ [Image AI] ${modelName} failed, trying next...`);
-                if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
-                await sleep(2000);
-            }
+        } catch (error) {
+            console.warn(`⚠️ [Image AI] Vision failed: ${error.message}`);
+            return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
         }
     }
 
-    for (const modelName of MODELS) {
+    for (const modelName of TEXT_MODELS) {
         try {
             if (!chatSessions[sessionKey]) {
                 chatSessions[sessionKey] = [
                     {
                         role: "user",
-                        parts: [{ text: `[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak.` }]
+                        content: `[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak.`
                     },
                     {
-                        role: "model",
-                        parts: [{ text: "همم.. أنا أستمع لكم جميعاً. 👑" }]
+                        role: "assistant",
+                        content: "همم.. أنا أستمع لكم جميعاً. 👑"
                     }
                 ];
             }
 
             const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage}`;
-            chatSessions[sessionKey].push({ role: "user", parts: [{ text: fullMessage }] });
+            chatSessions[sessionKey].push({ role: "user", content: fullMessage });
 
-            let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, chatSessions[sessionKey]);
+            const messages = [
+                { role: "system", content: systemInstruction },
+                ...chatSessions[sessionKey]
+            ];
 
-            chatSessions[sessionKey].push({ role: "model", parts: [{ text: responseText }] });
+            let responseText = await callGroqAPI(key, modelName, messages);
+
+            chatSessions[sessionKey].push({ role: "assistant", content: responseText });
 
             responseText = await processAiActions(responseText, messageObject);
-
             return enforceSingleEmoji(responseText);
 
         } catch (error) {
@@ -193,7 +193,7 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
                 continue;
             }
 
-            if (modelName === MODELS[MODELS.length - 1]) {
+            if (modelName === TEXT_MODELS[TEXT_MODELS.length - 1]) {
                 return "🌑 ..";
             }
         }
