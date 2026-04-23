@@ -11,7 +11,7 @@ async function triggerAutoChat(client) {
         const channel = client.channels.cache.get(CHAT_CHANNEL_ID);
         if (!channel) return;
 
-        const apiKey = process.env.GEMINI_API_KEY || config.geminiApiKey;
+        const apiKey = process.env.GROQ_API_KEY;
         const db = client.sql;
 
         const leaderboardInfo = await getLeaderboardKnowledge(db, GUILD_ID);
