@@ -22,7 +22,6 @@ function getAllowedEmojiIds() {
 const ALLOWED_EMOJI_IDS = getAllowedEmojiIds();
 
 function enforceSingleEmoji(text) {
-    if (!text) return "";
     let cleanText = text.replace(/(\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu, '');
 
     const customEmojiRegex = /<a?:\w+:(\d+)>/g;
@@ -60,12 +59,12 @@ async function urlToGenerativePart(url, mimeType) {
             }
         };
     } catch (error) {
+        console.error("Error processing image:", error);
         throw error; 
     }
 }
 
 async function processAiActions(responseText, messageObject) {
-    if (!responseText) return "";
     const actionRegex = /\[ACTION:([A-Z_]+)(?::(\w+))?\]/g;
     let match;
     let cleanText = responseText;
@@ -73,57 +72,58 @@ async function processAiActions(responseText, messageObject) {
     while ((match = actionRegex.exec(responseText)) !== null) {
         const fullTag = match[0]; 
         await aiActionHandler.executeActions(messageObject, fullTag);
+        
         cleanText = cleanText.replace(fullTag, '');
     }
 
     return cleanText.trim();
 }
 
-async function generateResponse(apiKeyFallback, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
-    const keysRaw = process.env.GEMINI_API_KEY || apiKeyFallback || "";
-    const API_KEYS = keysRaw.includes(',') ? keysRaw.split(',').map(k => k.trim()).filter(k => k) : [keysRaw.trim()];
-    
-    if (API_KEYS.length === 0 || !API_KEYS[0]) return "⚠️ API Key Missing!";
+async function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
+    if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
 
+    const genAI = new GoogleGenerativeAI(apiKey);
+    
     const sessionKey = `${channelId}-SFW`; 
+
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
 
     const contextInfo = `
     [Current Speaker Stats]:
     - User ID: ${userId}
     - Name: ${username}
-    - Cash: ${userData.balance || 0} Mora
+    - Cash: ${userData.balance} Mora
     - Bank: ${userData.bank || 0} Mora
     - Total Wealth: ${totalWealth} Mora
-    - Level: ${userData.level || 1}
-    - Streak: ${userData.streak || 0}
+    - Level: ${userData.level}
+    - Streak: ${userData.streak}
     `;
 
     if (imageAttachment) {
         for (const modelName of MODELS) {
             try {
-                const currentKey = API_KEYS[Math.floor(Math.random() * API_KEYS.length)];
-                const genAI = new GoogleGenerativeAI(currentKey);
                 const model = genAI.getGenerativeModel({ 
                     model: modelName,
-                    systemInstruction: { parts: [{ text: systemInstruction || "أنت مساعد ذكي." }], role: "model" }
+                    systemInstruction: { parts: [{ text: systemInstruction }], role: "model" }
                 });
 
                 const imagePart = await urlToGenerativePart(imageAttachment.url, imageAttachment.mimeType);
                 
                 const result = await model.generateContent([
                     contextInfo,
-                    `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك؟"}`,
+                    `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}`,
                     imagePart
                 ]);
 
                 let responseText = result.response.text();
+                
                 responseText = await processAiActions(responseText, messageObject);
+
                 return enforceSingleEmoji(responseText);
 
             } catch (error) {
-                console.warn(`⚠️ [Image AI] ${modelName} failed: ${error.message}`);
-                if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من الرؤية بوضوح.";
+                console.warn(`⚠️ [Image AI] ${modelName} failed, trying next...`);
+                if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
                 await sleep(2000);
             }
         }
@@ -131,11 +131,9 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
 
     for (const modelName of MODELS) {
         try {
-            const currentKey = API_KEYS[Math.floor(Math.random() * API_KEYS.length)];
-            const genAI = new GoogleGenerativeAI(currentKey);
             const model = genAI.getGenerativeModel({ 
                 model: modelName,
-                systemInstruction: { parts: [{ text: systemInstruction || "أنت مساعد ذكي." }], role: "model" }
+                systemInstruction: { parts: [{ text: systemInstruction }], role: "model" }
             });
 
             if (!chatSessions[sessionKey]) {
@@ -153,21 +151,32 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
                 });
             }
 
-            const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage || "مرحباً"}`;
+            const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage}`;
             const result = await chatSessions[sessionKey].sendMessage(fullMessage);
             
             let responseText = result.response.text();
+
             responseText = await processAiActions(responseText, messageObject);
+
             return enforceSingleEmoji(responseText);
 
         } catch (error) {
             if (chatSessions[sessionKey]) delete chatSessions[sessionKey];
-            console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message}`);
+            
+            console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message.split('[')[0]}`);
+
+            if (error.message.includes("429")) { 
+                await sleep(4000); 
+                continue; 
+            }
+            if (error.message.includes("503")) { 
+                await sleep(2000); 
+                continue;
+            }
 
             if (modelName === MODELS[MODELS.length - 1]) {
-                return "🌑 ...";
+                return "🌑 ..";
             }
-            await sleep(2000);
         }
     }
 }
@@ -175,6 +184,7 @@ async function generateResponse(apiKeyFallback, systemInstruction, userMessage, 
 setInterval(() => {
     const keys = Object.keys(chatSessions);
     if (keys.length > 0) {
+        console.log(`[AI Engine] Cleaning ${keys.length} cached sessions...`);
         keys.forEach(key => delete chatSessions[key]);
     }
 }, 3600000); 
