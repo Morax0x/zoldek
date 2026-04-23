@@ -2,7 +2,7 @@ const { PermissionsBitField, SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('تحديد-رتبة-vip')
+        .setName('تحديد-رتبـة-vip')
         .setDescription('يحدد رتبة الـ VIP التي يحصل عليها اللاعبون من المتجر.')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild)
         .addRoleOption(option =>
