@@ -1,22 +1,23 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { getEmojiContext } = require('./emojis'); 
-const aiActionHandler = require('../../utils/aiActionHandler'); 
+const { getEmojiContext } = require('./emojis');
+const aiActionHandler = require('../../utils/aiActionHandler');
 require('dotenv').config();
 
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
 const MODELS = [
-    "gemini-2.0-flash",        
-    "gemini-1.5-flash",        
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
     "gemini-1.5-pro"
 ];
 
-const chatSessions = {}; 
+const chatSessions = {};
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function getAllowedEmojiIds() {
-    const context = getEmojiContext(); 
-    const matches = context.match(/:(\d+)>/g); 
+    const context = getEmojiContext();
+    const matches = context.match(/:(\d+)>/g);
     if (!matches) return [];
-    return matches.map(m => m.replace(/[:>]/g, '')); 
+    return matches.map(m => m.replace(/[:>]/g, ''));
 }
 
 const ALLOWED_EMOJI_IDS = getAllowedEmojiIds();
@@ -27,11 +28,11 @@ function enforceSingleEmoji(text) {
     const customEmojiRegex = /<a?:\w+:(\d+)>/g;
     const foundEmojis = [];
     let match;
-    
+
     while ((match = customEmojiRegex.exec(text)) !== null) {
         const fullEmoji = match[0];
         const emojiId = match[1];
-        
+
         if (ALLOWED_EMOJI_IDS.includes(emojiId)) {
             foundEmojis.push(fullEmoji);
         }
@@ -60,8 +61,35 @@ async function urlToGenerativePart(url, mimeType) {
         };
     } catch (error) {
         console.error("Error processing image:", error);
-        throw error; 
+        throw error;
     }
+}
+
+async function callGeminiAPI(apiKey, modelName, systemInstruction, contents) {
+    const url = `${GEMINI_API_BASE}/${modelName}:generateContent?key=${apiKey}`;
+
+    const body = {
+        system_instruction: {
+            parts: [{ text: systemInstruction }]
+        },
+        contents
+    };
+
+    const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+        const errText = await response.text();
+        const err = new Error(`Gemini API error ${response.status}: ${errText}`);
+        err.status = response.status;
+        throw err;
+    }
+
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 }
 
 async function processAiActions(responseText, messageObject) {
@@ -70,9 +98,9 @@ async function processAiActions(responseText, messageObject) {
     let cleanText = responseText;
 
     while ((match = actionRegex.exec(responseText)) !== null) {
-        const fullTag = match[0]; 
+        const fullTag = match[0];
         await aiActionHandler.executeActions(messageObject, fullTag);
-        
+
         cleanText = cleanText.replace(fullTag, '');
     }
 
@@ -82,9 +110,7 @@ async function processAiActions(responseText, messageObject) {
 async function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
     if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    
-    const sessionKey = `${channelId}-SFW`; 
+    const sessionKey = `${channelId}-SFW`;
 
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
 
@@ -102,21 +128,19 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     if (imageAttachment) {
         for (const modelName of MODELS) {
             try {
-                const model = genAI.getGenerativeModel({ 
-                    model: modelName,
-                    systemInstruction: { parts: [{ text: systemInstruction }], role: "model" }
-                });
-
                 const imagePart = await urlToGenerativePart(imageAttachment.url, imageAttachment.mimeType);
-                
-                const result = await model.generateContent([
-                    contextInfo,
-                    `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}`,
-                    imagePart
-                ]);
 
-                let responseText = result.response.text();
-                
+                const contents = [{
+                    role: "user",
+                    parts: [
+                        { text: contextInfo },
+                        { text: `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}` },
+                        imagePart
+                    ]
+                }];
+
+                let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, contents);
+
                 responseText = await processAiActions(responseText, messageObject);
 
                 return enforceSingleEmoji(responseText);
@@ -131,30 +155,25 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
 
     for (const modelName of MODELS) {
         try {
-            const model = genAI.getGenerativeModel({ 
-                model: modelName,
-                systemInstruction: { parts: [{ text: systemInstruction }], role: "model" }
-            });
-
             if (!chatSessions[sessionKey]) {
-                chatSessions[sessionKey] = model.startChat({
-                    history: [
-                        { 
-                            role: "user", 
-                            parts: [{ text: `[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak.` }] 
-                        },
-                        { 
-                            role: "model", 
-                            parts: [{ text: "همم.. أنا أستمع لكم جميعاً. 👑" }] 
-                        }
-                    ],
-                });
+                chatSessions[sessionKey] = [
+                    {
+                        role: "user",
+                        parts: [{ text: `[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak.` }]
+                    },
+                    {
+                        role: "model",
+                        parts: [{ text: "همم.. أنا أستمع لكم جميعاً. 👑" }]
+                    }
+                ];
             }
 
             const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage}`;
-            const result = await chatSessions[sessionKey].sendMessage(fullMessage);
-            
-            let responseText = result.response.text();
+            chatSessions[sessionKey].push({ role: "user", parts: [{ text: fullMessage }] });
+
+            let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, chatSessions[sessionKey]);
+
+            chatSessions[sessionKey].push({ role: "model", parts: [{ text: responseText }] });
 
             responseText = await processAiActions(responseText, messageObject);
 
@@ -162,15 +181,15 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
 
         } catch (error) {
             if (chatSessions[sessionKey]) delete chatSessions[sessionKey];
-            
+
             console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message.split('[')[0]}`);
 
-            if (error.message.includes("429")) { 
-                await sleep(4000); 
-                continue; 
+            if (error.message.includes("429") || error.status === 429) {
+                await sleep(4000);
+                continue;
             }
-            if (error.message.includes("503")) { 
-                await sleep(2000); 
+            if (error.message.includes("503") || error.status === 503) {
+                await sleep(2000);
                 continue;
             }
 
@@ -187,6 +206,6 @@ setInterval(() => {
         console.log(`[AI Engine] Cleaning ${keys.length} cached sessions...`);
         keys.forEach(key => delete chatSessions[key]);
     }
-}, 3600000); 
+}, 3600000);
 
 module.exports = { generateResponse };
