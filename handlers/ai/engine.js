@@ -2,15 +2,13 @@ const { getEmojiContext } = require('./emojis');
 const aiActionHandler = require('../../utils/aiActionHandler');
 require('dotenv').config();
 
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-const TEXT_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768"
+const MODELS = [
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro"
 ];
-
-const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const chatSessions = {};
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -50,37 +48,48 @@ function enforceSingleEmoji(text) {
     return cleanText;
 }
 
-async function fetchImageAsBase64(url) {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer).toString("base64");
+async function urlToGenerativePart(url, mimeType) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+        const arrayBuffer = await response.arrayBuffer();
+        return {
+            inlineData: {
+                data: Buffer.from(arrayBuffer).toString("base64"),
+                mimeType
+            }
+        };
+    } catch (error) {
+        console.error("Error processing image:", error);
+        throw error;
+    }
 }
 
-async function callGroqAPI(apiKey, model, messages) {
-    const response = await fetch(GROQ_API_URL, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
+async function callGeminiAPI(apiKey, modelName, systemInstruction, contents) {
+    const url = `${GEMINI_API_BASE}/${modelName}:generateContent?key=${apiKey}`;
+
+    const body = {
+        system_instruction: {
+            parts: [{ text: systemInstruction }]
         },
-        body: JSON.stringify({
-            model,
-            messages,
-            max_tokens: 1024,
-            temperature: 1
-        })
+        contents
+    };
+
+    const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
     });
 
     if (!response.ok) {
         const errText = await response.text();
-        const err = new Error(`Groq API error ${response.status}: ${errText}`);
+        const err = new Error(`Gemini API error ${response.status}: ${errText}`);
         err.status = response.status;
         throw err;
     }
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content ?? "";
+    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 }
 
 async function processAiActions(responseText, messageObject) {
@@ -98,8 +107,7 @@ async function processAiActions(responseText, messageObject) {
 }
 
 async function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
-    const key = apiKey || process.env.GROQ_API_KEY;
-    if (!key) return "⚠️ مفتاح الخزينة (GROQ_API_KEY) مفقود!";
+    if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
 
     const sessionKey = `${channelId}-SFW`;
 
@@ -117,64 +125,52 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     `;
 
     if (imageAttachment) {
-        try {
-            const base64 = await fetchImageAsBase64(imageAttachment.url);
+        for (const modelName of MODELS) {
+            try {
+                const imagePart = await urlToGenerativePart(imageAttachment.url, imageAttachment.mimeType);
 
-            const messages = [
-                { role: "system", content: systemInstruction },
-                {
+                const contents = [{
                     role: "user",
-                    content: [
-                        {
-                            type: "text",
-                            text: `${contextInfo}\n[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}`
-                        },
-                        {
-                            type: "image_url",
-                            image_url: {
-                                url: `data:${imageAttachment.mimeType};base64,${base64}`
-                            }
-                        }
+                    parts: [
+                        { text: contextInfo },
+                        { text: `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}` },
+                        imagePart
                     ]
-                }
-            ];
+                }];
 
-            let responseText = await callGroqAPI(key, VISION_MODEL, messages);
-            responseText = await processAiActions(responseText, messageObject);
-            return enforceSingleEmoji(responseText);
+                let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, contents);
+                responseText = await processAiActions(responseText, messageObject);
+                return enforceSingleEmoji(responseText);
 
-        } catch (error) {
-            console.warn(`⚠️ [Image AI] Vision failed: ${error.message}`);
-            return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
+            } catch (error) {
+                console.warn(`⚠️ [Image AI] ${modelName} failed, trying next...`);
+                if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
+                await sleep(2000);
+            }
         }
     }
 
-    for (const modelName of TEXT_MODELS) {
+    for (const modelName of MODELS) {
         try {
             if (!chatSessions[sessionKey]) {
                 chatSessions[sessionKey] = [
                     {
                         role: "user",
-                        content: `[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak.`
+                        parts: [{ text: `[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak.` }]
                     },
                     {
-                        role: "assistant",
-                        content: "همم.. أنا أستمع لكم جميعاً. 👑"
+                        role: "model",
+                        parts: [{ text: "همم.. أنا أستمع لكم جميعاً. 👑" }]
                     }
                 ];
             }
 
             const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage}`;
-            chatSessions[sessionKey].push({ role: "user", content: fullMessage });
+            chatSessions[sessionKey].push({ role: "user", parts: [{ text: fullMessage }] });
 
-            const messages = [
-                { role: "system", content: systemInstruction },
-                ...chatSessions[sessionKey]
-            ];
+            let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, chatSessions[sessionKey]);
 
-            let responseText = await callGroqAPI(key, modelName, messages);
-
-            chatSessions[sessionKey].push({ role: "assistant", content: responseText });
+            chatSessions[sessionKey].push({ role: "model", parts: [{ text: responseText }] });
 
             responseText = await processAiActions(responseText, messageObject);
             return enforceSingleEmoji(responseText);
@@ -193,7 +189,7 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
                 continue;
             }
 
-            if (modelName === TEXT_MODELS[TEXT_MODELS.length - 1]) {
+            if (modelName === MODELS[MODELS.length - 1]) {
                 return "🌑 ..";
             }
         }

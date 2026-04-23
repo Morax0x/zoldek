@@ -33,7 +33,7 @@ function getBattleContext(battleState) {
 }
 
 async function askGemini(prompt) {
-    const apiKey = process.env.GROQ_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
     
     try {
