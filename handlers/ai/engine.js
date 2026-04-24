@@ -168,6 +168,13 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
             const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage}`;
             chatSessions[sessionKey].push({ role: "user", parts: [{ text: fullMessage }] });
 
+            if (chatSessions[sessionKey].length > 10) {
+                chatSessions[sessionKey] = [
+                    chatSessions[sessionKey][0],
+                    ...chatSessions[sessionKey].slice(-9)
+                ];
+            }
+
             let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, chatSessions[sessionKey]);
 
             chatSessions[sessionKey].push({ role: "model", parts: [{ text: responseText }] });
@@ -181,11 +188,11 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
             console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message.split('[')[0]}`);
 
             if (error.message.includes("429") || error.status === 429) {
-                await sleep(4000);
+                await sleep(1000);
                 continue;
             }
             if (error.message.includes("503") || error.status === 503) {
-                await sleep(2000);
+                await sleep(500);
                 continue;
             }
 
