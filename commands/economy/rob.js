@@ -179,6 +179,10 @@ module.exports = {
             return reply("🚫 **لديك عملية سطو جارية بالفعل!** أنهِها أولاً.");
         }
 
+        if (victim.id !== EMPRESS_BOT_ID && activeRobberies.has(victim.id)) {
+            return reply("🚫 **هذا اللاعب يتعرض لعملية سطو بالفعل!** انتظر حتى تنتهي.");
+        }
+
         let robberData = await client.getLevel(robber.id, guild.id);
         if (!robberData) robberData = { ...client.defaultData, user: robber.id, guild: guild.id };
         
@@ -250,6 +254,7 @@ module.exports = {
         }
 
         activeRobberies.add(robber.id);
+        if (victim.id !== EMPRESS_BOT_ID) activeRobberies.add(victim.id);
         robberData.lastRob = now;
         await client.setLevel(robberData);
 
@@ -499,11 +504,13 @@ module.exports = {
                 await client.setLevel(victimData);
             } catch (e) {} finally {
                 activeRobberies.delete(robber.id);
+                activeRobberies.delete(victim.id);
             }
         });
 
         collector.on('end', async (collected, reason) => {
             activeRobberies.delete(robber.id);
+            activeRobberies.delete(victim.id);
             if (reason === 'time' && collected.size === 0) {
                 robberData = await client.getLevel(robber.id, guild.id) || robberData;
                 victimData = await client.getLevel(victim.id, guild.id) || victimData;
