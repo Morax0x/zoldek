@@ -6,8 +6,7 @@ const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models
 
 const MODELS = [
     "gemini-2.0-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-pro-latest"
+    "gemini-2.0-pro"
 ];
 
 const chatSessions = {};
