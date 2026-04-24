@@ -5,8 +5,7 @@ require('dotenv').config();
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 const MODELS = [
-    "gemini-2.0-flash",
-    "gemini-2.0-pro"
+    "gemini-2.0-flash"
 ];
 
 const chatSessions = {};
