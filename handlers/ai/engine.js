@@ -109,7 +109,6 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
     if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
 
     const sessionKey = `${channelId}-SFW`;
-
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
 
     const contextInfo = `
@@ -164,26 +163,23 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
                 ];
             }
 
+            const currentHistory = [...chatSessions[sessionKey]];
             const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage}`;
-            chatSessions[sessionKey].push({ role: "user", parts: [{ text: fullMessage }] });
+            currentHistory.push({ role: "user", parts: [{ text: fullMessage }] });
 
-            if (chatSessions[sessionKey].length > 10) {
-                chatSessions[sessionKey] = [
-                    chatSessions[sessionKey][0],
-                    ...chatSessions[sessionKey].slice(-9)
-                ];
+            if (currentHistory.length > 10) {
+                currentHistory.splice(2, currentHistory.length - 10);
             }
 
-            let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, chatSessions[sessionKey]);
+            let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, currentHistory);
 
+            chatSessions[sessionKey] = currentHistory;
             chatSessions[sessionKey].push({ role: "model", parts: [{ text: responseText }] });
 
             responseText = await processAiActions(responseText, messageObject);
             return enforceSingleEmoji(responseText);
 
         } catch (error) {
-            if (chatSessions[sessionKey]) delete chatSessions[sessionKey];
-
             console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message.split('[')[0]}`);
 
             if (error.message.includes("429") || error.status === 429) {
