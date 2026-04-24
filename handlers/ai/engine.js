@@ -5,7 +5,9 @@ require('dotenv').config();
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 const MODELS = [
-    "gemini-2.0-flash"
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro"
 ];
 
 const chatSessions = {};
@@ -142,7 +144,7 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
             } catch (error) {
                 console.warn(`⚠️ [Image AI] ${modelName} failed, trying next...`);
                 if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
-                await sleep(2000);
+                await sleep(1500);
             }
         }
     }
