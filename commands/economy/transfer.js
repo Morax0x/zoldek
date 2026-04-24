@@ -201,48 +201,63 @@ module.exports = {
                     return confirmMsg.edit({ content: `🚫 **تم إلغاء عملية التحويل.**`, embeds: [], components: [] }).catch(()=>{});
                 }
 
-                senderData = await client.getLevel(sender.id, guild.id);
-                if (!senderData) senderData = { user: sender.id, guild: guild.id, mora: 0, bank: 0 };
-                
-                let currentMora = Number(senderData.mora) || 0;
-                let currentBank = Number(senderData.bank) || 0;
-
-                if (currentMora + currentBank < amount) {
-                    client.activePlayers.delete(sender.id);
-                    return confirmMsg.edit({ content: `❌ فشل التحويل! لا تملك مورا كافية وقت التأكيد.`, embeds: [], components: [] }).catch(()=>{});
-                }
-
-                const originalMora = currentMora;
-                const originalBank = currentBank;
-
-                if (currentMora >= amount) {
-                    currentMora -= amount;
-                } else {
-                    const remainingToPay = amount - currentMora;
-                    currentMora = 0; 
-                    currentBank -= remainingToPay;
-                }
-
                 try {
                     await db.query('BEGIN');
 
-                    senderData.mora = String(currentMora);
-                    senderData.bank = String(currentBank);
-                    senderData.dailyTransferCount = tempDailyCount + 1;
-                    senderData.lastTransferDate = saudiDate;
-                    senderData.lastTransfer = Date.now();
+                    // قراءة مقفلة (SELECT FOR UPDATE) لمنع race condition مع أي عملية متزامنة
+                    let lockedRow;
+                    try {
+                        const lockedRes = await db.query(`SELECT mora, bank FROM levels WHERE "user" = $1 AND "guild" = $2 FOR UPDATE`, [sender.id, guild.id]);
+                        lockedRow = lockedRes.rows[0];
+                    } catch(e) {
+                        const lockedRes = await db.query(`SELECT mora, bank FROM levels WHERE userid = $1 AND guildid = $2 FOR UPDATE`, [sender.id, guild.id]).catch(()=>({rows:[]}));
+                        lockedRow = lockedRes.rows[0];
+                    }
+
+                    if (!lockedRow) {
+                        await db.query('ROLLBACK').catch(()=>{});
+                        client.activePlayers.delete(sender.id);
+                        return confirmMsg.edit({ content: `❌ فشل التحويل! لم يُعثر على بياناتك.`, embeds: [], components: [] }).catch(()=>{});
+                    }
+
+                    let currentMora = Number(lockedRow.mora) || 0;
+                    let currentBank = Number(lockedRow.bank) || 0;
+
+                    if (currentMora + currentBank < amount) {
+                        await db.query('ROLLBACK').catch(()=>{});
+                        client.activePlayers.delete(sender.id);
+                        return confirmMsg.edit({ content: `❌ فشل التحويل! لا تملك مورا كافية وقت التأكيد.`, embeds: [], components: [] }).catch(()=>{});
+                    }
+
+                    if (currentMora >= amount) {
+                        currentMora -= amount;
+                    } else {
+                        const remainingToPay = amount - currentMora;
+                        currentMora = 0;
+                        currentBank -= remainingToPay;
+                    }
+
+                    const newTransferCount = tempDailyCount + 1;
+                    const newLastTransfer = Date.now();
 
                     try {
-                        await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2, "dailyTransferCount" = $3, "lastTransferDate" = $4, "lastTransfer" = $5 WHERE "user" = $6 AND "guild" = $7`, 
-                            [currentMora, currentBank, senderData.dailyTransferCount, saudiDate, senderData.lastTransfer, sender.id, guild.id]);
+                        await db.query(`UPDATE levels SET "mora" = $1, "bank" = $2, "dailyTransferCount" = $3, "lastTransferDate" = $4, "lastTransfer" = $5 WHERE "user" = $6 AND "guild" = $7`,
+                            [currentMora, currentBank, newTransferCount, saudiDate, newLastTransfer, sender.id, guild.id]);
                     } catch(e) {
-                        await db.query(`UPDATE levels SET mora = $1, bank = $2, dailytransfercount = $3, lasttransferdate = $4, lasttransfer = $5 WHERE userid = $6 AND guildid = $7`, 
-                            [currentMora, currentBank, senderData.dailyTransferCount, saudiDate, senderData.lastTransfer, sender.id, guild.id]).catch(()=>{});
+                        await db.query(`UPDATE levels SET mora = $1, bank = $2, dailytransfercount = $3, lasttransferdate = $4, lasttransfer = $5 WHERE userid = $6 AND guildid = $7`,
+                            [currentMora, currentBank, newTransferCount, saudiDate, newLastTransfer, sender.id, guild.id]);
                     }
-                    
-                    if (client.setLevel) await client.setLevel(senderData);
 
-                    // ✅ إضافة نسبية آمنة + RETURNING لتحديث الكاش بالقيمة الفعلية من DB
+                    if (client.setLevel) {
+                        senderData = await client.getLevel(sender.id, guild.id) || senderData;
+                        senderData.mora = String(currentMora);
+                        senderData.bank = String(currentBank);
+                        senderData.dailyTransferCount = newTransferCount;
+                        senderData.lastTransferDate = saudiDate;
+                        senderData.lastTransfer = newLastTransfer;
+                        await client.setLevel(senderData);
+                    }
+
                     let receiverData = await client.getLevel(receiver.id, guild.id);
                     if (!receiverData) receiverData = { ...client.defaultData, user: receiver.id, guild: guild.id, mora: 0 };
 
@@ -259,13 +274,10 @@ module.exports = {
                     }
                     if (client.setLevel) await client.setLevel(receiverData);
 
-                    await db.query('COMMIT'); 
+                    await db.query('COMMIT');
                 } catch (e) {
                     console.error("Transfer Transaction Error:", e);
-                    await db.query('ROLLBACK').catch(()=>{}); 
-                    senderData.mora = String(originalMora);
-                    senderData.bank = String(originalBank);
-                    if (client.setLevel) await client.setLevel(senderData);
+                    await db.query('ROLLBACK').catch(()=>{});
                     client.activePlayers.delete(sender.id);
                     return confirmMsg.edit({ content: "❌ **فشلت العملية:** حدث خطأ تقني أثناء التحويل وتم استرجاع أموالك.", embeds: [], components: [] }).catch(()=>{});
                 }
