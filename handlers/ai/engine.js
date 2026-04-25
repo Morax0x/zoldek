@@ -4,25 +4,23 @@ require('dotenv').config();
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
+// تم تصحيح أسماء النماذج لتجنب خطأ 404
 const MODELS = [
     "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro"
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-pro-latest",
+    "gemini-1.5-flash-8b"
 ];
 
 const chatSessions = {};
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ==========================================
-// أنظمة الحماية: الطابور والتبريد
-// ==========================================
 const messageQueue = [];
 let isProcessingQueue = false;
 const userCooldowns = new Map();
 
-const QUEUE_DELAY = 4000; // 4 ثواني بين كل طلب للـ API (يضمن لك 15 طلب بالدقيقة فقط كحد أقصى)
-const USER_COOLDOWN = 10000; // 10 ثواني منع لكل مستخدم لتقليل السبام
-// ==========================================
+const QUEUE_DELAY = 4000; 
+const USER_COOLDOWN = 10000; 
 
 function getAllowedEmojiIds() {
     const context = getEmojiContext();
@@ -71,7 +69,7 @@ async function urlToGenerativePart(url, mimeType) {
             }
         };
     } catch (error) {
-        console.error("Error processing image:", error);
+        console.error("[Image Error] Failed to process image attachment:", error.message);
         throw error;
     }
 }
@@ -117,7 +115,6 @@ async function processAiActions(responseText, messageObject) {
     return cleanText.trim();
 }
 
-// الدالة الأساسية تم نقلها للعمل كعنصر داخل الطابور
 async function executeAI(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
     if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
 
@@ -144,7 +141,7 @@ async function executeAI(apiKey, systemInstruction, userMessage, userData, userI
                     role: "user",
                     parts: [
                         { text: contextInfo },
-                        { text: `[User: ${username} | ID: ${userId}]: ${userMessage || "علق على هذه الصورة؟"}` },
+                        { text: `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}` },
                         imagePart
                     ]
                 }];
@@ -154,14 +151,14 @@ async function executeAI(apiKey, systemInstruction, userMessage, userData, userI
                 return enforceSingleEmoji(responseText);
 
             } catch (error) {
-                console.warn(`⚠️ [Image AI] ${modelName} failed, trying next...`);
                 if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
                 await sleep(1500);
             }
         }
     }
 
-    for (const modelName of MODELS) {
+    for (let i = 0; i < MODELS.length; i++) {
+        const modelName = MODELS[i];
         try {
             if (!chatSessions[sessionKey]) {
                 chatSessions[sessionKey] = [
@@ -193,8 +190,6 @@ async function executeAI(apiKey, systemInstruction, userMessage, userData, userI
             return enforceSingleEmoji(responseText);
 
         } catch (error) {
-            console.warn(`⚠️ [Text AI] ${modelName} failed: ${error.message.split('[')[0]}`);
-
             if (error.message.includes("429") || error.status === 429) {
                 await sleep(1000);
                 continue;
@@ -204,14 +199,15 @@ async function executeAI(apiKey, systemInstruction, userMessage, userData, userI
                 continue;
             }
 
-            if (modelName === MODELS[MODELS.length - 1]) {
-                return "🌑 .. ";
+            if (i === MODELS.length - 1) {
+                // إذا فشلت جميع النماذج، يتم تسجيل خطأ فعلي واحد فقط
+                console.error(`[AI Engine Error] All models failed. Last error: ${error.message.split('\n')[0]}`);
+                return "🌑 .. (ضغط كبير على الأنظمة، حاول لاحقاً)";
             }
         }
     }
 }
 
-// دالة معالجة الطابور (Worker)
 async function processQueue() {
     isProcessingQueue = true;
 
@@ -219,7 +215,6 @@ async function processQueue() {
         const job = messageQueue.shift();
 
         try {
-            // إظهار حالة يكتب الآن في الديسكورد أثناء معالجة الطلب
             if (job.args.messageObject && job.args.messageObject.channel) {
                 await job.args.messageObject.channel.sendTyping().catch(() => {});
             }
@@ -227,40 +222,34 @@ async function processQueue() {
             const reply = await executeAI(...Object.values(job.args));
             job.resolve(reply);
         } catch (error) {
-            console.error("Queue process error:", error);
-            job.resolve("حدث خطأ أثناء معالجة رسالتك.");
+            console.error("[Queue Error] Fatal error during queue processing:", error.message);
+            job.resolve("حدث خطأ غير متوقع.");
         }
 
-        // إجبار النظام على الانتظار قبل سحب الطلب التالي لحماية الـ API من الـ 429
         await sleep(QUEUE_DELAY); 
     }
 
     isProcessingQueue = false;
 }
 
-// هذه هي الدالة التي سيستدعيها ملف البوت الرئيسي
 function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
     return new Promise((resolve) => {
         const now = Date.now();
 
-        // 1. فحص التبريد (Cooldown) للمستخدم
         if (userCooldowns.has(userId)) {
             const lastTime = userCooldowns.get(userId);
             if (now - lastTime < USER_COOLDOWN) {
-                console.log(`[RateLimit] User ${username} is spamming. Ignored.`);
-                // نُرجع null حتى لا يرد البوت على رسائل السبام
+                // سبام: يتم التجاهل بصمت بدون طباعة في الكونسل
                 return resolve(null); 
             }
         }
         userCooldowns.set(userId, now);
 
-        // 2. إضافة الطلب إلى طابور الانتظار
         messageQueue.push({
             args: { apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId },
             resolve
         });
 
-        // 3. تشغيل معالج الطابور إذا كان متوقفاً
         if (!isProcessingQueue) {
             processQueue();
         }
@@ -270,11 +259,8 @@ function generateResponse(apiKey, systemInstruction, userMessage, userData, user
 setInterval(() => {
     const keys = Object.keys(chatSessions);
     if (keys.length > 0) {
-        console.log(`[AI Engine] Cleaning ${keys.length} cached sessions...`);
         keys.forEach(key => delete chatSessions[key]);
     }
-    
-    // تنظيف كاش التبريد للمستخدمين لتفريغ الذاكرة
     userCooldowns.clear(); 
 }, 3600000);
 
