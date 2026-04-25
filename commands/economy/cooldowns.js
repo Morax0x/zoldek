@@ -47,7 +47,7 @@ function getKSADateString(timestamp) {
     return new Date(timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
 }
 
-// 🔥 دالة حساب تخفيض وقت الانتظار بناءً على السمعة (صامتة تماماً) 🔥
+// 🔥 دالة حساب تخفيض وقت الانتظار بناءً على السمعة
 async function getCooldownReductionMs(db, userId, guildId) {
     try {
         let repRes;
@@ -65,7 +65,7 @@ async function getCooldownReductionMs(db, userId, guildId) {
         else if (points >= 25) reductionMinutes = 6;    // D
         else if (points >= 10) reductionMinutes = 5;    // E
 
-        return reductionMinutes * 60 * 1000; // تحويل الدقائق إلى ملي ثانية
+        return reductionMinutes * 60 * 1000;
     } catch(e) { return 0; }
 }
 
@@ -79,7 +79,9 @@ const COMMANDS_TO_CHECK = [
     { name: 'arrange', db_column: 'lastArrange', fallback: 'lastarrange', cooldown: 1 * 60 * 60 * 1000, label: 'رتب' },
     { name: 'pvp', db_column: 'lastPVP', fallback: 'lastpvp', cooldown: 5 * 60 * 1000, label: 'تحدي' },
     { name: 'race', db_column: 'lastRace', fallback: 'lastrace', cooldown: 1 * 60 * 60 * 1000, label: 'سباق' }, 
-    { name: 'dungeon', db_column: 'last_dungeon', fallback: 'last_dungeon', cooldown: 3 * 60 * 60 * 1000, label: 'دانجون' }
+    { name: 'dungeon', db_column: 'last_dungeon', fallback: 'last_dungeon', cooldown: 3 * 60 * 60 * 1000, label: 'دانجون' },
+    // 🎟️ إضافة اليانصيب هنا
+    { name: 'scratch', db_column: 'lastScratch', fallback: 'lastscratch', cooldown: 1 * 60 * 60 * 1000, label: 'يانصيب' } 
 ];
 
 module.exports = {
@@ -116,19 +118,17 @@ module.exports = {
                 originalUser = message.author;
             }
 
-            // دالة لحساب البيانات لأي مستخدم
             const calculateUserData = async (userToCheck) => {
                 let data = await client.getLevel(userToCheck.id, guild.id);
                 if (!data) data = { ...client.defaultData, user: userToCheck.id, guild: guild.id };
 
-                // 🔥 جلب البيانات الطازجة من قاعدة البيانات مباشرة للتغلب على مشكلة الكاش 🔥
                 try {
                     let dbRes;
                     try { dbRes = await client.sql.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userToCheck.id, guild.id]); }
                     catch(e) { dbRes = await client.sql.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userToCheck.id, guild.id]).catch(()=>({rows:[]})); }
                     
                     if (dbRes && dbRes.rows.length > 0) {
-                        data = { ...data, ...dbRes.rows[0] }; // دمج البيانات الحقيقية
+                        data = { ...data, ...dbRes.rows[0] };
                     }
                 } catch (err) {}
 
@@ -136,10 +136,8 @@ module.exports = {
                 const readyGames = [];
                 const waitGames = [];
 
-                // 🔥 جلب مقدار تخفيض الوقت للمستخدم (بناءً على السمعة) 🔥
                 const cooldownReductionMs = await getCooldownReductionMs(client.sql, userToCheck.id, guild.id);
 
-                // 1. الراتب (يومي، لا يخضع لتخفيض السمعة لأنه يعتمد على منتصف الليل)
                 const lastDaily = Number(data.lastDaily || data.lastdaily) || 0;
                 const todayKSA = getKSADateString(now);
                 const lastDailyKSA = getKSADateString(lastDaily);
@@ -151,13 +149,9 @@ module.exports = {
                     readyGames.push(`${EMOJI_READY} **راتب**`);
                 }
 
-                // 2. الأوامر الثابتة
                 for (const cmd of COMMANDS_TO_CHECK) {
                     const lastUsed = Number(data[cmd.db_column] || data[cmd.fallback] || 0);
-                    
-                    // خصم تخفيض السمعة، مع حماية ألا ينزل الكولداون تحت الصفر (في الأوامر القصيرة كالتحدي)
                     const effectiveCooldown = Math.max(0, cmd.cooldown - cooldownReductionMs);
-                    
                     const timeLeft = (lastUsed + effectiveCooldown) - now;
 
                     if (timeLeft > 0) {
@@ -167,7 +161,6 @@ module.exports = {
                     }
                 }
 
-                // 3. الصيد (تم توحيده ليكون ساعة واحدة، وتطبيق التخفيض عليه)
                 const baseFishCooldown = 3600000; 
                 const effectiveFishCooldown = Math.max(0, baseFishCooldown - cooldownReductionMs);
                 
@@ -183,10 +176,8 @@ module.exports = {
                 return { readyGames, waitGames };
             };
 
-            // حساب البيانات الأساسية للرسالة الأولى
             const { readyGames, waitGames } = await calculateUserData(targetUser);
 
-            // بناء الإيمبد الرئيسي
             const embed = new EmbedBuilder()
                 .setTitle('✥ وقـت الالعـاب')
                 .setColor("Random")
@@ -220,7 +211,6 @@ module.exports = {
                 const clickerIsOwner = i.user.id === originalUser.id;
                 const subjectUser = clickerIsOwner ? targetUser : i.user;
 
-                // إعادة حساب البيانات للشخص المحدد
                 const result = await calculateUserData(subjectUser);
 
                 let finalDesc = "";
