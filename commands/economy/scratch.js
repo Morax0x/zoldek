@@ -1,4 +1,6 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const path = require('path');
+const fs = require('fs');
 
 const TIERS = {
     bronze: { id: 'bronze', name: 'نحاسية', price: 100, color: 0xcd7f32, label: '100 نحاسية' },
@@ -7,18 +9,39 @@ const TIERS = {
 };
 
 const SYMBOLS = {
-    CROWN: { emoji: '👑', multi: 10 },
-    SWORD: { emoji: '⚔️', multi: 3 },
-    FISH:  { emoji: '🐟', multi: 1.5 },
-    JOKER: { emoji: '🧚‍♀️', multi: 0 }, 
-    MIMIC: { emoji: '👹', multi: 0 },  
-    JUNK:  ['🪨', '🪵', '🍄', '☁️', '🦴', '🍎', '🧩'] 
+    MORA_CROWN: { emoji: '👑', type: 'mora', multi: 10, name: 'التاج الإمبراطوري' },
+    MORA_SWORD: { emoji: '⚔️', type: 'mora', multi: 3, name: 'سيف الفرسان' },
+    MORA_FISH:  { emoji: '🐟', type: 'mora', multi: 1.5, name: 'السمكة الذهبية' },
+    GACHA:      { emoji: '🎁', type: 'item', item: 'gacha_chest', name: 'صندوق غاتشا' },
+    SEED:       { emoji: '🌱', type: 'item', item: 'seed', name: 'بذور زراعية' },
+    ANIMAL:     { emoji: '🐄', type: 'item', item: 'animal', name: 'حيوان مزرعة' },
+    BAIT:       { emoji: '🪱', type: 'item', item: 'bait', name: 'طعوم صيد' },
+    POTION:     { emoji: '🧪', type: 'item', item: 'potion', name: 'جرعة دانجون' },
+    REP:        { emoji: '🌟', type: 'rep', name: 'نقطة سمعة' },
+    JOKER:      { emoji: '🧚‍♀️', type: 'joker' }, 
+    MIMIC:      { emoji: '👹', type: 'mimic' },  
+    JUNK:       ['🪨', '🪵', '🍄', '☁️', '🦴', '🍎', '🧩'] 
 };
 
 const activeProcesses = new Set();
-const scratchCooldowns = new Map(); // ⏳ خريطة حفظ أوقات الكولداون
-const EMPEROR_ID = '1145327691772481577'; // 👑 آيدي الإمبراطور (بدون قيود)
+const EMPEROR_ID = '1145327691772481577'; 
 const BANNER_IMAGE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/img/sk.png'; 
+
+let loadedSeeds = [], loadedPotions = [], loadedBaits = [], loadedAnimals = [];
+try { loadedSeeds = require(path.join(process.cwd(), 'json', 'seeds.json')); } catch(e){}
+try { loadedPotions = require(path.join(process.cwd(), 'json', 'potions.json')); } catch(e){}
+try { loadedBaits = require(path.join(process.cwd(), 'json', 'baits.json')); } catch(e){}
+try { loadedAnimals = require(path.join(process.cwd(), 'json', 'farm-animals.json')); } catch(e){}
+
+const fallbackSeeds = ['seed_wheat', 'seed_carrot', 'seed_tomato', 'seed_potato'];
+const fallbackPotions = ['health_potion_1', 'health_potion_2', 'strength_potion_1'];
+const fallbackBaits = ['bait_worm', 'bait_meat', 'bait_magic'];
+const fallbackAnimals = ['cow', 'chicken', 'sheep'];
+
+const seedIds = loadedSeeds.length ? loadedSeeds.map(s => s.id) : fallbackSeeds;
+const potionIds = loadedPotions.length ? loadedPotions.map(p => p.id) : fallbackPotions;
+const baitIds = loadedBaits.length ? loadedBaits.map(b => b.id) : fallbackBaits;
+const animalIds = loadedAnimals.length ? loadedAnimals.map(a => a.id) : fallbackAnimals;
 
 function getRandomColor() {
     return Math.floor(Math.random() * 16777215);
@@ -31,22 +54,29 @@ function generateGrid(tierId) {
         let randomJunk = SYMBOLS.JUNK[Math.floor(Math.random() * SYMBOLS.JUNK.length)];
 
         if (tierId === 'gold') {
-            if (r < 8) grid.push(SYMBOLS.MIMIC.emoji);
-            else if (r < 11) grid.push(SYMBOLS.JOKER.emoji);
-            else if (r < 15) grid.push(SYMBOLS.CROWN.emoji);
-            else if (r < 25) grid.push(SYMBOLS.SWORD.emoji);
-            else if (r < 45) grid.push(SYMBOLS.FISH.emoji);
-            else grid.push(randomJunk);
+            if (r < 8) grid.push(SYMBOLS.MIMIC.emoji);        
+            else if (r < 11) grid.push(SYMBOLS.JOKER.emoji);  
+            else if (r < 12) grid.push(SYMBOLS.REP.emoji);    
+            else if (r < 17) grid.push(SYMBOLS.GACHA.emoji);  
+            else if (r < 23) grid.push(SYMBOLS.ANIMAL.emoji); 
+            else if (r < 31) grid.push(SYMBOLS.POTION.emoji); 
+            else if (r < 39) grid.push(SYMBOLS.MORA_CROWN.emoji); 
+            else if (r < 47) grid.push(SYMBOLS.MORA_SWORD.emoji); 
+            else grid.push(randomJunk); 
         } else if (tierId === 'silver') {
-            if (r < 4) grid.push(SYMBOLS.JOKER.emoji);
-            else if (r < 8) grid.push(SYMBOLS.CROWN.emoji);
-            else if (r < 14) grid.push(SYMBOLS.SWORD.emoji);
-            else if (r < 30) grid.push(SYMBOLS.FISH.emoji);
+            if (r < 3) grid.push(SYMBOLS.JOKER.emoji);
+            else if (r < 6) grid.push(SYMBOLS.GACHA.emoji);   
+            else if (r < 13) grid.push(SYMBOLS.POTION.emoji); 
+            else if (r < 23) grid.push(SYMBOLS.BAIT.emoji);   
+            else if (r < 33) grid.push(SYMBOLS.MORA_SWORD.emoji); 
+            else if (r < 43) grid.push(SYMBOLS.MORA_FISH.emoji);  
             else grid.push(randomJunk);
-        } else {
-            if (r < 2) grid.push(SYMBOLS.CROWN.emoji);
-            else if (r < 10) grid.push(SYMBOLS.SWORD.emoji);
-            else if (r < 25) grid.push(SYMBOLS.FISH.emoji);
+        } else { 
+            if (r < 2) grid.push(SYMBOLS.JOKER.emoji);
+            else if (r < 4) grid.push(SYMBOLS.GACHA.emoji);   
+            else if (r < 14) grid.push(SYMBOLS.SEED.emoji);   
+            else if (r < 24) grid.push(SYMBOLS.BAIT.emoji);   
+            else if (r < 36) grid.push(SYMBOLS.MORA_FISH.emoji);  
             else grid.push(randomJunk);
         }
     }
@@ -56,12 +86,17 @@ function generateGrid(tierId) {
 function checkWin(revealedSymbols) {
     let jokerCount = revealedSymbols.filter(s => s === SYMBOLS.JOKER.emoji).length;
     let others = revealedSymbols.filter(s => s !== SYMBOLS.JOKER.emoji && s !== SYMBOLS.MIMIC.emoji && !SYMBOLS.JUNK.includes(s));
+    
     let counts = {};
     for (let s of others) counts[s] = (counts[s] || 0) + 1;
 
-    if ((counts[SYMBOLS.CROWN.emoji] || 0) + jokerCount >= 3) return { win: true, symbol: SYMBOLS.CROWN.emoji, multi: SYMBOLS.CROWN.multi };
-    if ((counts[SYMBOLS.SWORD.emoji] || 0) + jokerCount >= 3) return { win: true, symbol: SYMBOLS.SWORD.emoji, multi: SYMBOLS.SWORD.multi };
-    if ((counts[SYMBOLS.FISH.emoji]  || 0) + jokerCount >= 3) return { win: true, symbol: SYMBOLS.FISH.emoji, multi: SYMBOLS.FISH.multi };
+    for (const key in SYMBOLS) {
+        const symbolObj = SYMBOLS[key];
+        if (symbolObj.type === 'joker' || symbolObj.type === 'mimic' || Array.isArray(symbolObj)) continue;
+        if ((counts[symbolObj.emoji] || 0) + jokerCount >= 3) {
+            return { win: true, symbolObj: symbolObj };
+        }
+    }
 
     return { win: false };
 }
@@ -88,6 +123,46 @@ function buildGridComponents(revealedArray, gridArray, disableAll) {
     return rows;
 }
 
+async function giveInventoryItem(db, guildId, userId, itemId, quantity) {
+    try {
+        await db.query(`
+            INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") 
+            VALUES ($1, $2, $3, $4) 
+            ON CONFLICT ("guildID", "userID", "itemID") 
+            DO UPDATE SET quantity = user_inventory.quantity + $4
+        `, [guildId, userId, itemId, quantity]);
+    } catch(e) {
+        await db.query(`
+            INSERT INTO user_inventory (guildID, userID, itemID, quantity) 
+            VALUES ($1, $2, $3, $4) 
+            ON CONFLICT (guildID, userID, itemID) 
+            DO UPDATE SET quantity = user_inventory.quantity + $4
+        `, [guildId, userId, itemId, quantity]).catch(()=>{});
+    }
+}
+
+async function giveFarmAnimal(db, guildId, userId, animalId) {
+    try {
+        let res = await db.query(`SELECT * FROM user_farm WHERE "guildID" = $1 AND "userID" = $2 AND "animalID" = $3`, [guildId, userId, animalId]).catch(()=>({rows:[]}));
+        if (res && res.rows && res.rows.length > 0) {
+            await db.query(`UPDATE user_farm SET quantity = quantity + 1 WHERE "guildID" = $1 AND "userID" = $2 AND "animalID" = $3`, [guildId, userId, animalId]).catch(()=>{});
+        } else {
+            await db.query(`INSERT INTO user_farm ("guildID", "userID", "animalID", "quantity", "purchaseTimestamp", "lastCollected", "lastFedTimestamp") VALUES ($1, $2, $3, 1, $4, $5, $6)`, [guildId, userId, animalId, Date.now(), Date.now(), Date.now()]).catch(()=>{});
+        }
+    } catch(e) {}
+}
+
+async function giveReputation(db, guildId, userId) {
+    try {
+        let res = await db.query(`SELECT * FROM user_reputation WHERE "guildID" = $1 AND "userID" = $2`, [guildId, userId]).catch(()=>({rows:[]}));
+        if (res && res.rows && res.rows.length > 0) {
+            await db.query(`UPDATE user_reputation SET rep_points = rep_points + 1 WHERE "guildID" = $1 AND "userID" = $2`, [guildId, userId]).catch(()=>{});
+        } else {
+            await db.query(`INSERT INTO user_reputation ("guildID", "userID", "rep_points") VALUES ($1, $2, 1)`, [guildId, userId]).catch(()=>{});
+        }
+    } catch(e) {}
+}
+
 module.exports = {
     name: 'scratch',
     description: '✥ اشـتـري بـطـاقـة اليانـصيـب🎟️',
@@ -98,43 +173,41 @@ module.exports = {
         const client = message.client;
         const author = message.author;
         const guild = message.guild;
+        const db = client.sql;
 
-        // ─── جلب بيانات اللاعب ───
         let data = await client.getLevel(author.id, guild.id);
-        if (!data) {
-            data = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
-        }
+        if (!data) data = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
 
-        // ─── نظام الكولداون مع تقليل الوقت حسب الرتبة ───
         if (author.id !== EMPEROR_ID) {
-            const baseCooldown = 3600 * 1000; // ساعة كاملة
+            const baseCooldown = 3600 * 1000; 
             let discount = 0;
 
-            // جلب الرتبة (يتكيف سواء كانت مسجلة كـ adventurer_rank أو rank)
             let advRank = data.adventurer_rank || data.rank || data.adventurerRank || data.rankName || ""; 
-            
             if (typeof advRank === 'string') {
                 const rankLower = advRank.toLowerCase();
-                if (rankLower.includes('اسطوري') || rankLower.includes('s')) discount = 0.50;      // خصم 50%
-                else if (rankLower.includes('ماسي') || rankLower.includes('a')) discount = 0.40;   // خصم 40%
-                else if (rankLower.includes('ذهبي') || rankLower.includes('b')) discount = 0.30;   // خصم 30%
-                else if (rankLower.includes('فضي') || rankLower.includes('c')) discount = 0.20;    // خصم 20%
-                else if (rankLower.includes('برونزي') || rankLower.includes('d')) discount = 0.10; // خصم 10%
+                if (rankLower.includes('اسطوري') || rankLower.includes('s')) discount = 0.50;      
+                else if (rankLower.includes('ماسي') || rankLower.includes('a')) discount = 0.40;   
+                else if (rankLower.includes('ذهبي') || rankLower.includes('b')) discount = 0.30;   
+                else if (rankLower.includes('فضي') || rankLower.includes('c')) discount = 0.20;    
+                else if (rankLower.includes('برونزي') || rankLower.includes('d')) discount = 0.10; 
             } else if (typeof advRank === 'number') {
-                discount = Math.min(advRank * 0.05, 0.50); // خصم تلقائي للرتب الرقمية
+                discount = Math.min(advRank * 0.05, 0.50); 
             }
 
             const finalCooldown = baseCooldown - (baseCooldown * discount);
+            const lastScratch = Number(data.lastScratch || data.lastscratch) || 0;
 
-            if (scratchCooldowns.has(author.id)) {
-                const expirationTime = scratchCooldowns.get(author.id) + finalCooldown;
+            if (lastScratch > 0) {
+                const expirationTime = lastScratch + finalCooldown;
                 if (Date.now() < expirationTime) {
-                    const timeLeft = expirationTime - Date.now();
-                    const mins = Math.floor(timeLeft / 60000);
-                    const secs = Math.floor((timeLeft % 60000) / 1000);
-                    const timeStr = mins > 0 ? `${mins} دقيقة و ${secs} ثانية` : `${secs} ثانية`;
+                    const expireTimestamp = Math.floor(expirationTime / 1000); 
                     
-                    return message.reply(`⏳ **تمهـل!** لا يمكنك لعب اليانصيب الآن.\nانتظر **${timeStr}** لتتمكن من شراء تذكرة جديدة. 🎟️`);
+                    const cooldownEmbed = new EmbedBuilder()
+                        .setColor(getRandomColor())
+                        .setThumbnail('https://i.postimg.cc/50QZ4PPL/1.webp')
+                        .setDescription(`֎ نفـدت التذاكـر .. يمكنك شراء تذكـرة جديـدة بعـد: <t:${expireTimestamp}:R> <a:Nerf:1438795685280612423>`);
+                    
+                    return message.reply({ embeds: [cooldownEmbed] });
                 }
             }
         }
@@ -170,7 +243,6 @@ module.exports = {
                 const tierId = i.customId.split('_')[1];
                 currentTier = TIERS[tierId];
 
-                // تأكيد سحب الرصيد المحدث
                 data = await client.getLevel(author.id, guild.id);
                 let balance = Number(data.mora) || 0;
 
@@ -179,10 +251,9 @@ module.exports = {
                     return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** <:mora:1435647151349698621> لشراء التذكرة.`, ephemeral: true });
                 }
 
-                // تسجيل الخصم وبدء الكولداون الفعلي بمجرد الشراء
                 data.mora = balance - currentTier.price;
+                if (author.id !== EMPEROR_ID) data.lastScratch = Date.now(); 
                 await client.setLevel(data);
-                if (author.id !== EMPEROR_ID) scratchCooldowns.set(author.id, Date.now());
 
                 gameActive = true;
                 grid = generateGrid(tierId);
@@ -219,15 +290,58 @@ module.exports = {
                     const winStatus = checkWin(revealedSymbols);
                     if (winStatus.win) {
                         gameOver = true;
-                        const prize = Math.floor(currentTier.price * winStatus.multi);
-                        finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`).setColor(0x2ECC71);
+                        const s = winStatus.symbolObj;
+                        let prizeText = "";
                         
-                        let winData = await client.getLevel(author.id, guild.id);
-                        if (!winData) winData = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
-                        winData.mora = (Number(winData.mora) || 0) + prize;
-                        await client.setLevel(winData);
+                        finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`).setColor(0x2ECC71);
 
-                        finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز «${winStatus.symbol}»\n✦ ربـحـت **${prize}** <:mora:1435647151349698621>`);
+                        if (s.type === 'mora') {
+                            const prize = Math.floor(currentTier.price * s.multi);
+                            let winData = await client.getLevel(author.id, guild.id);
+                            if (!winData) winData = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
+                            winData.mora = (Number(winData.mora) || 0) + prize;
+                            await client.setLevel(winData);
+                            prizeText = `**${prize}** <:mora:1435647151349698621>`;
+                        } 
+                        else if (s.type === 'rep') {
+                            await giveReputation(db, guild.id, author.id);
+                            prizeText = `**1 نقطة سمعة** 🌟`;
+                        } 
+                        else if (s.type === 'item') {
+                            let itemId = s.item;
+                            let qty = 1;
+                            let emoji = s.emoji;
+
+                            if (s.item === 'seed') {
+                                itemId = seedIds[Math.floor(Math.random() * seedIds.length)];
+                                qty = Math.floor(Math.random() * 41) + 10; 
+                                prizeText = `**${qty} حزمة بذور** 🌱`;
+                                await giveInventoryItem(db, guild.id, author.id, itemId, qty);
+                            } 
+                            else if (s.item === 'bait') {
+                                itemId = baitIds[Math.floor(Math.random() * baitIds.length)];
+                                qty = Math.floor(Math.random() * 21) + 10; 
+                                prizeText = `**${qty} طعوم صيد** 🪱`;
+                                await giveInventoryItem(db, guild.id, author.id, itemId, qty);
+                            } 
+                            else if (s.item === 'potion') {
+                                itemId = potionIds[Math.floor(Math.random() * potionIds.length)];
+                                qty = Math.floor(Math.random() * 3) + 1; 
+                                prizeText = `**${qty} جرعات دانجون** 🧪`;
+                                await giveInventoryItem(db, guild.id, author.id, itemId, qty);
+                            } 
+                            else if (s.item === 'animal') {
+                                itemId = animalIds[Math.floor(Math.random() * animalIds.length)];
+                                prizeText = `**حيوان مزرعة عشوائي** 🐄`;
+                                await giveFarmAnimal(db, guild.id, author.id, itemId);
+                            } 
+                            else if (s.item === 'gacha_chest') {
+                                prizeText = `**صندوق غاتشا** 🎁`;
+                                await giveInventoryItem(db, guild.id, author.id, 'gacha_chest', 1);
+                            }
+                        }
+
+                        finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز لـ «${s.name}»\n✦ ربـحـت ${prizeText}`);
                     } 
                     else if (revealedSymbols.length === 9) {
                         gameOver = true;
