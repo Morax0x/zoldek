@@ -22,7 +22,10 @@ const SYMBOLS = {
     JUNK:       ['🪨', '🪵', '🍄', '☁️', '🦴', '🍎', '🧩'] 
 };
 
-const activeProcesses = new Set();
+// 🛡️ نظام الحماية المزدوج
+const activeProcesses = new Set(); // لمنع الضغط السريع على الأزرار
+const activeGames = new Set(); // لمنع فتح أكثر من بطاقة في نفس الوقت
+
 const EMPEROR_ID = '1145327691772481577'; 
 const BANNER_IMAGE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/img/sk.png'; 
 
@@ -174,6 +177,12 @@ module.exports = {
         const guild = message.guild;
         const db = client.sql;
 
+        // 🛡️ فحص الحماية من الإرسال المزدوج للأمر
+        if (activeGames.has(author.id)) {
+            return message.reply({ content: "⚠️ لديك بطاقة يانصيب نشطة حالياً في الشات! قم بإنهائها أولاً لتتمكن من شراء بطاقة جديدة.", flags: [64] }).catch(()=>{});
+        }
+        activeGames.add(author.id); // قفل اللاعب
+
         let data = await client.getLevel(author.id, guild.id);
         if (!data) data = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
 
@@ -200,6 +209,7 @@ module.exports = {
                 const expirationTime = lastScratch + finalCooldown;
                 if (Date.now() < expirationTime) {
                     const expireTimestamp = Math.floor(expirationTime / 1000); 
+                    activeGames.delete(author.id); // فك القفل في حال الرفض
                     
                     const cooldownEmbed = new EmbedBuilder()
                         .setColor(getRandomColor())
@@ -216,7 +226,7 @@ module.exports = {
             .setDescription('✶ جـرب حـظـك باليانصيـب واشتري تذكرتك\n\n✦ اجـمـع 3 رمـوز مشـابهـة لمضاعفـة ربحـك <a:mTrophy:1438797228826300518>\n✦ رمـز الحـظ «🧚‍♀️» يكـمـل اي رمـز آخـر <a:6aMoney:1439572832219693116>')
             .setColor(getRandomColor())
             .setImage(BANNER_IMAGE)
-            .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
+            .setFooter({ text: '\u200B', iconURL: author.displayAvatarURL() });
 
         const chooseRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('buy_bronze').setLabel(TIERS.bronze.label).setStyle(ButtonStyle.Secondary),
@@ -262,7 +272,7 @@ module.exports = {
                     .setDescription(`✦ اشتـريـت تذكـرة ${currentTier.price} ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`)
                     .setColor(getRandomColor())
                     .setImage(BANNER_IMAGE)
-                    .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
+                    .setFooter({ text: '\u200B', iconURL: author.displayAvatarURL() });
 
                 await i.update({ embeds: [gameEmbed], components: buildGridComponents(revealed, grid, false) });
             } 
@@ -274,7 +284,7 @@ module.exports = {
                 const revealedSymbols = grid.filter((_, idx) => revealed[idx]);
                 let gameOver = false;
                 let finalEmbed = new EmbedBuilder()
-                    .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() })
+                    .setFooter({ text: '\u200B', iconURL: author.displayAvatarURL() })
                     .setColor(getRandomColor())
                     .setImage(BANNER_IMAGE);
 
@@ -363,6 +373,7 @@ module.exports = {
         });
 
         collector.on('end', async (collected, reason) => {
+            activeGames.delete(author.id); // 🛡️ فك قفل اللاعب بمجرد انتهاء التفاعل
             if (reason === 'time' && initialMsg) {
                 await initialMsg.edit({ components: gameActive ? buildGridComponents(revealed, grid, true) : [] }).catch(() => {});
             }
