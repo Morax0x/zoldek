@@ -13,6 +13,17 @@ const MODELS = [
 const chatSessions = {};
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// ==========================================
+// أنظمة الحماية: الطابور والتبريد
+// ==========================================
+const messageQueue = [];
+let isProcessingQueue = false;
+const userCooldowns = new Map();
+
+const QUEUE_DELAY = 4000; // 4 ثواني بين كل طلب للـ API (يضمن لك 15 طلب بالدقيقة فقط كحد أقصى)
+const USER_COOLDOWN = 10000; // 10 ثواني منع لكل مستخدم لتقليل السبام
+// ==========================================
+
 function getAllowedEmojiIds() {
     const context = getEmojiContext();
     const matches = context.match(/:(\d+)>/g);
@@ -106,7 +117,8 @@ async function processAiActions(responseText, messageObject) {
     return cleanText.trim();
 }
 
-async function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
+// الدالة الأساسية تم نقلها للعمل كعنصر داخل الطابور
+async function executeAI(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
     if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
 
     const sessionKey = `${channelId}-SFW`;
@@ -132,7 +144,7 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
                     role: "user",
                     parts: [
                         { text: contextInfo },
-                        { text: `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}` },
+                        { text: `[User: ${username} | ID: ${userId}]: ${userMessage || "علق على هذه الصورة؟"}` },
                         imagePart
                     ]
                 }];
@@ -193,10 +205,66 @@ async function generateResponse(apiKey, systemInstruction, userMessage, userData
             }
 
             if (modelName === MODELS[MODELS.length - 1]) {
-                return "🌑 ..";
+                return "🌑 .. ";
             }
         }
     }
+}
+
+// دالة معالجة الطابور (Worker)
+async function processQueue() {
+    isProcessingQueue = true;
+
+    while (messageQueue.length > 0) {
+        const job = messageQueue.shift();
+
+        try {
+            // إظهار حالة يكتب الآن في الديسكورد أثناء معالجة الطلب
+            if (job.args.messageObject && job.args.messageObject.channel) {
+                await job.args.messageObject.channel.sendTyping().catch(() => {});
+            }
+
+            const reply = await executeAI(...Object.values(job.args));
+            job.resolve(reply);
+        } catch (error) {
+            console.error("Queue process error:", error);
+            job.resolve("حدث خطأ أثناء معالجة رسالتك.");
+        }
+
+        // إجبار النظام على الانتظار قبل سحب الطلب التالي لحماية الـ API من الـ 429
+        await sleep(QUEUE_DELAY); 
+    }
+
+    isProcessingQueue = false;
+}
+
+// هذه هي الدالة التي سيستدعيها ملف البوت الرئيسي
+function generateResponse(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
+    return new Promise((resolve) => {
+        const now = Date.now();
+
+        // 1. فحص التبريد (Cooldown) للمستخدم
+        if (userCooldowns.has(userId)) {
+            const lastTime = userCooldowns.get(userId);
+            if (now - lastTime < USER_COOLDOWN) {
+                console.log(`[RateLimit] User ${username} is spamming. Ignored.`);
+                // نُرجع null حتى لا يرد البوت على رسائل السبام
+                return resolve(null); 
+            }
+        }
+        userCooldowns.set(userId, now);
+
+        // 2. إضافة الطلب إلى طابور الانتظار
+        messageQueue.push({
+            args: { apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId },
+            resolve
+        });
+
+        // 3. تشغيل معالج الطابور إذا كان متوقفاً
+        if (!isProcessingQueue) {
+            processQueue();
+        }
+    });
 }
 
 setInterval(() => {
@@ -205,6 +273,9 @@ setInterval(() => {
         console.log(`[AI Engine] Cleaning ${keys.length} cached sessions...`);
         keys.forEach(key => delete chatSessions[key]);
     }
+    
+    // تنظيف كاش التبريد للمستخدمين لتفريغ الذاكرة
+    userCooldowns.clear(); 
 }, 3600000);
 
 module.exports = { generateResponse };
