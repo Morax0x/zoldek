@@ -8,8 +8,8 @@ const TIERS = {
 };
 
 const SYMBOLS = {
-    MORA_CROWN: { emoji: '👑', type: 'mora', multi: 10, name: 'التاج الإمبراطوري' },
-    MORA_SWORD: { emoji: '⚔️', type: 'mora', multi: 3, name: 'سيف الفرسان' },
+    MORA_CROWN: { emoji: '👑', type: 'mora', multi: 5, name: 'التاج الإمبراطوري' },
+    MORA_SWORD: { emoji: '⚔️', type: 'mora', multi: 3, name: 'سيـف الفرسان' },
     MORA_FISH:  { emoji: '🐟', type: 'mora', multi: 1.5, name: 'السمكة الذهبية' },
     GACHA:      { emoji: '🎁', type: 'item', item: 'gacha_chest', name: 'صندوق غاتشا' },
     SEED:       { emoji: '🌱', type: 'item', item: 'seed', name: 'بذور زراعية' },
@@ -57,31 +57,30 @@ function generateGrid(tierId) {
 
         if (tierId === 'gold') {
             if (r < 8) grid.push(SYMBOLS.MIMIC.emoji);        
-            else if (r < 11) grid.push(SYMBOLS.JOKER.emoji); 
-            else if (r < 11.5) grid.push(SYMBOLS.REP.emoji);     
-            else if (r < 13.5) grid.push(SYMBOLS.GACHA.emoji);   
-            else if (r < 17.5) grid.push(SYMBOLS.ANIMAL.emoji);  
-            else if (r < 24) grid.push(SYMBOLS.MORA_CROWN.emoji); 
-            else if (r < 34) grid.push(SYMBOLS.POTION.emoji);  
-            else if (r < 47) grid.push(SYMBOLS.MORA_SWORD.emoji); 
-            else if (r < 60) grid.push(SYMBOLS.MORA_FISH.emoji);  
-            else if (r < 70) grid.push(SYMBOLS.BAIT.emoji);    
+            else if (r < 9.5) grid.push(SYMBOLS.JOKER.emoji); 
+            else if (r < 10) grid.push(SYMBOLS.REP.emoji);     
+            else if (r < 12) grid.push(SYMBOLS.GACHA.emoji);   
+            else if (r < 15) grid.push(SYMBOLS.ANIMAL.emoji);  
+            else if (r < 19) grid.push(SYMBOLS.MORA_CROWN.emoji); 
+            else if (r < 25) grid.push(SYMBOLS.POTION.emoji);  
+            else if (r < 35) grid.push(SYMBOLS.MORA_SWORD.emoji); 
+            else if (r < 45) grid.push(SYMBOLS.BAIT.emoji);    
             else grid.push(randomJunk);                        
         } else if (tierId === 'silver') {
-            if (r < 2.5) grid.push(SYMBOLS.JOKER.emoji);         
-            else if (r < 4.5) grid.push(SYMBOLS.GACHA.emoji);    
-            else if (r < 13) grid.push(SYMBOLS.POTION.emoji);   
-            else if (r < 24) grid.push(SYMBOLS.MORA_SWORD.emoji); 
-            else if (r < 40) grid.push(SYMBOLS.MORA_FISH.emoji);  
-            else if (r < 56) grid.push(SYMBOLS.BAIT.emoji);    
-            else if (r < 67) grid.push(SYMBOLS.SEED.emoji);    
+            if (r < 1.5) grid.push(SYMBOLS.JOKER.emoji);         
+            else if (r < 2.5) grid.push(SYMBOLS.GACHA.emoji);    
+            else if (r < 7.5) grid.push(SYMBOLS.POTION.emoji);   
+            else if (r < 15) grid.push(SYMBOLS.MORA_SWORD.emoji); 
+            else if (r < 25) grid.push(SYMBOLS.MORA_FISH.emoji);  
+            else if (r < 35) grid.push(SYMBOLS.BAIT.emoji);    
+            else if (r < 45) grid.push(SYMBOLS.SEED.emoji);    
             else grid.push(randomJunk);                        
         } else { 
-            if (r < 1.5) grid.push(SYMBOLS.JOKER.emoji);       
-            else if (r < 2.5) grid.push(SYMBOLS.GACHA.emoji);    
-            else if (r < 14) grid.push(SYMBOLS.MORA_FISH.emoji);
-            else if (r < 35) grid.push(SYMBOLS.BAIT.emoji);    
-            else if (r < 62) grid.push(SYMBOLS.SEED.emoji);    
+            if (r < 1) grid.push(SYMBOLS.JOKER.emoji);       
+            else if (r < 1.5) grid.push(SYMBOLS.GACHA.emoji);    
+            else if (r < 8.5) grid.push(SYMBOLS.MORA_FISH.emoji);
+            else if (r < 20) grid.push(SYMBOLS.BAIT.emoji);    
+            else if (r < 40) grid.push(SYMBOLS.SEED.emoji);    
             else grid.push(randomJunk);                        
         }
     }
@@ -171,7 +170,7 @@ async function giveReputation(db, guildId, userId) {
 module.exports = {
     name: 'scratch',
     description: '✥ اشـتـري بـطـاقـة اليانـصيـب🎟️',
-    aliases: ['يانصيب', 'يا نصيب', 'تذكرة', 'حظ', 'كرت', 'خدش'],
+    aliases: ['يانصيب', 'حظ', 'خدش', 'scr'],
     category: 'Economy',
 
     async execute(message, args) {
@@ -351,7 +350,7 @@ module.exports = {
                             }
                         }
 
-                        finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز لـ «${s.name}»\n✦ ربـحـت ${prizeText}`);
+                        finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز لـ « ${s.emoji} »\n✦ ربـحـت ${prizeText}`);
                     } 
                     else if (revealedSymbols.length === 9) {
                         gameOver = true;
