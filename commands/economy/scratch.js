@@ -1,9 +1,9 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const TIERS = {
-    bronze: { id: 'bronze', name: 'تذكرة المغامر', price: 100, color: 0xcd7f32, label: '100' },
-    silver: { id: 'silver', name: 'تذكرة النبلاء', price: 500, color: 0xc0c0c0, label: '500' },
-    gold:   { id: 'gold',   name: 'تذكرة الإمبراطور', price: 1000, color: 0xffd700, label: '1000' }
+    bronze: { id: 'bronze', name: '100 نحاسية', price: 100, color: 0xcd7f32, label: '100' },
+    silver: { id: 'silver', name: '500 فضية', price: 500, color: 0xc0c0c0, label: '500' },
+    gold:   { id: 'gold',   name: '1000 ذهبية', price: 1000, color: 0xffd700, label: '1000' }
 };
 
 const SYMBOLS = {
@@ -46,13 +46,7 @@ function generateGrid(tierId) {
 
 function checkWin(revealedSymbols) {
     let jokerCount = revealedSymbols.filter(s => s === SYMBOLS.JOKER.emoji).length;
-    
-    let others = revealedSymbols.filter(s => 
-        s !== SYMBOLS.JOKER.emoji && 
-        s !== SYMBOLS.MIMIC.emoji && 
-        !SYMBOLS.JUNK.includes(s)
-    );
-
+    let others = revealedSymbols.filter(s => s !== SYMBOLS.JOKER.emoji && s !== SYMBOLS.MIMIC.emoji && !SYMBOLS.JUNK.includes(s));
     let counts = {};
     for (let s of others) counts[s] = (counts[s] || 0) + 1;
 
@@ -71,17 +65,11 @@ function buildGridComponents(revealedArray, gridArray, disableAll) {
             const index = i * 3 + j;
             const isRevealed = revealedArray[index];
             const symbol = gridArray[index];
-            
-            const btn = new ButtonBuilder()
-                .setCustomId(`scratch_${index}`)
-                .setDisabled(isRevealed || disableAll);
-
+            const btn = new ButtonBuilder().setCustomId(`scratch_${index}`).setDisabled(isRevealed || disableAll);
             if (isRevealed) {
-                btn.setStyle(symbol === '👹' ? ButtonStyle.Danger : (SYMBOLS.JUNK.includes(symbol) ? ButtonStyle.Secondary : ButtonStyle.Primary))
-                   .setLabel(symbol);
+                btn.setStyle(symbol === '👹' ? ButtonStyle.Danger : (SYMBOLS.JUNK.includes(symbol) ? ButtonStyle.Secondary : ButtonStyle.Primary)).setLabel(symbol);
             } else {
-                btn.setStyle(ButtonStyle.Secondary)
-                   .setLabel('❓'); 
+                btn.setStyle(ButtonStyle.Secondary).setLabel('❓'); 
             }
             row.addComponents(btn);
         }
@@ -92,22 +80,21 @@ function buildGridComponents(revealedArray, gridArray, disableAll) {
 
 module.exports = {
     name: 'scratch',
-    description: '🎟️ جرب حظك في بطاقات الخدش الإمبراطورية',
-    aliases: ['كرت', 'خدش'],
+    description: '✥ اشـتـري بـطـاقـة اليانـصيـب🎟️',
+    aliases: ['يانصيب', 'حظ', 'لفافة', 'تذكرة'],
     category: 'Economy',
     cooldown: 5,
 
     async execute(message, args) {
         const db = message.client.sql; 
         if (!db) return message.reply("⚠️ قنوات الاتصال بالخزينة الملكية معطلة حالياً.");
-
         const author = message.author;
 
         const chooseEmbed = new EmbedBuilder()
-            .setTitle('🎪 طاولة الحظ الإمبراطورية')
-            .setDescription('أهلاً بك في مائدة المخاطرة.\nاختر قيمة تذكرتك بالأسفل.. المجازفات الكبرى تجذب **الجنية 🧚‍♀️** التي تحقق لك الفوز، ولكنها قد توقظ **الميميك 👹** من سباته!')
+            .setTitle('✥ اشـتـري بـطـاقـة اليانـصيـب🎟️')
+            .setDescription('✶ جـرب حـظـك باليانصيـب واشتري تذكرتك\n\n✦ اجـمـع 3 رمـوز مشـابهـة لمضاعفـة ربحـك <a:mTrophy:1438797228826300518>\n✦ رمـز الحـظ «🧚‍♀️» يكـمـل اي رمـز آخـر <a:6aMoney:1439572832219693116>')
             .setColor(0x2b2d31)
-            .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
+            .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL({ dynamic: true }) });
 
         const chooseRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('buy_bronze').setLabel(TIERS.bronze.label).setStyle(ButtonStyle.Secondary),
@@ -116,7 +103,6 @@ module.exports = {
         );
 
         const initialMsg = await message.reply({ embeds: [chooseEmbed], components: [chooseRow] });
-
         const filter = i => i.user.id === author.id;
         const collector = initialMsg.createMessageComponentCollector({ filter, time: 120000 });
 
@@ -126,7 +112,6 @@ module.exports = {
         let revealed = Array(9).fill(false);
 
         collector.on('collect', async (i) => {
-
             if (i.customId.startsWith('buy_')) {
                 const tierId = i.customId.split('_')[1];
                 currentTier = TIERS[tierId];
@@ -135,7 +120,6 @@ module.exports = {
                     let userRes;
                     try { userRes = await db.query(`SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, [author.id, message.guild.id]); }
                     catch(e) { userRes = await db.query(`SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [author.id, message.guild.id]).catch(()=>({rows:[]})); }
-                    
                     const balance = userRes && userRes.rows[0] ? (Number(userRes.rows[0].mora) || 0) : 0;
 
                     if (balance < currentTier.price) {
@@ -144,66 +128,55 @@ module.exports = {
 
                     try { await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [currentTier.price, author.id, message.guild.id]); }
                     catch(e) { await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [currentTier.price, author.id, message.guild.id]).catch(()=>{}); }
-
                 } catch (err) {
                     return i.reply({ content: `⚠️ خلل في النظام المصرفي.`, ephemeral: true });
                 }
 
                 gameActive = true;
                 grid = generateGrid(tierId);
-
                 const gameEmbed = new EmbedBuilder()
                     .setTitle(currentTier.name)
-                    .setDescription(`لقد رميت **${currentTier.price} مورا** على الطاولة.\n\nاكشف المربعات لجمع **3 رموز متطابقة**.\n(تذكر: الجنية 🧚‍♀️ تسد أي فراغ، والميميك 👹 ينهي مسيرتك فجأة!)`)
-                    .setColor(currentTier.color);
+                    .setDescription(`✦ اشتـريـت تذكـرة [${currentTier.price} ${currentTier.name.split(' ')[1]}] <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`)
+                    .setColor(currentTier.color)
+                    .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL({ dynamic: true }) });
 
                 await i.update({ embeds: [gameEmbed], components: buildGridComponents(revealed, grid, false) });
             } 
-            
             else if (i.customId.startsWith('scratch_') && gameActive) {
                 const index = parseInt(i.customId.split('_')[1]);
                 revealed[index] = true;
-
                 const revealedSymbols = grid.filter((_, idx) => revealed[idx]);
                 let gameOver = false;
-                let finalEmbed = new EmbedBuilder().setTitle(currentTier.name).setColor(currentTier.color);
+                let finalEmbed = new EmbedBuilder().setTitle(currentTier.name).setColor(currentTier.color).setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL({ dynamic: true }) });
 
                 if (grid[index] === SYMBOLS.MIMIC.emoji) {
                     gameOver = true;
-                    finalEmbed.setDescription(`💥 **تمزقت البطاقة!**\nلقد أيقظت الميميك الجائع 👹 والتهم أموالك.\nخسرت **${currentTier.price} مورا**.`);
+                    finalEmbed.setDescription(`✶ **تمزقت بطاقـة اليانـصيـب !**\nلقد أيقظت الميميك والتهـم اموالـك👹\nخسرت **${currentTier.price}** 💥`);
                     finalEmbed.setColor(0xE74C3C);
-                } 
-                else {
+                } else {
                     const winStatus = checkWin(revealedSymbols);
-                    
                     if (winStatus.win) {
                         gameOver = true;
-                        const prize = currentTier.price * winStatus.multi;
-                        
-                        if (prize > 0) {
-                            try {
-                                try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [prize, author.id, message.guild.id]); }
-                                catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [prize, author.id, message.guild.id]).catch(()=>{}); }
-                            } catch (err) {}
-                        }
-
-                        finalEmbed.setDescription(`🎉 **ابتسم لك الحظ!**\nلقد جمعت 3 رموز (${winStatus.symbol}) بنجاح.\nغادرت الطاولة بـ **${prize} مورا**! 💰`);
+                        const prize = Math.floor(currentTier.price * winStatus.multi);
+                        try {
+                            try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [prize, author.id, message.guild.id]); }
+                            catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [prize, author.id, message.guild.id]).catch(()=>{}); }
+                        } catch (err) {}
+                        finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز «${winStatus.symbol}»\n✦ ربـحـت ${prize}  <:mora:1435647151349698621>`);
                         finalEmbed.setColor(0x2ECC71);
-                    } 
-                    else if (revealedSymbols.length === 9) {
+                    } else if (revealedSymbols.length === 9) {
                         gameOver = true;
-                        finalEmbed.setDescription(`🗑️ **بطاقة خاسرة..**\nامتلأت الساحة بالخردة ولم تجمع شيئاً مفيداً.\nخسرت **${currentTier.price} مورا**.`);
+                        finalEmbed.setDescription(`✶ بـطاقـة يـانصـيب خـاسـرة امتلأت الساحة بالخردة ~\n✶ خـسـرت ${currentTier.price} <:mora:1435647151349698621>`);
                         finalEmbed.setColor(0x95A5A6);
-                    }
-                    else {
-                        finalEmbed.setDescription(`استمر في الكشف.. متبقي لك **${9 - revealedSymbols.length}** فرص.`);
+                    } else {
+                        finalEmbed.setDescription(`✦ اشتـريـت تذكـرة [${currentTier.price} ${currentTier.name.split(' ')[1]}] <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>\n\n✦ استمر.. متبقي لك **${9 - revealedSymbols.length}** فـرص`);
                     }
                 }
 
                 if (gameOver) {
                     gameActive = false;
                     collector.stop('finished');
-                    await i.update({ embeds: [finalEmbed], components: buildGridComponents(Array(9).fill(true), grid, true) });
+                    await i.update({ embeds: [finalEmbed], components: [] });
                 } else {
                     await i.update({ embeds: [finalEmbed], components: buildGridComponents(revealed, grid, false) });
                 }
@@ -212,10 +185,7 @@ module.exports = {
 
         collector.on('end', (collected, reason) => {
             if (reason === 'time' && initialMsg) {
-                const timeoutEmbed = new EmbedBuilder()
-                    .setDescription('⏳ نفد الوقت، غادرت طاولة الحظ.')
-                    .setColor(0x2b2d31);
-                initialMsg.edit({ embeds: [timeoutEmbed], components: [] }).catch(() => {});
+                initialMsg.edit({ components: [] }).catch(() => {});
             }
         });
     }
