@@ -2,15 +2,8 @@ const { getEmojiContext } = require('./emojis');
 const aiActionHandler = require('../../utils/aiActionHandler');
 require('dotenv').config();
 
-const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-
-// تم تصحيح أسماء النماذج لتجنب خطأ 404
-const MODELS = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-pro-latest",
-    "gemini-1.5-flash-8b"
-];
+const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+const MODEL = "gpt-4o-mini"; // نموذج سريع جداً ورخيص ويدعم العربية بقوة
 
 const chatSessions = {};
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -19,8 +12,9 @@ const messageQueue = [];
 let isProcessingQueue = false;
 const userCooldowns = new Map();
 
-const QUEUE_DELAY = 4000; 
-const USER_COOLDOWN = 10000; 
+// قللت وقت الطابور لأن OpenAI سريع جداً ويتحمل ضغط السيرفرات الكبيرة
+const QUEUE_DELAY = 1000; 
+const USER_COOLDOWN = 5000; 
 
 function getAllowedEmojiIds() {
     const context = getEmojiContext();
@@ -57,50 +51,6 @@ function enforceSingleEmoji(text) {
     return cleanText;
 }
 
-async function urlToGenerativePart(url, mimeType) {
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-        const arrayBuffer = await response.arrayBuffer();
-        return {
-            inlineData: {
-                data: Buffer.from(arrayBuffer).toString("base64"),
-                mimeType
-            }
-        };
-    } catch (error) {
-        console.error("[Image Error] Failed to process image attachment:", error.message);
-        throw error;
-    }
-}
-
-async function callGeminiAPI(apiKey, modelName, systemInstruction, contents) {
-    const url = `${GEMINI_API_BASE}/${modelName}:generateContent?key=${apiKey}`;
-
-    const body = {
-        system_instruction: {
-            parts: [{ text: systemInstruction }]
-        },
-        contents
-    };
-
-    const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-    });
-
-    if (!response.ok) {
-        const errText = await response.text();
-        const err = new Error(`Gemini API error ${response.status}: ${errText}`);
-        err.status = response.status;
-        throw err;
-    }
-
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-}
-
 async function processAiActions(responseText, messageObject) {
     const actionRegex = /\[ACTION:([A-Z_]+)(?::(\w+))?\]/g;
     let match;
@@ -115,8 +65,35 @@ async function processAiActions(responseText, messageObject) {
     return cleanText.trim();
 }
 
-async function executeAI(apiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
-    if (!apiKey) return "⚠️ مفتاح الخزينة (API Key) مفقود!";
+async function callOpenAI(apiKey, messages) {
+    const response = await fetch(OPENAI_API_URL, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+            model: MODEL,
+            messages: messages,
+            max_tokens: 1500,
+            temperature: 0.7
+        })
+    });
+
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`OpenAI API error ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content ?? "";
+}
+
+async function executeAI(passedApiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
+    // يسحب المفتاح تلقائياً من ريلواي عشان ما تضطر تعدل ملفات ثانية
+    const apiKey = process.env.OPENAI_API_KEY || passedApiKey;
+    
+    if (!apiKey) return "⚠️ مفتاح الخزينة (OpenAI API Key) مفقود!";
 
     const sessionKey = `${channelId}-SFW`;
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
@@ -132,79 +109,60 @@ async function executeAI(apiKey, systemInstruction, userMessage, userData, userI
     - Streak: ${userData.streak}
     `;
 
+    // تجهيز الذاكرة إذا كانت محادثة جديدة
+    if (!chatSessions[sessionKey]) {
+        chatSessions[sessionKey] = [
+            { role: "system", content: systemInstruction + "\n[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak." },
+            { role: "assistant", content: "همم.. أنا أستمع لكم جميعاً. 👑" }
+        ];
+    }
+
+    const currentHistory = [...chatSessions[sessionKey]];
+    let messageContent = [];
+
+    // إضافة النص للرسالة
+    messageContent.push({
+        type: "text",
+        text: `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage || (imageAttachment ? "ما رأيك في هذه الصورة؟" : "")}`
+    });
+
+    // معالجة الصور بطريقة OpenAI (تحويلها إلى Base64)
     if (imageAttachment) {
-        for (const modelName of MODELS) {
-            try {
-                const imagePart = await urlToGenerativePart(imageAttachment.url, imageAttachment.mimeType);
-
-                const contents = [{
-                    role: "user",
-                    parts: [
-                        { text: contextInfo },
-                        { text: `[User: ${username} | ID: ${userId}]: ${userMessage || "ما رأيك في هذه الصورة؟"}` },
-                        imagePart
-                    ]
-                }];
-
-                let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, contents);
-                responseText = await processAiActions(responseText, messageObject);
-                return enforceSingleEmoji(responseText);
-
-            } catch (error) {
-                if (modelName === MODELS[MODELS.length - 1]) return "عذراً، لم أتمكن من رؤية الصورة بوضوح.";
-                await sleep(1500);
-            }
+        try {
+            const imageResponse = await fetch(imageAttachment.url);
+            if (!imageResponse.ok) throw new Error("Failed to fetch image");
+            const arrayBuffer = await imageResponse.arrayBuffer();
+            const base64Image = Buffer.from(arrayBuffer).toString('base64');
+            const mimeType = imageAttachment.mimeType || "image/png";
+            
+            messageContent.push({
+                type: "image_url",
+                image_url: { url: `data:${mimeType};base64,${base64Image}` }
+            });
+        } catch (error) {
+            console.error("[Image Error] Failed to process image attachment:", error.message);
         }
     }
 
-    for (let i = 0; i < MODELS.length; i++) {
-        const modelName = MODELS[i];
-        try {
-            if (!chatSessions[sessionKey]) {
-                chatSessions[sessionKey] = [
-                    {
-                        role: "user",
-                        parts: [{ text: `[SYSTEM: GROUP CHAT STARTED] Mode: SFW. Treat users based on their ID. Multiple users may speak.` }]
-                    },
-                    {
-                        role: "model",
-                        parts: [{ text: "همم.. أنا أستمع لكم جميعاً. 👑" }]
-                    }
-                ];
-            }
+    currentHistory.push({ role: "user", content: messageContent });
 
-            const currentHistory = [...chatSessions[sessionKey]];
-            const fullMessage = `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage}`;
-            currentHistory.push({ role: "user", parts: [{ text: fullMessage }] });
+    // تقليل الذاكرة إذا طالت (يحفظ آخر 15 رسالة عشان يركز أكثر)
+    if (currentHistory.length > 15) {
+        currentHistory.splice(2, currentHistory.length - 15);
+    }
 
-            if (currentHistory.length > 10) {
-                currentHistory.splice(2, currentHistory.length - 10);
-            }
+    try {
+        let responseText = await callOpenAI(apiKey, currentHistory);
 
-            let responseText = await callGeminiAPI(apiKey, modelName, systemInstruction, currentHistory);
+        chatSessions[sessionKey] = currentHistory;
+        chatSessions[sessionKey].push({ role: "assistant", content: responseText });
 
-            chatSessions[sessionKey] = currentHistory;
-            chatSessions[sessionKey].push({ role: "model", parts: [{ text: responseText }] });
+        responseText = await processAiActions(responseText, messageObject);
+        return enforceSingleEmoji(responseText);
 
-            responseText = await processAiActions(responseText, messageObject);
-            return enforceSingleEmoji(responseText);
-
-        } catch (error) {
-            if (error.message.includes("429") || error.status === 429) {
-                await sleep(1000);
-                continue;
-            }
-            if (error.message.includes("503") || error.status === 503) {
-                await sleep(500);
-                continue;
-            }
-
-            if (i === MODELS.length - 1) {
-                // إذا فشلت جميع النماذج، يتم تسجيل خطأ فعلي واحد فقط
-                console.error(`[AI Engine Error] All models failed. Last error: ${error.message.split('\n')[0]}`);
-                return "🌑 .. ";
-            }
-        }
+    } catch (error) {
+        console.error(`[OpenAI Engine Error]: ${error.message.split('\n')[0]}`);
+        return "🌑 .. واجهت مشكلة في التفكير، حاول مرة أخرى.";
     }
 }
 
@@ -239,7 +197,6 @@ function generateResponse(apiKey, systemInstruction, userMessage, userData, user
         if (userCooldowns.has(userId)) {
             const lastTime = userCooldowns.get(userId);
             if (now - lastTime < USER_COOLDOWN) {
-                // سبام: يتم التجاهل بصمت بدون طباعة في الكونسل
                 return resolve(null); 
             }
         }
