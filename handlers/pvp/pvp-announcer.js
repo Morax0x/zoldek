@@ -1,5 +1,4 @@
 const { EmbedBuilder, Colors } = require("discord.js");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const ANNOUNCER_COLORS = [Colors.Red, Colors.Gold, Colors.Orange, Colors.Purple, Colors.Blue, Colors.Green, Colors.DarkVividPink];
 
@@ -12,16 +11,13 @@ const PERSONALITIES = [
     "معلق درامي، يتعامل مع كل ضربة يتلقاها المقاتلون وكأنها مأساة أو نهاية العالم بأسلوب مسرحي."
 ];
 
-// قائمة أسماء احتياطية في حال أخطأ الذكاء الاصطناعي
 const FALLBACK_NAMES = ["المرعب", "الهائج", "السفاح", "الصياد", "الجزار", "الأسطورة", "الكابوس", "البرق"];
 
-// دالة لتنظيف النص من التشكيل (الحركات) نهائياً
 function removeTashkeel(text) {
     if (!text) return text;
     return text.replace(/[\u064B-\u065F]/g, '');
 }
 
-// دالة لمعرفة نوع المعركة الحالي ليتفاعل المعلق معها بذكاء
 function getBattleContext(battleState) {
     if (battleState.isGuardBattle || battleState.isGuardBattle === true) {
         return "المعركة تدور في قلعة الإمبراطور! لص يحاول سرقة الخزينة وفارس الإمبراطور يحاول منعه من ذلك!";
@@ -32,26 +28,33 @@ function getBattleContext(battleState) {
     }
 }
 
-async function askGemini(prompt) {
-    const apiKey = process.env.GEMINI_API_KEY;
+async function askOpenAI(prompt) {
+    const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) return null;
     
     try {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: "gpt-4o-mini",
+                messages: [{ role: "user", content: prompt }],
+                max_tokens: 150,
+                temperature: 0.8
+            })
+        });
+
+        if (!response.ok) return null;
         
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().trim();
+        const data = await response.json();
+        const text = data.choices[0].message.content.trim();
         
         if (text) return removeTashkeel(text);
     } catch (e) {
-        try {
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-            const result = await fallbackModel.generateContent(prompt);
-            const text = result.response.text().trim();
-            return removeTashkeel(text);
-        } catch (fallbackError) {}
+        console.error("[PvP Announcer Error]:", e.message);
     }
     return null;
 }
@@ -76,7 +79,6 @@ async function initAnnouncer(battleState, p1Name, p2Name) {
     battleState.announcerPersonality = selectedPersonality;
     const battleContext = getBattleContext(battleState);
 
-    // 🔥 التعديل هنا: توجيهات صارمة جداً لمنع الردود الطويلة (الجرائد) والالتزام بسطر واحد فقط 🔥
     const prompt = `أنت الآن تلعب دور: ${selectedPersonality}
 سياق الحدث: ${battleContext}
 
@@ -93,7 +95,7 @@ async function initAnnouncer(battleState, p1Name, p2Name) {
 اسمك_من_كلمة_واحدة|ترحيبك_القصير_في_سطر_واحد`;
 
     try {
-        const res = await askGemini(prompt);
+        const res = await askOpenAI(prompt);
         let name = FALLBACK_NAMES[Math.floor(Math.random() * FALLBACK_NAMES.length)]; 
         let welcome = `الميدان يشتعل! ${p1Name} يقف وجهاً لوجه أمام ${p2Name} في معركة لا ترحم!`;
         
@@ -108,7 +110,6 @@ async function initAnnouncer(battleState, p1Name, p2Name) {
             welcome = res.replace(/\*/g, '');
         }
 
-        // قص أي استرسال زائد في حال تجاهل الجيميني الأوامر 
         if (welcome.length > 200) {
             welcome = welcome.substring(0, 197) + '...';
         }
@@ -142,12 +143,11 @@ async function triggerAnnouncer(battleState, eventText) {
 اكتب بنص صافٍ بدون تشكيل.`;
     
     try {
-        const comment = await askGemini(prompt);
+        const comment = await askOpenAI(prompt);
         if (comment) {
             battleState.announcerColor = ANNOUNCER_COLORS[Math.floor(Math.random() * ANNOUNCER_COLORS.length)];
             let finalComment = comment.replace(/[\*🎙️]/g, '').trim();
             
-            // قص التعليق لو كان طويلاً جداً
             if (finalComment.length > 200) {
                 finalComment = finalComment.substring(0, 197) + '...';
             }
