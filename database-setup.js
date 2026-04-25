@@ -7,13 +7,10 @@ async function setupDatabase(clientOrSql) {
     console.log("[Database] Starting Cloud Integrity & Schema Check...");
 
     const tables = [
-        // جدول الليفل والاقتصاد
         `CREATE TABLE IF NOT EXISTS levels ("user" TEXT NOT NULL, "guild" TEXT NOT NULL, "xp" BIGINT DEFAULT 0, "level" BIGINT DEFAULT 1, "totalXP" BIGINT DEFAULT 0, "mora" BIGINT DEFAULT 0, "lastWork" BIGINT DEFAULT 0, "lastDaily" BIGINT DEFAULT 0, "dailyStreak" BIGINT DEFAULT 0, "bank" BIGINT DEFAULT 0, "lastInterest" BIGINT DEFAULT 0, "totalInterestEarned" BIGINT DEFAULT 0, "hasGuard" BIGINT DEFAULT 0, "guardExpires" BIGINT DEFAULT 0, "totalVCTime" BIGINT DEFAULT 0, "lastCollected" BIGINT DEFAULT 0, "lastRob" BIGINT DEFAULT 0, "lastGuess" BIGINT DEFAULT 0, "lastRPS" BIGINT DEFAULT 0, "lastRoulette" BIGINT DEFAULT 0, "lastTransfer" BIGINT DEFAULT 0, "lastDeposit" BIGINT DEFAULT 0, "shop_purchases" BIGINT DEFAULT 0, "total_meow_count" BIGINT DEFAULT 0, "boost_count" BIGINT DEFAULT 0, "lastPVP" BIGINT DEFAULT 0, "lastFarmYield" BIGINT DEFAULT 0, "lastFish" BIGINT DEFAULT 0, "rodLevel" BIGINT DEFAULT 0, "boatLevel" BIGINT DEFAULT 0, "currentLocation" TEXT DEFAULT 'beach', "lastMemory" BIGINT DEFAULT 0, "lastArrange" BIGINT DEFAULT 0, "dungeon_gate_level" BIGINT DEFAULT 1, "max_dungeon_floor" BIGINT DEFAULT 0, "dungeon_wins" BIGINT DEFAULT 0, "lastDungeon" BIGINT DEFAULT 0, "last_dungeon" BIGINT DEFAULT 0, "dungeon_join_count" BIGINT DEFAULT 0, "last_join_reset" BIGINT DEFAULT 0, "lastRace" BIGINT DEFAULT 0, "dungeon_tickets" BIGINT DEFAULT 0, "last_ticket_reset" TEXT DEFAULT '', "last_rob_pardon" TEXT DEFAULT '', "lastTransferDate" TEXT DEFAULT '', "dailyTransferCount" BIGINT DEFAULT 0, PRIMARY KEY ("user", "guild"))`,
 
-        // 🔥 جدول الصيد الجديد 🔥
         `CREATE TABLE IF NOT EXISTS user_fishing ("userID" TEXT NOT NULL, "guildID" TEXT NOT NULL, "rodLevel" BIGINT DEFAULT 1, "currentRod" TEXT DEFAULT 'سنارة خشبية', "boatLevel" BIGINT DEFAULT 1, "currentBoat" TEXT DEFAULT 'قارب خشب', PRIMARY KEY ("userID", "guildID"))`,
 
-        // 🔥 تحديث جدول settings ليشمل ملوك الصوت واللصوص فعلياً 🔥
         `CREATE TABLE IF NOT EXISTS settings ("guild" TEXT PRIMARY KEY, "voiceXP" BIGINT DEFAULT 0, "voiceCooldown" BIGINT DEFAULT 60000, "customXP" BIGINT DEFAULT 25, "customCooldown" BIGINT DEFAULT 60000, "levelUpMessage" TEXT, "lvlUpTitle" TEXT, "lvlUpDesc" TEXT, "lvlUpImage" TEXT, "lvlUpColor" TEXT, "lvlUpMention" BIGINT DEFAULT 1, "streakEmoji" TEXT DEFAULT '🔥', "questChannelID" TEXT, "treeBotID" TEXT, "treeChannelID" TEXT, "treeMessageID" TEXT, "countingChannelID" TEXT, "vipRoleID" TEXT, "casinoChannelID" TEXT, "dropGiveawayChannelID" TEXT, "dropTitle" TEXT, "dropDescription" TEXT, "dropColor" TEXT, "dropFooter" TEXT, "dropButtonLabel" TEXT, "dropButtonEmoji" TEXT, "dropMessageContent" TEXT, "lastMediaUpdateSent" TEXT, "lastMediaUpdateMessageID" TEXT, "lastMediaUpdateChannelID" TEXT, "shopChannelID" TEXT, "bumpChannelID" TEXT, "customRoleAnchorID" TEXT, "customRolePanelTitle" TEXT, "customRolePanelDescription" TEXT, "customRolePanelImage" TEXT, "customRolePanelColor" TEXT, "chatChannelID" TEXT, "lastQuestPanelChannelID" TEXT, "streakTimerChannelID" TEXT, "dailyTimerChannelID" TEXT, "weeklyTimerChannelID" TEXT, "img_level" TEXT, "img_mora" TEXT, "img_streak" TEXT, "img_media_streak" TEXT, "img_strongest" TEXT, "img_weekly_xp" TEXT, "img_daily_xp" TEXT, "img_achievements" TEXT, "shopLogChannelID" TEXT, "marketStatus" TEXT DEFAULT 'normal', "boostChannelID" TEXT, "voiceChannelID" TEXT, "savedStatusType" TEXT, "savedStatusText" TEXT, "prefix" TEXT DEFAULT '-', "casinoChannelID2" TEXT, "serverTag" TEXT, "bumpNotifyRoleID" TEXT, "nextBumpTime" BIGINT DEFAULT 0, "lastBumperID" TEXT, "levelChannel" TEXT, "modLogChannelID" TEXT, "transactionLogChannelID" TEXT, "guildBoardChannelID" TEXT, "guildBoardMessageID" TEXT, "kingsBoardMessageID" TEXT, "guildAnnounceChannelID" TEXT, "roleCasinoKing" TEXT, "roleMerchant" TEXT, "rolePhilanthropist" TEXT, "roleVoice" TEXT, "roleAbyss" TEXT, "roleChatter" TEXT, "roleKnightSlayer" TEXT, "roleFisherKing" TEXT, "rolePvPKing" TEXT, "roleThief" TEXT, "roleDailyQuester" TEXT, "roleWeeklyQuester" TEXT, "roleRankSS" TEXT, "roleRankS" TEXT, "roleRankA" TEXT, "roleRankB" TEXT, "roleRankC" TEXT, "roleRankD" TEXT, "chatterChannelID" TEXT, "roleChatterBadge" TEXT, "roleDailyBadge" TEXT, "roleWeeklyBadge" TEXT)`,
 
         `CREATE TABLE IF NOT EXISTS report_settings ("guildID" TEXT PRIMARY KEY, "logChannelID" TEXT, "reportChannelID" TEXT, "jailRoleID" TEXT, "arenaRoleID" TEXT, "unlimitedRoleID" TEXT, "testRoleID" TEXT)`,
@@ -26,7 +23,6 @@ async function setupDatabase(clientOrSql) {
         `CREATE TABLE IF NOT EXISTS role_buffs ("guildID" TEXT NOT NULL, "roleID" TEXT NOT NULL, "buffPercent" BIGINT NOT NULL, PRIMARY KEY ("guildID", "roleID"))`,
         `CREATE TABLE IF NOT EXISTS role_mora_buffs ("guildID" TEXT NOT NULL, "roleID" TEXT NOT NULL, "buffPercent" BIGINT NOT NULL, PRIMARY KEY ("guildID", "roleID"))`,
         
-        // جدول المعززات (البفات)
         `CREATE TABLE IF NOT EXISTS user_buffs ("id" BIGSERIAL PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "buffPercent" BIGINT, "expiresAt" BIGINT, "buffType" TEXT, "multiplier" REAL DEFAULT 0.0)`,
         
         `CREATE TABLE IF NOT EXISTS streaks ("id" TEXT PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "streakCount" BIGINT, "lastMessageTimestamp" BIGINT, "hasGracePeriod" BIGINT, "hasItemShield" BIGINT, "nicknameActive" BIGINT DEFAULT 1, "hasReceivedFreeShield" BIGINT DEFAULT 0, "separator" TEXT DEFAULT '|', "dmNotify" BIGINT DEFAULT 1, "highestStreak" BIGINT DEFAULT 0, "has12hWarning" BIGINT DEFAULT 0)`,
@@ -59,7 +55,6 @@ async function setupDatabase(clientOrSql) {
         `CREATE TABLE IF NOT EXISTS giveaway_weights ("guildID" TEXT NOT NULL, "roleID" TEXT NOT NULL, "weight" BIGINT NOT NULL, PRIMARY KEY ("guildID", "roleID"))`,
         `CREATE TABLE IF NOT EXISTS active_giveaways ("messageID" TEXT PRIMARY KEY, "guildID" TEXT NOT NULL, "channelID" TEXT NOT NULL, "prize" TEXT NOT NULL, "endsAt" BIGINT NOT NULL, "winnerCount" BIGINT NOT NULL, "xpReward" BIGINT DEFAULT 0, "moraReward" BIGINT DEFAULT 0, "isFinished" BIGINT DEFAULT 0)`,
         
-        // جدول المشاركين في القيفاواي
         `CREATE TABLE IF NOT EXISTS giveaway_entries ("id" BIGSERIAL PRIMARY KEY, "giveawayID" TEXT NOT NULL, "userID" TEXT NOT NULL, "weight" BIGINT NOT NULL DEFAULT 1, UNIQUE("giveawayID", "userID"))`,
         
         `CREATE TABLE IF NOT EXISTS media_streaks ("id" TEXT PRIMARY KEY, "guildID" TEXT, "userID" TEXT, "streakCount" BIGINT DEFAULT 0, "lastMediaTimestamp" BIGINT DEFAULT 0, "hasGracePeriod" BIGINT DEFAULT 1, "hasItemShield" BIGINT DEFAULT 0, "hasReceivedFreeShield" BIGINT DEFAULT 1, "dmNotify" BIGINT DEFAULT 1, "highestStreak" BIGINT DEFAULT 0, "lastChannelID" TEXT)`,
@@ -123,13 +118,11 @@ async function setupDatabase(clientOrSql) {
     try {
         for (const query of tables) {
             await db.query(query).catch(e => {
-                // تجاوز الأخطاء المتعلقة بإنشاء الجداول في حالة وجودها (لتوافق SQLite/PG)
             });
         }
 
         console.log("[Database] Running schema column integrity patches...");
 
-        // 🔥 الترقيع الآلي لجدول المعززات (user_buffs) الذي تسبب بالخطأ الأخير 🔥
         await ensureColumn(db, 'user_buffs', 'userID', 'TEXT');
         await ensureColumn(db, 'user_buffs', 'guildID', 'TEXT');
         await ensureColumn(db, 'user_buffs', 'buffPercent', 'BIGINT');
@@ -137,11 +130,9 @@ async function setupDatabase(clientOrSql) {
         await ensureColumn(db, 'user_buffs', 'buffType', 'TEXT');
         await ensureColumn(db, 'user_buffs', 'multiplier', 'REAL DEFAULT 0.0');
 
-        // 🔥 ترقيع جدول القيفاواي 🔥
         await ensureColumn(db, 'giveaway_entries', 'weight', 'INTEGER DEFAULT 1');
         await ensureColumn(db, 'giveaway_entries', 'userID', 'TEXT');
 
-        // 🔥 تحديث العواميد المفقودة الأخرى 🔥
         await ensureColumn(db, 'settings', 'roleVoice', 'TEXT');
         await ensureColumn(db, 'settings', 'roleThief', 'TEXT');
         
@@ -150,17 +141,16 @@ async function setupDatabase(clientOrSql) {
         await ensureColumn(db, 'user_reputation', 'daily_reps_given', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'user_reputation', 'weekly_reps_given', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'levels', 'last_dungeon', 'BIGINT DEFAULT 0');
+        await ensureColumn(db, 'levels', 'lastScratch', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'dungeon_floor', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'vc_minutes', 'BIGINT DEFAULT 0');
         await ensureColumn(db, 'kings_board_tracker', 'mora_stolen', 'BIGINT DEFAULT 0');
 
-        // 🔥 عواميد الأمان لجدول الأسلحة والمهارات (تأمين إضافي للحدادة) 🔥
         await ensureColumn(db, 'user_weapons', 'weaponLevel', 'BIGINT DEFAULT 1');
         await ensureColumn(db, 'user_weapons', 'raceName', 'TEXT');
         await ensureColumn(db, 'user_skills', 'skillLevel', 'BIGINT DEFAULT 1');
         await ensureColumn(db, 'user_skills', 'skillID', 'TEXT');
         
-        // إدخال العناصر الآمن متوافق مع SQLite و PG
         const insertItemPg = `INSERT INTO market_items ("id", "name", "description", "currentPrice") VALUES ($1, $2, $3, $4) ON CONFLICT ("id") DO NOTHING`;
         const insertItemLite = `INSERT OR IGNORE INTO market_items (id, name, description, currentPrice) VALUES ($1, $2, $3, $4)`;
         
@@ -178,12 +168,10 @@ async function setupDatabase(clientOrSql) {
     }
 }
 
-// 🛡️ دالة ذكية لإضافة الأعمدة الناقصة متوافقة مع (PostgreSQL + SQLite) 🛡️
 async function ensureColumn(db, table, column, typeDef) {
     try {
         let hasColumn = false;
 
-        // محاولة فحص ببيئة PostgreSQL
         try {
             const checkPg = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name=$2`, [table, column]);
             if (checkPg && checkPg.rows && checkPg.rows.length > 0) hasColumn = true;
@@ -192,7 +180,6 @@ async function ensureColumn(db, table, column, typeDef) {
             if (checkPgLower && checkPgLower.rows && checkPgLower.rows.length > 0) hasColumn = true;
         } catch (pgErr) {}
 
-        // محاولة فحص ببيئة SQLite
         if (!hasColumn) {
             try {
                 const checkLite = await db.query(`PRAGMA table_info("${table}")`);
@@ -205,13 +192,11 @@ async function ensureColumn(db, table, column, typeDef) {
             } catch (liteErr) {}
         }
 
-        // إضافة العمود في حال لم يجده في أي بيئة
         if (!hasColumn) {
             console.log(`[Migration] Adding missing column '${column}' to table '${table}'...`);
             try {
                 await db.query(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${typeDef}`);
             } catch(e) {
-                // Fallback Without Quotes for Lite Mode
                 await db.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeDef}`).catch(()=>{});
             }
         }
