@@ -16,6 +16,7 @@ const SYMBOLS = {
 };
 
 const activeProcesses = new Set();
+const BANNER_IMAGE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/img/sk.png'; // 🖼️ رابط البانر الخاص بك
 
 function getRandomColor() {
     return Math.floor(Math.random() * 16777215);
@@ -101,6 +102,7 @@ module.exports = {
             .setTitle('✥ اشـتـري بـطـاقـة اليانـصيـب🎟️')
             .setDescription('✶ جـرب حـظـك باليانصيـب واشتري تذكرتك\n\n✦ اجـمـع 3 رمـوز مشـابهـة لمضاعفـة ربحـك <a:mTrophy:1438797228826300518>\n✦ رمـز الحـظ «🧚‍♀️» يكـمـل اي رمـز آخـر <a:6aMoney:1439572832219693116>')
             .setColor(getRandomColor())
+            .setImage(BANNER_IMAGE) // 🖼️ البانر
             .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
 
         const chooseRow = new ActionRowBuilder().addComponents(
@@ -127,7 +129,6 @@ module.exports = {
                 const tierId = i.customId.split('_')[1];
                 currentTier = TIERS[tierId];
 
-                // جلب الرصيد بنفس الطريقة المعتمدة في بوتك
                 let data = await client.getLevel(author.id, guild.id);
                 if (!data) {
                     data = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
@@ -140,7 +141,6 @@ module.exports = {
                     return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** <:mora:1435647151349698621> لشراء التذكرة.`, ephemeral: true });
                 }
 
-                // خصم المبلغ وحفظه باستخدام دالة البوت الأساسية
                 data.mora = balance - currentTier.price;
                 await client.setLevel(data);
 
@@ -151,6 +151,7 @@ module.exports = {
                     .setTitle(`✶ بطـاقـة يانصيـب ${currentTier.name}`)
                     .setDescription(`✦ اشتـريـت تذكـرة ${currentTier.price} ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`)
                     .setColor(getRandomColor())
+                    .setImage(BANNER_IMAGE) // 🖼️ البانر
                     .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
 
                 await i.update({ embeds: [gameEmbed], components: buildGridComponents(revealed, grid, false) });
@@ -162,7 +163,10 @@ module.exports = {
 
                 const revealedSymbols = grid.filter((_, idx) => revealed[idx]);
                 let gameOver = false;
-                let finalEmbed = new EmbedBuilder().setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() }).setColor(getRandomColor());
+                let finalEmbed = new EmbedBuilder()
+                    .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() })
+                    .setColor(getRandomColor())
+                    .setImage(BANNER_IMAGE); // 🖼️ البانر مستمر حتى النهاية
 
                 const baseDesc = `✦ اشتـريـت تذكـرة ${currentTier.price} ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`;
 
@@ -178,7 +182,6 @@ module.exports = {
                         const prize = Math.floor(currentTier.price * winStatus.multi);
                         finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`).setColor(0x2ECC71);
                         
-                        // إضافة الجائزة عبر نظام البوت الأساسي
                         let winData = await client.getLevel(author.id, guild.id);
                         if (!winData) winData = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
                         winData.mora = (Number(winData.mora) || 0) + prize;
