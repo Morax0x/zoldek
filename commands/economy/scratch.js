@@ -85,44 +85,6 @@ function buildGridComponents(revealedArray, gridArray, disableAll) {
     return rows;
 }
 
-async function secureUpdateMora(client, userId, guildId, amount) {
-    const db = client.sql;
-    if (!db) return false;
-    
-    try {
-        let query = `
-            INSERT INTO levels ("user", "guild", "mora") 
-            VALUES ($1, $2, $3) 
-            ON CONFLICT ("user", "guild") 
-            DO UPDATE SET "mora" = COALESCE(levels."mora", 0) + $3
-            RETURNING "mora";
-        `;
-        
-        let res;
-        try { 
-            res = await db.query(query, [userId, guildId, amount]); 
-        } catch (e) {
-            let fallbackQuery = `
-                INSERT INTO levels (userid, guildid, mora) 
-                VALUES ($1, $2, $3) 
-                ON CONFLICT (userid, guildid) 
-                DO UPDATE SET mora = COALESCE(levels.mora, 0) + $3
-                RETURNING mora;
-            `;
-            res = await db.query(fallbackQuery, [userId, guildId, amount]);
-        }
-
-        if (client.levels && typeof client.levels.get === 'function') {
-            let cacheData = client.levels.get(`${userId}-${guildId}`);
-            if (cacheData) cacheData.mora = Number(res.rows[0].mora);
-        }
-        return true;
-    } catch (error) {
-        console.error(error);
-        return false;
-    }
-}
-
 module.exports = {
     name: 'scratch',
     description: '✥ اشـتـري بـطـاقـة اليانـصيـب🎟️',
@@ -131,10 +93,9 @@ module.exports = {
     cooldown: 5,
 
     async execute(message, args) {
-        const db = message.client.sql; 
-        if (!db) return message.reply("⚠️ قنوات الاتصال بالخزينة الملكية معطلة حالياً.");
-
+        const client = message.client;
         const author = message.author;
+        const guild = message.guild;
 
         const chooseEmbed = new EmbedBuilder()
             .setTitle('✥ اشـتـري بـطـاقـة اليانـصيـب🎟️')
@@ -166,24 +127,22 @@ module.exports = {
                 const tierId = i.customId.split('_')[1];
                 currentTier = TIERS[tierId];
 
-                let balance = 0;
-                try {
-                    let userRes;
-                    try { userRes = await db.query(`SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, [author.id, message.guild.id]); }
-                    catch(e) { userRes = await db.query(`SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [author.id, message.guild.id]).catch(()=>({rows:[]})); }
-                    balance = userRes && userRes.rows[0] ? (Number(userRes.rows[0].mora) || 0) : 0;
-                } catch(e) {}
+                // جلب الرصيد بنفس الطريقة المعتمدة في بوتك
+                let data = await client.getLevel(author.id, guild.id);
+                if (!data) {
+                    data = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
+                }
+
+                let balance = Number(data.mora) || 0;
 
                 if (balance < currentTier.price) {
                     activeProcesses.delete(i.user.id);
                     return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** <:mora:1435647151349698621> لشراء التذكرة.`, ephemeral: true });
                 }
 
-                const deducted = await secureUpdateMora(message.client, author.id, message.guild.id, -currentTier.price);
-                if (!deducted) {
-                    activeProcesses.delete(i.user.id);
-                    return i.reply({ content: `⚠️ خلل في النظام المصرفي، لم نتمكن من خصم المبلغ.`, ephemeral: true });
-                }
+                // خصم المبلغ وحفظه باستخدام دالة البوت الأساسية
+                data.mora = balance - currentTier.price;
+                await client.setLevel(data);
 
                 gameActive = true;
                 grid = generateGrid(tierId);
@@ -218,7 +177,13 @@ module.exports = {
                         gameOver = true;
                         const prize = Math.floor(currentTier.price * winStatus.multi);
                         finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`).setColor(0x2ECC71);
-                        await secureUpdateMora(message.client, author.id, message.guild.id, prize);
+                        
+                        // إضافة الجائزة عبر نظام البوت الأساسي
+                        let winData = await client.getLevel(author.id, guild.id);
+                        if (!winData) winData = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
+                        winData.mora = (Number(winData.mora) || 0) + prize;
+                        await client.setLevel(winData);
+
                         finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز «${winStatus.symbol}»\n✦ ربـحـت **${prize}** <:mora:1435647151349698621>`);
                     } 
                     else if (revealedSymbols.length === 9) {
