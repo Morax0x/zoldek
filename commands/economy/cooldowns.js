@@ -1,256 +1,260 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { 
+    EmbedBuilder, 
+    SlashCommandBuilder, 
+    MessageFlags, 
+    ActionRowBuilder, 
+    ButtonBuilder, 
+    ButtonStyle, 
+    ComponentType 
+} = require("discord.js");
+const path = require('path');
 
-const TIERS = {
-    bronze: { id: 'bronze', name: 'نحاسية', price: 100, color: 0xcd7f32, label: '100 نحاسية' },
-    silver: { id: 'silver', name: 'فضية', price: 500, color: 0xc0c0c0, label: '500 فضية' },
-    gold:   { id: 'gold',   name: 'ذهبية', price: 1000, color: 0xffd700, label: '1000 ذهبية' }
-};
-
-const SYMBOLS = {
-    CROWN: { emoji: '👑', multi: 10 },
-    SWORD: { emoji: '⚔️', multi: 3 },
-    FISH:  { emoji: '🐟', multi: 1.5 },
-    JOKER: { emoji: '🧚‍♀️', multi: 0 }, 
-    MIMIC: { emoji: '👹', multi: 0 },  
-    JUNK:  ['🪨', '🪵', '🍄', '☁️', '🦴', '🍎', '🧩'] 
-};
-
-const activeProcesses = new Set();
-const EMPEROR_ID = '1145327691772481577'; 
-const BANNER_IMAGE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/img/sk.png'; 
-
-function getRandomColor() {
-    return Math.floor(Math.random() * 16777215);
+const rootDir = process.cwd();
+let fishingConfig = { rods: [], boats: [] };
+try {
+    fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
+} catch (e) {
+    fishingConfig.rods = [{ level: 1, cooldown: 300000 }]; 
+    fishingConfig.boats = [{ level: 1, speed_bonus: 0 }];
 }
 
-function generateGrid(tierId) {
-    const grid = [];
-    for (let i = 0; i < 9; i++) {
-        let r = Math.random() * 100;
-        let randomJunk = SYMBOLS.JUNK[Math.floor(Math.random() * SYMBOLS.JUNK.length)];
+const EMOJI_READY = '🟢';
+const EMOJI_WAIT = '🔴';
+const EMOJI_ALL = '🟣';
+const HIDDEN_EMBED_IMAGE = 'https://i.postimg.cc/m2ZrjxB9/time.png';
 
-        if (tierId === 'gold') {
-            if (r < 8) grid.push(SYMBOLS.MIMIC.emoji);
-            else if (r < 11) grid.push(SYMBOLS.JOKER.emoji);
-            else if (r < 15) grid.push(SYMBOLS.CROWN.emoji);
-            else if (r < 25) grid.push(SYMBOLS.SWORD.emoji);
-            else if (r < 45) grid.push(SYMBOLS.FISH.emoji);
-            else grid.push(randomJunk);
-        } else if (tierId === 'silver') {
-            if (r < 4) grid.push(SYMBOLS.JOKER.emoji);
-            else if (r < 8) grid.push(SYMBOLS.CROWN.emoji);
-            else if (r < 14) grid.push(SYMBOLS.SWORD.emoji);
-            else if (r < 30) grid.push(SYMBOLS.FISH.emoji);
-            else grid.push(randomJunk);
-        } else {
-            if (r < 2) grid.push(SYMBOLS.CROWN.emoji);
-            else if (r < 10) grid.push(SYMBOLS.SWORD.emoji);
-            else if (r < 25) grid.push(SYMBOLS.FISH.emoji);
-            else grid.push(randomJunk);
-        }
-    }
-    return grid;
+function formatTimeSimple(ms) {
+    if (ms < 0) ms = 0;
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-function checkWin(revealedSymbols) {
-    let jokerCount = revealedSymbols.filter(s => s === SYMBOLS.JOKER.emoji).length;
-    let others = revealedSymbols.filter(s => s !== SYMBOLS.JOKER.emoji && s !== SYMBOLS.MIMIC.emoji && !SYMBOLS.JUNK.includes(s));
-    let counts = {};
-    for (let s of others) counts[s] = (counts[s] || 0) + 1;
-
-    if ((counts[SYMBOLS.CROWN.emoji] || 0) + jokerCount >= 3) return { win: true, symbol: SYMBOLS.CROWN.emoji, multi: SYMBOLS.CROWN.multi };
-    if ((counts[SYMBOLS.SWORD.emoji] || 0) + jokerCount >= 3) return { win: true, symbol: SYMBOLS.SWORD.emoji, multi: SYMBOLS.SWORD.multi };
-    if ((counts[SYMBOLS.FISH.emoji]  || 0) + jokerCount >= 3) return { win: true, symbol: SYMBOLS.FISH.emoji, multi: SYMBOLS.FISH.multi };
-
-    return { win: false };
+function getTimeUntilNextMidnightKSA() {
+    const now = new Date();
+    const ksaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
+    const nextMidnight = new Date(ksaTime);
+    nextMidnight.setHours(24, 0, 0, 0); 
+    return nextMidnight.getTime() - ksaTime.getTime();
 }
 
-function buildGridComponents(revealedArray, gridArray, disableAll) {
-    const rows = [];
-    for (let i = 0; i < 3; i++) {
-        const row = new ActionRowBuilder();
-        for (let j = 0; j < 3; j++) {
-            const index = i * 3 + j;
-            const isRevealed = revealedArray[index];
-            const symbol = gridArray[index];
-            const btn = new ButtonBuilder().setCustomId(`scratch_${index}`).setDisabled(isRevealed || disableAll);
-
-            if (isRevealed) {
-                btn.setStyle(symbol === '👹' ? ButtonStyle.Danger : (SYMBOLS.JUNK.includes(symbol) ? ButtonStyle.Secondary : ButtonStyle.Primary)).setLabel(symbol);
-            } else {
-                btn.setStyle(ButtonStyle.Secondary).setLabel('❓'); 
-            }
-            row.addComponents(btn);
-        }
-        rows.push(row);
-    }
-    return rows;
+function getKSADateString(timestamp) {
+    return new Date(timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
 }
+
+async function getCooldownReductionMs(db, userId, guildId) {
+    try {
+        let repRes;
+        try { repRes = await db.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
+        catch(e) { repRes = await db.query(`SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
+        
+        const points = repRes.rows[0]?.rep_points || repRes.rows[0]?.rep_points || 0;
+        
+        let reductionMinutes = 0;
+        if (points >= 1000) reductionMinutes = 30;
+        else if (points >= 500) reductionMinutes = 15;
+        else if (points >= 250) reductionMinutes = 10;
+        else if (points >= 100) reductionMinutes = 8;
+        else if (points >= 50) reductionMinutes = 7;
+        else if (points >= 25) reductionMinutes = 6;
+        else if (points >= 10) reductionMinutes = 5;
+
+        return reductionMinutes * 60 * 1000;
+    } catch(e) { return 0; }
+}
+
+const COMMANDS_TO_CHECK = [
+    { name: 'work', db_column: 'lastWork', fallback: 'lastwork', cooldown: 1 * 60 * 60 * 1000, label: 'عمل' },
+    { name: 'rob', db_column: 'lastRob', fallback: 'lastrob', cooldown: 1 * 60 * 60 * 1000, label: 'سرقة' },
+    { name: 'rps', db_column: 'lastRPS', fallback: 'lastrps', cooldown: 1 * 60 * 60 * 1000, label: 'حجرة' },
+    { name: 'guess', db_column: 'lastGuess', fallback: 'lastguess', cooldown: 1 * 60 * 60 * 1000, label: 'خمن' },
+    { name: 'roulette', db_column: 'lastRoulette', fallback: 'lastroulette', cooldown: 1 * 60 * 60 * 1000, label: 'روليت' },
+    { name: 'emoji', db_column: 'lastMemory', fallback: 'lastmemory', cooldown: 1 * 60 * 60 * 1000, label: 'ايموجي' }, 
+    { name: 'arrange', db_column: 'lastArrange', fallback: 'lastarrange', cooldown: 1 * 60 * 60 * 1000, label: 'رتب' },
+    { name: 'pvp', db_column: 'lastPVP', fallback: 'lastpvp', cooldown: 5 * 60 * 1000, label: 'تحدي' },
+    { name: 'race', db_column: 'lastRace', fallback: 'lastrace', cooldown: 1 * 60 * 60 * 1000, label: 'سباق' }, 
+    { name: 'dungeon', db_column: 'last_dungeon', fallback: 'last_dungeon', cooldown: 3 * 60 * 60 * 1000, label: 'دانجون' },
+    { name: 'scratch', db_column: 'lastScratch', fallback: 'lastscratch', cooldown: 1 * 60 * 60 * 1000, label: 'يانصيب' } 
+];
 
 module.exports = {
-    name: 'scratch',
-    description: '✥ اشـتـري بـطـاقـة اليانـصيـب🎟️',
-    aliases: ['يانصيب', 'يا نصيب', 'تذكرة', 'حظ', 'كرت', 'خدش'],
-    category: 'Economy',
+    data: new SlashCommandBuilder()
+        .setName('وقت')
+        .setDescription('يعرض الوقت المتبقي لاستخدام أوامر الاقتصاد.')
+        .addUserOption(option =>
+            option.setName('المستخدم')
+            .setDescription('عرض أوقات مستخدم آخر (اختياري)')
+            .setRequired(false)),
 
-    async execute(message, args) {
-        const client = message.client;
-        const author = message.author;
-        const guild = message.guild;
+    name: 'gametime',
+    aliases: ['وقت', 'وقت الالعاب', 'cooldown', 'time'],
+    category: "Economy",
+    description: 'يعرض الوقت المتبقي لاستخدام أوامر الاقتصاد.',
 
-        let data = await client.getLevel(author.id, guild.id);
-        if (!data) {
-            data = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
-        }
+    async execute(interactionOrMessage, args) {
+        const isSlash = !!interactionOrMessage.isChatInputCommand;
+        let interaction, message, client, guild, targetUser, originalUser; 
 
-        // ─── نظام الكولداون المتزامن مع قاعدة البيانات ───
-        if (author.id !== EMPEROR_ID) {
-            const baseCooldown = 3600 * 1000; 
-            let discount = 0;
-
-            let advRank = data.adventurer_rank || data.rank || data.adventurerRank || data.rankName || ""; 
-            if (typeof advRank === 'string') {
-                const rankLower = advRank.toLowerCase();
-                if (rankLower.includes('اسطوري') || rankLower.includes('s')) discount = 0.50;      
-                else if (rankLower.includes('ماسي') || rankLower.includes('a')) discount = 0.40;   
-                else if (rankLower.includes('ذهبي') || rankLower.includes('b')) discount = 0.30;   
-                else if (rankLower.includes('فضي') || rankLower.includes('c')) discount = 0.20;    
-                else if (rankLower.includes('برونزي') || rankLower.includes('d')) discount = 0.10; 
-            } else if (typeof advRank === 'number') {
-                discount = Math.min(advRank * 0.05, 0.50); 
+        try {
+            if (isSlash) {
+                interaction = interactionOrMessage;
+                client = interaction.client;
+                guild = interaction.guild;
+                targetUser = interaction.options.getUser('المستخدم') || interaction.user;
+                originalUser = interaction.user;
+                await interaction.deferReply();
+            } else {
+                message = interactionOrMessage;
+                client = message.client;
+                guild = message.guild;
+                targetUser = message.mentions.users.first() || message.author;
+                originalUser = message.author;
             }
 
-            const finalCooldown = baseCooldown - (baseCooldown * discount);
-            const lastScratch = Number(data.lastScratch || data.lastscratch) || 0;
+            const calculateUserData = async (userToCheck) => {
+                let data = await client.getLevel(userToCheck.id, guild.id);
+                if (!data) data = { ...client.defaultData, user: userToCheck.id, guild: guild.id };
 
-            if (lastScratch > 0) {
-                const expirationTime = lastScratch + finalCooldown;
-                if (Date.now() < expirationTime) {
-                    const expireTimestamp = Math.floor(expirationTime / 1000); // تحويل لثواني لديسكورد
+                try {
+                    let dbRes;
+                    try { dbRes = await client.sql.query(`SELECT * FROM levels WHERE "user" = $1 AND "guild" = $2`, [userToCheck.id, guild.id]); }
+                    catch(e) { dbRes = await client.sql.query(`SELECT * FROM levels WHERE userid = $1 AND guildid = $2`, [userToCheck.id, guild.id]).catch(()=>({rows:[]})); }
                     
-                    const cooldownEmbed = new EmbedBuilder()
-                        .setColor(getRandomColor())
-                        .setThumbnail('https://i.postimg.cc/50QZ4PPL/1.webp')
-                        .setDescription(`֎ نفـدت التذاكـر .. يمكنك شراء تذكـرة جديـدة بعـد: <t:${expireTimestamp}:R> <a:Nerf:1438795685280612423>`);
-                    
-                    return message.reply({ embeds: [cooldownEmbed] });
-                }
-            }
-        }
-
-        const chooseEmbed = new EmbedBuilder()
-            .setTitle('✥ اشـتـري بـطـاقـة اليانـصيـب🎟️')
-            .setDescription('✶ جـرب حـظـك باليانصيـب واشتري تذكرتك\n\n✦ اجـمـع 3 رمـوز مشـابهـة لمضاعفـة ربحـك <a:mTrophy:1438797228826300518>\n✦ رمـز الحـظ «🧚‍♀️» يكـمـل اي رمـز آخـر <a:6aMoney:1439572832219693116>')
-            .setColor(getRandomColor())
-            .setImage(BANNER_IMAGE)
-            .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
-
-        const chooseRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('buy_bronze').setLabel(TIERS.bronze.label).setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('buy_silver').setLabel(TIERS.silver.label).setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('buy_gold').setLabel(TIERS.gold.label).setStyle(ButtonStyle.Success)
-        );
-
-        const initialMsg = await message.reply({ embeds: [chooseEmbed], components: [chooseRow] });
-
-        const filter = i => i.user.id === author.id;
-        const collector = initialMsg.createMessageComponentCollector({ filter, time: 120000 });
-
-        let gameActive = false;
-        let currentTier = null;
-        let grid = [];
-        let revealed = Array(9).fill(false);
-
-        collector.on('collect', async (i) => {
-            if (activeProcesses.has(i.user.id)) return i.reply({ content: "⚠️ هدي اللعب! جاري معالجة طلبك السابق.", ephemeral: true });
-            activeProcesses.add(i.user.id);
-
-            if (i.customId.startsWith('buy_')) {
-                const tierId = i.customId.split('_')[1];
-                currentTier = TIERS[tierId];
-
-                data = await client.getLevel(author.id, guild.id);
-                let balance = Number(data.mora) || 0;
-
-                if (balance < currentTier.price) {
-                    activeProcesses.delete(i.user.id);
-                    return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** <:mora:1435647151349698621> لشراء التذكرة.`, ephemeral: true });
-                }
-
-                data.mora = balance - currentTier.price;
-                if (author.id !== EMPEROR_ID) data.lastScratch = Date.now(); 
-                await client.setLevel(data);
-
-                gameActive = true;
-                grid = generateGrid(tierId);
-
-                const gameEmbed = new EmbedBuilder()
-                    .setTitle(`✶ بطـاقـة يانصيـب ${currentTier.name}`)
-                    .setDescription(`✦ اشتـريـت تذكـرة ${currentTier.price} ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`)
-                    .setColor(getRandomColor())
-                    .setImage(BANNER_IMAGE)
-                    .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
-
-                await i.update({ embeds: [gameEmbed], components: buildGridComponents(revealed, grid, false) });
-            } 
-            
-            else if (i.customId.startsWith('scratch_') && gameActive) {
-                const index = parseInt(i.customId.split('_')[1]);
-                revealed[index] = true;
-
-                const revealedSymbols = grid.filter((_, idx) => revealed[idx]);
-                let gameOver = false;
-                let finalEmbed = new EmbedBuilder()
-                    .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() })
-                    .setColor(getRandomColor())
-                    .setImage(BANNER_IMAGE);
-
-                const baseDesc = `✦ اشتـريـت تذكـرة ${currentTier.price} ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`;
-
-                if (grid[index] === SYMBOLS.MIMIC.emoji) {
-                    gameOver = true;
-                    finalEmbed.setTitle(`✶ خـسـرت .. Gg`).setColor(0xE74C3C)
-                    finalEmbed.setDescription(`✶ **تمزقت بطاقـة اليانصيـب !**\nلقد أيقظت الميميك والتهـم اموالـك👹\nخسرت **${currentTier.price}** 💥`);
-                } 
-                else {
-                    const winStatus = checkWin(revealedSymbols);
-                    if (winStatus.win) {
-                        gameOver = true;
-                        const prize = Math.floor(currentTier.price * winStatus.multi);
-                        finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`).setColor(0x2ECC71);
-                        
-                        let winData = await client.getLevel(author.id, guild.id);
-                        if (!winData) winData = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
-                        winData.mora = (Number(winData.mora) || 0) + prize;
-                        await client.setLevel(winData);
-
-                        finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز «${winStatus.symbol}»\n✦ ربـحـت **${prize}** <:mora:1435647151349698621>`);
-                    } 
-                    else if (revealedSymbols.length === 9) {
-                        gameOver = true;
-                        finalEmbed.setTitle(`✶ خـسـرت .. Gg`).setColor(0x95A5A6);
-                        finalEmbed.setDescription(`✶ بـطاقـة يـانصـيب خـاسـرة امتلأت الساحة بالخردة ~\n✶ خـسـرت **${currentTier.price}** <:mora:1435647151349698621>`);
+                    if (dbRes && dbRes.rows.length > 0) {
+                        data = { ...data, ...dbRes.rows[0] };
                     }
-                    else {
-                        finalEmbed.setTitle(`✶ بطـاقـة يانصيـب ${currentTier.name}`).setDescription(`${baseDesc}\n\n✦ استمر.. متبقي لك **${9 - revealedSymbols.length}** فـرص`);
-                    }
-                }
+                } catch (err) {}
 
-                if (gameOver) {
-                    gameActive = false;
-                    collector.stop('finished');
-                    await i.update({ embeds: [finalEmbed], components: buildGridComponents(Array(9).fill(true), grid, true) });
+                const now = Date.now();
+                const readyGames = [];
+                const waitGames = [];
+
+                const cooldownReductionMs = await getCooldownReductionMs(client.sql, userToCheck.id, guild.id);
+
+                const lastDaily = Number(data.lastDaily || data.lastdaily) || 0;
+                const todayKSA = getKSADateString(now);
+                const lastDailyKSA = getKSADateString(lastDaily);
+
+                if (todayKSA === lastDailyKSA) {
+                    const timeUntilMidnight = getTimeUntilNextMidnightKSA();
+                    waitGames.push(`${EMOJI_WAIT} **راتب**: \`${formatTimeSimple(timeUntilMidnight)}\``);
                 } else {
-                    await i.update({ embeds: [finalEmbed], components: buildGridComponents(revealed, grid, false) });
+                    readyGames.push(`${EMOJI_READY} **راتب**`);
                 }
-            }
-            activeProcesses.delete(i.user.id);
-        });
 
-        collector.on('end', async (collected, reason) => {
-            if (reason === 'time' && initialMsg) {
-                await initialMsg.edit({ components: gameActive ? buildGridComponents(revealed, grid, true) : [] }).catch(() => {});
+                for (const cmd of COMMANDS_TO_CHECK) {
+                    const lastUsed = Number(data[cmd.db_column] || data[cmd.fallback] || 0);
+                    const effectiveCooldown = Math.max(0, cmd.cooldown - cooldownReductionMs);
+                    const timeLeft = (lastUsed + effectiveCooldown) - now;
+
+                    if (timeLeft > 0) {
+                        waitGames.push(`${EMOJI_WAIT} **${cmd.label}**: \`${formatTimeSimple(timeLeft)}\``);
+                    } else {
+                        readyGames.push(`${EMOJI_READY} **${cmd.label}**`);
+                    }
+                }
+
+                const baseFishCooldown = 3600000; 
+                const effectiveFishCooldown = Math.max(0, baseFishCooldown - cooldownReductionMs);
+                
+                const lastFish = Number(data.lastFish || data.lastfish) || 0;
+                const fishTimeLeft = (lastFish + effectiveFishCooldown) - now;
+
+                if (fishTimeLeft > 0) {
+                    waitGames.push(`${EMOJI_WAIT} **صيد**: \`${formatTimeSimple(fishTimeLeft)}\``);
+                } else {
+                    readyGames.push(`${EMOJI_READY} **صيد**`);
+                }
+
+                return { readyGames, waitGames };
+            };
+
+            const { readyGames, waitGames } = await calculateUserData(targetUser);
+
+            const embed = new EmbedBuilder()
+                .setTitle('✥ وقـت الالعـاب')
+                .setColor("Random")
+                .setThumbnail('https://i.postimg.cc/zGqbJNzm/ayqwnt.png')
+                .setDescription(`
+✶ الالعاب المتـاحـة: ${EMOJI_READY}
+✶ الالعاب الغير متـاحة: ${EMOJI_WAIT}
+✶ عـرض الكل: ${EMOJI_ALL}
+                `)
+                .setTimestamp();
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('show_ready').setStyle(ButtonStyle.Secondary).setEmoji(EMOJI_READY),
+                new ButtonBuilder().setCustomId('show_all').setStyle(ButtonStyle.Secondary).setEmoji(EMOJI_ALL),
+                new ButtonBuilder().setCustomId('show_wait').setStyle(ButtonStyle.Secondary).setEmoji(EMOJI_WAIT)
+            );
+
+            let sentMessage;
+            if (isSlash) {
+                sentMessage = await interaction.editReply({ embeds: [embed], components: [row] });
+            } else {
+                sentMessage = await message.channel.send({ embeds: [embed], components: [row] });
             }
-        });
+
+            const collector = sentMessage.createMessageComponentCollector({ 
+                componentType: ComponentType.Button, 
+                time: 60000 
+            });
+
+            collector.on('collect', async (i) => {
+                const clickerIsOwner = i.user.id === originalUser.id;
+                const subjectUser = clickerIsOwner ? targetUser : i.user;
+
+                const result = await calculateUserData(subjectUser);
+
+                let finalDesc = "";
+                let finalColor = "Random";
+
+                if (i.customId === 'show_ready') {
+                    finalDesc = result.readyGames.length > 0 
+                        ? `**✅ القائمة المتاحة لـ ${subjectUser.username}:**\n\n${result.readyGames.join('\n')}` 
+                        : `❌ لا توجد ألعاب متاحة حالياً لـ ${subjectUser.username}..`;
+                    finalColor = "Green";
+                } 
+                else if (i.customId === 'show_wait') {
+                    finalDesc = result.waitGames.length > 0 
+                        ? `**⏳ قائمة الانتظار لـ ${subjectUser.username}:**\n\n${result.waitGames.join('\n')}` 
+                        : `جـميـع الالعـاب متاحـة لـك الان !`;
+                    finalColor = "Red";
+                }
+                else if (i.customId === 'show_all') {
+                    const allGames = [...result.readyGames, ...result.waitGames];
+                    finalDesc = `**📋 الحالة العامة لـ ${subjectUser.username}:**\n\n${allGames.join('\n')}`;
+                    finalColor = "Blue";
+                }
+
+                const hiddenEmbed = new EmbedBuilder()
+                    .setColor(finalColor)
+                    .setDescription(finalDesc)
+                    .setImage(HIDDEN_EMBED_IMAGE);
+
+                await i.reply({ embeds: [hiddenEmbed], flags: [MessageFlags.Ephemeral] });
+            });
+
+            collector.on('end', () => {
+                const disabledRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('show_ready').setStyle(ButtonStyle.Secondary).setEmoji(EMOJI_READY).setDisabled(true),
+                    new ButtonBuilder().setCustomId('show_all').setStyle(ButtonStyle.Secondary).setEmoji(EMOJI_ALL).setDisabled(true),
+                    new ButtonBuilder().setCustomId('show_wait').setStyle(ButtonStyle.Secondary).setEmoji(EMOJI_WAIT).setDisabled(true)
+                );
+                
+                if (isSlash) {
+                    interaction.editReply({ components: [disabledRow] }).catch(() => {});
+                } else {
+                    sentMessage.edit({ components: [disabledRow] }).catch(() => {});
+                }
+            });
+
+        } catch (error) {
+            console.error("Error in gametime command:", error);
+        }
     }
 };
