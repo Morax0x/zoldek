@@ -1,9 +1,8 @@
 const { EmbedBuilder, PermissionsBitField, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType, Colors, SlashCommandBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
 const HELP_IMAGE = 'https://i.postimg.cc/h4Hb5VX6/help.png';
-const CASINO_IMAGE = 'https://i.postimg.cc/mkCr3Xwr/download-(1).jpg'; // الصورة الصغيرة الجديدة
+const CASINO_IMAGE = 'https://i.postimg.cc/mkCr3Xwr/download-(1).jpg'; 
 
-// (مترجم الأوصاف الإدارية والأوامر الجديدة)
 const DESCRIPTION_TRANSLATIONS = new Map([
     ['mora-admin', 'تعديل رصيد المورا لعضو (إضافة/إزالة)'],
     ['xp', 'التحكم بنقاط الخبرة (إضافة/إزالة)'],
@@ -40,10 +39,10 @@ const DESCRIPTION_TRANSLATIONS = new Map([
     ['race', 'سباق الخيول (فردي وجماعي)'],
     ['colors', 'يظهر لوحة الالوان لتغيير لون اسمك بالسيرفر'], 
     ['top', 'عرض قائمة المتصدرين (مورا/لفل/ستريك)'],
+    ['scratch', 'لشراء بطاقات اليانصيب وتجربة حظك لربح جوائز نادرة'],
     ['afk', 'تفعيل وضع الغياب المؤقت (AFK) وترك رسالة']
 ]);
 
-// خريطة للأسماء العربية اليدوية
 const MANUAL_ARABIC_NAMES = new Map([
     ['level', 'مستوى'],
     ['top', 'توب'],
@@ -77,6 +76,7 @@ const MANUAL_ARABIC_NAMES = new Map([
     ['arrange', 'ترتيب'],
     ['race', 'سباق'],
     ['colors', 'الوان'],
+    ['scratch', 'يانصيب'],
     ['afk', 'غياب']
 ]);
 
@@ -148,6 +148,7 @@ function buildCasinoEmbed(client) {
 ✶** ${getCmdName(commands, 'arrange')}: ** \`لعبة ترتيب الأرقام (سرعة)\`
 ✶** ${getCmdName(commands, 'gametime')}: ** \`لاظهار فترة التهدئة لأوامر الكازينو\`
 ✶** ${getCmdName(commands, 'fish')}: ** \`صيد السمك وكسب المورا\`
+✶** ${getCmdName(commands, 'scratch')}: ** \`لشراء بطاقات اليانصيب وتجربة حظك\`
 
 **❖ اوامـر الـقـتـال والـمـغـامـرة**
 ✶** ${getCmdName(commands, 'dungeon')}: ** \`دخول الدانجون ومحاربة الوحوش (PvE)\`
@@ -273,7 +274,7 @@ module.exports = {
 
         const reply = async (payload) => {
             if (isSlash) return interaction.editReply(payload);
-            return message.reply(payload); // استخدام reply بدلاً من send لضمان الرد المباشر
+            return message.reply(payload); 
         };
 
         const replyError = async (content) => {
@@ -285,7 +286,6 @@ module.exports = {
         const db = client.sql; 
         const { commands } = client;
 
-        // 🔥 تحديث استعلام البريفكس ليتوافق مع PostgreSQL
         let prefix = "-"; 
         try {
             const prefixRes = await db.query(`SELECT "serverprefix" FROM prefix WHERE "guild" = $1`, [guild.id]);
@@ -293,7 +293,6 @@ module.exports = {
                 prefix = prefixRes.rows[0].serverprefix;
             }
         } catch (e) {
-            console.error("Prefix query error in help:", e);
         }
 
         if (!guild.members.me.permissions.has(PermissionsBitField.Flags.EmbedLinks)) {
@@ -335,7 +334,6 @@ module.exports = {
 
         const isAdmin = guild.members.cache.get(user.id).permissions.has(PermissionsBitField.Flags.ManageGuild);
         
-        // 🔥 تحديث استعلام غرفة الكازينو ليتوافق مع PostgreSQL
         let settings;
         try {
             const settingsRes = await db.query(`SELECT * FROM settings WHERE "guild" = $1`, [guild.id]);
@@ -344,14 +342,12 @@ module.exports = {
             settings = null; 
         }
 
-        // فحص هل القناة هي قناة الكازينو
         const currentChannelId = isSlash ? interaction.channel.id : message.channel.id;
         const isCasinoChannel = settings && (settings.casinoChannelID === currentChannelId || settings.casinochannelid === currentChannelId);
         
         let initialEmbed, row;
 
         if (isCasinoChannel) {
-            // 🔥 الشكل الجديد (للكازينو فقط)
             initialEmbed = new EmbedBuilder()
                 .setTitle('✥ لـوحـة الاوامـر')
                 .setColor("Random")
@@ -369,7 +365,6 @@ module.exports = {
             );
 
         } else {
-            // الشكل القديم (للمحادثات العامة)
             initialEmbed = buildMainMenuEmbed(client);
             
             const options = [
@@ -408,21 +403,17 @@ module.exports = {
             row = new ActionRowBuilder().addComponents(selectMenu);
         }
 
-        // إرسال الرسالة
         const helpMessage = await reply({ embeds: [initialEmbed], components: [row] });
 
-        // الفلتر والكوليكتور
         const filter = (i) => i.user.id === user.id;
         const collector = helpMessage.createMessageComponentCollector({ filter, time: 60000 });
 
         collector.on('collect', async (i) => {
-            // معالجة زر الكازينو
             if (i.customId === 'show_casino_cmds') {
                 await i.reply({ embeds: [buildCasinoEmbed(client)], ephemeral: true });
                 return;
             }
 
-            // معالجة القائمة المنسدلة (للمحادثات العامة)
             if (i.customId === 'help_menu') {
                 const category = i.values[0];
                 let newEmbed;
@@ -437,7 +428,6 @@ module.exports = {
         });
 
         collector.on('end', () => {
-            // تعطيل المكونات بعد انتهاء الوقت
             let disabledRow;
             if (isCasinoChannel) {
                 disabledRow = new ActionRowBuilder().addComponents(
@@ -449,7 +439,6 @@ module.exports = {
                         .setDisabled(true)
                 );
             } else {
-                // إعادة بناء القائمة المنسدلة القديمة وتعطيلها
                 const oldSelect = row.components[0];
                 disabledRow = new ActionRowBuilder().addComponents(oldSelect.setDisabled(true));
             }
