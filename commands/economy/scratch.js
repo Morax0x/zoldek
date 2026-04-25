@@ -1,6 +1,5 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const path = require('path');
-const fs = require('fs');
 
 const TIERS = {
     bronze: { id: 'bronze', name: 'نحاسية', price: 100, color: 0xcd7f32, label: '100 نحاسية' },
@@ -54,30 +53,30 @@ function generateGrid(tierId) {
         let randomJunk = SYMBOLS.JUNK[Math.floor(Math.random() * SYMBOLS.JUNK.length)];
 
         if (tierId === 'gold') {
-            if (r < 8) grid.push(SYMBOLS.MIMIC.emoji);        
-            else if (r < 11) grid.push(SYMBOLS.JOKER.emoji);  
-            else if (r < 12) grid.push(SYMBOLS.REP.emoji);    
-            else if (r < 17) grid.push(SYMBOLS.GACHA.emoji);  
-            else if (r < 23) grid.push(SYMBOLS.ANIMAL.emoji); 
-            else if (r < 31) grid.push(SYMBOLS.POTION.emoji); 
-            else if (r < 39) grid.push(SYMBOLS.MORA_CROWN.emoji); 
-            else if (r < 47) grid.push(SYMBOLS.MORA_SWORD.emoji); 
-            else grid.push(randomJunk); 
-        } else if (tierId === 'silver') {
-            if (r < 3) grid.push(SYMBOLS.JOKER.emoji);
-            else if (r < 6) grid.push(SYMBOLS.GACHA.emoji);   
-            else if (r < 13) grid.push(SYMBOLS.POTION.emoji); 
-            else if (r < 23) grid.push(SYMBOLS.BAIT.emoji);   
+            if (r < 10) grid.push(SYMBOLS.MIMIC.emoji);        
+            else if (r < 11.5) grid.push(SYMBOLS.JOKER.emoji); 
+            else if (r < 12) grid.push(SYMBOLS.REP.emoji);     
+            else if (r < 14) grid.push(SYMBOLS.GACHA.emoji);   
+            else if (r < 17) grid.push(SYMBOLS.ANIMAL.emoji);  
+            else if (r < 21) grid.push(SYMBOLS.MORA_CROWN.emoji); 
+            else if (r < 26) grid.push(SYMBOLS.POTION.emoji);  
             else if (r < 33) grid.push(SYMBOLS.MORA_SWORD.emoji); 
-            else if (r < 43) grid.push(SYMBOLS.MORA_FISH.emoji);  
-            else grid.push(randomJunk);
+            else grid.push(randomJunk);                        
+        } else if (tierId === 'silver') {
+            if (r < 1) grid.push(SYMBOLS.JOKER.emoji);         
+            else if (r < 2) grid.push(SYMBOLS.GACHA.emoji);    
+            else if (r < 6) grid.push(SYMBOLS.POTION.emoji);   
+            else if (r < 12) grid.push(SYMBOLS.MORA_SWORD.emoji); 
+            else if (r < 20) grid.push(SYMBOLS.MORA_FISH.emoji);  
+            else if (r < 28) grid.push(SYMBOLS.BAIT.emoji);    
+            else grid.push(randomJunk);                        
         } else { 
-            if (r < 2) grid.push(SYMBOLS.JOKER.emoji);
-            else if (r < 4) grid.push(SYMBOLS.GACHA.emoji);   
-            else if (r < 14) grid.push(SYMBOLS.SEED.emoji);   
-            else if (r < 24) grid.push(SYMBOLS.BAIT.emoji);   
-            else if (r < 36) grid.push(SYMBOLS.MORA_FISH.emoji);  
-            else grid.push(randomJunk);
+            if (r < 0.5) grid.push(SYMBOLS.JOKER.emoji);       
+            else if (r < 1) grid.push(SYMBOLS.GACHA.emoji);    
+            else if (r < 7) grid.push(SYMBOLS.MORA_FISH.emoji);
+            else if (r < 15) grid.push(SYMBOLS.BAIT.emoji);    
+            else if (r < 25) grid.push(SYMBOLS.SEED.emoji);    
+            else grid.push(randomJunk);                        
         }
     }
     return grid;
@@ -310,7 +309,6 @@ module.exports = {
                         else if (s.type === 'item') {
                             let itemId = s.item;
                             let qty = 1;
-                            let emoji = s.emoji;
 
                             if (s.item === 'seed') {
                                 itemId = seedIds[Math.floor(Math.random() * seedIds.length)];
