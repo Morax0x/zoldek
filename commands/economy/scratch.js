@@ -1,9 +1,9 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const TIERS = {
-    bronze: { id: 'bronze', name: '100 نحاسية', price: 100, color: 0xcd7f32, label: '100 نحاسية' },
-    silver: { id: 'silver', name: '500 فضية', price: 500, color: 0xc0c0c0, label: '500 فضية' },
-    gold:   { id: 'gold',   name: '1000 ذهبية', price: 1000, color: 0xffd700, label: '1000 ذهبية' }
+    bronze: { id: 'bronze', name: 'نحاسية', price: 100, color: 0xcd7f32, label: '100 نحاسية' },
+    silver: { id: 'silver', name: 'فضية', price: 500, color: 0xc0c0c0, label: '500 فضية' },
+    gold:   { id: 'gold',   name: 'ذهبية', price: 1000, color: 0xffd700, label: '1000 ذهبية' }
 };
 
 const SYMBOLS = {
@@ -87,7 +87,6 @@ function buildGridComponents(revealedArray, gridArray, disableAll) {
     return rows;
 }
 
-// دالة آمنة 100% لتحديث الرصيد في قاعدة البيانات والكاش
 async function updateMora(client, userId, guildId, amount) {
     const db = client.sql;
     if (!db) return false;
@@ -99,14 +98,12 @@ async function updateMora(client, userId, guildId, amount) {
             await db.query(`UPDATE levels SET mora = COALESCE(mora, 0) + $1 WHERE userid = $2 AND guildid = $3`, [amount, userId, guildId]); 
         }
 
-        // تحديث الكاش لكي ينعكس فوراً في أمر الرصيد
         if (client.levels && typeof client.levels.get === 'function') {
             let cacheData = client.levels.get(`${userId}-${guildId}`);
             if (cacheData) cacheData.mora = (cacheData.mora || 0) + amount;
         }
         return true;
     } catch (error) {
-        console.error("[Mora Update Error]:", error);
         return false;
     }
 }
@@ -152,7 +149,6 @@ module.exports = {
                 const tierId = i.customId.split('_')[1];
                 currentTier = TIERS[tierId];
 
-                // التحقق من الرصيد
                 let balance = 0;
                 try {
                     let userRes;
@@ -165,7 +161,6 @@ module.exports = {
                     return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** <:mora:1435647151349698621> لشراء التذكرة.`, ephemeral: true });
                 }
 
-                // خصم سعر التذكرة (بإرسال القيمة بالسالب)
                 const deducted = await updateMora(message.client, author.id, message.guild.id, -currentTier.price);
                 if (!deducted) {
                     return i.reply({ content: `⚠️ خلل في النظام المصرفي، لم نتمكن من خصم المبلغ.`, ephemeral: true });
@@ -209,7 +204,6 @@ module.exports = {
                         finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`);
                         
                         if (prize > 0) {
-                            // إضافة الجائزة للرصيد
                             await updateMora(message.client, author.id, message.guild.id, prize);
                         }
 
