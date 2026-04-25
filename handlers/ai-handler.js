@@ -1,19 +1,19 @@
 const config = require('../config.json');
 const { getUserData, getDynamicServerData } = require('./ai/knowledge');
-const { getLeaderboardKnowledge } = require('./ai/serverLore'); 
+const { getLeaderboardKnowledge } = require('./ai/serverLore');
 const { buildSystemPrompt } = require('./ai/persona');
 const { generateResponse } = require('./ai/engine');
-const aiConfig = require('../utils/aiConfig'); 
-const { checkSecurity } = require('./ai/security'); 
-const { executeAdminAction } = require('./ai/admin-actions'); // 👑 استدعاء مدير الأوامر الجديد
+const aiConfig = require('../utils/aiConfig');
+const { checkSecurity } = require('./ai/security');
+const { executeAdminAction } = require('./ai/admin-actions');
 require('dotenv').config();
 
-const OWNER_ID = "1145327691772481577"; 
+const OWNER_ID = "1145327691772481577";
 
 function sanitizeOutput(text) {
     if (!text) return "";
     let cleanText = text.replace(/@(everyone|here)/gi, "");
-    cleanText = cleanText.replace(/<@!?\d+>/g, ""); 
+    cleanText = cleanText.replace(/<@!?\d+>/g, "");
     cleanText = cleanText.replace(/@/g, "");
     cleanText = cleanText.replace(/(.)\1{3,}/g, "$1$1$1");
     return cleanText.trim();
@@ -26,26 +26,24 @@ async function resolveNames(guild, dataList) {
         try {
             const member = await guild.members.fetch(item.user).catch(() => null);
             const name = member ? member.displayName : "شبح مغادر";
-            const val = item.level || item.total; 
+            const val = item.level || item.total;
             names.push(`${name} (${val})`);
         } catch(e) {}
     }
     return names.join(', ');
 }
 
-// 👑 الدالة المحدثة والمختصرة بفضل الملف الجديد 👑
 async function detectAndExecuteCommands(message, aiResponseText, db) {
     if (!message || message.author.id !== OWNER_ID || !db) return aiResponseText;
 
     const lowerText = message.content.toLowerCase();
-    let feedback = ""; 
+    let feedback = "";
 
     const mentions = message.mentions.users.filter(u => u.id !== message.client.user.id);
-    const targetUser = mentions.first(); 
+    const targetUser = mentions.first();
 
     if (targetUser && targetUser.id !== message.client.user.id && targetUser.id !== OWNER_ID) {
         
-        // استخراج الرقم الذكي
         const numbers = lowerText.match(/\b\d+\b/g);
         let amount = 0;
         
@@ -61,7 +59,6 @@ async function detectAndExecuteCommands(message, aiResponseText, db) {
             }
         }
 
-        // إرسال الطلب لمحرك الأدمن الجديد
         feedback = await executeAdminAction(message, targetUser, amount, lowerText, db);
     }
 
@@ -71,7 +68,7 @@ async function detectAndExecuteCommands(message, aiResponseText, db) {
 async function askMorax(userId, guildId, channelId, messageText, username, imageAttachment = null, isDiscordNsfw = false, messageObject) {
     try {
         if (userId !== OWNER_ID && aiConfig.isBlocked(userId)) {
-            return null; 
+            return null;
         }
 
         if (userId !== OWNER_ID && checkSecurity(messageText)) {
@@ -79,14 +76,14 @@ async function askMorax(userId, guildId, channelId, messageText, username, image
             if (messageObject && messageObject.member) {
                 await messageObject.reply("حاولت تلعب بذيلك.. احمد ربك ما اقدر اسجنك، بس انقلع! 🛡️");
             }
-            return null; 
+            return null;
         }
 
         const channelSettings = aiConfig.getChannelSettings(channelId);
         const finalNsfwStatus = channelSettings ? Boolean(channelSettings.nsfw) : Boolean(isDiscordNsfw);
         const apiKey = process.env.GEMINI_API_KEY;
         
-        const db = messageObject ? messageObject.client.sql : null; 
+        const db = messageObject ? messageObject.client.sql : null;
         
         const userData = await getUserData(userId, guildId, db);
 
@@ -116,7 +113,6 @@ async function askMorax(userId, guildId, channelId, messageText, username, image
 
             const totalWealth = userData.total_wealth || ((userData.mora || 0) + (userData.bank || 0)) || ((userData.wallet_cash || 0) + (userData.bank_balance || 0));
 
-            // 🔥 تم تعديل التعليمات ليتحدث بشكل طبيعي بدون تكرار الأسماء 🔥
             userData.serverContext = dynamicContext + `
 [CRITICAL AI INSTRUCTIONS]:
 1. ثروة اللاعب: ${totalWealth} مورا. عامله بناءً على هذا الرقم.
@@ -132,28 +128,28 @@ async function askMorax(userId, guildId, channelId, messageText, username, image
         const leaderboardInfo = await getLeaderboardKnowledge(db, guildId);
 
         let canGiveMora = true;
-        if (userId !== OWNER_ID && db) { 
+        if (userId !== OWNER_ID && db) {
             await db.query(`CREATE TABLE IF NOT EXISTS ai_cooldowns ("userID" TEXT PRIMARY KEY, "lastMoraTime" BIGINT)`);
             const cdRes = await db.query('SELECT "lastMoraTime" FROM ai_cooldowns WHERE "userID" = $1', [userId]);
             const cooldownData = cdRes.rows[0];
             const oneHour = 60 * 60 * 1000;
             if (cooldownData && (Date.now() - parseInt(cooldownData.lastMoraTime || cooldownData.lastmoratime)) < oneHour) {
-                canGiveMora = false; 
+                canGiveMora = false;
             }
         }
 
         const systemInstruction = buildSystemPrompt(finalNsfwStatus, leaderboardInfo, canGiveMora);
 
         let response = await generateResponse(
-            apiKey, 
-            systemInstruction, 
-            messageText, 
-            userData, 
-            userId, 
-            username, 
-            imageAttachment, 
+            apiKey,
+            systemInstruction,
+            messageText,
+            userData,
+            userId,
+            username,
+            imageAttachment,
             finalNsfwStatus,
-            messageObject 
+            messageObject
         );
 
         if (response) {
@@ -163,12 +159,12 @@ async function askMorax(userId, guildId, channelId, messageText, username, image
             response = sanitizeOutput(response);
         }
 
-        if (response && messageObject && db) { 
+        if (response && messageObject && db) {
             try {
                 const client = messageObject.client;
                 
                 const nowKSA = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
-                const dateStr = nowKSA.toLocaleDateString('en-CA'); 
+                const dateStr = nowKSA.toLocaleDateString('en-CA');
                 
                 let dailyIdToUse = `${userId}-${guildId}-${dateStr}`;
                 const dailyRes = await db.query('SELECT "id" FROM user_daily_stats WHERE "userID" = $1 AND "guildID" = $2 AND "date" = $3', [userId, guildId, dateStr]);
@@ -212,7 +208,7 @@ async function askMorax(userId, guildId, channelId, messageText, username, image
 
     } catch (error) {
         console.error("❌ [AI Director Error]:", error.message);
-        return "عذراً، حدث خلل طارئ في قنوات الاتصال الملكية.";
+        return null;
     }
 }
 
