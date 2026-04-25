@@ -202,7 +202,7 @@ async function executeAI(apiKey, systemInstruction, userMessage, userData, userI
             if (i === MODELS.length - 1) {
                 // إذا فشلت جميع النماذج، يتم تسجيل خطأ فعلي واحد فقط
                 console.error(`[AI Engine Error] All models failed. Last error: ${error.message.split('\n')[0]}`);
-                return "🌑 .. (ضغط كبير على الأنظمة، حاول لاحقاً)";
+                return "🌑 .. ";
             }
         }
     }
