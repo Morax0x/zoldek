@@ -23,8 +23,8 @@ const SYMBOLS = {
 };
 
 // 🛡️ نظام الحماية المزدوج
-const activeProcesses = new Set(); // لمنع الضغط السريع على الأزرار
-const activeGames = new Set(); // لمنع فتح أكثر من بطاقة في نفس الوقت
+const activeProcesses = new Set();
+const activeGames = new Set();
 
 const EMPEROR_ID = '1145327691772481577'; 
 const BANNER_IMAGE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/img/sk.png'; 
@@ -56,29 +56,32 @@ function generateGrid(tierId) {
         let randomJunk = SYMBOLS.JUNK[Math.floor(Math.random() * SYMBOLS.JUNK.length)];
 
         if (tierId === 'gold') {
-            if (r < 10) grid.push(SYMBOLS.MIMIC.emoji);        
-            else if (r < 11.5) grid.push(SYMBOLS.JOKER.emoji); 
-            else if (r < 12) grid.push(SYMBOLS.REP.emoji);     
-            else if (r < 14) grid.push(SYMBOLS.GACHA.emoji);   
-            else if (r < 17) grid.push(SYMBOLS.ANIMAL.emoji);  
-            else if (r < 21) grid.push(SYMBOLS.MORA_CROWN.emoji); 
-            else if (r < 26) grid.push(SYMBOLS.POTION.emoji);  
-            else if (r < 33) grid.push(SYMBOLS.MORA_SWORD.emoji); 
+            if (r < 8) grid.push(SYMBOLS.MIMIC.emoji);        
+            else if (r < 11) grid.push(SYMBOLS.JOKER.emoji); 
+            else if (r < 11.5) grid.push(SYMBOLS.REP.emoji);     
+            else if (r < 13.5) grid.push(SYMBOLS.GACHA.emoji);   
+            else if (r < 17.5) grid.push(SYMBOLS.ANIMAL.emoji);  
+            else if (r < 24) grid.push(SYMBOLS.MORA_CROWN.emoji); 
+            else if (r < 34) grid.push(SYMBOLS.POTION.emoji);  
+            else if (r < 47) grid.push(SYMBOLS.MORA_SWORD.emoji); 
+            else if (r < 60) grid.push(SYMBOLS.MORA_FISH.emoji);  
+            else if (r < 70) grid.push(SYMBOLS.BAIT.emoji);    
             else grid.push(randomJunk);                        
         } else if (tierId === 'silver') {
-            if (r < 1) grid.push(SYMBOLS.JOKER.emoji);         
-            else if (r < 2) grid.push(SYMBOLS.GACHA.emoji);    
-            else if (r < 6) grid.push(SYMBOLS.POTION.emoji);   
-            else if (r < 12) grid.push(SYMBOLS.MORA_SWORD.emoji); 
-            else if (r < 20) grid.push(SYMBOLS.MORA_FISH.emoji);  
-            else if (r < 28) grid.push(SYMBOLS.BAIT.emoji);    
+            if (r < 2.5) grid.push(SYMBOLS.JOKER.emoji);         
+            else if (r < 4.5) grid.push(SYMBOLS.GACHA.emoji);    
+            else if (r < 13) grid.push(SYMBOLS.POTION.emoji);   
+            else if (r < 24) grid.push(SYMBOLS.MORA_SWORD.emoji); 
+            else if (r < 40) grid.push(SYMBOLS.MORA_FISH.emoji);  
+            else if (r < 56) grid.push(SYMBOLS.BAIT.emoji);    
+            else if (r < 67) grid.push(SYMBOLS.SEED.emoji);    
             else grid.push(randomJunk);                        
         } else { 
-            if (r < 0.5) grid.push(SYMBOLS.JOKER.emoji);       
-            else if (r < 1) grid.push(SYMBOLS.GACHA.emoji);    
-            else if (r < 7) grid.push(SYMBOLS.MORA_FISH.emoji);
-            else if (r < 15) grid.push(SYMBOLS.BAIT.emoji);    
-            else if (r < 25) grid.push(SYMBOLS.SEED.emoji);    
+            if (r < 1.5) grid.push(SYMBOLS.JOKER.emoji);       
+            else if (r < 2.5) grid.push(SYMBOLS.GACHA.emoji);    
+            else if (r < 14) grid.push(SYMBOLS.MORA_FISH.emoji);
+            else if (r < 35) grid.push(SYMBOLS.BAIT.emoji);    
+            else if (r < 62) grid.push(SYMBOLS.SEED.emoji);    
             else grid.push(randomJunk);                        
         }
     }
@@ -177,11 +180,10 @@ module.exports = {
         const guild = message.guild;
         const db = client.sql;
 
-        // 🛡️ فحص الحماية من الإرسال المزدوج للأمر
         if (activeGames.has(author.id)) {
             return message.reply({ content: "⚠️ لديك بطاقة يانصيب نشطة حالياً في الشات! قم بإنهائها أولاً لتتمكن من شراء بطاقة جديدة.", flags: [64] }).catch(()=>{});
         }
-        activeGames.add(author.id); // قفل اللاعب
+        activeGames.add(author.id); 
 
         let data = await client.getLevel(author.id, guild.id);
         if (!data) data = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
@@ -209,12 +211,12 @@ module.exports = {
                 const expirationTime = lastScratch + finalCooldown;
                 if (Date.now() < expirationTime) {
                     const expireTimestamp = Math.floor(expirationTime / 1000); 
-                    activeGames.delete(author.id); // فك القفل في حال الرفض
+                    activeGames.delete(author.id); 
                     
                     const cooldownEmbed = new EmbedBuilder()
                         .setColor(getRandomColor())
                         .setThumbnail('https://i.postimg.cc/50QZ4PPL/1.webp')
-                        .setDescription(`֎ نفـدت التذاكـر .. يمكنك شراء تذكـرة جديـدة بعـد: <t:${expireTimestamp}:R> <a:Nerf:1438795685280612423>`);
+                        .setDescription(`֎ نفـدت التذاكـر .. يمكنك شراء تذكـرة جديـدة بعـد:\n\n**<t:${expireTimestamp}:R>** <a:Nerf:1438795685280612423>`);
                     
                     return message.reply({ embeds: [cooldownEmbed] });
                 }
@@ -373,7 +375,7 @@ module.exports = {
         });
 
         collector.on('end', async (collected, reason) => {
-            activeGames.delete(author.id); // 🛡️ فك قفل اللاعب بمجرد انتهاء التفاعل
+            activeGames.delete(author.id); 
             if (reason === 'time' && initialMsg) {
                 await initialMsg.edit({ components: gameActive ? buildGridComponents(revealed, grid, true) : [] }).catch(() => {});
             }
