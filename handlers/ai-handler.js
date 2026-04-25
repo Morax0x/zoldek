@@ -81,7 +81,7 @@ async function askMorax(userId, guildId, channelId, messageText, username, image
 
         const channelSettings = aiConfig.getChannelSettings(channelId);
         const finalNsfwStatus = channelSettings ? Boolean(channelSettings.nsfw) : Boolean(isDiscordNsfw);
-        const apiKey = process.env.GEMINI_API_KEY;
+        const apiKey = process.env.OPENAI_API_KEY;
         
         const db = messageObject ? messageObject.client.sql : null;
         
