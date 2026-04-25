@@ -11,20 +11,18 @@ async function triggerAutoChat(client) {
         const channel = client.channels.cache.get(CHAT_CHANNEL_ID);
         if (!channel) return;
 
-        const apiKey = process.env.GEMINI_API_KEY;
+        const apiKey = process.env.OPENAI_API_KEY;
         const db = client.sql;
 
         const leaderboardInfo = await getLeaderboardKnowledge(db, GUILD_ID);
         const systemInstruction = buildSystemPrompt(false, leaderboardInfo, false);
 
-        // 🔥 نظام اختيار عشوائي: 50% أذكار، 50% سوالف خفيفة 🔥
         const isAthkarMode = Math.random() < 0.5;
         
         let hiddenPrompt = "";
         let serverContext = "";
 
         if (isAthkarMode) {
-            // 🛑 وضع الأذكار فقط 🛑
             hiddenPrompt = `أنتِ الآن تبادرين بالحديث في الدردشة العامة.
 المطلوب منكِ كتابة ذكر واحد مجرد فقط لا غير (من أنواع التسبيح، التحميد، التهليل، التكبير، الاستغفار، الحوقلة، أو الصلاة على النبي).
 
@@ -37,7 +35,6 @@ async function triggerAutoChat(client) {
             
             serverContext = "أنتِ تذكرين الله في الدردشة بكلمات قصيرة ومجردة.";
         } else {
-            // 🛑 وضع السوالف وكسر الهدوء فقط 🛑
             hiddenPrompt = `أنتِ الآن تبادرين بالحديث في الدردشة العامة لكسر الهدوء.
 المطلوب منكِ فتح سالفة خفيفة، أو طرح سؤال ممتع على الأعضاء، أو الطقطقة بشكل لطيف، أو الحديث عن الأجواء.
 
