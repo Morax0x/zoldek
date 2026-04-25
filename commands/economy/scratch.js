@@ -1,9 +1,9 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const TIERS = {
-    bronze: { id: 'bronze', name: 'نحاسية', price: 100, label: '100 نحاسية' },
-    silver: { id: 'silver', name: 'فضية', price: 500, label: '500 فضية' },
-    gold:   { id: 'gold',   name: 'ذهبية', price: 1000, label: '1000 ذهبية' }
+    bronze: { id: 'bronze', name: '100 نحاسية', price: 100, color: 0xcd7f32, label: '100 نحاسية' },
+    silver: { id: 'silver', name: '500 فضية', price: 500, color: 0xc0c0c0, label: '500 فضية' },
+    gold:   { id: 'gold',   name: '1000 ذهبية', price: 1000, color: 0xffd700, label: '1000 ذهبية' }
 };
 
 const SYMBOLS = {
@@ -87,6 +87,30 @@ function buildGridComponents(revealedArray, gridArray, disableAll) {
     return rows;
 }
 
+// دالة آمنة 100% لتحديث الرصيد في قاعدة البيانات والكاش
+async function updateMora(client, userId, guildId, amount) {
+    const db = client.sql;
+    if (!db) return false;
+    
+    try {
+        try { 
+            await db.query(`UPDATE levels SET "mora" = COALESCE("mora", 0) + $1 WHERE "user" = $2 AND "guild" = $3`, [amount, userId, guildId]); 
+        } catch (e1) { 
+            await db.query(`UPDATE levels SET mora = COALESCE(mora, 0) + $1 WHERE userid = $2 AND guildid = $3`, [amount, userId, guildId]); 
+        }
+
+        // تحديث الكاش لكي ينعكس فوراً في أمر الرصيد
+        if (client.levels && typeof client.levels.get === 'function') {
+            let cacheData = client.levels.get(`${userId}-${guildId}`);
+            if (cacheData) cacheData.mora = (cacheData.mora || 0) + amount;
+        }
+        return true;
+    } catch (error) {
+        console.error("[Mora Update Error]:", error);
+        return false;
+    }
+}
+
 module.exports = {
     name: 'scratch',
     description: '✥ اشـتـري بـطـاقـة اليانـصيـب🎟️',
@@ -128,27 +152,23 @@ module.exports = {
                 const tierId = i.customId.split('_')[1];
                 currentTier = TIERS[tierId];
 
+                // التحقق من الرصيد
+                let balance = 0;
                 try {
                     let userRes;
                     try { userRes = await db.query(`SELECT "mora" FROM levels WHERE "user" = $1 AND "guild" = $2`, [author.id, message.guild.id]); }
                     catch(e) { userRes = await db.query(`SELECT mora FROM levels WHERE userid = $1 AND guildid = $2`, [author.id, message.guild.id]).catch(()=>({rows:[]})); }
-                    
-                    const balance = userRes && userRes.rows[0] ? (Number(userRes.rows[0].mora) || 0) : 0;
+                    balance = userRes && userRes.rows[0] ? (Number(userRes.rows[0].mora) || 0) : 0;
+                } catch(e) {}
 
-                    if (balance < currentTier.price) {
-                        return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** لشراء التذكرة.`, ephemeral: true });
-                    }
+                if (balance < currentTier.price) {
+                    return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** <:mora:1435647151349698621> لشراء التذكرة.`, ephemeral: true });
+                }
 
-                    try { await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [currentTier.price, author.id, message.guild.id]); }
-                    catch(e) { await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [currentTier.price, author.id, message.guild.id]).catch(()=>{}); }
-
-                    if (message.client.levels && typeof message.client.levels.get === 'function') {
-                        let cacheData = message.client.levels.get(`${author.id}-${message.guild.id}`);
-                        if (cacheData) cacheData.mora = (cacheData.mora || 0) - currentTier.price;
-                    }
-
-                } catch (err) {
-                    return i.reply({ content: `⚠️ خلل في النظام المصرفي.`, ephemeral: true });
+                // خصم سعر التذكرة (بإرسال القيمة بالسالب)
+                const deducted = await updateMora(message.client, author.id, message.guild.id, -currentTier.price);
+                if (!deducted) {
+                    return i.reply({ content: `⚠️ خلل في النظام المصرفي، لم نتمكن من خصم المبلغ.`, ephemeral: true });
                 }
 
                 gameActive = true;
@@ -187,16 +207,12 @@ module.exports = {
                         gameOver = true;
                         const prize = currentTier.price * winStatus.multi;
                         finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`);
+                        
                         if (prize > 0) {
-                            try {
-                                try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [prize, author.id, message.guild.id]); }
-                                catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [prize, author.id, message.guild.id]).catch(()=>{}); }
-                                if (message.client.levels && typeof message.client.levels.get === 'function') {
-                                    let cacheData = message.client.levels.get(`${author.id}-${message.guild.id}`);
-                                    if (cacheData) cacheData.mora = (cacheData.mora || 0) + prize;
-                                }
-                            } catch (err) {}
+                            // إضافة الجائزة للرصيد
+                            await updateMora(message.client, author.id, message.guild.id, prize);
                         }
+
                         finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز «${winStatus.symbol}»\n✦ ربـحـت **${prize}** <:mora:1435647151349698621>`);
                         finalEmbed.setColor(0x2ECC71);
                     } 
