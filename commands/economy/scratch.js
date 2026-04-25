@@ -1,9 +1,9 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const TIERS = {
-    bronze: { id: 'bronze', name: '100 نحاسية', price: 100, color: 0xcd7f32, label: '100 نحاسية' },
-    silver: { id: 'silver', name: '500 فضية', price: 500, color: 0xc0c0c0, label: '500 فضية' },
-    gold:   { id: 'gold',   name: '1000 ذهبية', price: 1000, color: 0xffd700, label: '1000 ذهبية' }
+    bronze: { id: 'bronze', name: 'نحاسية', price: 100, label: '100 نحاسية' },
+    silver: { id: 'silver', name: 'فضية', price: 500, label: '500 فضية' },
+    gold:   { id: 'gold',   name: 'ذهبية', price: 1000, label: '1000 ذهبية' }
 };
 
 const SYMBOLS = {
@@ -14,6 +14,10 @@ const SYMBOLS = {
     MIMIC: { emoji: '👹', multi: 0 },  
     JUNK:  ['🪨', '🪵', '🍄', '☁️', '🦴', '🍎', '🧩'] 
 };
+
+function getRandomColor() {
+    return Math.floor(Math.random() * 16777215);
+}
 
 function generateGrid(tierId) {
     const grid = [];
@@ -29,8 +33,8 @@ function generateGrid(tierId) {
             else if (r < 45) grid.push(SYMBOLS.FISH.emoji);
             else grid.push(randomJunk);
         } else if (tierId === 'silver') {
-            if (r < 2) grid.push(SYMBOLS.JOKER.emoji);
-            else if (r < 5) grid.push(SYMBOLS.CROWN.emoji);
+            if (r < 4) grid.push(SYMBOLS.JOKER.emoji);
+            else if (r < 8) grid.push(SYMBOLS.CROWN.emoji);
             else if (r < 14) grid.push(SYMBOLS.SWORD.emoji);
             else if (r < 30) grid.push(SYMBOLS.FISH.emoji);
             else grid.push(randomJunk);
@@ -46,13 +50,11 @@ function generateGrid(tierId) {
 
 function checkWin(revealedSymbols) {
     let jokerCount = revealedSymbols.filter(s => s === SYMBOLS.JOKER.emoji).length;
-    
     let others = revealedSymbols.filter(s => 
         s !== SYMBOLS.JOKER.emoji && 
         s !== SYMBOLS.MIMIC.emoji && 
         !SYMBOLS.JUNK.includes(s)
     );
-
     let counts = {};
     for (let s of others) counts[s] = (counts[s] || 0) + 1;
 
@@ -71,17 +73,12 @@ function buildGridComponents(revealedArray, gridArray, disableAll) {
             const index = i * 3 + j;
             const isRevealed = revealedArray[index];
             const symbol = gridArray[index];
-            
-            const btn = new ButtonBuilder()
-                .setCustomId(`scratch_${index}`)
-                .setDisabled(isRevealed || disableAll);
+            const btn = new ButtonBuilder().setCustomId(`scratch_${index}`).setDisabled(isRevealed || disableAll);
 
             if (isRevealed) {
-                btn.setStyle(symbol === '👹' ? ButtonStyle.Danger : (SYMBOLS.JUNK.includes(symbol) ? ButtonStyle.Secondary : ButtonStyle.Primary))
-                   .setLabel(symbol);
+                btn.setStyle(symbol === '👹' ? ButtonStyle.Danger : (SYMBOLS.JUNK.includes(symbol) ? ButtonStyle.Secondary : ButtonStyle.Primary)).setLabel(symbol);
             } else {
-                btn.setStyle(ButtonStyle.Secondary)
-                   .setLabel('❓'); 
+                btn.setStyle(ButtonStyle.Secondary).setLabel('❓'); 
             }
             row.addComponents(btn);
         }
@@ -106,7 +103,7 @@ module.exports = {
         const chooseEmbed = new EmbedBuilder()
             .setTitle('✥ اشـتـري بـطـاقـة اليانـصيـب🎟️')
             .setDescription('✶ جـرب حـظـك باليانصيـب واشتري تذكرتك\n\n✦ اجـمـع 3 رمـوز مشـابهـة لمضاعفـة ربحـك <a:mTrophy:1438797228826300518>\n✦ رمـز الحـظ «🧚‍♀️» يكـمـل اي رمـز آخـر <a:6aMoney:1439572832219693116>')
-            .setColor(0x2b2d31)
+            .setColor(getRandomColor())
             .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
 
         const chooseRow = new ActionRowBuilder().addComponents(
@@ -139,7 +136,7 @@ module.exports = {
                     const balance = userRes && userRes.rows[0] ? (Number(userRes.rows[0].mora) || 0) : 0;
 
                     if (balance < currentTier.price) {
-                        return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** <:mora:1435647151349698621> لشراء التذكرة.`, ephemeral: true });
+                        return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** لشراء التذكرة.`, ephemeral: true });
                     }
 
                     try { await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [currentTier.price, author.id, message.guild.id]); }
@@ -157,11 +154,10 @@ module.exports = {
                 gameActive = true;
                 grid = generateGrid(tierId);
 
-                const baseDesc = `✦ اشتـريـت تذكـرة ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`;
-                
                 const gameEmbed = new EmbedBuilder()
-                    .setDescription(baseDesc)
-                    .setColor(currentTier.color)
+                    .setTitle(`✶ بطـاقـة يانصيـب ${currentTier.name}`)
+                    .setDescription(`✦ اشتـريـت تذكـرة ${currentTier.price} ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`)
+                    .setColor(getRandomColor())
                     .setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
 
                 await i.update({ embeds: [gameEmbed], components: buildGridComponents(revealed, grid, false) });
@@ -173,12 +169,14 @@ module.exports = {
 
                 const revealedSymbols = grid.filter((_, idx) => revealed[idx]);
                 let gameOver = false;
-                let finalEmbed = new EmbedBuilder().setColor(currentTier.color).setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
+                let finalEmbed = new EmbedBuilder().setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
+                finalEmbed.setColor(getRandomColor());
 
-                const baseDesc = `✦ اشتـريـت تذكـرة ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`;
+                const baseDesc = `✦ اشتـريـت تذكـرة ${currentTier.price} ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`;
 
                 if (grid[index] === SYMBOLS.MIMIC.emoji) {
                     gameOver = true;
+                    finalEmbed.setTitle(`✶ خـسـرت .. Gg`)
                     finalEmbed.setDescription(`✶ **تمزقت بطاقـة اليانصيـب !**\nلقد أيقظت الميميك والتهـم اموالـك👹\nخسرت **${currentTier.price}** 💥`);
                     finalEmbed.setColor(0xE74C3C);
                 } 
@@ -188,28 +186,28 @@ module.exports = {
                     if (winStatus.win) {
                         gameOver = true;
                         const prize = currentTier.price * winStatus.multi;
-                        
+                        finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`);
                         if (prize > 0) {
                             try {
                                 try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [prize, author.id, message.guild.id]); }
                                 catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [prize, author.id, message.guild.id]).catch(()=>{}); }
-                                
                                 if (message.client.levels && typeof message.client.levels.get === 'function') {
                                     let cacheData = message.client.levels.get(`${author.id}-${message.guild.id}`);
                                     if (cacheData) cacheData.mora = (cacheData.mora || 0) + prize;
                                 }
                             } catch (err) {}
                         }
-
                         finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز «${winStatus.symbol}»\n✦ ربـحـت **${prize}** <:mora:1435647151349698621>`);
                         finalEmbed.setColor(0x2ECC71);
                     } 
                     else if (revealedSymbols.length === 9) {
                         gameOver = true;
+                        finalEmbed.setTitle(`✶ خـسـرت .. Gg`)
                         finalEmbed.setDescription(`✶ بـطاقـة يـانصـيب خـاسـرة امتلأت الساحة بالخردة ~\n✶ خـسـرت **${currentTier.price}** <:mora:1435647151349698621>`);
                         finalEmbed.setColor(0x95A5A6);
                     }
                     else {
+                        finalEmbed.setTitle(`✶ بطـاقـة يانصيـب ${currentTier.name}`)
                         finalEmbed.setDescription(`${baseDesc}\n\n✦ استمر.. متبقي لك **${9 - revealedSymbols.length}** فـرص`);
                     }
                 }
@@ -226,11 +224,7 @@ module.exports = {
 
         collector.on('end', async (collected, reason) => {
             if (reason === 'time' && initialMsg) {
-                if (!gameActive && !currentTier) {
-                    await initialMsg.edit({ components: [] }).catch(() => {});
-                } else if (gameActive) {
-                    await initialMsg.edit({ components: buildGridComponents(revealed, grid, true) }).catch(() => {});
-                }
+                await initialMsg.edit({ components: gameActive ? buildGridComponents(revealed, grid, true) : [] }).catch(() => {});
             }
         });
     }
