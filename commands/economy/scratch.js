@@ -15,6 +15,8 @@ const SYMBOLS = {
     JUNK:  ['🪨', '🪵', '🍄', '☁️', '🦴', '🍎', '🧩'] 
 };
 
+const activeProcesses = new Set();
+
 function getRandomColor() {
     return Math.floor(Math.random() * 16777215);
 }
@@ -50,11 +52,7 @@ function generateGrid(tierId) {
 
 function checkWin(revealedSymbols) {
     let jokerCount = revealedSymbols.filter(s => s === SYMBOLS.JOKER.emoji).length;
-    let others = revealedSymbols.filter(s => 
-        s !== SYMBOLS.JOKER.emoji && 
-        s !== SYMBOLS.MIMIC.emoji && 
-        !SYMBOLS.JUNK.includes(s)
-    );
+    let others = revealedSymbols.filter(s => s !== SYMBOLS.JOKER.emoji && s !== SYMBOLS.MIMIC.emoji && !SYMBOLS.JUNK.includes(s));
     let counts = {};
     for (let s of others) counts[s] = (counts[s] || 0) + 1;
 
@@ -87,23 +85,40 @@ function buildGridComponents(revealedArray, gridArray, disableAll) {
     return rows;
 }
 
-async function updateMora(client, userId, guildId, amount) {
+async function secureUpdateMora(client, userId, guildId, amount) {
     const db = client.sql;
     if (!db) return false;
     
     try {
+        let query = `
+            INSERT INTO levels ("user", "guild", "mora") 
+            VALUES ($1, $2, $3) 
+            ON CONFLICT ("user", "guild") 
+            DO UPDATE SET "mora" = COALESCE(levels."mora", 0) + $3
+            RETURNING "mora";
+        `;
+        
+        let res;
         try { 
-            await db.query(`UPDATE levels SET "mora" = COALESCE("mora", 0) + $1 WHERE "user" = $2 AND "guild" = $3`, [amount, userId, guildId]); 
-        } catch (e1) { 
-            await db.query(`UPDATE levels SET mora = COALESCE(mora, 0) + $1 WHERE userid = $2 AND guildid = $3`, [amount, userId, guildId]); 
+            res = await db.query(query, [userId, guildId, amount]); 
+        } catch (e) {
+            let fallbackQuery = `
+                INSERT INTO levels (userid, guildid, mora) 
+                VALUES ($1, $2, $3) 
+                ON CONFLICT (userid, guildid) 
+                DO UPDATE SET mora = COALESCE(levels.mora, 0) + $3
+                RETURNING mora;
+            `;
+            res = await db.query(fallbackQuery, [userId, guildId, amount]);
         }
 
         if (client.levels && typeof client.levels.get === 'function') {
             let cacheData = client.levels.get(`${userId}-${guildId}`);
-            if (cacheData) cacheData.mora = (cacheData.mora || 0) + amount;
+            if (cacheData) cacheData.mora = Number(res.rows[0].mora);
         }
         return true;
     } catch (error) {
+        console.error(error);
         return false;
     }
 }
@@ -144,6 +159,8 @@ module.exports = {
         let revealed = Array(9).fill(false);
 
         collector.on('collect', async (i) => {
+            if (activeProcesses.has(i.user.id)) return i.reply({ content: "⚠️ هدي اللعب! جاري معالجة طلبك السابق.", ephemeral: true });
+            activeProcesses.add(i.user.id);
 
             if (i.customId.startsWith('buy_')) {
                 const tierId = i.customId.split('_')[1];
@@ -158,11 +175,13 @@ module.exports = {
                 } catch(e) {}
 
                 if (balance < currentTier.price) {
+                    activeProcesses.delete(i.user.id);
                     return i.reply({ content: `❌ رصيدك لا يكفي! تحتاج إلى **${currentTier.price}** <:mora:1435647151349698621> لشراء التذكرة.`, ephemeral: true });
                 }
 
-                const deducted = await updateMora(message.client, author.id, message.guild.id, -currentTier.price);
+                const deducted = await secureUpdateMora(message.client, author.id, message.guild.id, -currentTier.price);
                 if (!deducted) {
+                    activeProcesses.delete(i.user.id);
                     return i.reply({ content: `⚠️ خلل في النظام المصرفي، لم نتمكن من خصم المبلغ.`, ephemeral: true });
                 }
 
@@ -184,41 +203,31 @@ module.exports = {
 
                 const revealedSymbols = grid.filter((_, idx) => revealed[idx]);
                 let gameOver = false;
-                let finalEmbed = new EmbedBuilder().setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() });
-                finalEmbed.setColor(getRandomColor());
+                let finalEmbed = new EmbedBuilder().setFooter({ text: `المقامر: ${author.username}`, iconURL: author.displayAvatarURL() }).setColor(getRandomColor());
 
                 const baseDesc = `✦ اشتـريـت تذكـرة ${currentTier.price} ${currentTier.name} <:mora:1435647151349698621>\n✦ اكشـط بطاقة اليانصيـب \n✦ حـاول جـمع 3 رمـوز مشابهـة <:2BCrikka:1437806481071411391>`;
 
                 if (grid[index] === SYMBOLS.MIMIC.emoji) {
                     gameOver = true;
-                    finalEmbed.setTitle(`✶ خـسـرت .. Gg`)
+                    finalEmbed.setTitle(`✶ خـسـرت .. Gg`).setColor(0xE74C3C)
                     finalEmbed.setDescription(`✶ **تمزقت بطاقـة اليانصيـب !**\nلقد أيقظت الميميك والتهـم اموالـك👹\nخسرت **${currentTier.price}** 💥`);
-                    finalEmbed.setColor(0xE74C3C);
                 } 
                 else {
                     const winStatus = checkWin(revealedSymbols);
-                    
                     if (winStatus.win) {
                         gameOver = true;
-                        const prize = currentTier.price * winStatus.multi;
-                        finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`);
-                        
-                        if (prize > 0) {
-                            await updateMora(message.client, author.id, message.guild.id, prize);
-                        }
-
+                        const prize = Math.floor(currentTier.price * winStatus.multi);
+                        finalEmbed.setTitle(`✶ كـفـوو علـيـك ~`).setColor(0x2ECC71);
+                        await secureUpdateMora(message.client, author.id, message.guild.id, prize);
                         finalEmbed.setDescription(`✦ ضـربـة حـظ ! <a:mTrophy:1438797228826300518>\n✦ جـمعـت 3 رمـوز «${winStatus.symbol}»\n✦ ربـحـت **${prize}** <:mora:1435647151349698621>`);
-                        finalEmbed.setColor(0x2ECC71);
                     } 
                     else if (revealedSymbols.length === 9) {
                         gameOver = true;
-                        finalEmbed.setTitle(`✶ خـسـرت .. Gg`)
+                        finalEmbed.setTitle(`✶ خـسـرت .. Gg`).setColor(0x95A5A6);
                         finalEmbed.setDescription(`✶ بـطاقـة يـانصـيب خـاسـرة امتلأت الساحة بالخردة ~\n✶ خـسـرت **${currentTier.price}** <:mora:1435647151349698621>`);
-                        finalEmbed.setColor(0x95A5A6);
                     }
                     else {
-                        finalEmbed.setTitle(`✶ بطـاقـة يانصيـب ${currentTier.name}`)
-                        finalEmbed.setDescription(`${baseDesc}\n\n✦ استمر.. متبقي لك **${9 - revealedSymbols.length}** فـرص`);
+                        finalEmbed.setTitle(`✶ بطـاقـة يانصيـب ${currentTier.name}`).setDescription(`${baseDesc}\n\n✦ استمر.. متبقي لك **${9 - revealedSymbols.length}** فـرص`);
                     }
                 }
 
@@ -230,6 +239,7 @@ module.exports = {
                     await i.update({ embeds: [finalEmbed], components: buildGridComponents(revealed, grid, false) });
                 }
             }
+            activeProcesses.delete(i.user.id);
         });
 
         collector.on('end', async (collected, reason) => {
