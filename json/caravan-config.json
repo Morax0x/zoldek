@@ -1,0 +1,140 @@
+{
+  "destinations": [
+    {
+      "id": "gold_city",
+      "name": "مدينة الذهب",
+      "emoji": "🏙️",
+      "description": "مدينة تتدفق فيها الثروات، لكن طريقها محفوف بالمخاطر الجسيمة.",
+      "cost": 2000,
+      "duration_hours": 8,
+      "risk_factor": 0.35,
+      "reward_type": "mora",
+      "reward_min": 1500,
+      "reward_max": 5000,
+      "color": "#FFD700",
+      "map_x": 780,
+      "map_y": 180
+    },
+    {
+      "id": "magic_academy",
+      "name": "أكاديمية السحر",
+      "emoji": "🔮",
+      "description": "رحلة تعليمية إلى الأكاديمية العريقة، مكافآت من الخبرة والمعرفة.",
+      "cost": 1000,
+      "duration_hours": 6,
+      "risk_factor": 0.20,
+      "reward_type": "xp",
+      "reward_min": 300,
+      "reward_max": 1200,
+      "color": "#8A2BE2",
+      "map_x": 680,
+      "map_y": 310
+    },
+    {
+      "id": "imperial_capital",
+      "name": "العاصمة الإمبراطورية",
+      "emoji": "🏯",
+      "description": "رحلة دبلوماسية إلى قلب الإمبراطورية، حيث تُبنى السمعة والمكانة.",
+      "cost": 1500,
+      "duration_hours": 10,
+      "risk_factor": 0.15,
+      "reward_type": "reputation",
+      "reward_min": 1,
+      "reward_max": 10,
+      "color": "#DC143C",
+      "map_x": 840,
+      "map_y": 350
+    },
+    {
+      "id": "ancient_ruins",
+      "name": "الأطلال القديمة",
+      "emoji": "🏚️",
+      "description": "رحلة استكشافية إلى حضارة منسية، تنتظرك فيها التحف النادرة.",
+      "cost": 1500,
+      "duration_hours": 12,
+      "risk_factor": 0.40,
+      "reward_type": "artifact",
+      "reward_pulls": 1,
+      "color": "#CD853F",
+      "map_x": 560,
+      "map_y": 160
+    },
+    {
+      "id": "nature_valley",
+      "name": "وادي الطبيعة",
+      "emoji": "🌿",
+      "description": "وادٍ خصب تجلب منه البذور الثمينة والحيوانات النادرة لمزرعتك.",
+      "cost": 800,
+      "duration_hours": 6,
+      "risk_factor": 0.20,
+      "reward_type": "nature",
+      "reward_seeds_min": 1,
+      "reward_seeds_max": 4,
+      "reward_animal_chance": 0.30,
+      "color": "#228B22",
+      "map_x": 430,
+      "map_y": 290
+    }
+  ],
+  "upgrades": {
+    "capacity": {
+      "name": "سعة الحمولة",
+      "emoji": "📦",
+      "description": "زيادة كمية البضائع المحمولة (+25% للمكافآت لكل مستوى)",
+      "max_level": 5,
+      "costs": [0, 1000, 2500, 5000, 10000, 20000],
+      "bonus_per_level": 0.25
+    },
+    "speed": {
+      "name": "سرعة القافلة",
+      "emoji": "⚡",
+      "description": "تقليل مدة الرحلة (-10% لكل مستوى)",
+      "max_level": 5,
+      "costs": [0, 1500, 3500, 7000, 15000, 30000],
+      "time_reduction": 0.10
+    },
+    "defense": {
+      "name": "درع القافلة",
+      "emoji": "🛡️",
+      "description": "تقليل احتمالية الهجوم (-5% لكل مستوى)",
+      "max_level": 5,
+      "costs": [0, 2000, 4500, 9000, 18000, 36000],
+      "risk_reduction": 0.05
+    },
+    "luck": {
+      "name": "حظ القافلة",
+      "emoji": "🍀",
+      "description": "زيادة المكافآت النهائية (+10% لكل مستوى)",
+      "max_level": 5,
+      "costs": [0, 2500, 5000, 10000, 20000, 40000],
+      "bonus_per_level": 0.10
+    }
+  },
+  "attack": {
+    "guard_cost_percent": 0.10,
+    "guard_success_rate": 0.70,
+    "guard_timeout_ms": 1800000,
+    "ignored_loss_min": 0.50,
+    "ignored_loss_max": 1.00,
+    "guard_fail_loss": 0.50,
+    "guard_success_loss": 0.10
+  },
+  "artifact_buffs": {
+    "material": {
+      "stat": "speed",
+      "Common": 0.03,
+      "Uncommon": 0.05,
+      "Rare": 0.08,
+      "Epic": 0.12,
+      "Legendary": 0.20
+    },
+    "book": {
+      "stat": "luck",
+      "Common": 0.03,
+      "Uncommon": 0.05,
+      "Rare": 0.08,
+      "Epic": 0.12,
+      "Legendary": 0.20
+    }
+  }
+}
