@@ -901,7 +901,7 @@ async function generateUpgradePanel(user, stats, mora) {
         const cx    = gx0 + (i % 2) * (cw + gap);
         const cy    = gy0 + Math.floor(i / 2) * (ch + gap);
 
-        drawPanel(ctx, cx, cy, cw, ch, col + (maxed ? 'FF' : '88'));
+        drawPanel(ctx, cx, cy, cw, ch, col);
 
         /* ── شارة MAX أو رقم المستوى ── */
         if (maxed) {
