@@ -11,375 +11,331 @@ const {
     safeQuery, safeExecute, EMOJI_MORA
 } = require('../../handlers/caravan-core.js');
 
-let generateCaravanCard;
-try { ({ generateCaravanCard } = require('../../generators/caravan-generator.js')); }
-catch { generateCaravanCard = null; }
+const upgradeMats = require('../../json/upgrade-materials.json');
 
-/* ═══════════════════ بيانات الأمر ═══════════════════ */
+let GEN;
+try { GEN = require('../../generators/caravan-generator.js'); }
+catch { GEN = {}; }
+
+/* ─── helpers ─── */
+function allItemsList() {
+    const list = [];
+    if (upgradeMats?.weapon_materials)
+        upgradeMats.weapon_materials.forEach(r => r.materials.forEach(m => list.push({ ...m, type: 'material' })));
+    if (upgradeMats?.skill_books)
+        upgradeMats.skill_books.forEach(c => c.books.forEach(b => list.push({ ...b, type: 'book' })));
+    return list;
+}
+
+async function getMora(db, userId, guildId) {
+    try {
+        const r = await db.query(`SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [userId, guildId]);
+        return Number(r.rows[0]?.mora || 0);
+    } catch { return 0; }
+}
+
+/* ─── صف أزرار التنقل الرئيسية ─── */
+function navRow(disabled = false) {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('cv_send')   .setLabel('📤 إرسال رحلة').setStyle(ButtonStyle.Primary)   .setDisabled(disabled),
+        new ButtonBuilder().setCustomId('cv_status') .setLabel('🗺️ الحالة')    .setStyle(ButtonStyle.Secondary) .setDisabled(disabled),
+        new ButtonBuilder().setCustomId('cv_upgrade').setLabel('🏗️ الترقيات') .setStyle(ButtonStyle.Success)   .setDisabled(disabled),
+        new ButtonBuilder().setCustomId('cv_equip')  .setLabel('🔮 التجهيز')   .setStyle(ButtonStyle.Secondary) .setDisabled(disabled),
+    );
+}
+
+/* ─── إرسال canvas أو fallback ─── */
+async function sendCanvas(fn, args, channel, content = '') {
+    try {
+        if (typeof fn !== 'function') throw new Error('no fn');
+        const buf = await fn(...args);
+        return { files: [new AttachmentBuilder(buf, { name: 'caravan.png' })], content };
+    } catch (e) {
+        return { embeds: [new EmbedBuilder().setColor('#FF4444').setDescription('⚠️ تعذّر توليد الصورة.')], content };
+    }
+}
+
+/* ════════════════════════════════════════════════════
+   أمر القافلة الموحّد
+════════════════════════════════════════════════════ */
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('caravan')
-        .setDescription('نظام القوافل — أرسل قافلتك في مهام لجمع الثروات والمكافآت.')
-        .addSubcommand(sub => sub
-            .setName('send')
-            .setDescription('أرسل قافلتك في رحلة جديدة'))
-        .addSubcommand(sub => sub
-            .setName('status')
-            .setDescription('اعرض حالة قافلتك الحالية'))
-        .addSubcommand(sub => sub
-            .setName('upgrade')
-            .setDescription('قم بترقية قافلتك'))
-        .addSubcommand(sub => sub
-            .setName('equip')
-            .setDescription('جهّز أدوات من مخزنك على القافلة')),
+        .setDescription('🐪 نظام القوافل — مركز التحكم الكامل'),
 
     name:     'caravan',
     aliases:  ['قافلة', 'قوافل', 'رحلة'],
     category: 'Economy',
     description: 'نظام القوافل المتكامل',
 
-    /* ═══════════════════ execute ═══════════════════ */
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, client, guild, user, member;
+        let interaction, message, client, guild, user;
 
         if (isSlash) {
             interaction = interactionOrMessage;
-            client = interaction.client;
-            guild  = interaction.guild;
-            user   = interaction.user;
-            member = interaction.member;
+            client = interaction.client; guild = interaction.guild; user = interaction.user;
             await interaction.deferReply().catch(() => {});
         } else {
             message = interactionOrMessage;
-            client  = message.client;
-            guild   = message.guild;
-            user    = message.author;
-            member  = message.member;
+            client = message.client; guild = message.guild; user = message.author;
         }
 
         const db = client.sql;
-        const reply = async (payload) =>
-            isSlash ? interaction.editReply(payload).catch(() => {})
-                    : message.channel.send(payload).catch(() => {});
-
-        // تهيئة الجداول + الفاحص التلقائي (مرة واحدة فقط)
         await initCaravanTables(db).catch(() => {});
         setupCaravanChecker(client, db);
 
-        // تحديد الأمر الفرعي (سلاش أو نص)
-        let sub = isSlash ? interaction.options.getSubcommand() : (args?.[0] || 'status');
-        if (['send','إرسال','أرسل'].includes(sub))         sub = 'send';
-        else if (['upgrade','ترقية','ترقيه'].includes(sub)) sub = 'upgrade';
-        else if (['equip','جهز','تجهيز'].includes(sub))    sub = 'equip';
-        else sub = 'status';
+        /* ─── دالة الرد ─── */
+        const reply = async (payload) => {
+            try {
+                if (isSlash) return await interaction.editReply(payload);
+                return await message.channel.send(payload);
+            } catch { return null; }
+        };
 
-        /* ─────────── send ─────────── */
-        if (sub === 'send') {
-            const active = await getActiveCaravan(db, user.id, guild.id);
-            if (active) {
-                return reply({ embeds: [new EmbedBuilder()
-                    .setColor('#FF4444')
-                    .setDescription(`❌ لديك قافلة نشطة بالفعل! استخدم \`/caravan status\` لمتابعتها.`)
-                ] });
-            }
+        /* ─── عرض Hub الرئيسي ─── */
+        async function showHub(editMsg = null) {
+            const [stats, active, mora] = await Promise.all([
+                getUserCaravanStats(db, user.id, guild.id),
+                getActiveCaravan(db, user.id, guild.id),
+                getMora(db, user.id, guild.id),
+            ]);
+            const payload = await sendCanvas(GEN.generateCaravanHub, [user, stats, active, mora]);
+            payload.components = [navRow()];
+            if (editMsg) return editMsg.edit(payload).catch(() => {});
+            return reply(payload);
+        }
 
-            // قائمة الوجهات
-            const options = caravanConfig.destinations.map(d => ({
-                label:       d.name,
-                value:       d.id,
-                description: `${d.duration_hours}س | تكلفة: ${d.cost.toLocaleString()} مورا | خطر: ${(d.risk_factor*100).toFixed(0)}%`,
-                emoji:       d.emoji.replace(/️/g, ''),
-            }));
+        /* ─── عرض Hub وإعداد Collector ─── */
+        const hubMsg = await showHub();
+        if (!hubMsg) return;
 
-            const selectRow = new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('caravan_dest_select')
-                    .setPlaceholder('اختر وجهة الرحلة...')
-                    .addOptions(options)
-            );
+        const collector = hubMsg.createMessageComponentCollector({
+            filter: i => i.user.id === user.id,
+            time: 5 * 60 * 1000,
+            idle: 3 * 60 * 1000,
+        });
 
-            const stats   = await getUserCaravanStats(db, user.id, guild.id);
-            const descLines = caravanConfig.destinations.map(d => {
-                const buffs   = getEquippedBuffs([]);
-                const dur     = calcDuration(d, stats, buffs);
-                const risk    = calcRiskFactor(d, stats);
-                const hours   = Math.floor(dur / 3600000);
-                const mins    = Math.floor((dur % 3600000) / 60000);
-                return `${d.emoji} **${d.name}** — ${hours}س${mins>0?` ${mins}د`:''} | ⚠️ ${(risk*100).toFixed(0)}% | 💰 ${d.cost.toLocaleString()} ${EMOJI_MORA}`;
-            });
+        collector.on('collect', async i => {
+            await i.deferUpdate().catch(() => {});
+            const id = i.customId;
 
-            const menuMsg = await reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#FFD700')
-                    .setTitle('🗺️ اختر وجهة قافلتك')
-                    .setDescription(descLines.join('\n'))
-                    .setFooter({ text: 'لديك 60 ثانية للاختيار' })
-                ],
-                components: [selectRow],
-                fetchReply: true,
-            });
-
-            const msgRef = isSlash ? await interaction.fetchReply() : menuMsg;
-            const collector = msgRef.createMessageComponentCollector({
-                componentType: ComponentType.StringSelect,
-                filter: i => i.customId === 'caravan_dest_select' && i.user.id === user.id,
-                time: 60000, max: 1,
-            });
-
-            collector.on('collect', async i => {
-                await i.deferUpdate().catch(() => {});
-                const destId = i.values[0];
-                const dest   = caravanConfig.destinations.find(d => d.id === destId);
-
-                // التحقق من الرصيد
-                const userData = await safeQuery(db,
-                    `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [user.id, guild.id]);
-                const mora = Number(userData.rows[0]?.mora || 0);
-                if (mora < dest.cost) {
-                    await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA} لإرسال القافلة. رصيدك: **${mora.toLocaleString()}**`, flags: [MessageFlags.Ephemeral] });
+            /* ══ إرسال رحلة ══ */
+            if (id === 'cv_send') {
+                const active = await getActiveCaravan(db, user.id, guild.id);
+                if (active) {
+                    await i.followUp({ content: '❌ لديك رحلة نشطة بالفعل! استخدم الحالة لمتابعتها.', flags: [MessageFlags.Ephemeral] });
                     return;
                 }
+                const mora = await getMora(db, user.id, guild.id);
+                const stats = await getUserCaravanStats(db, user.id, guild.id);
+                const payload = await sendCanvas(GEN.generateSendMap, [user, stats, mora]);
 
-                // خصم التكلفة
+                const opts = caravanConfig.destinations.map(d => ({
+                    label: d.name,
+                    value: d.id,
+                    description: `${d.duration_hours}س | ${d.cost.toLocaleString()} مورا | خطر ${(d.risk_factor*100).toFixed(0)}%`,
+                    emoji: d.emoji.replace(/️/g,''),
+                }));
+                payload.components = [
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId('cv_dest_sel')
+                            .setPlaceholder('اختر الوجهة...')
+                            .addOptions(opts)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Secondary)
+                    ),
+                ];
+                await hubMsg.edit(payload).catch(() => {});
+                return;
+            }
+
+            /* ══ اختيار الوجهة ══ */
+            if (id === 'cv_dest_sel') {
+                const destId = i.values[0];
+                const dest   = caravanConfig.destinations.find(d => d.id === destId);
+                const mora   = await getMora(db, user.id, guild.id);
+                if (mora < dest.cost) {
+                    await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA}. رصيدك: **${mora.toLocaleString()}**`, flags: [MessageFlags.Ephemeral] });
+                    return;
+                }
                 await safeExecute(db,
                     `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`,
                     [dest.cost, user.id, guild.id]);
 
-                const sessionKey     = `${user.id}-${guild.id}`;
-                const savedArtifacts = client.caravanEquip?.get(sessionKey) || [];
-                const result = await sendCaravan(db, user.id, guild.id, destId, savedArtifacts);
+                const sessionKey  = `${user.id}-${guild.id}`;
+                const savedArts   = client.caravanEquip?.get(sessionKey) || [];
+                const result      = await sendCaravan(db, user.id, guild.id, destId, savedArts);
                 if (result.error) {
                     await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
                     return;
                 }
-
-                const hours = Math.floor(result.durationMs / 3600000);
-                const mins  = Math.floor((result.durationMs % 3600000) / 60000);
-                const eta   = Math.floor(result.endTime / 1000);
-
-                await msgRef.edit({
+                const eta = Math.floor(result.endTime / 1000);
+                const hrs = Math.floor(result.durationMs / 3600000);
+                const mns = Math.floor((result.durationMs % 3600000) / 60000);
+                await i.followUp({
                     embeds: [new EmbedBuilder()
                         .setColor(dest.color || '#00FF88')
-                        .setTitle(`🐪 انطلقت القافلة إلى ${dest.emoji} ${dest.name}!`)
-                        .setDescription(
-                            `✶ **المدة:** ${hours}س ${mins}د\n` +
-                            `✶ **الوصول:** <t:${eta}:R>\n` +
-                            `✶ **الخطر:** ${(result.riskFactor*100).toFixed(0)}%\n` +
-                            `✶ المكافآت ستُضاف تلقائياً عند العودة.`
-                        )
-                        .setFooter({ text: 'تابع حالة قافلتك بـ /caravan status' })
+                        .setTitle(`🐪 انطلقت إلى ${dest.emoji} ${dest.name}!`)
+                        .setDescription(`⏱ **المدة:** ${hrs}س ${mns}د\n📅 **الوصول:** <t:${eta}:R>\n⚠️ **الخطر:** ${(result.riskFactor*100).toFixed(0)}%`)
                     ],
-                    components: [],
+                    flags: [MessageFlags.Ephemeral],
                 }).catch(() => {});
-            });
+                await showHub(hubMsg);
+                return;
+            }
 
-            collector.on('end', async (collected) => {
-                if (!collected.size) {
-                    await msgRef.edit({ components: [] }).catch(() => {});
+            /* ══ حالة الرحلة ══ */
+            if (id === 'cv_status') {
+                const active = await getActiveCaravan(db, user.id, guild.id);
+                if (!active) {
+                    await i.followUp({ content: '📭 لا توجد رحلة نشطة حالياً.', flags: [MessageFlags.Ephemeral] });
+                    return;
                 }
-            });
-            return;
-        }
+                const destId = active.destinationid || active.destinationId;
+                const dest   = caravanConfig.destinations.find(d => d.id === destId) || {};
+                const stats  = await getUserCaravanStats(db, user.id, guild.id);
+                const payload = await sendCanvas(GEN.generateCaravanStatus, [user, active, stats, dest]);
+                payload.components = [
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Secondary)
+                    ),
+                ];
+                await hubMsg.edit(payload).catch(() => {});
+                return;
+            }
 
-        /* ─────────── status ─────────── */
-        if (sub === 'status') {
-            const active = await getActiveCaravan(db, user.id, guild.id);
-            const stats  = await getUserCaravanStats(db, user.id, guild.id);
+            /* ══ الترقيات ══ */
+            if (id === 'cv_upgrade') {
+                const [stats, mora] = await Promise.all([
+                    getUserCaravanStats(db, user.id, guild.id),
+                    getMora(db, user.id, guild.id),
+                ]);
+                const payload = await sendCanvas(GEN.generateUpgradePanel, [user, stats, mora]);
 
-            if (!active) {
-                const upgs = caravanConfig.upgrades;
-                const lines = Object.entries(upgs).map(([key, cfg]) => {
-                    const rank = Number(stats[`${key}_rank`] || stats[`${key}rank`] || 1);
-                    return `${cfg.emoji} **${cfg.name}:** لv.${rank} / لv.${cfg.max_level}`;
+                const opts = Object.entries(caravanConfig.upgrades).map(([key, cfg]) => {
+                    const rank  = Number(stats[`${key}_rank`] || 1);
+                    const maxed = rank >= cfg.max_level;
+                    const cost  = maxed ? 0 : cfg.costs[rank];
+                    return {
+                        label:       `${cfg.name} — لv.${rank}${maxed?' (الأقصى)':''}`,
+                        value:       key,
+                        description: maxed ? 'وصلت للحد الأقصى' : `التكلفة: ${cost.toLocaleString()} مورا`,
+                        emoji:       cfg.emoji,
+                    };
                 });
-                return reply({ embeds: [new EmbedBuilder()
-                    .setColor('#2A3A5A')
-                    .setTitle('🐪 قافلتك — لا توجد رحلة نشطة')
-                    .setDescription(
-                        `لا توجد قافلة نشطة الآن.\nاستخدم \`/caravan send\` لإرسال قافلة.\n\n` +
-                        `**ترقيات القافلة:**\n${lines.join('\n')}\n\n` +
-                        `📊 الرحلات الناجحة: **${stats.successful_trips||0}** / **${stats.total_trips||0}**`
-                    )
-                ] });
+                payload.components = [
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId('cv_upg_sel')
+                            .setPlaceholder('اختر نوع الترقية...')
+                            .addOptions(opts)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Secondary)
+                    ),
+                ];
+                await hubMsg.edit(payload).catch(() => {});
+                return;
             }
 
-            const destId = active.destinationid || active.destinationId;
-            const dest   = caravanConfig.destinations.find(d => d.id === destId);
-
-            if (!generateCaravanCard) {
-                return reply({ embeds: [new EmbedBuilder()
-                    .setColor(dest?.color || '#FFD700')
-                    .setTitle(`🗺️ قافلة — ${dest?.name || destId}`)
-                    .setDescription(
-                        `📍 الوجهة: ${dest?.emoji} ${dest?.name}\n` +
-                        `⏳ الوصول: <t:${Math.floor(Number(active.endtime||active.endTime)/1000)}:R>`
-                    )
-                ] });
-            }
-
-            try {
-                const buffer     = await generateCaravanCard(user, active, stats, dest);
-                const attachment = new AttachmentBuilder(buffer, { name: 'caravan.png' });
-                return reply({ files: [attachment] });
-            } catch (e) {
-                console.error('[caravan status canvas]', e);
-                return reply({ content: '⚠️ تعذّر توليد الصورة. حاول مرة أخرى.' });
-            }
-        }
-
-        /* ─────────── upgrade ─────────── */
-        if (sub === 'upgrade') {
-            const stats = await getUserCaravanStats(db, user.id, guild.id);
-            const upgs  = caravanConfig.upgrades;
-
-            const options = Object.entries(upgs).map(([key, cfg]) => {
-                const rank = Number(stats[`${key}_rank`] || stats[`${key}rank`] || 1);
-                const maxed = rank >= cfg.max_level;
-                const cost  = maxed ? 0 : cfg.costs[rank];
-                return {
-                    label:       `${cfg.name} — لv.${rank}${maxed?' (الأقصى)':` → لv.${rank+1}`}`,
-                    value:       key,
-                    description: maxed ? 'وصلت للحد الأقصى' : `التكلفة: ${cost.toLocaleString()} مورا`,
-                    emoji:       cfg.emoji,
-                };
-            });
-
-            const menuMsg = await reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#00C3FF')
-                    .setTitle('🏗️ ترقية القافلة')
-                    .setDescription(
-                        Object.entries(upgs).map(([key, cfg]) => {
-                            const rank = Number(stats[`${key}_rank`] || 1);
-                            const cost = rank >= cfg.max_level ? '(الأقصى)' : `${cfg.costs[rank].toLocaleString()} ${EMOJI_MORA}`;
-                            return `${cfg.emoji} **${cfg.name}:** لv.${rank} — ${cost}\n> ${cfg.description}`;
-                        }).join('\n\n')
-                    )
-                ],
-                components: [new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId('caravan_upgrade_select')
-                        .setPlaceholder('اختر نوع الترقية...')
-                        .addOptions(options)
-                )],
-                fetchReply: true,
-            });
-
-            const msgRef    = isSlash ? await interaction.fetchReply() : menuMsg;
-            const collector = msgRef.createMessageComponentCollector({
-                componentType: ComponentType.StringSelect,
-                filter: i => i.customId === 'caravan_upgrade_select' && i.user.id === user.id,
-                time: 60000, max: 1,
-            });
-
-            collector.on('collect', async i => {
-                await i.deferUpdate().catch(() => {});
+            /* ══ تنفيذ ترقية ══ */
+            if (id === 'cv_upg_sel') {
                 const result = await upgradeCaravan(db, user.id, guild.id, i.values[0]);
                 if (result.error) {
                     await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
                 } else {
-                    await msgRef.edit({
+                    await i.followUp({
                         embeds: [new EmbedBuilder()
                             .setColor('#00FF88')
-                            .setTitle(`✅ تمت الترقية بنجاح!`)
-                            .setDescription(
-                                `${result.upgCfg.emoji} **${result.upgCfg.name}** → لv.**${result.newLevel}**\n` +
-                                `خُصم: **${result.cost.toLocaleString()}** ${EMOJI_MORA}`
-                            )
+                            .setDescription(`✅ ${result.upgCfg.emoji} **${result.upgCfg.name}** → لv.**${result.newLevel}** | خُصم **${result.cost.toLocaleString()}** ${EMOJI_MORA}`)
                         ],
-                        components: [],
+                        flags: [MessageFlags.Ephemeral],
                     }).catch(() => {});
                 }
-            });
-
-            collector.on('end', async (collected) => {
-                if (!collected.size) await msgRef.edit({ components: [] }).catch(() => {});
-            });
-            return;
-        }
-
-        /* ─────────── equip ─────────── */
-        if (sub === 'equip') {
-            const active = await getActiveCaravan(db, user.id, guild.id);
-            if (active) {
-                return reply({ embeds: [new EmbedBuilder()
-                    .setColor('#FF4444')
-                    .setDescription('❌ لا يمكن تغيير الأدوات أثناء رحلة نشطة. انتظر عودة القافلة.')
-                ] });
+                /* تحديث لوحة الترقية مجدداً */
+                const [stats2, mora2] = await Promise.all([
+                    getUserCaravanStats(db, user.id, guild.id),
+                    getMora(db, user.id, guild.id),
+                ]);
+                const payload2 = await sendCanvas(GEN.generateUpgradePanel, [user, stats2, mora2]);
+                const opts2 = Object.entries(caravanConfig.upgrades).map(([key, cfg]) => {
+                    const rank  = Number(stats2[`${key}_rank`] || 1);
+                    const maxed = rank >= cfg.max_level;
+                    const cost  = maxed ? 0 : cfg.costs[rank];
+                    return {
+                        label:       `${cfg.name} — لv.${rank}${maxed?' (الأقصى)':''}`,
+                        value:       key,
+                        description: maxed ? 'وصلت للحد الأقصى' : `التكلفة: ${cost.toLocaleString()} مورا`,
+                        emoji:       cfg.emoji,
+                    };
+                });
+                payload2.components = [
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder().setCustomId('cv_upg_sel').setPlaceholder('اختر نوع الترقية...').addOptions(opts2)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Secondary)
+                    ),
+                ];
+                await hubMsg.edit(payload2).catch(() => {});
+                return;
             }
 
-            // جلب الأدوات من المخزن
-            const invRes = await safeQuery(db,
-                `SELECT "itemID","quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "quantity">0`,
-                [user.id, guild.id]);
+            /* ══ التجهيز ══ */
+            if (id === 'cv_equip') {
+                const active = await getActiveCaravan(db, user.id, guild.id);
+                if (active) {
+                    await i.followUp({ content: '❌ لا يمكن تغيير الأدوات أثناء رحلة نشطة.', flags: [MessageFlags.Ephemeral] });
+                    return;
+                }
+                const invRes = await safeQuery(db,
+                    `SELECT "itemID","quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "quantity">0`,
+                    [user.id, guild.id]);
+                if (!invRes.rows.length) {
+                    await i.followUp({ content: '📦 مخزنك فارغ! احصل على أدوات عبر `/gacha`.', flags: [MessageFlags.Ephemeral] });
+                    return;
+                }
+                const allItems  = allItemsList();
+                const sessionKey = `${user.id}-${guild.id}`;
+                if (!client.caravanEquip) client.caravanEquip = new Map();
+                const equipped  = client.caravanEquip.get(sessionKey) || [];
+                const mora      = await getMora(db, user.id, guild.id);
+                const payload   = await sendCanvas(GEN.generateEquipPanel, [user, equipped, invRes.rows, allItems, mora]);
 
-            if (!invRes.rows.length) {
-                return reply({ embeds: [new EmbedBuilder()
-                    .setColor('#445566')
-                    .setDescription('📦 مخزنك فارغ! احصل على أدوات عبر `/gacha`.')
-                ] });
+                const opts = invRes.rows.slice(0, 25).map(row => {
+                    const id2  = row.itemid || row.itemID;
+                    const item = allItems.find(x => x.id === id2);
+                    const isEq = equipped.includes(id2);
+                    return {
+                        label:       (item?.name || id2).substring(0, 25),
+                        value:       id2,
+                        description: `${item?.rarity||'?'} — ${isEq ? '✅ مجهّز' : 'غير مجهّز'}`,
+                        emoji:       isEq ? '✅' : '📦',
+                    };
+                });
+                payload.components = [
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId('cv_eq_sel')
+                            .setPlaceholder('اختر أداة للتبديل...')
+                            .addOptions(opts)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Secondary)
+                    ),
+                ];
+                await hubMsg.edit(payload).catch(() => {});
+                return;
             }
 
-            const upgMats = require('../../json/upgrade-materials.json');
-            const allItems = [];
-            if (upgMats?.weapon_materials)
-                upgMats.weapon_materials.forEach(r => r.materials.forEach(m => allItems.push(m)));
-            if (upgMats?.skill_books)
-                upgMats.skill_books.forEach(c => c.books.forEach(b => allItems.push(b)));
-
-            const RARITY_COLOR = { Common:'⚪', Uncommon:'🟢', Rare:'🔵', Epic:'🟣', Legendary:'🟡' };
-
-            // قراءة التجهيزات الحالية من الجلسة (نخزنها مؤقتاً في Map على client)
-            if (!client.caravanEquip) client.caravanEquip = new Map();
-            const sessionKey    = `${user.id}-${guild.id}`;
-            const equippedNow   = client.caravanEquip.get(sessionKey) || [];
-
-            const options = invRes.rows.slice(0, 25).map(row => {
-                const id   = row.itemid || row.itemID;
-                const item = allItems.find(x => x.id === id);
-                const isEq = equippedNow.includes(id);
-                return {
-                    label:       (item?.name || id).substring(0, 25),
-                    value:       id,
-                    description: `${RARITY_COLOR[item?.rarity]||'⚪'} ${item?.rarity||'?'} — ${isEq?'✅ مجهّز':'غير مجهّز'}`,
-                    emoji:       isEq ? '✅' : '📦',
-                };
-            });
-
-            const buffs    = getEquippedBuffs(equippedNow);
-            const menuMsg  = await reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#B968FF')
-                    .setTitle('🔮 تجهيز الأدوات على القافلة (الحد الأقصى: 3)')
-                    .setDescription(
-                        `اختر أداة للتبديل (تجهيز/خلع).\n\n` +
-                        `**مجهّز الآن:** ${equippedNow.length ? equippedNow.join(', ') : 'لا شيء'}\n` +
-                        `⚡ بافات السرعة: **+${(buffs.speedBuff*100).toFixed(0)}%**\n` +
-                        `🍀 بافات الحظ: **+${(buffs.luckBuff*100).toFixed(0)}%**\n\n` +
-                        `> المواد ترفع السرعة، والكتب ترفع الحظ.`
-                    )
-                ],
-                components: [new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId('caravan_equip_select')
-                        .setPlaceholder('اختر أداة للتبديل...')
-                        .addOptions(options)
-                )],
-                fetchReply: true,
-            });
-
-            const msgRef    = isSlash ? await interaction.fetchReply() : menuMsg;
-            const collector = msgRef.createMessageComponentCollector({
-                componentType: ComponentType.StringSelect,
-                filter: i => i.customId === 'caravan_equip_select' && i.user.id === user.id,
-                time: 90000,
-            });
-
-            collector.on('collect', async i => {
-                await i.deferUpdate().catch(() => {});
-                const itemId  = i.values[0];
-                const current = client.caravanEquip.get(sessionKey) || [];
+            /* ══ تبديل أداة ══ */
+            if (id === 'cv_eq_sel') {
+                const sessionKey = `${user.id}-${guild.id}`;
+                const current    = client.caravanEquip?.get(sessionKey) || [];
+                const itemId     = i.values[0];
                 let updated;
                 if (current.includes(itemId)) {
                     updated = current.filter(x => x !== itemId);
@@ -389,46 +345,48 @@ module.exports = {
                 } else {
                     updated = [...current, itemId];
                 }
+                if (!client.caravanEquip) client.caravanEquip = new Map();
                 client.caravanEquip.set(sessionKey, updated);
-                const newBuffs = getEquippedBuffs(updated);
 
-                // تحديث خيارات القائمة
-                const newOptions = invRes.rows.slice(0,25).map(row => {
-                    const id   = row.itemid || row.itemID;
-                    const item = allItems.find(x => x.id === id);
-                    const isEq = updated.includes(id);
+                /* تحديث لوحة التجهيز */
+                const invRes2   = await safeQuery(db,
+                    `SELECT "itemID","quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "quantity">0`,
+                    [user.id, guild.id]);
+                const allItems2 = allItemsList();
+                const mora2     = await getMora(db, user.id, guild.id);
+                const payload2  = await sendCanvas(GEN.generateEquipPanel, [user, updated, invRes2.rows, allItems2, mora2]);
+                const opts2 = invRes2.rows.slice(0, 25).map(row => {
+                    const id2  = row.itemid || row.itemID;
+                    const item = allItems2.find(x => x.id === id2);
+                    const isEq = updated.includes(id2);
                     return {
-                        label:       (item?.name || id).substring(0, 25),
-                        value:       id,
-                        description: `${RARITY_COLOR[item?.rarity]||'⚪'} ${item?.rarity||'?'} — ${isEq?'✅ مجهّز':'غير مجهّز'}`,
+                        label:       (item?.name || id2).substring(0, 25),
+                        value:       id2,
+                        description: `${item?.rarity||'?'} — ${isEq ? '✅ مجهّز' : 'غير مجهّز'}`,
                         emoji:       isEq ? '✅' : '📦',
                     };
                 });
+                payload2.components = [
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder().setCustomId('cv_eq_sel').setPlaceholder('اختر أداة للتبديل...').addOptions(opts2)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Secondary)
+                    ),
+                ];
+                await hubMsg.edit(payload2).catch(() => {});
+                return;
+            }
 
-                await msgRef.edit({
-                    embeds: [new EmbedBuilder()
-                        .setColor('#B968FF')
-                        .setTitle('🔮 تجهيز الأدوات على القافلة (الحد الأقصى: 3)')
-                        .setDescription(
-                            `اختر أداة للتبديل (تجهيز/خلع).\n\n` +
-                            `**مجهّز الآن:** ${updated.length ? updated.map(id => allItems.find(x=>x.id===id)?.name||id).join(', ') : 'لا شيء'}\n` +
-                            `⚡ بافات السرعة: **+${(newBuffs.speedBuff*100).toFixed(0)}%**\n` +
-                            `🍀 بافات الحظ: **+${(newBuffs.luckBuff*100).toFixed(0)}%**\n\n` +
-                            `> الأدوات محفوظة للرحلة القادمة.`
-                        )
-                    ],
-                    components: [new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder()
-                            .setCustomId('caravan_equip_select')
-                            .setPlaceholder('اختر أداة للتبديل...')
-                            .addOptions(newOptions)
-                    )],
-                }).catch(() => {});
-            });
+            /* ══ رجوع للـ Hub ══ */
+            if (id === 'cv_back') {
+                await showHub(hubMsg);
+                return;
+            }
+        });
 
-            collector.on('end', async () => {
-                await msgRef.edit({ components: [] }).catch(() => {});
-            });
-        }
+        collector.on('end', async () => {
+            await hubMsg.edit({ components: [navRow(true)] }).catch(() => {});
+        });
     }
 };
