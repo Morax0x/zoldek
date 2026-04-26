@@ -95,12 +95,25 @@ module.exports = {
 
         /* ─── عرض Hub الرئيسي ─── */
         async function showHub(editMsg = null) {
-            const [stats, active, mora] = await Promise.all([
+            const [stats, active, mora, lvlRes, repRes] = await Promise.all([
                 getUserCaravanStats(db, user.id, guild.id),
                 getActiveCaravan(db, user.id, guild.id),
                 getMora(db, user.id, guild.id),
+                safeQuery(db, `SELECT "level","xp","totalXP" FROM levels WHERE "user"=$1 AND "guild"=$2`, [user.id, guild.id]),
+                safeQuery(db, `SELECT "rep_points" FROM user_reputation WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]),
             ]);
-            const payload = await sendCanvas(GEN.generateCaravanHub, [user, stats, active, mora]);
+
+            /* استخرج البيانات مع مراعاة حساسية الأحرف */
+            const lvlRow  = lvlRes?.rows?.[0] || {};
+            const lvlKey  = Object.keys(lvlRow).find(k => k.toLowerCase() === 'level')    || 'level';
+            const repRow  = repRes?.rows?.[0] || {};
+            const repKey  = Object.keys(repRow).find(k => k.toLowerCase() === 'rep_points') || 'rep_points';
+            const profExtra = {
+                level:     Number(lvlRow[lvlKey] || 1),
+                repPoints: Number(repRow[repKey]  || 0),
+            };
+
+            const payload = await sendCanvas(GEN.generateCaravanHub, [user, stats, active, mora, profExtra]);
             payload.components = [navRow()];
             if (editMsg) return editMsg.edit(payload).catch(() => {});
             return reply(payload);

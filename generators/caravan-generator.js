@@ -251,9 +251,9 @@ async function drawHeader(ctx, user, title, subtitle = '') {
         ctx.shadowBlur  = 0;
     } catch {}
 
-    /* اسم المستخدم */
-    L(ctx, user.username, 108, subtitle ? 40 : 54, 22, C.gold, true);
-    if (subtitle) L(ctx, subtitle, 108, 68, 16, C.textD);
+    /* اسم المستخدم + subtitle — يسار الأفاتار (نص عربي يتدفق يمين→يسار لكن anchor يسار) */
+    L(ctx, truncate(user.username, 20), 108, subtitle ? 40 : 54, 22, C.gold, true);
+    if (subtitle) L(ctx, subtitle, 108, 68, 15, C.textD);
 
     /* عنوان الشاشة — وسط */
     ctx.shadowColor = C.gold + '66'; ctx.shadowBlur = 16;
@@ -276,14 +276,33 @@ function drawStars(ctx, n, max, x, y, size, color = C.gold) {
     ctx.shadowBlur   = 0;
 }
 
-/* رتبة المستخدم بناءً على الرحلات */
+/* رتبة التاجر بناءً على الرحلات الناجحة */
 function caravanRank(trips) {
     if (trips >= 51) return { name: 'أسطورة التجارة', color: '#FFD700' };
-    if (trips >= 21) return { name: 'سيد القوافل',   color: '#C49A10' };
-    if (trips >= 11) return { name: 'تاجر مشهور',   color: '#C87533' };
-    if (trips >=  6) return { name: 'تاجر ماهر',    color: '#8888FF' };
-    if (trips >=  3) return { name: 'تاجر محلي',    color: '#2ECC71' };
-    return              { name: 'تاجر مبتدئ',        color: '#8A9AAA' };
+    if (trips >= 21) return { name: 'سيد القوافل',    color: '#C49A10' };
+    if (trips >= 11) return { name: 'تاجر مشهور',    color: '#C87533' };
+    if (trips >=  6) return { name: 'تاجر ماهر',     color: '#8888FF' };
+    if (trips >=  3) return { name: 'تاجر محلي',     color: '#2ECC71' };
+    return               { name: 'تاجر مبتدئ',        color: '#8A9AAA' };
+}
+
+/* رتبة المغامر بناءً على نقاط السمعة (مطابق لأمر البروفايل) */
+function getRepRankInfo(points) {
+    if (points >= 9999) return { name: '🎇 رتبة SSS', color: '#FFD700' };
+    if (points >= 1000) return { name: '👑 رتبة SS',  color: '#FF00FF' };
+    if (points >= 500)  return { name: '💎 رتبة S',   color: '#00FFFF' };
+    if (points >= 250)  return { name: '🥇 رتبة A',   color: '#FFD700' };
+    if (points >= 100)  return { name: '🥈 رتبة B',   color: '#C0C0C0' };
+    if (points >= 50)   return { name: '🥉 رتبة C',   color: '#CD7F32' };
+    if (points >= 25)   return { name: '⚔️ رتبة D',   color: '#2E8B57' };
+    if (points >= 10)   return { name: '🛡️ رتبة E',   color: '#8B4513' };
+    return                     { name: '🪵 رتبة F',   color: '#A0522D' };
+}
+
+/* اختصار نص مع دعم RTL */
+function truncate(txt, maxChars) {
+    if (!txt) return '';
+    return txt.length > maxChars ? txt.substring(0, maxChars - 1) + '…' : txt;
 }
 
 /* تحويل Buffer */
@@ -296,7 +315,7 @@ async function toBuf(canvas) {
 /* ══════════════════════════════════════════════
    1. HUB — الشاشة الرئيسية
 ══════════════════════════════════════════════ */
-async function generateCaravanHub(user, stats, active, mora) {
+async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const cfg = require('../json/caravan-config.json');
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
@@ -306,6 +325,9 @@ async function generateCaravanHub(user, stats, active, mora) {
     const trips   = Number(stats.total_trips      || 0);
     const success = Number(stats.successful_trips || 0);
     const rank    = caravanRank(success);
+    const level   = Number(profExtra.level    || 1);
+    const repPts  = Number(profExtra.repPoints || 0);
+    const repRank = getRepRankInfo(repPts);
 
     /* ══ لوحة يسار — المستخدم والترقيات ══ */
     const LX = 22, LY = 118, LW = 340, LH = 600;
@@ -315,42 +337,63 @@ async function generateCaravanHub(user, stats, active, mora) {
     try {
         const av = await loadImage(user.displayAvatarURL({ extension: 'png', size: 256 }));
         ctx.save();
-        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 70, 55, 0, Math.PI * 2); ctx.clip();
-        ctx.drawImage(av, LX + LW / 2 - 55, LY + 15, 110, 110);
+        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 66, 52, 0, Math.PI * 2); ctx.clip();
+        ctx.drawImage(av, LX + LW / 2 - 52, LY + 14, 104, 104);
         ctx.restore();
         ctx.strokeStyle = rank.color; ctx.lineWidth = 3;
         ctx.shadowColor = rank.color; ctx.shadowBlur = 14;
-        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 70, 55, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 66, 52, 0, Math.PI * 2); ctx.stroke();
         ctx.shadowBlur  = 0;
     } catch {}
 
-    /* اسم + رتبة */
-    M(ctx, user.username,  LX + LW / 2, LY + 148, 20, C.text,  true);
+    /* شارة المستوى — يسار أعلى الأفاتار */
+    rr(ctx, LX + 14, LY + 14, 52, 24, 8);
+    ctx.fillStyle = 'rgba(0,0,0,0.70)'; ctx.fill();
+    ctx.strokeStyle = C.gold + '99'; ctx.lineWidth = 1;
+    rr(ctx, LX + 14, LY + 14, 52, 24, 8); ctx.stroke();
+    M(ctx, `لv.${level}`, LX + 40, LY + 26, 13, C.gold, true);
+
+    /* اسم */
+    M(ctx, truncate(user.username, 18), LX + LW / 2, LY + 136, 19, C.text, true);
+
+    /* رتبة القافلة */
     ctx.shadowColor = rank.color; ctx.shadowBlur = 10;
-    M(ctx, `✦ ${rank.name} ✦`, LX + LW / 2, LY + 174, 17, rank.color, true);
+    M(ctx, `✦ ${rank.name} ✦`, LX + LW / 2, LY + 160, 15, rank.color, true);
     ctx.shadowBlur = 0;
 
-    divLine(ctx, LX + 20, LY + 196, LW - 40, rank.color + '44');
+    /* رتبة السمعة */
+    const repBadgeW = Math.min(220, LW - 40);
+    rr(ctx, LX + (LW - repBadgeW) / 2, LY + 176, repBadgeW, 22, 6);
+    ctx.fillStyle = repRank.color + '22'; ctx.fill();
+    ctx.strokeStyle = repRank.color + '77'; ctx.lineWidth = 1;
+    rr(ctx, LX + (LW - repBadgeW) / 2, LY + 176, repBadgeW, 22, 6); ctx.stroke();
+    M(ctx, `${repRank.name}  •  ${repPts.toLocaleString()} نقطة`, LX + LW / 2, LY + 187, 13, repRank.color, true);
 
-    /* إحصائيات مختصرة */
+    divLine(ctx, LX + 20, LY + 207, LW - 40, rank.color + '44');
+
+    /* إحصائيات مختصرة — RTL: القيمة يسار، التسمية يمين */
     const statItems = [
-        { label: 'إجمالي الرحلات', val: trips },
-        { label: 'الناجحة',        val: success },
-        { label: 'نسبة النجاح',   val: trips ? `${((success / trips) * 100).toFixed(0)}%` : '—' },
+        { label: 'إجمالي الرحلات', val: String(trips) },
+        { label: 'الناجحة',        val: String(success) },
+        { label: 'نسبة النجاح',    val: trips ? `${((success / trips) * 100).toFixed(0)}%` : '—' },
     ];
-    let sy = LY + 218;
+    let sy = LY + 228;
     for (const s of statItems) {
-        R(ctx, s.label + ':',  LX + LW - 20, sy, 15, C.textD);
-        L(ctx, String(s.val),  LX + 20,       sy, 15, C.gold, true);
+        rr(ctx, LX + 16, sy - 11, LW - 32, 24, 6);
+        ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fill();
+        R(ctx, s.label + ':',    LX + LW - 18, sy + 1, 14, C.textD);
+        ctx.shadowColor = C.gold; ctx.shadowBlur = 5;
+        L(ctx, s.val,            LX + 18,       sy + 1, 14, C.gold, true);
+        ctx.shadowBlur = 0;
         sy += 28;
     }
 
     divLine(ctx, LX + 20, sy + 4, LW - 40, rank.color + '44');
-    sy += 22;
+    sy += 20;
 
     /* نجوم الترقيات */
-    M(ctx, '— مستوى الترقيات —', LX + LW / 2, sy, 15, C.textD);
-    sy += 26;
+    M(ctx, '— مستوى الترقيات —', LX + LW / 2, sy, 13, C.textD);
+    sy += 24;
 
     const upgCfg = [
         { key: 'capacity_rank', emoji: '📦', name: 'الحمولة', col: '#FF9933' },
@@ -359,19 +402,27 @@ async function generateCaravanHub(user, stats, active, mora) {
         { key: 'luck_rank',     emoji: '🍀', name: 'الحظ',    col: '#2ECC71' },
     ];
     for (const u of upgCfg) {
-        const lvl = Number(stats[u.key] || 1);
-        /* صف */
-        L(ctx, u.emoji, LX + 20, sy, 18, C.text);
-        L(ctx, u.name,  LX + 46, sy, 16, C.text);
-        drawStars(ctx, lvl, 5, LX + LW - 18, sy, 18, u.col);
-        drawBar(ctx, LX + 20, sy + 14, LW - 40, 8, lvl / 5, u.col, false);
-        sy += 46;
+        const lvl2 = Number(stats[u.key] || 1);
+        rr(ctx, LX + 14, sy - 8, LW - 28, 38, 7);
+        ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fill();
+        /* إيموجي */
+        ctx.font = `18px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(u.emoji, LX + 18, sy + 11);
+        /* اسم */
+        L(ctx, u.name, LX + 42, sy + 11, 14, C.text);
+        /* نجوم — يمين */
+        drawStars(ctx, lvl2, 5, LX + LW - 16, sy + 11, 16, u.col);
+        /* شريط */
+        drawBar(ctx, LX + 16, sy + 25, LW - 32, 7, lvl2 / 5, u.col, false);
+        sy += 42;
     }
 
     /* رصيد المورا */
     divLine(ctx, LX + 20, sy + 2, LW - 40, C.gold + '44');
-    sy += 20;
-    M(ctx, `💰 ${Number(mora).toLocaleString()} مورا`, LX + LW / 2, sy + 12, 18, C.gold, true);
+    sy += 16;
+    ctx.shadowColor = C.gold; ctx.shadowBlur = 8;
+    M(ctx, `💰 ${Number(mora).toLocaleString()} مورا`, LX + LW / 2, sy + 12, 17, C.gold, true);
+    ctx.shadowBlur = 0;
 
     /* ══ منطقة وسط — مشهد القافلة ══ */
     const MX = 374, MY = 118, MW = 650, MH = 600;
@@ -818,78 +869,135 @@ async function generateUpgradePanel(user, stats, mora) {
     await drawHeader(ctx, user, '🏗️ ترقية القافلة', `رصيدك: ${Number(mora).toLocaleString()} مورا`);
 
     const upgList = [
-        { key: 'capacity_rank', ...cfg.upgrades.capacity, col: '#FF9933' },
-        { key: 'speed_rank',    ...cfg.upgrades.speed,    col: '#00C3FF' },
-        { key: 'defense_rank',  ...cfg.upgrades.defense,  col: '#8888FF' },
-        { key: 'luck_rank',     ...cfg.upgrades.luck,     col: '#2ECC71' },
+        { key: 'capacity_rank', name: cfg.upgrades.capacity.name, emoji: cfg.upgrades.capacity.emoji,
+          max_level: cfg.upgrades.capacity.max_level, costs: cfg.upgrades.capacity.costs,
+          effectLabel: `+${(cfg.upgrades.capacity.bonus_per_level * 100).toFixed(0)}% للمكافآت/مستوى`,
+          col: '#FF9933' },
+        { key: 'speed_rank',    name: cfg.upgrades.speed.name,    emoji: cfg.upgrades.speed.emoji,
+          max_level: cfg.upgrades.speed.max_level,    costs: cfg.upgrades.speed.costs,
+          effectLabel: `-${(cfg.upgrades.speed.time_reduction * 100).toFixed(0)}% من المدة/مستوى`,
+          col: '#00C3FF' },
+        { key: 'defense_rank',  name: cfg.upgrades.defense.name,  emoji: cfg.upgrades.defense.emoji,
+          max_level: cfg.upgrades.defense.max_level,  costs: cfg.upgrades.defense.costs,
+          effectLabel: `-${(cfg.upgrades.defense.risk_reduction * 100).toFixed(0)}% من الخطر/مستوى`,
+          col: '#8888FF' },
+        { key: 'luck_rank',     name: cfg.upgrades.luck.name,     emoji: cfg.upgrades.luck.emoji,
+          max_level: cfg.upgrades.luck.max_level,     costs: cfg.upgrades.luck.costs,
+          effectLabel: `+${(cfg.upgrades.luck.bonus_per_level * 100).toFixed(0)}% للمكافآت/مستوى`,
+          col: '#2ECC71' },
     ];
 
-    const cw = 630, ch = 282, gap = 18;
-    const gx0 = (W - (2 * cw + gap)) / 2;
-    const gy0 = 122;
+    /* شبكة 2×2 — كل بطاقة 640×278 */
+    const cw = 640, ch = 278, gap = 16;
+    const gx0 = (W - (2 * cw + gap)) / 2;  // = (1400 - 1296) / 2 = 52
+    const gy0 = 120;
 
     upgList.forEach((u, i) => {
         const col   = u.col;
         const rank  = Number(stats[u.key] || 1);
         const maxed = rank >= u.max_level;
-        const cost  = maxed ? 0 : u.costs[rank];
+        const cost  = maxed ? 0 : (u.costs[rank] || 0);
         const canAf = !maxed && Number(mora) >= cost;
         const cx    = gx0 + (i % 2) * (cw + gap);
         const cy    = gy0 + Math.floor(i / 2) * (ch + gap);
 
-        drawPanel(ctx, cx, cy, cw, ch, maxed ? col : col + '88', { noCorners: maxed });
+        drawPanel(ctx, cx, cy, cw, ch, col + (maxed ? 'FF' : '88'));
 
-        /* شارة "MAX" */
+        /* ── شارة MAX أو رقم المستوى ── */
         if (maxed) {
-            rr(ctx, cx + cw - 72, cy + 10, 62, 26, 8);
-            ctx.fillStyle = col + 'AA'; ctx.fill();
-            M(ctx, '✦ MAX ✦', cx + cw - 41, cy + 23, 13, '#FFFFFF', true);
+            rr(ctx, cx + cw - 76, cy + 8, 68, 26, 8);
+            ctx.fillStyle   = col + 'CC'; ctx.fill();
+            ctx.shadowColor = col; ctx.shadowBlur = 10;
+            M(ctx, '✦ MAX ✦', cx + cw - 42, cy + 21, 13, '#FFF', true);
+            ctx.shadowBlur  = 0;
+        } else {
+            rr(ctx, cx + cw - 70, cy + 8, 62, 26, 8);
+            ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fill();
+            ctx.strokeStyle = col + '88'; ctx.lineWidth = 1;
+            rr(ctx, cx + cw - 70, cy + 8, 62, 26, 8); ctx.stroke();
+            M(ctx, `${rank}/${u.max_level}`, cx + cw - 39, cy + 21, 13, col, true);
         }
 
-        /* أيقونة + اسم */
-        ctx.font = `52px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = col; ctx.shadowBlur = 16;
-        ctx.fillText(u.emoji, cx + 18, cy + 54);
-        ctx.shadowBlur = 0;
-        R(ctx, u.name,        cx + cw - 18, cy + 38, 24, col,    true);
-        R(ctx, u.description, cx + cw - 18, cy + 66, 14, C.textD);
+        /* ── أيقونة كبيرة (يسار) ── */
+        ctx.font = `54px ${FE}`;
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor  = col; ctx.shadowBlur = 20;
+        ctx.fillText(u.emoji, cx + 16, cy + 52);
+        ctx.shadowBlur   = 0;
 
-        divLine(ctx, cx + 16, cy + 86, cw - 32, col + '44');
+        /* ── اسم الترقية (يمين) ── */
+        ctx.shadowColor  = col; ctx.shadowBlur = 8;
+        R(ctx, u.name, cx + cw - 16, cy + 36, 22, col, true);
+        ctx.shadowBlur   = 0;
 
-        /* نجوم */
-        drawStars(ctx, rank, u.max_level, cx + cw - 18, cy + 112, 24, col);
-        R(ctx, `لv.${rank} / لv.${u.max_level}`, cx + cw - 18, cy + 140, 14, C.textD);
+        /* ── تأثير الترقية ── */
+        R(ctx, u.effectLabel, cx + cw - 16, cy + 62, 13, C.textD);
 
-        /* شريط */
-        drawBar(ctx, cx + 16, cy + 158, cw - 32, 16, rank / u.max_level, col, false);
+        /* ── فاصل ── */
+        divLine(ctx, cx + 14, cy + 80, cw - 28, col + '44');
 
-        divLine(ctx, cx + 16, cy + 188, cw - 32, col + '33');
+        /* ── نجوم + تقدم ── */
+        /* النجوم يمين */
+        ctx.font         = `bold 26px Arial, sans-serif`;
+        ctx.textAlign    = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle    = col;
+        ctx.shadowColor  = col; ctx.shadowBlur = 10;
+        ctx.fillText('★'.repeat(rank) + '☆'.repeat(Math.max(0, u.max_level - rank)), cx + cw - 14, cy + 106);
+        ctx.shadowBlur   = 0;
 
-        /* تكلفة + تأثير */
-        const effectMap = {
-            capacity: `+${(u.bonus_per_level * 100).toFixed(0)}% حمولة`,
-            speed:    `-${(u.time_reduction  * 100).toFixed(0)}% مدة`,
-            defense:  `-${(u.risk_reduction  * 100).toFixed(0)}% خطر`,
-            luck:     `+${(u.bonus_per_level * 100).toFixed(0)}% مكافآت`,
-        };
-        const uKey   = u.key.replace('_rank', '');
-        const effect = effectMap[uKey] || '';
+        /* تسمية يسار */
+        L(ctx, `المستوى ${rank} من ${u.max_level}`, cx + 14, cy + 106, 14, C.textD);
 
+        /* شريط التقدم */
+        drawBar(ctx, cx + 14, cy + 124, cw - 28, 18, rank / u.max_level, col, false);
+
+        /* ── فاصل ── */
+        divLine(ctx, cx + 14, cy + 154, cw - 28, col + '33');
+
+        /* ── صف التكلفة والتأثير المحسوب ── */
         if (maxed) {
-            ctx.shadowColor = col; ctx.shadowBlur = 10;
-            M(ctx, '✅ وصلت للحد الأقصى', cx + cw / 2, cy + 220, 18, col, true);
-            ctx.shadowBlur = 0;
+            /* بطاقة "تم الترقية الكاملة" */
+            ctx.shadowColor = col; ctx.shadowBlur = 14;
+            M(ctx, '✅ تم الوصول للحد الأقصى', cx + cw / 2, cy + 186, 18, col, true);
+            ctx.shadowBlur  = 0;
+            /* شريط احتفالي */
+            const pgx = cx + 20, pgy = cy + 208, pgw = cw - 40, pgh = 30;
+            const pg = ctx.createLinearGradient(pgx, 0, pgx + pgw, 0);
+            pg.addColorStop(0,   col + '00');
+            pg.addColorStop(0.4, col + 'AA');
+            pg.addColorStop(0.6, col + 'AA');
+            pg.addColorStop(1,   col + '00');
+            rr(ctx, pgx, pgy, pgw, pgh, 8);
+            ctx.fillStyle = pg; ctx.fill();
+            M(ctx, `+${((rank - 1) * 25).toFixed(0)}% تأثير تراكمي نشط`, cx + cw / 2, cy + 223, 14, '#FFF', true);
         } else {
-            L(ctx, `التأثير: ${effect}`,       cx + 18,      cy + 214, 14, C.textD);
-            R(ctx, `💰 ${cost.toLocaleString()} مورا`, cx + cw - 18, cy + 214, 15, canAf ? C.gold : C.red, true);
-            /* زر بصري */
-            const bw2 = 200, bx2 = cx + (cw - bw2) / 2, by2 = cy + ch - 44;
-            rr(ctx, bx2, by2, bw2, 34, 10);
-            ctx.fillStyle = canAf ? col + '33' : 'rgba(100,50,50,0.3)'; ctx.fill();
+            /* تكلفة يمين */
+            R(ctx, `التكلفة:`, cx + cw - 16, cy + 178, 14, C.textD);
+            ctx.shadowColor = canAf ? C.gold : C.red; ctx.shadowBlur = 6;
+            R(ctx, `💰 ${cost.toLocaleString()} مورا`, cx + cw - 16, cy + 200, 16, canAf ? C.gold : C.red, true);
+            ctx.shadowBlur  = 0;
+
+            /* تأثير يسار */
+            L(ctx, 'التأثير/مستوى:', cx + 16, cy + 178, 14, C.textD);
+            ctx.shadowColor = col; ctx.shadowBlur = 4;
+            L(ctx, u.effectLabel, cx + 16, cy + 200, 15, col, true);
+            ctx.shadowBlur  = 0;
+
+            /* زر ترقية */
+            const btnW = cw - 40, btnX = cx + 20, btnY = cy + ch - 40;
+            const btnG = ctx.createLinearGradient(btnX, btnY, btnX + btnW, btnY + 30);
+            btnG.addColorStop(0, canAf ? col + '44' : 'rgba(120,40,40,0.40)');
+            btnG.addColorStop(1, canAf ? col + '20' : 'rgba(80,20,20,0.25)');
+            rr(ctx, btnX, btnY, btnW, 30, 8);
+            ctx.fillStyle   = btnG; ctx.fill();
             ctx.strokeStyle = canAf ? col + 'BB' : C.red + '66'; ctx.lineWidth = 1.5;
-            rr(ctx, bx2, by2, bw2, 34, 10); ctx.stroke();
-            M(ctx, canAf ? `⬆️ ترقية إلى لv.${rank + 1}` : '❌ رصيد غير كافٍ',
-               cx + cw / 2, by2 + 17, 14, canAf ? col : C.red, true);
+            ctx.shadowColor = canAf ? col : C.red; ctx.shadowBlur = canAf ? 8 : 0;
+            rr(ctx, btnX, btnY, btnW, 30, 8); ctx.stroke();
+            ctx.shadowBlur  = 0;
+            M(ctx, canAf ? `⬆️ ترقية إلى المستوى ${rank + 1}` : '❌ رصيد غير كافٍ للترقية',
+              cx + cw / 2, btnY + 15, 14, canAf ? '#FFF' : C.red, true);
         }
     });
 
