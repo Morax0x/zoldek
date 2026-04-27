@@ -77,7 +77,7 @@ function getItemNameSafe(id) {
     return clean;
 }
 
-function rr(ctx, x, y, w, h, r = 16) {
+function rr(ctx, x, y, w, h, r = 20) {
     if (w < 0 || h < 0) return;
     r = Math.min(r, w / 2, h / 2);
     ctx.beginPath();
@@ -99,27 +99,16 @@ function drawBg(ctx) {
     ctx.fillRect(0, 0, W, H);
 
     ctx.save();
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < 250; i++) {
         const sx = Math.random() * W;
-        const sy = Math.random() * H * 0.72;
-        const sr = Math.random() * 1.5 + 0.2;
-        const sa = Math.random() * 0.6 + 0.1;
+        const sy = Math.random() * H * 0.75;
+        const sr = Math.random() * 1.8 + 0.2;
+        const sa = Math.random() * 0.7 + 0.1;
         ctx.globalAlpha = sa;
         ctx.fillStyle   = Math.random() > 0.85 ? '#FFF9C4' : '#FFFFFF';
         ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
-
-    const mx = W - 140, my = 180, mr = 46;
-    const moon = ctx.createRadialGradient(mx - 10, my - 10, 5, mx, my, mr);
-    moon.addColorStop(0,   '#FFFDE0');
-    moon.addColorStop(0.5, '#FFE566');
-    moon.addColorStop(1,   'rgba(255,220,50,0)');
-    ctx.fillStyle   = moon;
-    ctx.shadowColor = '#FFE566';
-    ctx.shadowBlur  = 40;
-    ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur  = 0;
 
     ctx.fillStyle = 'rgba(20,10,2,0.7)';
     ctx.beginPath();
@@ -138,7 +127,7 @@ function drawBg(ctx) {
 }
 
 function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
-    const radius = opts.radius || 16;
+    const radius = opts.radius || 20;
     ctx.shadowColor = accent + '33';
     ctx.shadowBlur  = 20;
 
@@ -151,15 +140,15 @@ function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
 
     rr(ctx, x, y, w, h, radius);
     ctx.strokeStyle = accent + '55';
-    ctx.lineWidth   = 1.5;
+    ctx.lineWidth   = 2;
     ctx.stroke();
 
     if (!opts.noCorners) {
-        const cl = 20;
+        const cl = 24;
         ctx.strokeStyle = accent;
-        ctx.lineWidth   = 2.5;
+        ctx.lineWidth   = 3;
         ctx.shadowColor = accent;
-        ctx.shadowBlur  = 10;
+        ctx.shadowBlur  = 12;
         ctx.beginPath();
         [
             [x, y + cl, x, y, x + cl, y],
@@ -182,19 +171,19 @@ function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
     ctx.fill();
 
-    const filled = Math.max(4, pct * w);
+    const filled = Math.max(h, pct * w);
     const grad = ctx.createLinearGradient(x, 0, x + w, 0);
     grad.addColorStop(0, color + 'AA');
     grad.addColorStop(1, color);
     rr(ctx, x, y, filled, h, h / 2);
     ctx.fillStyle   = grad;
     ctx.shadowColor = color;
-    ctx.shadowBlur  = 14;
+    ctx.shadowBlur  = 16;
     ctx.fill();
     ctx.shadowBlur  = 0;
 
     if (showLabel && h >= 16) {
-        ctx.font         = `bold ${Math.max(14, h - 4)}px ${FA}`;
+        ctx.font         = `bold ${Math.max(14, h - 6)}px ${FA}`;
         ctx.fillStyle    = '#FFFFFF';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
@@ -230,7 +219,7 @@ function divLine(ctx, x, y, w, color = 'rgba(255,255,255,0.12)') {
     g.addColorStop(0.15, color);
     g.addColorStop(0.85, color);
     g.addColorStop(1,   'transparent');
-    ctx.strokeStyle = g; ctx.lineWidth = 1;
+    ctx.strokeStyle = g; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.stroke();
 }
 
@@ -274,7 +263,7 @@ async function drawHeader(ctx, title, subtitle = '') {
     ctx.shadowColor = C.gold + '66'; ctx.shadowBlur = 16;
     M(ctx, title, W / 2, 44, 38, C.text, true);
     ctx.shadowBlur = 0;
-    if (subtitle) M(ctx, subtitle, W / 2, 82, 20, C.textD);
+    if (subtitle) M(ctx, subtitle, W / 2, 82, 22, C.textD);
 }
 
 function drawStars(ctx, n, max, x, y, size, color = C.gold) {
@@ -282,7 +271,7 @@ function drawStars(ctx, n, max, x, y, size, color = C.gold) {
     ctx.textAlign    = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillStyle    = color;
-    ctx.shadowColor  = color; ctx.shadowBlur = 8;
+    ctx.shadowColor  = color; ctx.shadowBlur = 10;
     ctx.fillText('★'.repeat(Math.min(n, max)) + '☆'.repeat(Math.max(0, max - n)), x, y);
     ctx.shadowBlur   = 0;
 }
@@ -297,15 +286,15 @@ function caravanRank(trips) {
 }
 
 function getRepRankInfo(points) {
-    if (points >= 9999) return { name: 'رتبة SSS', color: '#FFD700' };
-    if (points >= 1000) return { name: 'رتبة SS',  color: '#FF00FF' };
-    if (points >= 500)  return { name: 'رتبة S',   color: '#00FFFF' };
-    if (points >= 250)  return { name: 'رتبة A',   color: '#FFD700' };
-    if (points >= 100)  return { name: 'رتبة B',   color: '#C0C0C0' };
-    if (points >= 50)   return { name: 'رتبة C',   color: '#CD7F32' };
-    if (points >= 25)   return { name: 'رتبة D',   color: '#2E8B57' };
-    if (points >= 10)   return { name: 'رتبة E',   color: '#8B4513' };
-    return                     { name: 'رتبة F',   color: '#A0522D' };
+    if (points >= 9999) return { name: 'الرتبة SSS', color: '#FFD700' };
+    if (points >= 1000) return { name: 'الرتبة SS',  color: '#FF00FF' };
+    if (points >= 500)  return { name: 'الرتبة S',   color: '#00FFFF' };
+    if (points >= 250)  return { name: 'الرتبة A',   color: '#FFD700' };
+    if (points >= 100)  return { name: 'الرتبة B',   color: '#C0C0C0' };
+    if (points >= 50)   return { name: 'الرتبة C',   color: '#CD7F32' };
+    if (points >= 25)   return { name: 'الرتبة D',   color: '#2E8B57' };
+    if (points >= 10)   return { name: 'الرتبة E',   color: '#8B4513' };
+    return                     { name: 'الرتبة F',   color: '#A0522D' };
 }
 
 function truncate(txt, maxChars) {
@@ -338,84 +327,84 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const repPts  = Number(profExtra.repPoints || 0);
     const repRank = getRepRankInfo(repPts);
 
-    const LX = 22, LY = 120, LW = 380, LH = 560;
-    drawPanel(ctx, LX, LY, LW, LH, rank.color);
+    const LX = 30, LY = 115, LW = 400, LH = 575;
+    drawPanel(ctx, LX, LY, LW, LH, rank.color, { radius: 20 });
 
     try {
         const av = await loadImage(user.displayAvatarURL({ extension: 'png', size: 256 }));
         ctx.save();
-        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 80, 60, 0, Math.PI * 2); ctx.clip();
-        ctx.drawImage(av, LX + LW / 2 - 60, LY + 20, 120, 120);
+        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 85, 65, 0, Math.PI * 2); ctx.clip();
+        ctx.drawImage(av, LX + LW / 2 - 65, LY + 20, 130, 130);
         ctx.restore();
-        ctx.strokeStyle = rank.color; ctx.lineWidth = 3.5;
+        ctx.strokeStyle = rank.color; ctx.lineWidth = 4;
         ctx.shadowColor = rank.color; ctx.shadowBlur = 18;
-        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 80, 60, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 85, 65, 0, Math.PI * 2); ctx.stroke();
         ctx.shadowBlur  = 0;
     } catch {}
 
-    rr(ctx, LX + 18, LY + 18, 64, 32, 8);
+    rr(ctx, LX + 20, LY + 20, 70, 36, 10);
     ctx.fillStyle = 'rgba(0,0,0,0.70)'; ctx.fill();
-    ctx.strokeStyle = C.gold + '99'; ctx.lineWidth = 1;
-    rr(ctx, LX + 18, LY + 18, 64, 32, 8); ctx.stroke();
-    M(ctx, `م.${level}`, LX + 50, LY + 34, 18, C.gold, true);
+    ctx.strokeStyle = C.gold + '99'; ctx.lineWidth = 1.5;
+    rr(ctx, LX + 20, LY + 20, 70, 36, 10); ctx.stroke();
+    M(ctx, `م.${level}`, LX + 55, LY + 38, 20, C.gold, true);
 
-    M(ctx, user.username.substring(0, 18), LX + LW / 2, LY + 165, 26, C.text, true);
+    M(ctx, truncate(user.username, 18), LX + LW / 2, LY + 175, 28, C.text, true);
 
     ctx.shadowColor = rank.color; ctx.shadowBlur = 12;
-    M(ctx, `✦ ${rank.name} ✦`, LX + LW / 2, LY + 195, 20, rank.color, true);
+    M(ctx, `✦ ${rank.name} ✦`, LX + LW / 2, LY + 210, 22, rank.color, true);
     ctx.shadowBlur = 0;
 
     const repText = `\u202B${repRank.name}\u202C`;
-    ctx.font = `bold 18px ${FA}`;
+    ctx.font = `bold 20px ${FA}`;
     const txtWidth = ctx.measureText(repText).width;
     
     const ptsText = repPts.toLocaleString();
-    ctx.font = `bold 15px Arial, sans-serif`;
+    ctx.font = `bold 16px Arial, sans-serif`;
     const ptsWidth = ctx.measureText(ptsText).width;
     
-    const pillW = Math.max(34, ptsWidth + 18);
-    const pillH = 30;
-    const totalWidth = txtWidth + 16 + pillW;
+    const pillW = Math.max(40, ptsWidth + 20);
+    const pillH = 34;
+    const totalWidth = txtWidth + 20 + pillW;
     
     const startX = LX + LW / 2 + totalWidth / 2; 
-    ctx.font = `bold 18px ${FA}`;
-    R(ctx, repText, startX, LY + 235, 18, repRank.color, true);
+    ctx.font = `bold 20px ${FA}`;
+    R(ctx, repText, startX, LY + 250, 20, repRank.color, true);
     
-    const pillX = startX - txtWidth - 16 - pillW;
-    rr(ctx, pillX, LY + 235 - pillH / 2, pillW, pillH, pillH / 2);
+    const pillX = startX - txtWidth - 20 - pillW;
+    rr(ctx, pillX, LY + 250 - pillH / 2, pillW, pillH, pillH / 2);
     ctx.fillStyle = repRank.color + '22';
     ctx.fill();
     ctx.strokeStyle = repRank.color + '77';
     ctx.lineWidth = 1.5;
-    rr(ctx, pillX, LY + 235 - pillH / 2, pillW, pillH, pillH / 2);
+    rr(ctx, pillX, LY + 250 - pillH / 2, pillW, pillH, pillH / 2);
     ctx.stroke();
     
-    ctx.font = `bold 15px Arial, sans-serif`;
-    M(ctx, ptsText, pillX + pillW / 2, LY + 235 + 2, 15, repRank.color, true);
+    ctx.font = `bold 16px Arial, sans-serif`;
+    M(ctx, ptsText, pillX + pillW / 2, LY + 250 + 2, 16, repRank.color, true);
 
-    divLine(ctx, LX + 20, LY + 265, LW - 40, rank.color + '44');
+    divLine(ctx, LX + 20, LY + 285, LW - 40, rank.color + '44');
 
     const statItems = [
         { label: 'إجمالي الرحلات', val: String(trips) },
         { label: 'الرحلات الناجحة', val: String(success) },
         { label: 'نسبة النجاح',    val: trips ? `${((success / trips) * 100).toFixed(0)}%` : '—' },
     ];
-    let sy = LY + 285;
+    let sy = LY + 305;
     for (const s of statItems) {
-        rr(ctx, LX + 20, sy - 14, LW - 40, 36, 8);
+        rr(ctx, LX + 24, sy - 18, LW - 48, 44, 10);
         ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fill();
-        R(ctx, s.label,    LX + LW - 30, sy + 4, 18, C.textD);
-        ctx.shadowColor = C.gold; ctx.shadowBlur = 5;
-        L(ctx, s.val,      LX + 30,       sy + 4, 18, C.gold, true);
+        R(ctx, s.label,    LX + LW - 36, sy + 4, 20, C.textD);
+        ctx.shadowColor = C.gold; ctx.shadowBlur = 6;
+        L(ctx, s.val,      LX + 36,      sy + 4, 20, C.gold, true);
         ctx.shadowBlur = 0;
-        sy += 44;
+        sy += 52;
     }
 
-    divLine(ctx, LX + 20, sy + 6, LW - 40, rank.color + '44');
-    sy += 28;
+    divLine(ctx, LX + 20, sy + 10, LW - 40, rank.color + '44');
+    sy += 35;
 
-    M(ctx, 'مستوى الترقيات', LX + LW / 2, sy, 18, C.textD);
-    sy += 32;
+    M(ctx, 'مستوى الترقيات', LX + LW / 2, sy, 20, C.textD);
+    sy += 38;
 
     const upgCfg = [
         { key: 'capacity_rank', emoji: '📦', name: 'الحمولة', col: '#FF9933' },
@@ -425,23 +414,23 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     ];
     for (const u of upgCfg) {
         const lvl2 = Number(stats[u.key] || 1);
-        ctx.font = `24px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText(u.emoji, LX + 20, sy);
-        L(ctx, u.name, LX + 56, sy, 18, C.text);
-        drawStars(ctx, lvl2, 5, LX + LW - 20, sy, 20, u.col);
-        sy += 32;
+        ctx.font = `26px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(u.emoji, LX + 24, sy);
+        L(ctx, u.name, LX + 64, sy, 20, C.text);
+        drawStars(ctx, lvl2, 5, LX + LW - 24, sy, 22, u.col);
+        sy += 38;
     }
 
-    rr(ctx, LX + 20, LY + LH - 50, LW - 40, 40, 8);
-    ctx.fillStyle = 'rgba(0,0,0,0.40)'; ctx.fill();
-    ctx.strokeStyle = C.gold + '66'; ctx.lineWidth = 1;
-    rr(ctx, LX + 20, LY + LH - 50, LW - 40, 40, 8); ctx.stroke();
-    ctx.shadowColor = C.gold; ctx.shadowBlur = 8;
-    M(ctx, `💰 رصيدك: ${Number(mora).toLocaleString()} مورا`, LX + LW / 2, LY + LH - 30, 20, C.gold, true);
+    rr(ctx, LX + 24, LY + LH - 60, LW - 48, 48, 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.50)'; ctx.fill();
+    ctx.strokeStyle = C.gold + '66'; ctx.lineWidth = 1.5;
+    rr(ctx, LX + 24, LY + LH - 60, LW - 48, 48, 12); ctx.stroke();
+    ctx.shadowColor = C.gold; ctx.shadowBlur = 10;
+    M(ctx, `💰 رصيدك: ${Number(mora).toLocaleString()} مورا`, LX + LW / 2, LY + LH - 36, 22, C.gold, true);
     ctx.shadowBlur = 0;
 
-    const MX = 422, MY = 120, MW = 956, MH = 560;
-    drawPanel(ctx, MX, MY, MW, MH, C.gold);
+    const MX = 450, MY = 115, MW = 920, MH = 575;
+    drawPanel(ctx, MX, MY, MW, MH, C.gold, { radius: 20 });
 
     if (active) {
         const destId = active.destinationid || active.destinationId;
@@ -454,77 +443,71 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const atkRes = Number(active.attackresolved || active.attackResolved || 0);
         const hasAtk = atkRes === 0 && (active.guardmessageid || active.guardMessageId);
 
-        const oX = MX + 100,       oY = MY + MH - 100;
-        const dX = MX + MW - 100,  dY = MY + 120;
-        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 120;
+        const oX = MX + 100,       oY = MY + MH - 120;
+        const dX = MX + MW - 100,  dY = MY + 140;
+        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 140;
 
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
 
-        ctx.setLineDash([12, 10]);
-        ctx.strokeStyle = acc + '33'; ctx.lineWidth = 6;
+        ctx.setLineDash([14, 12]);
+        ctx.strokeStyle = acc + '33'; ctx.lineWidth = 8;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
 
         const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
         pathG.addColorStop(0, acc + '66'); pathG.addColorStop(1, acc);
-        ctx.strokeStyle = pathG; ctx.lineWidth = 8;
+        ctx.strokeStyle = pathG; ctx.lineWidth = 10;
         ctx.shadowColor = acc; ctx.shadowBlur = 24;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
         ctx.shadowBlur  = 0;
 
-        ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 18;
-        ctx.beginPath(); ctx.arc(oX, oY, 16, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 20;
+        ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        M(ctx, '🏠', oX, oY - 36, 32, C.text);
-        M(ctx, 'مدينتك', oX, oY + 36, 20, C.green);
+        M(ctx, '🏠', oX, oY - 45, 40, C.text);
+        M(ctx, 'مدينتك', oX, oY + 40, 24, C.green, true);
 
-        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 28;
-        ctx.beginPath(); ctx.arc(dX, dY, 18, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 30;
+        ctx.beginPath(); ctx.arc(dX, dY, 22, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.font = `44px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(dest?.emoji || '📍', dX, dY - 54);
-        M(ctx, dest?.name || '', dX, dY + 42, 22, acc, true);
+        ctx.font = `55px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(dest?.emoji || '📍', dX, dY - 60);
+        M(ctx, dest?.name || '', dX, dY + 45, 24, acc, true);
 
         const camelEmoji = hasAtk ? '⚔️' : '🐪';
-        ctx.font = `76px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 36;
-        ctx.fillText(camelEmoji, cX, cY - 14);
+        ctx.font = `85px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 40;
+        ctx.fillText(camelEmoji, cX, cY - 20);
         ctx.shadowBlur = 0;
 
         if (hasAtk) {
-            const bw2 = 240, bx2 = cX - 120, by2 = cY - 90;
-            rr(ctx, bx2, by2, bw2, 42, 10);
-            ctx.fillStyle = 'rgba(231,76,60,0.92)'; ctx.fill();
-            ctx.strokeStyle = C.red; ctx.lineWidth = 2;
-            rr(ctx, bx2, by2, bw2, 42, 10); ctx.stroke();
-            M(ctx, '⚔️ تحت الهجوم', cX, by2 + 21, 20, '#FFFFFF', true);
+            const bw2 = 280, bx2 = cX - 140, by2 = cY - 110;
+            rr(ctx, bx2, by2, bw2, 48, 12);
+            ctx.fillStyle = 'rgba(231,76,60,0.95)'; ctx.fill();
+            ctx.strokeStyle = C.red; ctx.lineWidth = 2.5;
+            rr(ctx, bx2, by2, bw2, 48, 12); ctx.stroke();
+            M(ctx, '⚔️ القافلة تتعرض لهجوم', cX, by2 + 24, 22, '#FFFFFF', true);
         }
 
-        const barY2 = MY + MH - 60;
-        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 24, 22, acc, true);
-        drawBar(ctx, MX + 40, barY2, MW - 80, 34, prog, acc);
+        const barY2 = MY + MH - 70;
+        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 28, 26, acc, true);
+        drawBar(ctx, MX + 50, barY2, MW - 100, 40, prog, acc);
 
-        M(ctx, `القافلة في طريقها إلى ${dest?.name || ''}`, MX + MW / 2, MY + 50, 26, acc, true);
+        M(ctx, `القافلة في طريقها إلى ${dest?.name || ''}`, MX + MW / 2, MY + 60, 32, acc, true);
     } else {
-        const halo = ctx.createRadialGradient(MX + MW / 2, MY + MH * 0.6, 30, MX + MW / 2, MY + MH * 0.6, 300);
-        halo.addColorStop(0, 'rgba(245,197,24,0.15)');
-        halo.addColorStop(1, 'transparent');
-        ctx.fillStyle = halo;
-        ctx.fillRect(MX, MY, MW, MH);
-
-        ctx.font = `220px ${FE}`;
+        ctx.font = `240px ${FE}`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
         ctx.shadowColor  = C.gold; ctx.shadowBlur = 60;
-        ctx.fillText('🐪', MX + MW / 2, MY + MH * 0.55);
+        ctx.fillText('🐪', MX + MW / 2, MY + MH * 0.50);
         ctx.shadowBlur   = 0;
 
         ctx.shadowColor = C.gold + '88'; ctx.shadowBlur = 14;
-        M(ctx, '✦ القافلة مستعدة للإنطلاق ✦', MX + MW / 2, MY + MH - 80, 32, C.gold, true);
+        M(ctx, '✦ القافلة مستعدة للإنطلاق ✦', MX + MW / 2, MY + MH - 100, 38, C.gold, true);
         ctx.shadowBlur = 0;
-        M(ctx, 'اضغط على زر الإرسال لبدء المغامرة وجمع الثروات', MX + MW / 2, MY + MH - 35, 20, C.textD);
+        M(ctx, 'اضغط على زر الإرسال لبدء المغامرة وجمع الثروات', MX + MW / 2, MY + MH - 45, 24, C.textD);
     }
 
     return toBuf(canvas);
@@ -540,7 +523,7 @@ async function generateSendMap(user, stats, mora) {
     await drawHeader(ctx, '🗺️ تحديد مسار القافلة');
 
     const DESTS = cfg.destinations;
-    const cw = 256, ch = 400, cgap = 16;
+    const cw = 256, ch = 420, cgap = 16;
     const totalW = DESTS.length * cw + (DESTS.length - 1) * cgap;
     const startX = (W - totalW) / 2;
     const cardY  = 140;
@@ -552,28 +535,28 @@ async function generateSendMap(user, stats, mora) {
 
         const bg = ctx.createLinearGradient(cx, cardY, cx, cardY + ch);
         bg.addColorStop(0, acc + '22'); bg.addColorStop(1, 'rgba(4,6,14,0.97)');
-        rr(ctx, cx, cardY, cw, ch, 16);
+        rr(ctx, cx, cardY, cw, ch, 20);
         ctx.fillStyle = bg; ctx.fill();
         ctx.strokeStyle = acc + (canAfford ? 'CC' : '44');
-        ctx.lineWidth   = canAfford ? 2 : 1;
+        ctx.lineWidth   = canAfford ? 2.5 : 1.5;
         ctx.shadowColor = canAfford ? acc : 'transparent';
-        ctx.shadowBlur  = canAfford ? 14 : 0;
-        rr(ctx, cx, cardY, cw, ch, 16); ctx.stroke();
+        ctx.shadowBlur  = canAfford ? 16 : 0;
+        rr(ctx, cx, cardY, cw, ch, 20); ctx.stroke();
         ctx.shadowBlur  = 0;
 
-        ctx.font = `68px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = acc; ctx.shadowBlur = 20;
-        ctx.fillText(d.emoji, cx + cw / 2, cardY + 70);
+        ctx.font = `74px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = acc; ctx.shadowBlur = 24;
+        ctx.fillText(d.emoji, cx + cw / 2, cardY + 75);
         ctx.shadowBlur = 0;
 
-        ctx.shadowColor = acc; ctx.shadowBlur = 8;
-        M(ctx, d.name, cx + cw / 2, cardY + 135, 24, acc, true);
+        ctx.shadowColor = acc; ctx.shadowBlur = 10;
+        M(ctx, d.name, cx + cw / 2, cardY + 145, 26, acc, true);
         ctx.shadowBlur = 0;
 
-        divLine(ctx, cx + 16, cardY + 160, cw - 32, acc + '44');
+        divLine(ctx, cx + 20, cardY + 175, cw - 40, acc + '44');
 
-        ctx.font = `18px ${FA}`; ctx.fillStyle = C.textD;
-        wrapText(ctx, d.description || '', cx + cw / 2, cardY + 190, cw - 30, 26);
+        ctx.font = `20px ${FA}`; ctx.fillStyle = C.textD;
+        wrapText(ctx, d.description || '', cx + cw / 2, cardY + 210, cw - 30, 30);
 
         const adjDur  = core.calcDuration(d, { speed_rank: Number(stats.speed_rank || 1) }, { speedBuff: 0 });
         const adjRisk = core.calcRiskFactor(d, { defense_rank: Number(stats.defense_rank || 1) });
@@ -584,23 +567,28 @@ async function generateSendMap(user, stats, mora) {
             { label: 'الخطر',   val: `${(adjRisk * 100).toFixed(0)}%`,       vc: riskC     },
             { label: 'التكلفة', val: `${d.cost.toLocaleString()}`,     vc: canAfford ? C.gold : C.red },
         ];
-        let ry = cardY + 265;
+        let ry = cardY + 285;
         for (const row of rows) {
-            rr(ctx, cx + 12, ry - 16, cw - 24, 32, 6);
+            rr(ctx, cx + 16, ry - 18, cw - 32, 36, 8);
             ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
-            R(ctx, row.label, cx + cw - 16,  ry, 17, C.textD);
-            L(ctx, row.val,   cx + 16,        ry, 17, row.vc, true);
-            ry += 40;
+            R(ctx, row.label, cx + cw - 24,  ry, 18, C.textD);
+            L(ctx, row.val,   cx + 24,        ry, 18, row.vc, true);
+            ry += 44;
         }
 
         if (!canAfford) {
-            rr(ctx, cx + cw / 2 - 70, cardY + ch - 44, 140, 36, 8);
+            rr(ctx, cx + cw / 2 - 80, cardY + ch - 50, 160, 40, 10);
             ctx.fillStyle = 'rgba(231,76,60,0.30)'; ctx.fill();
-            ctx.strokeStyle = C.red + '88'; ctx.lineWidth = 1;
-            rr(ctx, cx + cw / 2 - 70, cardY + ch - 44, 140, 36, 8); ctx.stroke();
-            M(ctx, '❌ رصيد غير كافٍ', cx + cw / 2, cardY + ch - 26, 17, C.red, true);
+            ctx.strokeStyle = C.red + '88'; ctx.lineWidth = 1.5;
+            rr(ctx, cx + cw / 2 - 80, cardY + ch - 50, 160, 40, 10); ctx.stroke();
+            M(ctx, '❌ رصيد غير كافٍ', cx + cw / 2, cardY + ch - 30, 20, C.red, true);
         }
     });
+
+    const fy = cardY + ch + 25;
+    divLine(ctx, 40, fy, W - 80, C.gold + '33');
+    M(ctx, 'اختر وجهتك من القائمة أدناه', W / 2, fy + 35, 24, C.textD);
+    M(ctx, `إجمالي رصيدك ${Number(mora).toLocaleString()} مورا`, W / 2, fy + 70, 24, C.gold, true);
 
     return toBuf(canvas);
 }
@@ -621,90 +609,86 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
     const rm     = Number(caravan.rewardmultiplier || caravan.rewardMultiplier || 1);
 
     drawBg(ctx);
-    const subTitle = tleft <= 0 ? '✅ القافلة وصلت بسلام' : `⏳ ${formatArabicTime(tleft)}`;
-    await drawHeader(ctx, `تفاصيل رحلة ${dest?.name || 'القافلة'}`, subTitle);
+    const subTitle = tleft <= 0 ? '✅ القافلة وصلت بسلام' : `⏳ متبقي ${formatArabicTime(tleft)}`;
+    await drawHeader(ctx, `رحلة القافلة إلى ${dest?.name || ''}`, subTitle);
 
     if (mode === 'map') {
-        const MX = 250, MY = 120, MW = 900, MH = 600;
-        drawPanel(ctx, MX, MY, MW, MH, acc);
+        const MX = 40, MY = 120, MW = 1320, MH = 570;
+        drawPanel(ctx, MX, MY, MW, MH, acc, { radius: 24 });
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.025)'; ctx.lineWidth = 1;
-        for (let gx = MX + 50; gx < MX + MW; gx += 70) { ctx.beginPath(); ctx.moveTo(gx, MY); ctx.lineTo(gx, MY + MH); ctx.stroke(); }
-        for (let gy = MY + 50; gy < MY + MH; gy += 70) { ctx.beginPath(); ctx.moveTo(MX, gy); ctx.lineTo(MX + MW, gy); ctx.stroke(); }
-
-        const oX = MX + 100,       oY = MY + MH - 100;
-        const dX = MX + MW - 100,  dY = MY + 120;
-        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 120;
+        const oX = MX + 150,       oY = MY + MH - 120;
+        const dX = MX + MW - 150,  dY = MY + 150;
+        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 180;
 
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
 
-        ctx.setLineDash([12, 10]);
-        ctx.strokeStyle = acc + '33'; ctx.lineWidth = 6;
+        ctx.setLineDash([16, 14]);
+        ctx.strokeStyle = acc + '33'; ctx.lineWidth = 10;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
 
         const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
         pathG.addColorStop(0, acc + '66'); pathG.addColorStop(1, acc);
-        ctx.strokeStyle = pathG; ctx.lineWidth = 8;
-        ctx.shadowColor = acc; ctx.shadowBlur = 24;
+        ctx.strokeStyle = pathG; ctx.lineWidth = 12;
+        ctx.shadowColor = acc; ctx.shadowBlur = 28;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
         ctx.shadowBlur  = 0;
 
-        ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 18;
-        ctx.beginPath(); ctx.arc(oX, oY, 16, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 24;
+        ctx.beginPath(); ctx.arc(oX, oY, 24, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        M(ctx, '🏠', oX, oY - 36, 32, C.text);
-        M(ctx, 'مدينتك', oX, oY + 36, 20, C.green);
+        M(ctx, '🏠', oX, oY - 50, 48, C.text);
+        M(ctx, 'مدينتك', oX, oY + 45, 26, C.green, true);
 
-        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 28;
-        ctx.beginPath(); ctx.arc(dX, dY, 18, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 34;
+        ctx.beginPath(); ctx.arc(dX, dY, 26, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.font = `44px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(dest?.emoji || '📍', dX, dY - 54);
-        M(ctx, dest?.name || '', dX, dY + 42, 22, acc, true);
+        ctx.font = `65px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(dest?.emoji || '📍', dX, dY - 65);
+        M(ctx, dest?.name || '', dX, dY + 50, 26, acc, true);
 
         const camelEmoji = hasAtk ? '⚔️' : '🐪';
-        ctx.font = `76px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 36;
-        ctx.fillText(camelEmoji, cX, cY - 14);
+        ctx.font = `110px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 45;
+        ctx.fillText(camelEmoji, cX, cY - 20);
         ctx.shadowBlur = 0;
 
         if (hasAtk) {
-            const bw2 = 240, bx2 = cX - 120, by2 = cY - 90;
-            rr(ctx, bx2, by2, bw2, 42, 10);
-            ctx.fillStyle = 'rgba(231,76,60,0.92)'; ctx.fill();
-            ctx.strokeStyle = C.red; ctx.lineWidth = 2;
-            rr(ctx, bx2, by2, bw2, 42, 10); ctx.stroke();
-            M(ctx, '⚔️ تحت الهجوم', cX, by2 + 21, 20, '#FFFFFF', true);
+            const bw2 = 320, bx2 = cX - 160, by2 = cY - 140;
+            rr(ctx, bx2, by2, bw2, 56, 12);
+            ctx.fillStyle = 'rgba(231,76,60,0.95)'; ctx.fill();
+            ctx.strokeStyle = C.red; ctx.lineWidth = 3;
+            rr(ctx, bx2, by2, bw2, 56, 12); ctx.stroke();
+            M(ctx, '⚔️ القافلة تتعرض لهجوم!', cX, by2 + 28, 26, '#FFFFFF', true);
         }
 
-        const barY2 = MY + MH - 60;
-        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 24, 22, acc, true);
-        drawBar(ctx, MX + 40, barY2, MW - 80, 34, prog, acc);
+        const barY2 = MY + MH - 80;
+        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 32, 30, acc, true);
+        drawBar(ctx, MX + 80, barY2, MW - 160, 48, prog, acc);
 
-        M(ctx, `القافلة في طريقها إلى ${dest?.name || ''}`, MX + MW / 2, MY + 50, 26, acc, true);
+        M(ctx, `مسار الرحلة إلى ${dest?.name || ''}`, MX + MW / 2, MY + 60, 36, acc, true);
 
         return toBuf(canvas);
     }
 
-    const RX = 250, RY = 120, RW = 900, RH = 600;
-    drawPanel(ctx, RX, RY, RW, RH, acc);
+    const RX = 40, RY = 120, RW = 1320, RH = 570;
+    drawPanel(ctx, RX, RY, RW, RH, acc, { radius: 24 });
 
-    let py = RY + 45;
-    M(ctx, '📊 التقرير المباشر للرحلة', RX + RW / 2, py, 30, acc, true);
-    py += 50; divLine(ctx, RX + 40, py, RW - 80, acc + '55'); py += 35;
+    let py = RY + 60;
+    M(ctx, '📊 التقرير المباشر للرحلة', RX + RW / 2, py, 38, acc, true);
+    py += 60; divLine(ctx, RX + 60, py, RW - 120, acc + '55'); py += 50;
 
-    ctx.font = `80px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = acc; ctx.shadowBlur = 24;
-    ctx.fillText(dest?.emoji || '📍', RX + 50, py + 30);
+    ctx.font = `100px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = acc; ctx.shadowBlur = 28;
+    ctx.fillText(dest?.emoji || '📍', RX + 80, py + 30);
     ctx.shadowBlur = 0;
-    R(ctx, dest?.name || '',        RX + RW - 50, py, 32, acc, true);
-    ctx.font = `18px ${FA}`; ctx.fillStyle = C.textD;
-    wrapText(ctx, dest?.description || '', RX + RW - 50, py + 40, RW - 180, 28, 'right');
+    R(ctx, dest?.name || '',        RX + RW - 80, py, 38, acc, true);
+    ctx.font = `24px ${FA}`; ctx.fillStyle = C.textD;
+    wrapText(ctx, dest?.description || '', RX + RW - 80, py + 45, RW - 280, 34, 'right');
     
-    py += 90; divLine(ctx, RX + 40, py, RW - 80); py += 30;
+    py += 110; divLine(ctx, RX + 60, py, RW - 120); py += 40;
 
     const stMap2 = {
         'ok':  { t: '🟢 تتقدم بأمان',    c: C.green },
@@ -728,28 +712,28 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
     ];
 
     for (const row of infoRows) {
-        rr(ctx, RX + 40, py - 20, RW - 80, 48, 10);
+        rr(ctx, RX + 60, py - 26, RW - 120, 60, 12);
         ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
-        R(ctx, row.label,    RX + RW - 60, py + 4, 22, C.textD);
+        R(ctx, row.label,    RX + RW - 90, py + 4, 26, C.textD);
         ctx.shadowColor = row.vc; ctx.shadowBlur = 8;
-        L(ctx, row.val,      RX + 60,      py + 4, 24, row.vc, true);
+        L(ctx, row.val,      RX + 90,      py + 4, 26, row.vc, true);
         ctx.shadowBlur = 0;
-        py += 56;
+        py += 70;
     }
 
-    divLine(ctx, RX + 40, py + 10, RW - 80); py += 30;
+    divLine(ctx, RX + 60, py + 10, RW - 120); py += 40;
 
-    M(ctx, 'نسبة الإنجاز', RX + RW / 2, py + 16, 20, C.textD);
-    py += 40; drawBar(ctx, RX + 50, py, RW - 100, 32, prog, acc); py += 50;
+    M(ctx, 'نسبة الإنجاز', RX + RW / 2, py + 16, 24, C.textD);
+    py += 50; drawBar(ctx, RX + 80, py, RW - 160, 36, prog, acc); py += 60;
 
     if (arts.length > 0) {
-        divLine(ctx, RX + 40, py, RW - 80); py += 24;
-        M(ctx, '🔮 الأدوات الفعالة في هذه الرحلة', RX + RW / 2, py + 16, 22, C.purple, true);
-        py += 44;
+        divLine(ctx, RX + 60, py, RW - 120); py += 30;
+        M(ctx, '🔮 الأدوات الفعالة في هذه الرحلة', RX + RW / 2, py + 16, 26, C.purple, true);
+        py += 50;
         arts.forEach(a => {
             const cleanName = getItemNameSafe(a);
-            M(ctx, `• ${cleanName}`, RX + RW / 2, py, 20, C.textD);
-            py += 32;
+            M(ctx, `• ${cleanName}`, RX + RW / 2, py, 24, C.textD);
+            py += 40;
         });
     }
 
@@ -799,78 +783,78 @@ async function generateUpgradePanel(user, stats, mora) {
         drawPanel(ctx, cx, cy, cw, ch, col);
 
         if (maxed) {
-            rr(ctx, cx + 20, cy + 20, 80, 32, 8);
+            rr(ctx, cx + 24, cy + 24, 86, 36, 10);
             ctx.fillStyle   = col + 'CC'; ctx.fill();
             ctx.shadowColor = col; ctx.shadowBlur = 10;
-            M(ctx, '✦ MAX ✦', cx + 60, cy + 36, 16, '#FFF', true);
+            M(ctx, '✦ MAX ✦', cx + 67, cy + 42, 18, '#FFF', true);
             ctx.shadowBlur  = 0;
         } else {
-            rr(ctx, cx + 20, cy + 20, 75, 32, 8);
+            rr(ctx, cx + 24, cy + 24, 80, 36, 10);
             ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fill();
-            ctx.strokeStyle = col + '88'; ctx.lineWidth = 1;
-            rr(ctx, cx + 20, cy + 20, 75, 32, 8); ctx.stroke();
-            M(ctx, `${rank} / ${u.max_level}`, cx + 57, cy + 36, 16, col, true);
+            ctx.strokeStyle = col + '88'; ctx.lineWidth = 1.5;
+            rr(ctx, cx + 24, cy + 24, 80, 36, 10); ctx.stroke();
+            M(ctx, `${rank} / ${u.max_level}`, cx + 64, cy + 42, 18, col, true);
         }
 
         ctx.shadowColor  = col; ctx.shadowBlur = 8;
-        R(ctx, u.name, cx + cw - 24, cy + 38, 28, col, true);
+        R(ctx, u.name, cx + cw - 28, cy + 42, 30, col, true);
         ctx.shadowBlur   = 0;
 
-        R(ctx, u.effectLabel, cx + cw - 24, cy + 70, 18, C.textD);
+        R(ctx, u.effectLabel, cx + cw - 28, cy + 76, 20, C.textD);
 
-        ctx.font = `64px ${FE}`;
+        ctx.font = `68px ${FE}`;
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'middle';
         ctx.shadowColor  = col; ctx.shadowBlur = 20;
-        ctx.fillText(u.emoji, cx + 24, cy + 84);
+        ctx.fillText(u.emoji, cx + 28, cy + 90);
         ctx.shadowBlur   = 0;
 
-        divLine(ctx, cx + 20, cy + 105, cw - 40, col + '44');
+        divLine(ctx, cx + 24, cy + 115, cw - 48, col + '44');
 
-        ctx.font         = `bold 32px Arial, sans-serif`;
+        ctx.font         = `bold 34px Arial, sans-serif`;
         ctx.textAlign    = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillStyle    = col;
         ctx.shadowColor  = col; ctx.shadowBlur = 10;
-        ctx.fillText('★'.repeat(rank) + '☆'.repeat(Math.max(0, u.max_level - rank)), cx + cw - 24, cy + 135);
+        ctx.fillText('★'.repeat(rank) + '☆'.repeat(Math.max(0, u.max_level - rank)), cx + cw - 28, cy + 145);
         ctx.shadowBlur   = 0;
 
-        L(ctx, `المستوى ${rank}`, cx + 24, cy + 135, 20, C.textD);
+        L(ctx, `المستوى ${rank}`, cx + 28, cy + 145, 22, C.textD);
 
-        drawBar(ctx, cx + 24, cy + 158, cw - 48, 22, rank / u.max_level, col, false);
+        drawBar(ctx, cx + 28, cy + 170, cw - 56, 24, rank / u.max_level, col, false);
 
-        divLine(ctx, cx + 20, cy + 195, cw - 40, col + '33');
+        divLine(ctx, cx + 24, cy + 210, cw - 48, col + '33');
 
         if (maxed) {
             ctx.shadowColor = col; ctx.shadowBlur = 14;
-            M(ctx, '✅ تم الوصول للحد الأقصى', cx + cw / 2, cy + 225, 22, col, true);
+            M(ctx, '✅ تم الوصول للحد الأقصى', cx + cw / 2, cy + 240, 24, col, true);
             ctx.shadowBlur  = 0;
-            const pgx = cx + 24, pgy = cy + 245, pgw = cw - 48, pgh = 34;
+            const pgx = cx + 28, pgy = cy + 260, pgw = cw - 56, pgh = 38;
             const pg = ctx.createLinearGradient(pgx, 0, pgx + pgw, 0);
             pg.addColorStop(0,   col + '00');
             pg.addColorStop(0.4, col + 'AA');
             pg.addColorStop(0.6, col + 'AA');
             pg.addColorStop(1,   col + '00');
-            rr(ctx, pgx, pgy, pgw, pgh, 8);
+            rr(ctx, pgx, pgy, pgw, pgh, 10);
             ctx.fillStyle = pg; ctx.fill();
-            M(ctx, `تأثير تراكمي نشط بنسبة ${((rank - 1) * 25).toFixed(0)}%`, cx + cw / 2, cy + 262, 17, '#FFF', true);
+            M(ctx, `تأثير تراكمي نشط بنسبة ${((rank - 1) * 25).toFixed(0)}%`, cx + cw / 2, cy + 279, 18, '#FFF', true);
         } else {
-            R(ctx, `التكلفة المادية`, cx + cw - 24, cy + 225, 17, C.textD);
+            R(ctx, `التكلفة المادية`, cx + cw - 28, cy + 240, 18, C.textD);
             ctx.shadowColor = canAf ? C.gold : C.red; ctx.shadowBlur = 6;
-            R(ctx, `💰 ${cost.toLocaleString()}`, cx + cw - 24, cy + 252, 20, canAf ? C.gold : C.red, true);
+            R(ctx, `💰 ${cost.toLocaleString()}`, cx + cw - 28, cy + 268, 22, canAf ? C.gold : C.red, true);
             ctx.shadowBlur  = 0;
 
-            const btnW = 240, btnX = cx + 24, btnY = cy + 225;
-            const btnG = ctx.createLinearGradient(btnX, btnY, btnX + btnW, btnY + 44);
+            const btnW = 260, btnX = cx + 28, btnY = cy + 240;
+            const btnG = ctx.createLinearGradient(btnX, btnY, btnX + btnW, btnY + 48);
             btnG.addColorStop(0, canAf ? col + '44' : 'rgba(120,40,40,0.40)');
             btnG.addColorStop(1, canAf ? col + '20' : 'rgba(80,20,20,0.25)');
-            rr(ctx, btnX, btnY, btnW, 44, 8);
+            rr(ctx, btnX, btnY, btnW, 48, 10);
             ctx.fillStyle   = btnG; ctx.fill();
-            ctx.strokeStyle = canAf ? col + 'BB' : C.red + '66'; ctx.lineWidth = 1.5;
+            ctx.strokeStyle = canAf ? col + 'BB' : C.red + '66'; ctx.lineWidth = 2;
             ctx.shadowColor = canAf ? col : C.red; ctx.shadowBlur = canAf ? 8 : 0;
-            rr(ctx, btnX, btnY, btnW, 44, 8); ctx.stroke();
+            rr(ctx, btnX, btnY, btnW, 48, 10); ctx.stroke();
             ctx.shadowBlur  = 0;
-            M(ctx, canAf ? `متوفر للترقية` : 'رصيد غير كافٍ', cx + 144, cy + 247, 18, canAf ? '#FFF' : C.red, true);
+            M(ctx, canAf ? `متوفر للترقية` : 'رصيد غير كافٍ', cx + 158, cy + 264, 20, canAf ? '#FFF' : C.red, true);
         }
     });
 
@@ -902,58 +886,58 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         drawPanel(ctx, sx, sy0, sw, sh, col, { noCorners: !itm });
 
-        rr(ctx, sx + 12, sy0 + 12, 34, 26, 6);
+        rr(ctx, sx + 16, sy0 + 16, 38, 30, 8);
         ctx.fillStyle = col + '44'; ctx.fill();
-        M(ctx, String(s + 1), sx + 29, sy0 + 25, 16, col, true);
+        M(ctx, String(s + 1), sx + 35, sy0 + 31, 18, col, true);
 
         if (itm) {
-            ctx.font = `50px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.font = `54px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
             ctx.shadowColor = col; ctx.shadowBlur = 14;
-            ctx.fillText(itm.type === 'book' ? '📖' : '⚙️', sx + 18, sy0 + 80);
+            ctx.fillText(itm.type === 'book' ? '📖' : '⚙️', sx + 20, sy0 + 85);
             ctx.shadowBlur = 0;
 
-            R(ctx, getItemNameSafe(id).substring(0, 18), sx + sw - 18, sy0 + 44, 22, col, true);
-            R(ctx, itm.rarity, sx + sw - 18, sy0 + 74, 18, C.textD);
+            R(ctx, getItemNameSafe(id).substring(0, 18), sx + sw - 20, sy0 + 46, 24, col, true);
+            R(ctx, itm.rarity, sx + sw - 20, sy0 + 78, 18, C.textD);
 
             const isMat = itm.type === 'material' || !itm.type?.includes('book');
             const bPct  = { Common:.03, Uncommon:.05, Rare:.08, Epic:.12, Legendary:.20 }[itm.rarity] || .03;
             const bLabel = isMat ? `⚡ سرعة إضافية ${(bPct*100).toFixed(0)}%` : `🍀 حظ إضافي ${(bPct*100).toFixed(0)}%`;
             ctx.shadowColor = col; ctx.shadowBlur = 6;
-            R(ctx, bLabel, sx + sw - 18, sy0 + 104, 18, col, true);
+            R(ctx, bLabel, sx + sw - 20, sy0 + 110, 18, col, true);
             ctx.shadowBlur = 0;
 
-            divLine(ctx, sx + 14, sy0 + 135, sw - 28, col + '44');
-            M(ctx, '✅ مجهّزة بالقافلة', sx + sw / 2, sy0 + 155, 16, '#4A7A4A');
+            divLine(ctx, sx + 16, sy0 + 135, sw - 32, col + '44');
+            M(ctx, '✅ مجهّزة بالقافلة', sx + sw / 2, sy0 + 155, 18, '#4A7A4A');
         } else {
             ctx.globalAlpha = 0.20;
-            ctx.font = `60px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.font = `65px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText('➕', sx + sw / 2, sy0 + sh / 2 + 8);
             ctx.globalAlpha = 1;
-            M(ctx, `فتحة فارغة`, sx + sw / 2, sy0 + sh - 26, 18, '#334455');
+            M(ctx, `الفتحة فارغة`, sx + sw / 2, sy0 + sh - 28, 20, '#334455');
         }
     }
 
     const buffs = core.getEquippedBuffs(equipped);
-    const sumY  = sy0 + sh + 20;
-    const sbg   = ctx.createLinearGradient(30, sumY, W - 30, sumY + 54);
+    const sumY  = sy0 + sh + 24;
+    const sbg   = ctx.createLinearGradient(40, sumY, W - 40, sumY + 60);
     sbg.addColorStop(0, 'rgba(0,195,255,0.08)');
     sbg.addColorStop(1, 'rgba(46,204,113,0.08)');
-    rr(ctx, 30, sumY, W - 60, 54, 10);
+    rr(ctx, 40, sumY, W - 80, 60, 12);
     ctx.fillStyle = sbg; ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
-    rr(ctx, 30, sumY, W - 60, 54, 10); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1.5;
+    rr(ctx, 40, sumY, W - 80, 60, 12); ctx.stroke();
 
     const bText = `⚡ إجمالي السرعة ${(buffs.speedBuff * 100).toFixed(0)}%   |   🍀 إجمالي الحظ ${(buffs.luckBuff * 100).toFixed(0)}%`;
-    M(ctx, bText, W / 2, sumY + 27, 24, C.text, true);
+    M(ctx, bText, W / 2, sumY + 30, 26, C.text, true);
 
-    const gridY = sumY + 70;
-    divLine(ctx, 30, gridY, W - 60, C.gold + '33');
-    M(ctx, '📦 الأدوات المتوفرة في المخزن', W / 2, gridY + 24, 22, C.gold, true);
+    const gridY = sumY + 80;
+    divLine(ctx, 40, gridY, W - 80, C.gold + '33');
+    M(ctx, '📦 الأدوات المتوفرة في المخزن', W / 2, gridY + 28, 24, C.gold, true);
 
     const iw = 210, ih = 125, igap = 16, cols = 6;
     const igw = cols * iw + (cols - 1) * igap;
     const igx = (W - igw) / 2;
-    const igy = gridY + 55;
+    const igy = gridY + 65;
     
     const safeRows = invRows || [];
     const maxShow = Math.min(safeRows.length, 12);
@@ -970,21 +954,21 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         const ibg = ctx.createLinearGradient(ix, iy, ix, iy + ih);
         ibg.addColorStop(0, col + (isEq ? '33' : '14'));
         ibg.addColorStop(1, 'rgba(4,6,14,0.95)');
-        rr(ctx, ix, iy, iw, ih, 10);
+        rr(ctx, ix, iy, iw, ih, 12);
         ctx.fillStyle = ibg; ctx.fill();
         ctx.strokeStyle = isEq ? col : col + '44';
-        ctx.lineWidth   = isEq ? 2 : 1;
-        if (isEq) { ctx.shadowColor = col; ctx.shadowBlur = 10; }
-        rr(ctx, ix, iy, iw, ih, 10); ctx.stroke();
+        ctx.lineWidth   = isEq ? 2.5 : 1.5;
+        if (isEq) { ctx.shadowColor = col; ctx.shadowBlur = 12; }
+        rr(ctx, ix, iy, iw, ih, 12); ctx.stroke();
         ctx.shadowBlur = 0;
 
-        if (isEq) { L(ctx, '✅', ix + 10, iy + 20, 16, C.green); }
+        if (isEq) { L(ctx, '✅', ix + 12, iy + 24, 18, C.green); }
 
-        ctx.font = `36px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `40px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(itm?.type === 'book' ? '📖' : '⚙️', ix + iw / 2, iy + 45);
 
-        M(ctx, truncate(getItemNameSafe(id), 12), ix + iw / 2, iy + 85, 18, col, true);
-        M(ctx, itm?.rarity || '',                 ix + iw / 2, iy + 108, 14, C.textD);
+        M(ctx, truncate(getItemNameSafe(id), 12), ix + iw / 2, iy + 88, 18, col, true);
+        M(ctx, itm?.rarity || '',                 ix + iw / 2, iy + 110, 14, C.textD);
     }
 
     return toBuf(canvas);
