@@ -1,13 +1,12 @@
 const {
     SlashCommandBuilder, AttachmentBuilder, EmbedBuilder,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
-    StringSelectMenuBuilder, ComponentType, MessageFlags
+    StringSelectMenuBuilder, MessageFlags
 } = require('discord.js');
 
 const {
-    caravanConfig, initCaravanTables, getUserCaravanStats,
-    getActiveCaravan, getEquippedBuffs, calcDuration, calcRiskFactor,
-    sendCaravan, upgradeCaravan, setupCaravanChecker,
+    caravanConfig, getUserCaravanStats,
+    getActiveCaravan, sendCaravan, upgradeCaravan, setupCaravanChecker,
     safeQuery, safeExecute, EMOJI_MORA
 } = require('../../handlers/caravan-core.js');
 
@@ -123,17 +122,15 @@ module.exports = {
                 getUserCaravanStats(db, user.id, guild.id),
                 getActiveCaravan(db, user.id, guild.id),
                 getMora(db, user.id, guild.id),
-                safeQuery(db, `SELECT "level","xp","totalXP" FROM levels WHERE "user"=$1 AND "guild"=$2`, [user.id, guild.id]),
+                safeQuery(db, `SELECT "level" FROM levels WHERE "user"=$1 AND "guild"=$2`, [user.id, guild.id]),
                 safeQuery(db, `SELECT "rep_points" FROM user_reputation WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]),
             ]);
 
             const lvlRow  = lvlRes?.rows?.[0] || {};
-            const lvlKey  = Object.keys(lvlRow).find(k => k.toLowerCase() === 'level')    || 'level';
             const repRow  = repRes?.rows?.[0] || {};
-            const repKey  = Object.keys(repRow).find(k => k.toLowerCase() === 'rep_points') || 'rep_points';
             const profExtra = {
-                level:     Number(lvlRow[lvlKey] || 1),
-                repPoints: Number(repRow[repKey]  || 0),
+                level:     Number(lvlRow.level || lvlRow.LEVEL || 1),
+                repPoints: Number(repRow.rep_points || repRow.REP_POINTS || 0),
             };
 
             const payload = await sendCanvas(GEN.generateCaravanHub, [user, stats, active, mora, profExtra]);
@@ -145,6 +142,8 @@ module.exports = {
 
         const hubMsg = await showHub();
         if (!hubMsg) return;
+
+        let currentStatusMode = 'map'; 
 
         const collector = hubMsg.createMessageComponentCollector({
             filter: i => i.user.id === user.id,
@@ -226,19 +225,30 @@ module.exports = {
                     await showHub(hubMsg);
                 }
 
-                else if (id === 'cv_status') {
+                else if (id === 'cv_status' || id === 'cv_status_toggle') {
                     const active = await getActiveCaravan(db, user.id, guild.id);
                     if (!active) {
                         await i.followUp({ content: '📭 لا توجد رحلة نشطة للتبعها.', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
+                    
+                    if (id === 'cv_status_toggle') {
+                        currentStatusMode = currentStatusMode === 'map' ? 'details' : 'map';
+                    } else {
+                        currentStatusMode = 'map'; 
+                    }
+
                     const destId = active.destinationid || active.destinationId;
                     const dest   = caravanConfig.destinations.find(d => d.id === destId) || {};
                     const stats  = await getUserCaravanStats(db, user.id, guild.id);
-                    const payload = await sendCanvas(GEN.generateCaravanStatus, [user, active, stats, dest]);
+                    const payload = await sendCanvas(GEN.generateCaravanStatus, [user, active, stats, dest, currentStatusMode]);
+                    
+                    const toggleLabel = currentStatusMode === 'map' ? '📊 التقرير التفصيلي' : '🗺️ إظهار الخريطة';
+                    
                     payload.components = [
                         new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('cv_status_toggle').setLabel(toggleLabel).setStyle(ButtonStyle.Primary),
                             new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ العودة للرئيسية').setStyle(ButtonStyle.Secondary)
                         ),
                     ];
@@ -253,7 +263,7 @@ module.exports = {
                     const payload = await sendCanvas(GEN.generateUpgradePanel, [user, stats, mora]);
 
                     const opts = Object.entries(caravanConfig.upgrades).map(([key, cfg]) => {
-                        const rank  = Number(stats[`${key}_rank`] || 1);
+                        const rank  = Number(stats[`${key}_rank`] || stats[`${key}_RANK`] || 1);
                         const maxed = rank >= cfg.max_level;
                         const cost  = maxed ? 0 : cfg.costs[rank];
                         return {
@@ -294,7 +304,7 @@ module.exports = {
                     ]);
                     const payload2 = await sendCanvas(GEN.generateUpgradePanel, [user, stats2, mora2]);
                     const opts2 = Object.entries(caravanConfig.upgrades).map(([key, cfg]) => {
-                        const rank  = Number(stats2[`${key}_rank`] || 1);
+                        const rank  = Number(stats2[`${key}_rank`] || stats2[`${key}_RANK`] || 1);
                         const maxed = rank >= cfg.max_level;
                         const cost  = maxed ? 0 : cfg.costs[rank];
                         return {
@@ -337,7 +347,7 @@ module.exports = {
                     const payload   = await sendCanvas(GEN.generateEquipPanel, [user, equipped, invRes.rows, allItems, mora]);
 
                     const opts = invRes.rows.slice(0, 25).map(row => {
-                        const id2  = row.itemid || row.itemID;
+                        const id2  = row.itemid || row.itemID || row.ITEMID;
                         const cleanName = getItemNameSafe(id2);
                         const isEq = equipped.includes(id2);
                         return {
@@ -382,7 +392,7 @@ module.exports = {
                     const payload2  = await sendCanvas(GEN.generateEquipPanel, [user, updated, invRes2.rows, allItems2, mora2]);
                     
                     const opts2 = invRes2.rows.slice(0, 25).map(row => {
-                        const id2  = row.itemid || row.itemID;
+                        const id2  = row.itemid || row.itemID || row.ITEMID;
                         const cleanName = getItemNameSafe(id2);
                         const isEq = updated.includes(id2);
                         return {
