@@ -47,6 +47,7 @@ const DEST_ACCENT = {
 
 /* مستطيل مستدير الزوايا */
 function rr(ctx, x, y, w, h, r = 14) {
+    if (w < 0 || h < 0) return; // حماية إضافية للكانفاس
     r = Math.min(r, w / 2, h / 2);
     ctx.beginPath();
     ctx.moveTo(x + r, y);
@@ -59,7 +60,6 @@ function rr(ctx, x, y, w, h, r = 14) {
 
 /* خلفية الصحراء الليلية */
 function drawBg(ctx) {
-    /* تدرج السماء */
     const sky = ctx.createLinearGradient(0, 0, 0, H);
     sky.addColorStop(0,    '#020408');
     sky.addColorStop(0.5,  '#06091A');
@@ -68,7 +68,6 @@ function drawBg(ctx) {
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, W, H);
 
-    /* نجوم */
     ctx.save();
     for (let i = 0; i < 200; i++) {
         const sx = Math.random() * W;
@@ -81,7 +80,6 @@ function drawBg(ctx) {
     }
     ctx.restore();
 
-    /* قمر */
     const mx = W - 110, my = 80, mr = 46;
     const moon = ctx.createRadialGradient(mx - 10, my - 10, 5, mx, my, mr);
     moon.addColorStop(0,   '#FFFDE0');
@@ -93,7 +91,6 @@ function drawBg(ctx) {
     ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur  = 0;
 
-    /* طبقة كثبان خلفية */
     ctx.fillStyle = 'rgba(20,10,2,0.7)';
     ctx.beginPath();
     ctx.moveTo(0, H);
@@ -102,7 +99,6 @@ function drawBg(ctx) {
     ctx.bezierCurveTo(W * .94, H - 80,  W,       H - 60,  W,       H);
     ctx.closePath(); ctx.fill();
 
-    /* كثبان أمامية */
     ctx.fillStyle = '#100800';
     ctx.beginPath();
     ctx.moveTo(0, H);
@@ -114,11 +110,9 @@ function drawBg(ctx) {
 /* لوحة بإطار ذهبي مزخرف */
 function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
     const radius = opts.radius || 16;
-    /* ظل خارجي */
     ctx.shadowColor = accent + '33';
     ctx.shadowBlur  = 20;
 
-    /* خلفية */
     const bg = ctx.createLinearGradient(x, y, x, y + h);
     bg.addColorStop(0, 'rgba(14,20,40,0.95)');
     bg.addColorStop(1, 'rgba(6,8,18,0.97)');
@@ -126,13 +120,11 @@ function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
     ctx.fillStyle = bg; ctx.fill();
     ctx.shadowBlur = 0;
 
-    /* حدود */
     rr(ctx, x, y, w, h, radius);
     ctx.strokeStyle = accent + '55';
     ctx.lineWidth   = 1.5;
     ctx.stroke();
 
-    /* زوايا مزخرفة */
     if (!opts.noCorners) {
         const cl = 20;
         ctx.strokeStyle = accent;
@@ -155,12 +147,13 @@ function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
 
 /* شريط تقدم مزدوج الطبقة */
 function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
-    /* تراك */
+    if (isNaN(pct) || pct < 0) pct = 0;
+    if (pct > 1) pct = 1;
+    
     rr(ctx, x, y, w, h, h / 2);
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
     ctx.fill();
 
-    /* تعبئة */
     const filled = Math.max(4, pct * w);
     const grad = ctx.createLinearGradient(x, 0, x + w, 0);
     grad.addColorStop(0, color + 'AA');
@@ -172,7 +165,6 @@ function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
     ctx.fill();
     ctx.shadowBlur  = 0;
 
-    /* نسبة مئوية */
     if (showLabel && h >= 16) {
         ctx.font         = `bold ${Math.max(11, h - 4)}px ${FA}`;
         ctx.fillStyle    = '#FFFFFF';
@@ -182,7 +174,7 @@ function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
     }
 }
 
-/* نص يمين — عربي */
+/* دوال النصوص */
 function R(ctx, txt, x, y, size, color = C.text, bold = false) {
     ctx.font         = `${bold ? 'bold ' : ''}${size}px ${FA}`;
     ctx.fillStyle    = color;
@@ -190,8 +182,6 @@ function R(ctx, txt, x, y, size, color = C.text, bold = false) {
     ctx.textBaseline = 'middle';
     ctx.fillText(txt, x, y);
 }
-
-/* نص وسط */
 function M(ctx, txt, x, y, size, color = C.text, bold = false) {
     ctx.font         = `${bold ? 'bold ' : ''}${size}px ${FA}`;
     ctx.fillStyle    = color;
@@ -199,8 +189,6 @@ function M(ctx, txt, x, y, size, color = C.text, bold = false) {
     ctx.textBaseline = 'middle';
     ctx.fillText(txt, x, y);
 }
-
-/* نص يسار */
 function L(ctx, txt, x, y, size, color = C.text, bold = false) {
     ctx.font         = `${bold ? 'bold ' : ''}${size}px ${FA}`;
     ctx.fillStyle    = color;
@@ -209,7 +197,6 @@ function L(ctx, txt, x, y, size, color = C.text, bold = false) {
     ctx.fillText(txt, x, y);
 }
 
-/* خط فاصل متلاشي */
 function divLine(ctx, x, y, w, color = 'rgba(255,255,255,0.12)') {
     const g = ctx.createLinearGradient(x, 0, x + w, 0);
     g.addColorStop(0,   'transparent');
@@ -220,16 +207,13 @@ function divLine(ctx, x, y, w, color = 'rgba(255,255,255,0.12)') {
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.stroke();
 }
 
-/* رأس الصفحة موحّد */
 async function drawHeader(ctx, user, title, subtitle = '') {
-    /* شريط غامق */
     const hg = ctx.createLinearGradient(0, 0, 0, 108);
     hg.addColorStop(0, 'rgba(0,0,0,0.80)');
     hg.addColorStop(1, 'rgba(0,0,0,0.50)');
     ctx.fillStyle = hg;
     ctx.fillRect(0, 0, W, 108);
 
-    /* خط ذهبي أسفل الهيدر */
     const lineG = ctx.createLinearGradient(0, 0, W, 0);
     lineG.addColorStop(0,   'transparent');
     lineG.addColorStop(0.3, C.gold);
@@ -238,7 +222,6 @@ async function drawHeader(ctx, user, title, subtitle = '') {
     ctx.fillStyle = lineG;
     ctx.fillRect(0, 106, W, 2);
 
-    /* أفاتار */
     try {
         const av = await loadImage(user.displayAvatarURL({ extension: 'png', size: 128 }));
         ctx.save();
@@ -251,19 +234,12 @@ async function drawHeader(ctx, user, title, subtitle = '') {
         ctx.shadowBlur  = 0;
     } catch {}
 
-    /* اسم المستخدم + subtitle — يسار الأفاتار (نص عربي يتدفق يمين→يسار لكن anchor يسار) */
     L(ctx, truncate(user.username, 20), 108, subtitle ? 40 : 54, 22, C.gold, true);
     if (subtitle) L(ctx, subtitle, 108, 68, 15, C.textD);
 
-    /* عنوان الشاشة — وسط */
     ctx.shadowColor = C.gold + '66'; ctx.shadowBlur = 16;
     M(ctx, title, W / 2, 54, 30, C.text, true);
     ctx.shadowBlur = 0;
-}
-
-/* نجوم الترقية */
-function starBar(n, max = 5, color = C.gold) {
-    return { filled: Math.min(n, max), empty: Math.max(0, max - n), color };
 }
 
 function drawStars(ctx, n, max, x, y, size, color = C.gold) {
@@ -276,7 +252,6 @@ function drawStars(ctx, n, max, x, y, size, color = C.gold) {
     ctx.shadowBlur   = 0;
 }
 
-/* رتبة التاجر بناءً على الرحلات الناجحة */
 function caravanRank(trips) {
     if (trips >= 51) return { name: 'أسطورة التجارة', color: '#FFD700' };
     if (trips >= 21) return { name: 'سيد القوافل',    color: '#C49A10' };
@@ -286,7 +261,6 @@ function caravanRank(trips) {
     return               { name: 'تاجر مبتدئ',        color: '#8A9AAA' };
 }
 
-/* رتبة المغامر بناءً على نقاط السمعة (مطابق لأمر البروفايل) */
 function getRepRankInfo(points) {
     if (points >= 9999) return { name: '🎇 رتبة SSS', color: '#FFD700' };
     if (points >= 1000) return { name: '👑 رتبة SS',  color: '#FF00FF' };
@@ -299,17 +273,21 @@ function getRepRankInfo(points) {
     return                     { name: '🪵 رتبة F',   color: '#A0522D' };
 }
 
-/* اختصار نص مع دعم RTL */
 function truncate(txt, maxChars) {
     if (!txt) return '';
-    return txt.length > maxChars ? txt.substring(0, maxChars - 1) + '…' : txt;
+    const str = String(txt);
+    return str.length > maxChars ? str.substring(0, maxChars - 1) + '…' : str;
 }
 
-/* تحويل Buffer */
 async function toBuf(canvas) {
-    const b = await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
-    canvas.width = 0; canvas.height = 0;
-    return b;
+    return await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
+}
+
+/* 🛡️ دالة ذكية وجديدة لقراءة الـ JSON بأمان لتجنب انهيار البوت */
+function parseSafeArray(data) {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    try { return JSON.parse(data); } catch { return []; }
 }
 
 /* ══════════════════════════════════════════════
@@ -329,11 +307,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const repPts  = Number(profExtra.repPoints || 0);
     const repRank = getRepRankInfo(repPts);
 
-    /* ══ لوحة يسار — المستخدم والترقيات ══ */
     const LX = 22, LY = 118, LW = 340, LH = 600;
     drawPanel(ctx, LX, LY, LW, LH, rank.color);
 
-    /* أفاتار كبير داخل اللوحة */
     try {
         const av = await loadImage(user.displayAvatarURL({ extension: 'png', size: 256 }));
         ctx.save();
@@ -346,22 +322,18 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.shadowBlur  = 0;
     } catch {}
 
-    /* شارة المستوى — يسار أعلى الأفاتار */
     rr(ctx, LX + 14, LY + 14, 52, 24, 8);
     ctx.fillStyle = 'rgba(0,0,0,0.70)'; ctx.fill();
     ctx.strokeStyle = C.gold + '99'; ctx.lineWidth = 1;
     rr(ctx, LX + 14, LY + 14, 52, 24, 8); ctx.stroke();
     M(ctx, `لv.${level}`, LX + 40, LY + 26, 13, C.gold, true);
 
-    /* اسم */
     M(ctx, truncate(user.username, 18), LX + LW / 2, LY + 136, 19, C.text, true);
 
-    /* رتبة القافلة */
     ctx.shadowColor = rank.color; ctx.shadowBlur = 10;
     M(ctx, `✦ ${rank.name} ✦`, LX + LW / 2, LY + 160, 15, rank.color, true);
     ctx.shadowBlur = 0;
 
-    /* رتبة السمعة */
     const repBadgeW = Math.min(220, LW - 40);
     rr(ctx, LX + (LW - repBadgeW) / 2, LY + 176, repBadgeW, 22, 6);
     ctx.fillStyle = repRank.color + '22'; ctx.fill();
@@ -371,7 +343,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
     divLine(ctx, LX + 20, LY + 207, LW - 40, rank.color + '44');
 
-    /* إحصائيات مختصرة — RTL: القيمة يسار، التسمية يمين */
     const statItems = [
         { label: 'إجمالي الرحلات', val: String(trips) },
         { label: 'الناجحة',        val: String(success) },
@@ -391,7 +362,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     divLine(ctx, LX + 20, sy + 4, LW - 40, rank.color + '44');
     sy += 20;
 
-    /* نجوم الترقيات */
     M(ctx, '— مستوى الترقيات —', LX + LW / 2, sy, 13, C.textD);
     sy += 24;
 
@@ -405,36 +375,28 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const lvl2 = Number(stats[u.key] || 1);
         rr(ctx, LX + 14, sy - 8, LW - 28, 38, 7);
         ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fill();
-        /* إيموجي */
         ctx.font = `18px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         ctx.fillText(u.emoji, LX + 18, sy + 11);
-        /* اسم */
         L(ctx, u.name, LX + 42, sy + 11, 14, C.text);
-        /* نجوم — يمين */
         drawStars(ctx, lvl2, 5, LX + LW - 16, sy + 11, 16, u.col);
-        /* شريط */
         drawBar(ctx, LX + 16, sy + 25, LW - 32, 7, lvl2 / 5, u.col, false);
         sy += 42;
     }
 
-    /* رصيد المورا */
     divLine(ctx, LX + 20, sy + 2, LW - 40, C.gold + '44');
     sy += 16;
     ctx.shadowColor = C.gold; ctx.shadowBlur = 8;
     M(ctx, `💰 ${Number(mora).toLocaleString()} مورا`, LX + LW / 2, sy + 12, 17, C.gold, true);
     ctx.shadowBlur = 0;
 
-    /* ══ منطقة وسط — مشهد القافلة ══ */
     const MX = 374, MY = 118, MW = 650, MH = 600;
 
-    /* هالة ذهبية */
     const halo = ctx.createRadialGradient(MX + MW / 2, MY + MH * 0.6, 30, MX + MW / 2, MY + MH * 0.6, 240);
     halo.addColorStop(0, 'rgba(245,197,24,0.10)');
     halo.addColorStop(1, 'transparent');
     ctx.fillStyle = halo;
     ctx.fillRect(MX, MY, MW, MH);
 
-    /* نجمة تزيينية خلف الجمل */
     const starX = MX + MW / 2, starY = MY + MH * 0.55;
     for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 6) {
         ctx.strokeStyle = C.gold + '18'; ctx.lineWidth = 1;
@@ -444,7 +406,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.stroke();
     }
 
-    /* جمل كبير */
     ctx.font = `190px ${FE}`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
@@ -452,13 +413,11 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     ctx.fillText('🐪', MX + MW / 2, MY + MH * 0.55);
     ctx.shadowBlur   = 0;
 
-    /* زخرفة نصية */
     ctx.shadowColor = C.gold + '88'; ctx.shadowBlur = 12;
     M(ctx, '✦ قافلتك الإمبراطورية ✦', MX + MW / 2, MY + MH - 55, 20, C.gold, true);
     ctx.shadowBlur = 0;
     M(ctx, 'شاشة الإدارة المركزية', MX + MW / 2, MY + MH - 26, 15, C.textD);
 
-    /* ══ لوحة يمين — الرحلة النشطة ══ */
     const RX = 1036, RY = 118, RW = 342, RH = 600;
 
     if (active) {
@@ -468,7 +427,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const now    = Date.now();
         const start  = Number(active.starttime  || active.startTime  || now);
         const end    = Number(active.endtime    || active.endTime    || now);
-        const prog   = Math.min(1, Math.max(0, (now - start) / (end - start)));
+        
+        // 🚨 إصلاح وحماية الـ NaN هنا
+        const prog   = (end <= start) ? 1 : Math.min(1, Math.max(0, (now - start) / (end - start)));
         const tleft  = Math.max(0, end - now);
         const hrs    = Math.floor(tleft / 3600000);
         const mns    = Math.floor((tleft % 3600000) / 60000);
@@ -490,7 +451,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
         divLine(ctx, RX + 18, RY + 204, RW - 36, acc + '44');
 
-        /* حالة */
         const stMap = {
             'ok':  { t: '🟢 في الطريق',    c: C.green },
             'atk': { t: '⚔️ تحت الهجوم!', c: C.red   },
@@ -504,17 +464,14 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         M(ctx, st.t, RX + RW / 2, RY + 228, 18, st.c, true);
         ctx.shadowBlur = 0;
 
-        /* شريط التقدم */
         M(ctx, `${(prog * 100).toFixed(1)}%`, RX + RW / 2, RY + 260, 22, acc, true);
         drawBar(ctx, RX + 18, RY + 278, RW - 36, 22, prog, acc);
 
-        /* وقت */
         M(ctx, `⏳ ${hrs}س ${mns}د متبقية`, RX + RW / 2, RY + 320, 17, C.text);
         M(ctx, `الوصول: <t:${Math.floor(end / 1000)}:R>`, RX + RW / 2, RY + 344, 14, C.textD);
 
         divLine(ctx, RX + 18, RY + 368, RW - 36, acc + '44');
 
-        /* معامل المكافأة */
         const rm   = Number(active.rewardmultiplier || active.rewardMultiplier || 1);
         const rmC  = rm >= 1 ? C.green : rm >= 0.6 ? C.gold : C.red;
         M(ctx, 'معامل المكافأة', RX + RW / 2, RY + 392, 15, C.textD);
@@ -524,8 +481,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
         divLine(ctx, RX + 18, RY + 444, RW - 36, acc + '44');
 
-        /* أدوات مجهزة */
-        const arts = JSON.parse(active.equippedartifacts || active.equippedArtifacts || '[]');
+        // 🚨 إصلاح استخراج الـ JSON
+        const rawArts = active.equippedartifacts || active.equippedArtifacts;
+        const arts = parseSafeArray(rawArts);
         M(ctx, `🔮 أدوات مجهزة: ${arts.length}/3`, RX + RW / 2, RY + 468, 15, C.textD);
 
     } else {
@@ -550,7 +508,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         M(ctx, `${pct}% نسبة نجاح`, RX + RW / 2, RY + 416, 14, '#556677');
     }
 
-    /* ══ شريط أسفل ══ */
     const barY = H - 82;
     ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(0, barY, W, 82);
     divLine(ctx, 0, barY, W, C.gold + '55');
@@ -575,7 +532,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
     return toBuf(canvas);
 }
-
 module.exports.generateCaravanHub = generateCaravanHub;
 
 /* ══════════════════════════════════════════════
@@ -589,7 +545,6 @@ async function generateSendMap(user, stats, mora) {
     drawBg(ctx);
     await drawHeader(ctx, user, '🗺️ خريطة الوجهات', `رصيدك: ${Number(mora).toLocaleString()} مورا`);
 
-    /* ── بطاقات الوجهات الخمس ── */
     const DESTS = cfg.destinations;
     const cw = 252, ch = 318, cgap = 12;
     const totalW = DESTS.length * cw + (DESTS.length - 1) * cgap;
@@ -601,7 +556,6 @@ async function generateSendMap(user, stats, mora) {
         const acc  = d.color || C.gold;
         const canAfford = Number(mora) >= d.cost;
 
-        /* خلفية البطاقة */
         const bg = ctx.createLinearGradient(cx, cardY, cx, cardY + ch);
         bg.addColorStop(0, acc + '22'); bg.addColorStop(1, 'rgba(4,6,14,0.97)');
         rr(ctx, cx, cardY, cw, ch, 16);
@@ -613,21 +567,17 @@ async function generateSendMap(user, stats, mora) {
         rr(ctx, cx, cardY, cw, ch, 16); ctx.stroke();
         ctx.shadowBlur  = 0;
 
-        /* إيموجي الوجهة */
         ctx.font = `58px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.shadowColor = acc; ctx.shadowBlur = 20;
         ctx.fillText(d.emoji, cx + cw / 2, cardY + 60);
         ctx.shadowBlur = 0;
 
-        /* اسم الوجهة */
         ctx.shadowColor = acc; ctx.shadowBlur = 8;
         M(ctx, d.name, cx + cw / 2, cardY + 106, 19, acc, true);
         ctx.shadowBlur = 0;
 
-        /* خط فاصل */
         divLine(ctx, cx + 16, cardY + 124, cw - 32, acc + '44');
 
-        /* وصف مختصر */
         const desc = d.description || '';
         const words = desc.split(' ');
         let line = '', lines = [];
@@ -642,7 +592,6 @@ async function generateSendMap(user, stats, mora) {
             M(ctx, ln, cx + cw / 2, cardY + 144 + li * 18, 13, C.textD);
         });
 
-        /* تفاصيل الرحلة */
         const adjDur  = core.calcDuration(d, { speed_rank: Number(stats.speed_rank || 1) }, { speedBuff: 0 });
         const adjRisk = core.calcRiskFactor(d, { defense_rank: Number(stats.defense_rank || 1) });
         const hrs     = Math.floor(adjDur / 3600000);
@@ -656,7 +605,6 @@ async function generateSendMap(user, stats, mora) {
         ];
         let ry = cardY + 192;
         for (const row of rows) {
-            /* خلفية الصف */
             rr(ctx, cx + 12, ry - 12, cw - 24, 26, 6);
             ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
             R(ctx, row.label, cx + cw - 16,  ry, 13, C.textD);
@@ -664,12 +612,10 @@ async function generateSendMap(user, stats, mora) {
             ry += 34;
         }
 
-        /* نوع المكافأة */
         divLine(ctx, cx + 16, ry - 2, cw - 32, acc + '44');
         const typeMap = { mora: '🟡 مورا', xp: '✨ خبرة', reputation: '🌟 سمعة', artifact: '📦 تحفة', nature: '🌱 طبيعة' };
         M(ctx, typeMap[d.reward_type] || '?', cx + cw / 2, ry + 18, 15, acc, true);
 
-        /* شارة "لا يمكن" */
         if (!canAfford) {
             rr(ctx, cx + cw / 2 - 55, cardY + ch - 34, 110, 26, 8);
             ctx.fillStyle = 'rgba(231,76,60,0.30)'; ctx.fill();
@@ -679,7 +625,6 @@ async function generateSendMap(user, stats, mora) {
         }
     });
 
-    /* ── تذييل ── */
     const fy = cardY + ch + 16;
     divLine(ctx, 30, fy, W - 60, C.gold + '33');
     M(ctx, 'اختر وجهتك من القائمة أدناه', W / 2, fy + 24, 17, C.textD);
@@ -698,7 +643,9 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
     const now    = Date.now();
     const start  = Number(caravan.starttime || caravan.startTime || now);
     const end    = Number(caravan.endtime   || caravan.endTime   || now);
-    const prog   = Math.min(1, Math.max(0, (now - start) / (end - start)));
+    
+    // 🚨 حماية من الـ NaN
+    const prog   = (end <= start) ? 1 : Math.min(1, Math.max(0, (now - start) / (end - start)));
     const tleft  = Math.max(0, end - now);
     const hrs    = Math.floor(tleft / 3600000);
     const mns    = Math.floor((tleft % 3600000) / 60000);
@@ -712,32 +659,26 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
     const subTitle = tleft <= 0 ? '✅ وصلت — يتم التوزيع تلقائياً' : `⏳ ${hrs}س ${mns}د ${secs}ث متبقية`;
     await drawHeader(ctx, user, `${dest?.emoji || ''} ${dest?.name || 'رحلة'}`, subTitle);
 
-    /* ══ خريطة المسار (يسار) ══ */
     const MX = 22, MY = 118, MW = 740, MH = 570;
     drawPanel(ctx, MX, MY, MW, MH, acc);
 
-    /* شبكة خفيفة */
     ctx.strokeStyle = 'rgba(255,255,255,0.025)'; ctx.lineWidth = 1;
     for (let gx = MX + 50; gx < MX + MW; gx += 70) { ctx.beginPath(); ctx.moveTo(gx, MY); ctx.lineTo(gx, MY + MH); ctx.stroke(); }
     for (let gy = MY + 50; gy < MY + MH; gy += 70) { ctx.beginPath(); ctx.moveTo(MX, gy); ctx.lineTo(MX + MW, gy); ctx.stroke(); }
 
-    /* نقطتا المسار */
     const oX = MX + 80,       oY = MY + MH - 80;
     const dX = MX + MW - 80,  dY = MY + 90;
     const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 80;
 
-    /* موقع القافلة */
     const t  = prog;
     const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
     const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
 
-    /* مسار كامل (شبح) */
     ctx.setLineDash([10, 8]);
     ctx.strokeStyle = acc + '28'; ctx.lineWidth = 5;
     ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
     ctx.setLineDash([]);
 
-    /* مسار مقطوع (التقدم) */
     const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
     pathG.addColorStop(0, acc + '55'); pathG.addColorStop(1, acc);
     ctx.strokeStyle = pathG; ctx.lineWidth = 6;
@@ -745,14 +686,12 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
     ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
     ctx.shadowBlur  = 0;
 
-    /* نقطة البداية */
     ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 16;
     ctx.beginPath(); ctx.arc(oX, oY, 12, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
     M(ctx, '🏠', oX, oY - 28, 22, C.text);
     M(ctx, 'البيت', oX, oY + 28, 14, C.green);
 
-    /* نقطة الوجهة */
     ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 22;
     ctx.beginPath(); ctx.arc(dX, dY, 14, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
@@ -760,14 +699,12 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
     ctx.fillText(dest?.emoji || '📍', dX, dY - 44);
     M(ctx, dest?.name || '', dX, dY + 30, 14, acc, true);
 
-    /* أيقونة القافلة المتحركة */
     const camelEmoji = hasAtk ? '⚔️' : '🐪';
     ctx.font = `52px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 30;
     ctx.fillText(camelEmoji, cX, cY - 6);
     ctx.shadowBlur = 0;
 
-    /* فقاعة الهجوم */
     if (hasAtk) {
         const bw2 = 200, bx2 = cX - 100, by2 = cY - 72;
         rr(ctx, bx2, by2, bw2, 34, 10);
@@ -777,12 +714,10 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
         M(ctx, '⚔️ تحت الهجوم!', cX, by2 + 17, 15, '#FFFFFF', true);
     }
 
-    /* ── شريط التقدم الكبير أسفل الخريطة ── */
     const barY2 = MY + MH - 44;
     M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 18, 17, acc, true);
     drawBar(ctx, MX + 22, barY2, MW - 44, 28, prog, acc);
 
-    /* ══ لوحة يمين — التفاصيل ══ */
     const RX = 774, RY = 118, RW = 604, RH = 570;
     drawPanel(ctx, RX, RY, RW, RH, acc);
 
@@ -790,7 +725,6 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
     M(ctx, '📊 تفاصيل الرحلة', RX + RW / 2, py, 22, acc, true);
     py += 34; divLine(ctx, RX + 20, py, RW - 40, acc + '55'); py += 22;
 
-    /* الوجهة */
     ctx.font = `56px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.shadowColor = acc; ctx.shadowBlur = 18;
     ctx.fillText(dest?.emoji || '📍', RX + 22, py + 26);
@@ -799,7 +733,6 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
     R(ctx, dest?.description || '', RX + RW - 18, py + 36, 13, C.textD);
     py += 64; divLine(ctx, RX + 20, py, RW - 40); py += 18;
 
-    /* صفوف البيانات */
     const stMap2 = {
         'ok':  { t: '🟢 في الطريق',    c: C.green },
         'atk': { t: '⚔️ تحت الهجوم!', c: C.red   },
@@ -810,7 +743,10 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
     const stk2 = hasAtk ? 'atk' : atkRes !== 0 ? String(atkRes) : 'ok';
     const st2  = stMap2[stk2] || stMap2['ok'];
     const rmC  = rm >= 1 ? C.green : rm >= 0.6 ? C.gold : C.red;
-    const arts = JSON.parse(caravan.equippedartifacts || caravan.equippedArtifacts || '[]');
+    
+    // 🚨 حل آمن لاستخراج البيانات
+    const rawArts = caravan.equippedartifacts || caravan.equippedArtifacts;
+    const arts = parseSafeArray(rawArts);
 
     const infoRows = [
         { label: 'الحالة',          val: st2.t,                                    vc: st2.c   },
@@ -821,7 +757,6 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
     ];
 
     for (const row of infoRows) {
-        /* صف */
         rr(ctx, RX + 18, py - 14, RW - 36, 32, 8);
         ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
         R(ctx, row.label + ':',    RX + RW - 22, py + 2, 15, C.textD);
@@ -833,17 +768,14 @@ async function generateCaravanStatus(user, caravan, stats, dest) {
 
     divLine(ctx, RX + 20, py, RW - 40); py += 18;
 
-    /* شريط التقدم المصغّر */
     M(ctx, 'تقدم الرحلة', RX + RW / 2, py + 10, 15, C.textD);
     py += 26; drawBar(ctx, RX + 22, py, RW - 44, 20, prog, acc); py += 32;
 
-    /* وقت الوصول */
     if (tleft > 0) {
         M(ctx, `📅 الوصول المتوقع: <t:${Math.floor(end / 1000)}:R>`, RX + RW / 2, py + 14, 15, C.textD);
         py += 36;
     }
 
-    /* الأدوات */
     if (arts.length > 0) {
         divLine(ctx, RX + 20, py, RW - 40); py += 16;
         M(ctx, '🔮 الأدوات المجهزة:', RX + RW / 2, py + 10, 15, C.purple, true);
@@ -887,9 +819,8 @@ async function generateUpgradePanel(user, stats, mora) {
           col: '#2ECC71' },
     ];
 
-    /* شبكة 2×2 — كل بطاقة 640×278 */
     const cw = 640, ch = 278, gap = 16;
-    const gx0 = (W - (2 * cw + gap)) / 2;  // = (1400 - 1296) / 2 = 52
+    const gx0 = (W - (2 * cw + gap)) / 2; 
     const gy0 = 120;
 
     upgList.forEach((u, i) => {
@@ -903,7 +834,6 @@ async function generateUpgradePanel(user, stats, mora) {
 
         drawPanel(ctx, cx, cy, cw, ch, col);
 
-        /* ── شارة MAX أو رقم المستوى ── */
         if (maxed) {
             rr(ctx, cx + cw - 76, cy + 8, 68, 26, 8);
             ctx.fillStyle   = col + 'CC'; ctx.fill();
@@ -918,7 +848,6 @@ async function generateUpgradePanel(user, stats, mora) {
             M(ctx, `${rank}/${u.max_level}`, cx + cw - 39, cy + 21, 13, col, true);
         }
 
-        /* ── أيقونة كبيرة (يسار) ── */
         ctx.font = `54px ${FE}`;
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'middle';
@@ -926,19 +855,14 @@ async function generateUpgradePanel(user, stats, mora) {
         ctx.fillText(u.emoji, cx + 16, cy + 52);
         ctx.shadowBlur   = 0;
 
-        /* ── اسم الترقية (يمين) ── */
         ctx.shadowColor  = col; ctx.shadowBlur = 8;
         R(ctx, u.name, cx + cw - 16, cy + 36, 22, col, true);
         ctx.shadowBlur   = 0;
 
-        /* ── تأثير الترقية ── */
         R(ctx, u.effectLabel, cx + cw - 16, cy + 62, 13, C.textD);
 
-        /* ── فاصل ── */
         divLine(ctx, cx + 14, cy + 80, cw - 28, col + '44');
 
-        /* ── نجوم + تقدم ── */
-        /* النجوم يمين */
         ctx.font         = `bold 26px Arial, sans-serif`;
         ctx.textAlign    = 'right';
         ctx.textBaseline = 'middle';
@@ -947,22 +871,16 @@ async function generateUpgradePanel(user, stats, mora) {
         ctx.fillText('★'.repeat(rank) + '☆'.repeat(Math.max(0, u.max_level - rank)), cx + cw - 14, cy + 106);
         ctx.shadowBlur   = 0;
 
-        /* تسمية يسار */
         L(ctx, `المستوى ${rank} من ${u.max_level}`, cx + 14, cy + 106, 14, C.textD);
 
-        /* شريط التقدم */
         drawBar(ctx, cx + 14, cy + 124, cw - 28, 18, rank / u.max_level, col, false);
 
-        /* ── فاصل ── */
         divLine(ctx, cx + 14, cy + 154, cw - 28, col + '33');
 
-        /* ── صف التكلفة والتأثير المحسوب ── */
         if (maxed) {
-            /* بطاقة "تم الترقية الكاملة" */
             ctx.shadowColor = col; ctx.shadowBlur = 14;
             M(ctx, '✅ تم الوصول للحد الأقصى', cx + cw / 2, cy + 186, 18, col, true);
             ctx.shadowBlur  = 0;
-            /* شريط احتفالي */
             const pgx = cx + 20, pgy = cy + 208, pgw = cw - 40, pgh = 30;
             const pg = ctx.createLinearGradient(pgx, 0, pgx + pgw, 0);
             pg.addColorStop(0,   col + '00');
@@ -973,19 +891,16 @@ async function generateUpgradePanel(user, stats, mora) {
             ctx.fillStyle = pg; ctx.fill();
             M(ctx, `+${((rank - 1) * 25).toFixed(0)}% تأثير تراكمي نشط`, cx + cw / 2, cy + 223, 14, '#FFF', true);
         } else {
-            /* تكلفة يمين */
             R(ctx, `التكلفة:`, cx + cw - 16, cy + 178, 14, C.textD);
             ctx.shadowColor = canAf ? C.gold : C.red; ctx.shadowBlur = 6;
             R(ctx, `💰 ${cost.toLocaleString()} مورا`, cx + cw - 16, cy + 200, 16, canAf ? C.gold : C.red, true);
             ctx.shadowBlur  = 0;
 
-            /* تأثير يسار */
             L(ctx, 'التأثير/مستوى:', cx + 16, cy + 178, 14, C.textD);
             ctx.shadowColor = col; ctx.shadowBlur = 4;
             L(ctx, u.effectLabel, cx + 16, cy + 200, 15, col, true);
             ctx.shadowBlur  = 0;
 
-            /* زر ترقية */
             const btnW = cw - 40, btnX = cx + 20, btnY = cy + ch - 40;
             const btnG = ctx.createLinearGradient(btnX, btnY, btnX + btnW, btnY + 30);
             btnG.addColorStop(0, canAf ? col + '44' : 'rgba(120,40,40,0.40)');
@@ -1020,7 +935,6 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         Epic: '#B968FF',   Legendary: '#FFD700',
     };
 
-    /* ══ الفتحات الثلاث (أعلى) ══ */
     const sw = 420, sh = 155, sgap = 20;
     const sx0 = (W - (3 * sw + 2 * sgap)) / 2;
     const sy0 = 120;
@@ -1033,13 +947,11 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         drawPanel(ctx, sx, sy0, sw, sh, col, { noCorners: !itm });
 
-        /* رقم الفتحة */
         rr(ctx, sx + 8, sy0 + 8, 30, 22, 6);
         ctx.fillStyle = col + '44'; ctx.fill();
         M(ctx, String(s + 1), sx + 23, sy0 + 19, 14, col, true);
 
         if (itm) {
-            /* أيقونة */
             ctx.font = `40px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
             ctx.shadowColor = col; ctx.shadowBlur = 14;
             ctx.fillText(itm.type === 'book' ? '📖' : '⚙️', sx + 14, sy0 + 72);
@@ -1066,7 +978,6 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         }
     }
 
-    /* ══ ملخص البافات ══ */
     const buffs = core.getEquippedBuffs(equipped);
     const sumY  = sy0 + sh + 14;
     const sbg   = ctx.createLinearGradient(30, sumY, W - 30, sumY + 46);
@@ -1080,7 +991,6 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const bText = `⚡ إجمالي السرعة: +${(buffs.speedBuff * 100).toFixed(0)}%   |   🍀 إجمالي الحظ: +${(buffs.luckBuff * 100).toFixed(0)}%`;
     M(ctx, bText, W / 2, sumY + 23, 19, C.text, true);
 
-    /* ══ شبكة المخزون ══ */
     const gridY = sumY + 60;
     divLine(ctx, 30, gridY, W - 60, C.gold + '33');
     M(ctx, '📦 مخزنك — اختر أداة للتبديل (تجهيز / خلع)', W / 2, gridY + 20, 17, C.gold, true);
@@ -1089,10 +999,13 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const igw = cols * iw + (cols - 1) * igap;
     const igx = (W - igw) / 2;
     const igy = gridY + 44;
-    const maxShow = Math.min(invRows.length, 18);
+    
+    // 🚨 حماية من عدم وجود أدوات في المخزون
+    const safeRows = invRows || [];
+    const maxShow = Math.min(safeRows.length, 18);
 
     for (let i = 0; i < maxShow; i++) {
-        const row  = invRows[i];
+        const row  = safeRows[i];
         const id   = row.itemid || row.itemID;
         const itm  = allItems.find(x => x.id === id);
         const col  = itm ? (RARITY_COL[itm.rarity] || C.textD) : '#334455';
