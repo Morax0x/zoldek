@@ -2,6 +2,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const fs   = require('fs');
 
+// --- تسجيل الخطوط ---
 try {
     const d = path.join(process.cwd(), 'fonts');
     const b = path.join(d, 'bein-ar-normal.ttf');
@@ -10,6 +11,7 @@ try {
     if (fs.existsSync(e)) GlobalFonts.registerFromPath(e, 'Emoji');
 } catch {}
 
+// --- جلب بيانات الأدوات ---
 let allGameItems = [];
 try {
     const shopItems = require(path.join(process.cwd(), 'json', 'shop-items.json')) || [];
@@ -22,10 +24,12 @@ try {
     }
 } catch(e) {}
 
+// --- الثوابت ---
 const W  = 1600;
 const H  = 900;
 const FA = '"Bein","Arial",sans-serif';
 const FE = '"Emoji","Arial",sans-serif';
+const BASE_IMG_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/caravan/';
 
 const C = {
     bg:      '#04060F',
@@ -42,6 +46,7 @@ const C = {
     purple:  '#9B59FF',
 };
 
+// --- دوال مساعدة ---
 function formatArabicTime(ms) {
     if (ms <= 0) return 'وصلت الوجهة';
     let t = Math.max(0, ms);
@@ -73,149 +78,51 @@ function rr(ctx, x, y, w, h, r = 24) {
     ctx.closePath();
 }
 
-function drawBg(ctx, cw = W, ch = H) {
-    const sky = ctx.createLinearGradient(0, 0, 0, ch);
-    sky.addColorStop(0,    '#010306');
-    sky.addColorStop(0.35, '#050A1E');
-    sky.addColorStop(0.65, '#0A0B1A');
-    sky.addColorStop(0.82, '#120804');
-    sky.addColorStop(1,    '#1A0A01');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, cw, ch);
-
-    ctx.save();
-    [
-        { x: cw * 0.20, y: ch * 0.18, r: 180, c: 'rgba(40,30,120,0.06)' },
-        { x: cw * 0.65, y: ch * 0.12, r: 220, c: 'rgba(80,20,80,0.05)'  },
-        { x: cw * 0.85, y: ch * 0.30, r: 150, c: 'rgba(20,60,100,0.07)' },
-    ].forEach(n => {
-        const ng = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
-        ng.addColorStop(0, n.c); ng.addColorStop(1, 'transparent');
-        ctx.fillStyle = ng; ctx.fillRect(0, 0, cw, ch);
-    });
-
-    for (let i = 0; i < 220; i++) {
-        const sx = Math.random() * cw;
-        const sy = Math.random() * ch * 0.70;
-        const sr = Math.random() * 1.4 + 0.2;
-        ctx.globalAlpha = Math.random() * 0.55 + 0.08;
-        ctx.fillStyle   = Math.random() > 0.88 ? '#FFF9C4' : '#FFFFFF';
-        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+// دالة جلب الصور مع حماية
+async function fetchImageSafe(imgName) {
+    try {
+        return await loadImage(`${BASE_IMG_URL}${imgName}.png`);
+    } catch {
+        return null;
     }
+}
 
-    for (let i = 0; i < 12; i++) {
-        const sx = Math.random() * cw;
-        const sy = Math.random() * ch * 0.60;
-        const sr = Math.random() * 1.0 + 1.4;
-        ctx.globalAlpha = Math.random() * 0.4 + 0.3;
-        ctx.fillStyle = '#FFFFFF';
-        ctx.shadowColor = '#AAD4FF'; ctx.shadowBlur = 8;
-        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
+// الخلفية الأساسية (تستخدم الصورة وإلا ترسم التدرج)
+async function drawBg(ctx, bgImageName = 'hubbg', cw = W, ch = H) {
+    const img = await fetchImageSafe(bgImageName);
+    if (img) {
+        ctx.drawImage(img, 0, 0, cw, ch);
+        // تعتيم خفيف لتوضيح الواجهة
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(0, 0, cw, ch);
+    } else {
+        // Fallback في حال لم تتوفر الصورة
+        const sky = ctx.createLinearGradient(0, 0, 0, ch);
+        sky.addColorStop(0,    '#010306');
+        sky.addColorStop(0.35, '#050A1E');
+        sky.addColorStop(0.65, '#0A0B1A');
+        sky.addColorStop(1,    '#1A0A01');
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, cw, ch);
     }
-    ctx.globalAlpha = 1;
-    ctx.restore();
-
-    const mx = cw - 140, my = 120, mr = 50; 
-    
-    const haloG = ctx.createRadialGradient(mx, my, mr, mx, my, mr + 60);
-    haloG.addColorStop(0, 'rgba(255,220,80,0.15)');
-    haloG.addColorStop(1, 'transparent');
-    ctx.fillStyle = haloG; ctx.fillRect(0, 0, cw, ch);
-    
-    const moon = ctx.createRadialGradient(mx - 15, my - 15, 5, mx, my, mr);
-    moon.addColorStop(0,   '#FFFEF0');
-    moon.addColorStop(0.6, '#FFE566');
-    moon.addColorStop(1,   'rgba(255,210,40,0)');
-    ctx.fillStyle   = moon;
-    ctx.shadowColor = '#FFD700'; ctx.shadowBlur = 45;
-    ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur  = 0;
-    
-    ctx.strokeStyle = 'rgba(255,220,80,0.20)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(mx, my, mr + 12, 0, Math.PI * 2); ctx.stroke();
-
-    const dune1 = ctx.createLinearGradient(0, ch - 140, 0, ch);
-    dune1.addColorStop(0, '#1E0E02'); dune1.addColorStop(1, '#0D0600');
-    ctx.fillStyle = dune1;
-    ctx.beginPath();
-    ctx.moveTo(0, ch);
-    ctx.bezierCurveTo(cw*.08, ch-110,  cw*.22, ch-160, cw*.40, ch-125);
-    ctx.bezierCurveTo(cw*.55, ch-95,   cw*.70, ch-155, cw*.86, ch-115);
-    ctx.bezierCurveTo(cw*.93, ch-95,   cw,      ch-75,  cw,      ch);
-    ctx.closePath(); ctx.fill();
-
-    const dune2 = ctx.createLinearGradient(0, ch - 80, 0, ch);
-    dune2.addColorStop(0, '#140900'); dune2.addColorStop(1, '#0A0500');
-    ctx.fillStyle = dune2;
-    ctx.beginPath();
-    ctx.moveTo(0, ch);
-    ctx.bezierCurveTo(cw*.12, ch-65,  cw*.30, ch-105,  cw*.52, ch-70);
-    ctx.bezierCurveTo(cw*.68, ch-45,  cw*.82, ch-85,  cw,      ch-50);
-    ctx.lineTo(cw, ch); ctx.closePath(); ctx.fill();
-
-    ctx.strokeStyle = 'rgba(80,40,10,0.35)'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, ch - 35);
-    ctx.bezierCurveTo(cw*.20, ch-55, cw*.45, ch-45, cw*.70, ch-60);
-    ctx.bezierCurveTo(cw*.85, ch-70, cw*.95, ch-50, cw, ch-40);
-    ctx.stroke();
 }
 
 function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
     const radius = opts.radius || 24;
-
-    ctx.shadowColor = accent + '33';
-    ctx.shadowBlur  = 20;
+    ctx.shadowColor = accent + '22';
+    ctx.shadowBlur  = 16;
 
     const bg = ctx.createLinearGradient(x, y, x, y + h);
-    bg.addColorStop(0,    'rgba(18,24,48,0.97)');
-    bg.addColorStop(0.5,  'rgba(10,14,30,0.97)');
-    bg.addColorStop(1,    'rgba(5,7,16,0.98)');
+    bg.addColorStop(0, 'rgba(14,20,40,0.92)');
+    bg.addColorStop(1, 'rgba(6,8,18,0.96)');
     rr(ctx, x, y, w, h, radius);
     ctx.fillStyle = bg; ctx.fill();
     ctx.shadowBlur = 0;
 
-    const topG = ctx.createLinearGradient(x + 30, 0, x + w - 30, 0);
-    topG.addColorStop(0,   'transparent');
-    topG.addColorStop(0.3, accent + '55');
-    topG.addColorStop(0.7, accent + '55');
-    topG.addColorStop(1,   'transparent');
-    ctx.fillStyle = topG;
-    ctx.fillRect(x + radius, y + 1, w - radius * 2, 2);
-
     rr(ctx, x, y, w, h, radius);
-    ctx.strokeStyle = accent + '60';
+    ctx.strokeStyle = accent + '55';
     ctx.lineWidth   = 2.5;
     ctx.stroke();
-
-    if (!opts.noCorners) {
-        const cl = 28;
-        ctx.strokeStyle = accent;
-        ctx.lineWidth   = 3.5;
-        ctx.shadowColor = accent;
-        ctx.shadowBlur  = 12;
-        ctx.beginPath();
-        [
-            [x,         y + cl, x,     y,     x + cl,     y    ],
-            [x+w-cl,    y,      x + w, y,     x + w,      y+cl ],
-            [x+w,       y+h-cl, x + w, y + h, x+w-cl,     y+h  ],
-            [x+cl,      y+h,    x,     y + h, x,          y+h-cl],
-        ].forEach(([ax,ay,bx,by,cx2,cy2]) => {
-            ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.lineTo(cx2,cy2);
-        });
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        ctx.fillStyle = accent; ctx.shadowColor = accent; ctx.shadowBlur = 8;
-        [[x, y],[x+w, y],[x+w, y+h],[x, y+h]].forEach(([px,py]) => {
-            ctx.beginPath();
-            ctx.moveTo(px, py - 6); ctx.lineTo(px + 6, py);
-            ctx.lineTo(px, py + 6); ctx.lineTo(px - 6, py);
-            ctx.closePath(); ctx.fill();
-        });
-        ctx.shadowBlur = 0;
-    }
 }
 
 function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
@@ -233,7 +140,7 @@ function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
     rr(ctx, x, y, filled, h, h / 2);
     ctx.fillStyle   = grad;
     ctx.shadowColor = color;
-    ctx.shadowBlur  = 16;
+    ctx.shadowBlur  = 14;
     ctx.fill();
     ctx.shadowBlur  = 0;
 
@@ -316,7 +223,7 @@ async function drawHeader(ctx, title, subtitle = '') {
     ctx.fillRect(0, 128, W, 2.5);
 
     ctx.shadowColor = C.gold + '66'; ctx.shadowBlur = 18;
-    M(ctx, title, W / 2, 44, 46, C.text, true);
+    M(ctx, title, W / 2, 54, 46, C.text, true);
     ctx.shadowBlur = 0;
     if (subtitle) M(ctx, subtitle, W / 2, 98, 24, C.textD);
 }
@@ -368,11 +275,14 @@ function parseSafeArray(data) {
     try { return JSON.parse(data); } catch { return []; }
 }
 
+// ══════════════════════════════════════════════
+//  1. HUB — الشاشة الرئيسية
+// ══════════════════════════════════════════════
 async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const cfg = require('../json/caravan-config.json');
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
-    drawBg(ctx);
+    await drawBg(ctx, 'hubbg'); // استخدام صورة الخلفية الرئيسية
     await drawHeader(ctx, '✦ مركز القوافل ✦');
 
     const trips   = Number(stats.total_trips      || 0);
@@ -427,13 +337,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     
     const pillX = startX - txtWidth - 20 - pillW;
     rr(ctx, pillX, LY + 275 - pillH / 2, pillW, pillH, pillH / 2);
-    ctx.fillStyle = repRank.color + '22';
-    ctx.fill();
-    ctx.strokeStyle = repRank.color + '77';
-    ctx.lineWidth = 2;
-    rr(ctx, pillX, LY + 275 - pillH / 2, pillW, pillH, pillH / 2);
-    ctx.stroke();
-    
+    ctx.fillStyle = repRank.color + '22'; ctx.fill();
+    ctx.strokeStyle = repRank.color + '77'; ctx.lineWidth = 2;
+    rr(ctx, pillX, LY + 275 - pillH / 2, pillW, pillH, pillH / 2); ctx.stroke();
     ctx.font = `bold 18px Arial, sans-serif`;
     M(ctx, ptsText, pillX + pillW / 2, LY + 275 + 2, 18, repRank.color, true);
 
@@ -464,7 +370,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     ctx.shadowBlur = 0;
 
     const MX = 510, MY = 160, MW = 600, MH = 610;
-    
     const RX = 1140, RY = 160, RW = 420, RH = 610;
 
     if (active) {
@@ -480,52 +385,16 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const rm     = Number(active.rewardmultiplier || active.rewardMultiplier || 1);
 
         drawPanel(ctx, MX, MY, MW, MH, acc, { radius: 24 });
-
+        
+        // استدعاء صورة الجمل الامبراطوري (أو الفولباك للايموجي)
+        const camelImg = await fetchImageSafe('camel');
+        
         const oX = MX + 80,       oY = MY + MH - 100;
         const dX = MX + MW - 80,  dY = MY + 100;
         const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 160;
-
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
-
-        ctx.save();
-        const roadGrad = ctx.createLinearGradient(MX + MW / 2, MY + MH * 0.35, MX + MW / 2, MY + MH);
-        roadGrad.addColorStop(0, 'rgba(80,55,20,0)');
-        roadGrad.addColorStop(0.4, 'rgba(60,40,10,0.30)');
-        roadGrad.addColorStop(1, 'rgba(30,18,4,0.55)');
-        ctx.fillStyle = roadGrad;
-        ctx.beginPath();
-        ctx.moveTo(MX + MW / 2 - 8, MY + MH * 0.42);
-        ctx.lineTo(MX + MW / 2 + 8, MY + MH * 0.42);
-        ctx.lineTo(MX + MW / 2 + 140, MY + MH);
-        ctx.lineTo(MX + MW / 2 - 140, MY + MH);
-        ctx.closePath(); ctx.fill();
-        
-        ctx.strokeStyle = 'rgba(200,160,60,0.20)'; ctx.lineWidth = 2;
-        ctx.setLineDash([18, 22]);
-        ctx.beginPath();
-        ctx.moveTo(MX + MW / 2, MY + MH * 0.45);
-        ctx.lineTo(MX + MW / 2, MY + MH);
-        ctx.stroke(); ctx.setLineDash([]);
-        ctx.restore();
-
-        ctx.save();
-        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 9) {
-            const len = 180 + Math.sin(angle * 3) * 40;
-            ctx.strokeStyle = C.gold + '14'; ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(MX + MW / 2, MY + MH * 0.54);
-            ctx.lineTo(MX + MW / 2 + Math.cos(angle) * len, MY + MH * 0.54 + Math.sin(angle) * len);
-            ctx.stroke();
-        }
-        ctx.restore();
-
-        [100, 160, 220].forEach((r, idx) => {
-            ctx.strokeStyle = `rgba(245,197,24,${0.06 - idx * 0.015})`;
-            ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.arc(MX + MW / 2, MY + MH * 0.54, r, 0, Math.PI * 2); ctx.stroke();
-        });
 
         ctx.setLineDash([14, 12]);
         ctx.strokeStyle = acc + '33'; ctx.lineWidth = 8;
@@ -550,14 +419,35 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.font = `50px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(dest?.emoji || '📍', dX, dY - 50);
 
-        const camelEmoji = hasAtk ? '⚔️' : '🐪';
-        ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 40;
-        ctx.fillText(camelEmoji, cX, cY - 14);
-        ctx.shadowBlur = 0;
+        if (camelImg) {
+            ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 40;
+            ctx.drawImage(camelImg, cX - 60, cY - 70, 120, 120);
+            ctx.shadowBlur = 0;
+        } else {
+            const camelEmoji = hasAtk ? '⚔️' : '🐪';
+            ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 40;
+            ctx.fillText(camelEmoji, cX, cY - 14);
+            ctx.shadowBlur = 0;
+        }
 
+        if (hasAtk) {
+            const bw2 = 280, bx2 = cX - 140, by2 = cY - 110;
+            rr(ctx, bx2, by2, bw2, 48, 12);
+            ctx.fillStyle = 'rgba(231,76,60,0.95)'; ctx.fill();
+            ctx.strokeStyle = C.red; ctx.lineWidth = 2.5;
+            rr(ctx, bx2, by2, bw2, 48, 12); ctx.stroke();
+            M(ctx, '⚔️ القافلة تتعرض لهجوم', cX, by2 + 24, 22, '#FFFFFF', true);
+        }
+
+        const barY2 = MY + MH - 70;
+        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 28, 26, acc, true);
+        drawBar(ctx, MX + 50, barY2, MW - 100, 40, prog, acc);
+
+        M(ctx, `القافلة في طريقها إلى ${dest?.name || ''}`, MX + MW / 2, MY + 60, 32, acc, true);
+
+        // --- اللوحة اليمين (التقرير) ---
         drawPanel(ctx, RX, RY, RW, RH, acc, { radius: 24 });
-        
         let rpy = RY + 50;
         M(ctx, '📊 تقرير الرحلة', RX + RW / 2, rpy, 28, acc, true);
         rpy += 50; divLine(ctx, RX + 30, rpy, RW - 60, acc + '55'); rpy += 40;
@@ -591,58 +481,19 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
             rpy += 64;
         }
 
-        divLine(ctx, RX + 30, rpy + 10, RW - 60); rpy += 40;
-
-        M(ctx, 'نسبة الإنجاز', RX + RW / 2, rpy + 16, 20, C.textD);
-        rpy += 40; drawBar(ctx, RX + 30, rpy, RW - 60, 36, prog, acc); rpy += 60;
-
     } else {
         drawPanel(ctx, MX, MY, MW, MH, C.gold, { radius: 24 });
-        
-        ctx.save();
-        const roadGrad = ctx.createLinearGradient(MX + MW / 2, MY + MH * 0.35, MX + MW / 2, MY + MH);
-        roadGrad.addColorStop(0, 'rgba(80,55,20,0)');
-        roadGrad.addColorStop(0.4, 'rgba(60,40,10,0.30)');
-        roadGrad.addColorStop(1, 'rgba(30,18,4,0.55)');
-        ctx.fillStyle = roadGrad;
-        ctx.beginPath();
-        ctx.moveTo(MX + MW / 2 - 8, MY + MH * 0.42);
-        ctx.lineTo(MX + MW / 2 + 8, MY + MH * 0.42);
-        ctx.lineTo(MX + MW / 2 + 140, MY + MH);
-        ctx.lineTo(MX + MW / 2 - 140, MY + MH);
-        ctx.closePath(); ctx.fill();
-        
-        ctx.strokeStyle = 'rgba(200,160,60,0.20)'; ctx.lineWidth = 2;
-        ctx.setLineDash([18, 22]);
-        ctx.beginPath();
-        ctx.moveTo(MX + MW / 2, MY + MH * 0.45);
-        ctx.lineTo(MX + MW / 2, MY + MH);
-        ctx.stroke(); ctx.setLineDash([]);
-        ctx.restore();
-
-        ctx.save();
-        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 9) {
-            const len = 180 + Math.sin(angle * 3) * 40;
-            ctx.strokeStyle = C.gold + '14'; ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(MX + MW / 2, MY + MH * 0.54);
-            ctx.lineTo(MX + MW / 2 + Math.cos(angle) * len, MY + MH * 0.54 + Math.sin(angle) * len);
-            ctx.stroke();
+        const camelImg = await fetchImageSafe('camel');
+        if(camelImg) {
+            ctx.shadowColor  = C.gold; ctx.shadowBlur = 60;
+            ctx.drawImage(camelImg, MX + MW / 2 - 120, MY + MH * 0.45 - 120, 240, 240);
+            ctx.shadowBlur = 0;
+        } else {
+            ctx.font = `200px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.shadowColor  = C.gold; ctx.shadowBlur = 60;
+            ctx.fillText('🐪', MX + MW / 2, MY + MH * 0.45);
+            ctx.shadowBlur = 0;
         }
-        ctx.restore();
-
-        [100, 160, 220].forEach((r, idx) => {
-            ctx.strokeStyle = `rgba(245,197,24,${0.06 - idx * 0.015})`;
-            ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.arc(MX + MW / 2, MY + MH * 0.54, r, 0, Math.PI * 2); ctx.stroke();
-        });
-        
-        ctx.font = `200px ${FE}`;
-        ctx.textAlign    = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor  = C.gold; ctx.shadowBlur = 60;
-        ctx.fillText('🐪', MX + MW / 2, MY + MH * 0.45);
-        ctx.shadowBlur   = 0;
 
         ctx.shadowColor = C.gold + '88'; ctx.shadowBlur = 14;
         M(ctx, 'القوافل مستعدة للإنطلاق', MX + MW / 2, MY + MH - 110, 36, C.gold, true);
@@ -672,12 +523,15 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 }
 module.exports.generateCaravanHub = generateCaravanHub;
 
+// ══════════════════════════════════════════════
+//  2. SEND MAP — خريطة تحديد المسار
+// ══════════════════════════════════════════════
 async function generateSendMap(user, stats, mora) {
     const cfg  = require('../json/caravan-config.json');
     const core = require('../handlers/caravan-core.js');
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
-    drawBg(ctx);
+    await drawBg(ctx, 'worldmap'); // خريطة العالم الكبيرة كخلفية
     await drawHeader(ctx, '🗺️ تحديد مسار القافلة');
 
     const DESTS = cfg.destinations;
@@ -686,15 +540,33 @@ async function generateSendMap(user, stats, mora) {
     const startX = (W - totalW) / 2;
     const cardY  = 160;
 
-    DESTS.forEach((d, i) => {
+    for (let i=0; i<DESTS.length; i++) {
+        const d = DESTS[i];
         const cx   = startX + i * (cw + cgap);
         const acc  = d.color || C.gold;
         const canAfford = Number(mora) >= d.cost;
 
-        const bg = ctx.createLinearGradient(cx, cardY, cx, cardY + ch);
-        bg.addColorStop(0, acc + '22'); bg.addColorStop(1, 'rgba(4,6,14,0.97)');
+        // رسم صورة الوجهة (Mini map) داخل البطاقة
+        const destImg = await fetchImageSafe(d.id.replace(/_/g, '')); // مثل goldcity
+        
+        // الخلفية الأساسية للبطاقة
         rr(ctx, cx, cardY, cw, ch, 20);
-        ctx.fillStyle = bg; ctx.fill();
+        if(destImg) {
+            ctx.save(); ctx.clip();
+            ctx.drawImage(destImg, cx, cardY, cw, ch);
+            // تدرج داكن أسفل الصورة ليظهر النص
+            const bgGrad = ctx.createLinearGradient(cx, cardY, cx, cardY + ch);
+            bgGrad.addColorStop(0, 'rgba(0,0,0,0.2)');
+            bgGrad.addColorStop(0.5, 'rgba(10,14,28,0.9)');
+            bgGrad.addColorStop(1, 'rgba(5,7,16,0.95)');
+            ctx.fillStyle = bgGrad; ctx.fillRect(cx, cardY, cw, ch);
+            ctx.restore();
+        } else {
+            const bg = ctx.createLinearGradient(cx, cardY, cx, cardY + ch);
+            bg.addColorStop(0, acc + '22'); bg.addColorStop(1, 'rgba(4,6,14,0.97)');
+            ctx.fillStyle = bg; ctx.fill();
+        }
+        
         ctx.strokeStyle = acc + (canAfford ? 'CC' : '44');
         ctx.lineWidth   = canAfford ? 3 : 1.5;
         ctx.shadowColor = canAfford ? acc : 'transparent';
@@ -741,7 +613,7 @@ async function generateSendMap(user, stats, mora) {
             rr(ctx, cx + cw / 2 - 80, cardY + ch - 54, 160, 44, 10); ctx.stroke();
             M(ctx, '❌ رصيد غير كافٍ', cx + cw / 2, cardY + ch - 30, 20, C.red, true);
         }
-    });
+    }
 
     const fy = cardY + ch + 35;
     divLine(ctx, 60, fy, W - 120, C.gold + '33');
@@ -751,6 +623,9 @@ async function generateSendMap(user, stats, mora) {
 }
 module.exports.generateSendMap = generateSendMap;
 
+// ══════════════════════════════════════════════
+//  3. STATUS — متابعة القافلة
+// ══════════════════════════════════════════════
 async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details') {
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
@@ -765,7 +640,11 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
     const hasAtk = atkRes === 0 && (caravan.guardmessageid || caravan.guardMessageId);
     const rm     = Number(caravan.rewardmultiplier || caravan.rewardMultiplier || 1);
 
-    drawBg(ctx);
+    // اختيار خلفية التتبع
+    let bgName = 'journeymap';
+    if(hasAtk || atkRes === 2 || atkRes === -1) bgName = 'banditattack';
+    await drawBg(ctx, bgName);
+
     const subTitle = tleft <= 0 ? '✅ القافلة وصلت بسلام' : `⏳ متبقي ${formatArabicTime(tleft)}`;
     await drawHeader(ctx, `متابعة قافلة ${dest?.name || ''}`, subTitle);
 
@@ -776,48 +655,9 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         const oX = MX + 180,       oY = MY + MH - 140;
         const dX = MX + MW - 180,  dY = MY + 180;
         const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 200;
-
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
-
-        ctx.save();
-        const roadGrad = ctx.createLinearGradient(MX + MW / 2, MY + MH * 0.35, MX + MW / 2, MY + MH);
-        roadGrad.addColorStop(0, 'rgba(80,55,20,0)');
-        roadGrad.addColorStop(0.4, 'rgba(60,40,10,0.30)');
-        roadGrad.addColorStop(1, 'rgba(30,18,4,0.55)');
-        ctx.fillStyle = roadGrad;
-        ctx.beginPath();
-        ctx.moveTo(MX + MW / 2 - 8, MY + MH * 0.42);
-        ctx.lineTo(MX + MW / 2 + 8, MY + MH * 0.42);
-        ctx.lineTo(MX + MW / 2 + 140, MY + MH);
-        ctx.lineTo(MX + MW / 2 - 140, MY + MH);
-        ctx.closePath(); ctx.fill();
-        
-        ctx.strokeStyle = 'rgba(200,160,60,0.20)'; ctx.lineWidth = 2;
-        ctx.setLineDash([18, 22]);
-        ctx.beginPath();
-        ctx.moveTo(MX + MW / 2, MY + MH * 0.45);
-        ctx.lineTo(MX + MW / 2, MY + MH);
-        ctx.stroke(); ctx.setLineDash([]);
-        ctx.restore();
-
-        ctx.save();
-        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 9) {
-            const len = 180 + Math.sin(angle * 3) * 40;
-            ctx.strokeStyle = C.gold + '14'; ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(MX + MW / 2, MY + MH * 0.54);
-            ctx.lineTo(MX + MW / 2 + Math.cos(angle) * len, MY + MH * 0.54 + Math.sin(angle) * len);
-            ctx.stroke();
-        }
-        ctx.restore();
-
-        [100, 160, 220].forEach((r, idx) => {
-            ctx.strokeStyle = `rgba(245,197,24,${0.06 - idx * 0.015})`;
-            ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.arc(MX + MW / 2, MY + MH * 0.54, r, 0, Math.PI * 2); ctx.stroke();
-        });
 
         ctx.setLineDash([20, 16]);
         ctx.strokeStyle = acc + '33'; ctx.lineWidth = 14;
@@ -844,14 +684,21 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.fillText(dest?.emoji || '📍', dX, dY - 80);
         M(ctx, dest?.name || '', dX, dY + 65, 30, acc, true);
 
-        const camelEmoji = hasAtk ? '⚔️' : '🐪';
-        ctx.font = `140px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 50;
-        ctx.fillText(camelEmoji, cX, cY - 25);
-        ctx.shadowBlur = 0;
+        const camelImg = await fetchImageSafe('camel');
+        if (camelImg) {
+            ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 50;
+            ctx.drawImage(camelImg, cX - 80, cY - 90, 160, 160);
+            ctx.shadowBlur = 0;
+        } else {
+            const camelEmoji = hasAtk ? '⚔️' : '🐪';
+            ctx.font = `140px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 50;
+            ctx.fillText(camelEmoji, cX, cY - 25);
+            ctx.shadowBlur = 0;
+        }
 
         if (hasAtk) {
-            const bw2 = 400, bx2 = cX - 200, by2 = cY - 180;
+            const bw2 = 400, bx2 = cX - 200, by2 = cY - 150;
             rr(ctx, bx2, by2, bw2, 70, 16);
             ctx.fillStyle = 'rgba(231,76,60,0.95)'; ctx.fill();
             ctx.strokeStyle = C.red; ctx.lineWidth = 4;
@@ -922,7 +769,7 @@ async function generateUpgradePanel(user, stats, mora) {
     const cfg    = require('../json/caravan-config.json');
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
-    drawBg(ctx);
+    await drawBg(ctx, 'hubbg');
     await drawHeader(ctx, '🏗️ مركز تطوير القوافل');
 
     const upgList = [
@@ -1040,7 +887,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const core   = require('../handlers/caravan-core.js');
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
-    drawBg(ctx);
+    await drawBg(ctx, 'hubbg');
     await drawHeader(ctx, '🔮 تجهيز أدوات القافلة', `الحد الأقصى 3 أدوات فقط`);
 
     const RARITY_COL = {
