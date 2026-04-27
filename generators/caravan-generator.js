@@ -73,57 +73,119 @@ function rr(ctx, x, y, w, h, r = 24) {
     ctx.closePath();
 }
 
-function drawBg(ctx) {
-    const sky = ctx.createLinearGradient(0, 0, 0, H);
-    sky.addColorStop(0,    '#020408');
-    sky.addColorStop(0.5,  '#06091A');
-    sky.addColorStop(0.78, '#0D0804');
-    sky.addColorStop(1,    '#160A02');
+function drawBg(ctx, cw = W, ch = H) {
+    const sky = ctx.createLinearGradient(0, 0, 0, ch);
+    sky.addColorStop(0,    '#010306');
+    sky.addColorStop(0.35, '#050A1E');
+    sky.addColorStop(0.65, '#0A0B1A');
+    sky.addColorStop(0.82, '#120804');
+    sky.addColorStop(1,    '#1A0A01');
     ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, 0, cw, ch);
 
     ctx.save();
-    for (let i = 0; i < 180; i++) {
-        const sx = Math.random() * W;
-        const sy = Math.random() * H * 0.70;
-        const sr = Math.random() * 2 + 0.2;
-        const sa = Math.random() * 0.8 + 0.1;
-        ctx.globalAlpha = sa;
-        ctx.fillStyle   = Math.random() > 0.85 ? '#FFF9C4' : '#FFFFFF';
+    [
+        { x: cw * 0.20, y: ch * 0.18, r: 180, c: 'rgba(40,30,120,0.06)' },
+        { x: cw * 0.65, y: ch * 0.12, r: 220, c: 'rgba(80,20,80,0.05)'  },
+        { x: cw * 0.85, y: ch * 0.30, r: 150, c: 'rgba(20,60,100,0.07)' },
+    ].forEach(n => {
+        const ng = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+        ng.addColorStop(0, n.c); ng.addColorStop(1, 'transparent');
+        ctx.fillStyle = ng; ctx.fillRect(0, 0, cw, ch);
+    });
+
+    for (let i = 0; i < 220; i++) {
+        const sx = Math.random() * cw;
+        const sy = Math.random() * ch * 0.70;
+        const sr = Math.random() * 1.4 + 0.2;
+        ctx.globalAlpha = Math.random() * 0.55 + 0.08;
+        ctx.fillStyle   = Math.random() > 0.88 ? '#FFF9C4' : '#FFFFFF';
         ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
     }
+
+    for (let i = 0; i < 12; i++) {
+        const sx = Math.random() * cw;
+        const sy = Math.random() * ch * 0.60;
+        const sr = Math.random() * 1.0 + 1.4;
+        ctx.globalAlpha = Math.random() * 0.4 + 0.3;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.shadowColor = '#AAD4FF'; ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
     ctx.restore();
 
-    ctx.fillStyle = 'rgba(20,10,2,0.7)';
+    const mx = cw - 140, my = 120, mr = 50; 
+    
+    const haloG = ctx.createRadialGradient(mx, my, mr, mx, my, mr + 60);
+    haloG.addColorStop(0, 'rgba(255,220,80,0.15)');
+    haloG.addColorStop(1, 'transparent');
+    ctx.fillStyle = haloG; ctx.fillRect(0, 0, cw, ch);
+    
+    const moon = ctx.createRadialGradient(mx - 15, my - 15, 5, mx, my, mr);
+    moon.addColorStop(0,   '#FFFEF0');
+    moon.addColorStop(0.6, '#FFE566');
+    moon.addColorStop(1,   'rgba(255,210,40,0)');
+    ctx.fillStyle   = moon;
+    ctx.shadowColor = '#FFD700'; ctx.shadowBlur = 45;
+    ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur  = 0;
+    
+    ctx.strokeStyle = 'rgba(255,220,80,0.20)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(mx, my, mr + 12, 0, Math.PI * 2); ctx.stroke();
+
+    const dune1 = ctx.createLinearGradient(0, ch - 140, 0, ch);
+    dune1.addColorStop(0, '#1E0E02'); dune1.addColorStop(1, '#0D0600');
+    ctx.fillStyle = dune1;
     ctx.beginPath();
-    ctx.moveTo(0, H);
-    ctx.bezierCurveTo(W * .10, H - 120,  W * .25, H - 170, W * .42, H - 130);
-    ctx.bezierCurveTo(W * .58, H - 90,   W * .72, H - 150, W * .88, H - 110);
-    ctx.bezierCurveTo(W * .94, H - 100,  W,       H - 80,  W,       H);
+    ctx.moveTo(0, ch);
+    ctx.bezierCurveTo(cw*.08, ch-110,  cw*.22, ch-160, cw*.40, ch-125);
+    ctx.bezierCurveTo(cw*.55, ch-95,   cw*.70, ch-155, cw*.86, ch-115);
+    ctx.bezierCurveTo(cw*.93, ch-95,   cw,      ch-75,  cw,      ch);
     ctx.closePath(); ctx.fill();
 
-    ctx.fillStyle = '#100800';
+    const dune2 = ctx.createLinearGradient(0, ch - 80, 0, ch);
+    dune2.addColorStop(0, '#140900'); dune2.addColorStop(1, '#0A0500');
+    ctx.fillStyle = dune2;
     ctx.beginPath();
-    ctx.moveTo(0, H);
-    ctx.bezierCurveTo(W * .15, H - 75,  W * .35, H - 105,  W * .55, H - 75);
-    ctx.bezierCurveTo(W * .70, H - 42,  W * .85, H - 90,   W,       H - 50);
-    ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+    ctx.moveTo(0, ch);
+    ctx.bezierCurveTo(cw*.12, ch-65,  cw*.30, ch-105,  cw*.52, ch-70);
+    ctx.bezierCurveTo(cw*.68, ch-45,  cw*.82, ch-85,  cw,      ch-50);
+    ctx.lineTo(cw, ch); ctx.closePath(); ctx.fill();
+
+    ctx.strokeStyle = 'rgba(80,40,10,0.35)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, ch - 35);
+    ctx.bezierCurveTo(cw*.20, ch-55, cw*.45, ch-45, cw*.70, ch-60);
+    ctx.bezierCurveTo(cw*.85, ch-70, cw*.95, ch-50, cw, ch-40);
+    ctx.stroke();
 }
 
 function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
     const radius = opts.radius || 24;
-    ctx.shadowColor = accent + '22';
-    ctx.shadowBlur  = 16;
+
+    ctx.shadowColor = accent + '33';
+    ctx.shadowBlur  = 20;
 
     const bg = ctx.createLinearGradient(x, y, x, y + h);
-    bg.addColorStop(0, 'rgba(14,20,40,0.95)');
-    bg.addColorStop(1, 'rgba(6,8,18,0.97)');
+    bg.addColorStop(0,    'rgba(18,24,48,0.97)');
+    bg.addColorStop(0.5,  'rgba(10,14,30,0.97)');
+    bg.addColorStop(1,    'rgba(5,7,16,0.98)');
     rr(ctx, x, y, w, h, radius);
     ctx.fillStyle = bg; ctx.fill();
     ctx.shadowBlur = 0;
 
+    const topG = ctx.createLinearGradient(x + 30, 0, x + w - 30, 0);
+    topG.addColorStop(0,   'transparent');
+    topG.addColorStop(0.3, accent + '55');
+    topG.addColorStop(0.7, accent + '55');
+    topG.addColorStop(1,   'transparent');
+    ctx.fillStyle = topG;
+    ctx.fillRect(x + radius, y + 1, w - radius * 2, 2);
+
     rr(ctx, x, y, w, h, radius);
-    ctx.strokeStyle = accent + '55';
+    ctx.strokeStyle = accent + '60';
     ctx.lineWidth   = 2.5;
     ctx.stroke();
 
@@ -135,14 +197,23 @@ function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
         ctx.shadowBlur  = 12;
         ctx.beginPath();
         [
-            [x, y + cl, x, y, x + cl, y],
-            [x + w - cl, y, x + w, y, x + w, y + cl],
-            [x + w, y + h - cl, x + w, y + h, x + w - cl, y + h],
-            [x + cl, y + h, x, y + h, x, y + h - cl],
-        ].forEach(([ax, ay, bx, by, cx2, cy2]) => {
-            ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx2, cy2);
+            [x,         y + cl, x,     y,     x + cl,     y    ],
+            [x+w-cl,    y,      x + w, y,     x + w,      y+cl ],
+            [x+w,       y+h-cl, x + w, y + h, x+w-cl,     y+h  ],
+            [x+cl,      y+h,    x,     y + h, x,          y+h-cl],
+        ].forEach(([ax,ay,bx,by,cx2,cy2]) => {
+            ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.lineTo(cx2,cy2);
         });
         ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = accent; ctx.shadowColor = accent; ctx.shadowBlur = 8;
+        [[x, y],[x+w, y],[x+w, y+h],[x, y+h]].forEach(([px,py]) => {
+            ctx.beginPath();
+            ctx.moveTo(px, py - 6); ctx.lineTo(px + 6, py);
+            ctx.lineTo(px, py + 6); ctx.lineTo(px - 6, py);
+            ctx.closePath(); ctx.fill();
+        });
         ctx.shadowBlur = 0;
     }
 }
@@ -162,7 +233,7 @@ function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
     rr(ctx, x, y, filled, h, h / 2);
     ctx.fillStyle   = grad;
     ctx.shadowColor = color;
-    ctx.shadowBlur  = 14;
+    ctx.shadowBlur  = 16;
     ctx.fill();
     ctx.shadowBlur  = 0;
 
@@ -245,7 +316,7 @@ async function drawHeader(ctx, title, subtitle = '') {
     ctx.fillRect(0, 128, W, 2.5);
 
     ctx.shadowColor = C.gold + '66'; ctx.shadowBlur = 18;
-    M(ctx, title, W / 2, 54, 46, C.text, true);
+    M(ctx, title, W / 2, 44, 46, C.text, true);
     ctx.shadowBlur = 0;
     if (subtitle) M(ctx, subtitle, W / 2, 98, 24, C.textD);
 }
@@ -338,8 +409,10 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     M(ctx, `✦ ${rank.name} ✦`, LX + LW / 2, LY + 230, 24, rank.color, true);
     ctx.shadowBlur = 0;
 
+    const repText = `\u202B${repRank.name}\u202C`;
     ctx.font = `bold 22px ${FA}`;
-    const txtWidth = ctx.measureText(repRank.name).width;
+    const txtWidth = ctx.measureText(repText).width;
+    
     const ptsText = repPts.toLocaleString();
     ctx.font = `bold 18px Arial, sans-serif`;
     const ptsWidth = ctx.measureText(ptsText).width;
@@ -350,7 +423,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const startX = LX + LW / 2 + totalWidth / 2; 
     
     ctx.font = `bold 22px ${FA}`;
-    R(ctx, repRank.name, startX, LY + 275, 22, repRank.color, true);
+    R(ctx, repText, startX, LY + 275, 22, repRank.color, true);
     
     const pillX = startX - txtWidth - 20 - pillW;
     rr(ctx, pillX, LY + 275 - pillH / 2, pillW, pillH, pillH / 2);
@@ -415,6 +488,44 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
+
+        ctx.save();
+        const roadGrad = ctx.createLinearGradient(MX + MW / 2, MY + MH * 0.35, MX + MW / 2, MY + MH);
+        roadGrad.addColorStop(0, 'rgba(80,55,20,0)');
+        roadGrad.addColorStop(0.4, 'rgba(60,40,10,0.30)');
+        roadGrad.addColorStop(1, 'rgba(30,18,4,0.55)');
+        ctx.fillStyle = roadGrad;
+        ctx.beginPath();
+        ctx.moveTo(MX + MW / 2 - 8, MY + MH * 0.42);
+        ctx.lineTo(MX + MW / 2 + 8, MY + MH * 0.42);
+        ctx.lineTo(MX + MW / 2 + 140, MY + MH);
+        ctx.lineTo(MX + MW / 2 - 140, MY + MH);
+        ctx.closePath(); ctx.fill();
+        
+        ctx.strokeStyle = 'rgba(200,160,60,0.20)'; ctx.lineWidth = 2;
+        ctx.setLineDash([18, 22]);
+        ctx.beginPath();
+        ctx.moveTo(MX + MW / 2, MY + MH * 0.45);
+        ctx.lineTo(MX + MW / 2, MY + MH);
+        ctx.stroke(); ctx.setLineDash([]);
+        ctx.restore();
+
+        ctx.save();
+        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 9) {
+            const len = 180 + Math.sin(angle * 3) * 40;
+            ctx.strokeStyle = C.gold + '14'; ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(MX + MW / 2, MY + MH * 0.54);
+            ctx.lineTo(MX + MW / 2 + Math.cos(angle) * len, MY + MH * 0.54 + Math.sin(angle) * len);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        [100, 160, 220].forEach((r, idx) => {
+            ctx.strokeStyle = `rgba(245,197,24,${0.06 - idx * 0.015})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(MX + MW / 2, MY + MH * 0.54, r, 0, Math.PI * 2); ctx.stroke();
+        });
 
         ctx.setLineDash([14, 12]);
         ctx.strokeStyle = acc + '33'; ctx.lineWidth = 8;
@@ -487,6 +598,45 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
     } else {
         drawPanel(ctx, MX, MY, MW, MH, C.gold, { radius: 24 });
+        
+        ctx.save();
+        const roadGrad = ctx.createLinearGradient(MX + MW / 2, MY + MH * 0.35, MX + MW / 2, MY + MH);
+        roadGrad.addColorStop(0, 'rgba(80,55,20,0)');
+        roadGrad.addColorStop(0.4, 'rgba(60,40,10,0.30)');
+        roadGrad.addColorStop(1, 'rgba(30,18,4,0.55)');
+        ctx.fillStyle = roadGrad;
+        ctx.beginPath();
+        ctx.moveTo(MX + MW / 2 - 8, MY + MH * 0.42);
+        ctx.lineTo(MX + MW / 2 + 8, MY + MH * 0.42);
+        ctx.lineTo(MX + MW / 2 + 140, MY + MH);
+        ctx.lineTo(MX + MW / 2 - 140, MY + MH);
+        ctx.closePath(); ctx.fill();
+        
+        ctx.strokeStyle = 'rgba(200,160,60,0.20)'; ctx.lineWidth = 2;
+        ctx.setLineDash([18, 22]);
+        ctx.beginPath();
+        ctx.moveTo(MX + MW / 2, MY + MH * 0.45);
+        ctx.lineTo(MX + MW / 2, MY + MH);
+        ctx.stroke(); ctx.setLineDash([]);
+        ctx.restore();
+
+        ctx.save();
+        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 9) {
+            const len = 180 + Math.sin(angle * 3) * 40;
+            ctx.strokeStyle = C.gold + '14'; ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(MX + MW / 2, MY + MH * 0.54);
+            ctx.lineTo(MX + MW / 2 + Math.cos(angle) * len, MY + MH * 0.54 + Math.sin(angle) * len);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        [100, 160, 220].forEach((r, idx) => {
+            ctx.strokeStyle = `rgba(245,197,24,${0.06 - idx * 0.015})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(MX + MW / 2, MY + MH * 0.54, r, 0, Math.PI * 2); ctx.stroke();
+        });
+        
         ctx.font = `200px ${FE}`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
@@ -630,6 +780,44 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
+
+        ctx.save();
+        const roadGrad = ctx.createLinearGradient(MX + MW / 2, MY + MH * 0.35, MX + MW / 2, MY + MH);
+        roadGrad.addColorStop(0, 'rgba(80,55,20,0)');
+        roadGrad.addColorStop(0.4, 'rgba(60,40,10,0.30)');
+        roadGrad.addColorStop(1, 'rgba(30,18,4,0.55)');
+        ctx.fillStyle = roadGrad;
+        ctx.beginPath();
+        ctx.moveTo(MX + MW / 2 - 8, MY + MH * 0.42);
+        ctx.lineTo(MX + MW / 2 + 8, MY + MH * 0.42);
+        ctx.lineTo(MX + MW / 2 + 140, MY + MH);
+        ctx.lineTo(MX + MW / 2 - 140, MY + MH);
+        ctx.closePath(); ctx.fill();
+        
+        ctx.strokeStyle = 'rgba(200,160,60,0.20)'; ctx.lineWidth = 2;
+        ctx.setLineDash([18, 22]);
+        ctx.beginPath();
+        ctx.moveTo(MX + MW / 2, MY + MH * 0.45);
+        ctx.lineTo(MX + MW / 2, MY + MH);
+        ctx.stroke(); ctx.setLineDash([]);
+        ctx.restore();
+
+        ctx.save();
+        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 9) {
+            const len = 180 + Math.sin(angle * 3) * 40;
+            ctx.strokeStyle = C.gold + '14'; ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(MX + MW / 2, MY + MH * 0.54);
+            ctx.lineTo(MX + MW / 2 + Math.cos(angle) * len, MY + MH * 0.54 + Math.sin(angle) * len);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        [100, 160, 220].forEach((r, idx) => {
+            ctx.strokeStyle = `rgba(245,197,24,${0.06 - idx * 0.015})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(MX + MW / 2, MY + MH * 0.54, r, 0, Math.PI * 2); ctx.stroke();
+        });
 
         ctx.setLineDash([20, 16]);
         ctx.strokeStyle = acc + '33'; ctx.lineWidth = 14;
@@ -818,6 +1006,15 @@ async function generateUpgradePanel(user, stats, mora) {
             ctx.shadowColor = col; ctx.shadowBlur = 16;
             M(ctx, '✅ تم الوصول للحد الأقصى', cx + cw / 2, cy + 270, 26, col, true);
             ctx.shadowBlur  = 0;
+            const pgx = cx + 28, pgy = cy + 260, pgw = cw - 56, pgh = 38;
+            const pg = ctx.createLinearGradient(pgx, 0, pgx + pgw, 0);
+            pg.addColorStop(0,   col + '00');
+            pg.addColorStop(0.4, col + 'AA');
+            pg.addColorStop(0.6, col + 'AA');
+            pg.addColorStop(1,   col + '00');
+            rr(ctx, pgx, pgy, pgw, pgh, 10);
+            ctx.fillStyle = pg; ctx.fill();
+            M(ctx, `تأثير تراكمي نشط بنسبة ${((rank - 1) * 25).toFixed(0)}%`, cx + cw / 2, cy + 279, 18, '#FFF', true);
         } else {
             R(ctx, `💰 ${cost.toLocaleString()}`, cx + cw - 30, cy + 275, 24, canAf ? C.gold : C.red, true);
 
