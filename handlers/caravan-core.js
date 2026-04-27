@@ -2,12 +2,10 @@ const caravanConfig = require('../json/caravan-config.json');
 const farmAnimals  = require('../json/farm-animals.json');
 const seedsData    = require('../json/seeds.json');
 const upgradeMats  = require('../json/upgrade-materials.json');
-
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
-/* ─────────────────── safeQuery / safeExecute ─────────────────── */
 const safeQuery = async (db, q, p) => {
     try {
         const r = await db.query(q, p);
@@ -31,7 +29,6 @@ const safeExecute = async (db, q, p) => {
     }
 };
 
-/* ─────────────────── إنشاء الجداول ─────────────────── */
 async function initCaravanTables(db) {
     await safeExecute(db, `
         CREATE TABLE IF NOT EXISTS user_caravans (
@@ -65,7 +62,6 @@ async function initCaravanTables(db) {
         )`, []);
 }
 
-/* ─────────────────── قراءة إحصائيات اليوزر ─────────────────── */
 async function getUserCaravanStats(db, userId, guildId) {
     const res = await safeQuery(db,
         `SELECT * FROM user_caravan_stats WHERE "userID"=$1 AND "guildID"=$2`,
@@ -80,7 +76,6 @@ async function getUserCaravanStats(db, userId, guildId) {
              total_trips:0, successful_trips:0 };
 }
 
-/* ─────────────────── قراءة القافلة النشطة ─────────────────── */
 async function getActiveCaravan(db, userId, guildId) {
     const res = await safeQuery(db,
         `SELECT * FROM user_caravans WHERE "userID"=$1 AND "guildID"=$2 AND "status"!='completed'`,
@@ -88,7 +83,6 @@ async function getActiveCaravan(db, userId, guildId) {
     return res.rows[0] || null;
 }
 
-/* ─────────────────── حساب بافات الأدوات المجهزة ─────────────────── */
 function getEquippedBuffs(equippedArtifacts) {
     let speedBuff = 0, luckBuff = 0;
     if (!equippedArtifacts || !equippedArtifacts.length) return { speedBuff, luckBuff };
@@ -112,7 +106,6 @@ function getEquippedBuffs(equippedArtifacts) {
     return { speedBuff, luckBuff };
 }
 
-/* ─────────────────── حساب مدة الرحلة بعد الترقيات ─────────────────── */
 function calcDuration(destConfig, stats, equippedBuffs) {
     const speedRank  = Number(stats.speed_rank || 1);
     const speedCfg   = caravanConfig.upgrades.speed;
@@ -121,7 +114,6 @@ function calcDuration(destConfig, stats, equippedBuffs) {
     return Math.floor(baseMs * (1 - reduction));
 }
 
-/* ─────────────────── حساب نسبة الخطر بعد الترقيات ─────────────────── */
 function calcRiskFactor(destConfig, stats) {
     const defRank   = Number(stats.defense_rank || 1);
     const defCfg    = caravanConfig.upgrades.defense;
@@ -129,7 +121,6 @@ function calcRiskFactor(destConfig, stats) {
     return Math.max(destConfig.risk_factor - reduction, 0.03);
 }
 
-/* ─────────────────── حساب مضاعف المكافآت النهائية ─────────────────── */
 function calcRewardMultiplier(stats, equippedBuffs) {
     const capRank  = Number(stats.capacity_rank || 1);
     const luckRank = Number(stats.luck_rank     || 1);
@@ -141,7 +132,6 @@ function calcRewardMultiplier(stats, equippedBuffs) {
         + equippedBuffs.luckBuff;
 }
 
-/* ─────────────────── إرسال القافلة ─────────────────── */
 async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) {
     const dest  = caravanConfig.destinations.find(d => d.id === destId);
     if (!dest) return { error: 'وجهة غير موجودة.' };
@@ -154,7 +144,6 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) 
     const startTime    = now;
     const endTime      = now + durationMs;
 
-    // هل سيحدث هجوم؟ نحدده مسبقاً
     const willBeAttacked = Math.random() < riskFactor;
     let attackScheduledAt = 0;
     if (willBeAttacked) {
@@ -174,11 +163,9 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) 
         [userId, guildId, destId, startTime, endTime,
          JSON.stringify(equippedArtifacts), attackScheduledAt]);
 
-    // قفل الأدوات المجهزة (تخزين مؤقت في جدول القافلة كافي)
     return { ok: true, dest, durationMs, endTime, riskFactor, willBeAttacked };
 }
 
-/* ─────────────────── توزيع المكافآت ─────────────────── */
 async function distributeRewards(client, db, caravan) {
     const userId  = caravan.userid  || caravan.userID;
     const guildId = caravan.guildid || caravan.guildID;
@@ -246,7 +233,6 @@ async function distributeRewards(client, db, caravan) {
             }
 
         } else if (dest.reward_type === 'nature') {
-            // البذور
             const seedCount = Math.floor(
                 (dest.reward_seeds_min + Math.random() * (dest.reward_seeds_max - dest.reward_seeds_min + 1)) * finalMulti);
             const seed = seedsData[Math.floor(Math.random() * seedsData.length)];
@@ -257,11 +243,10 @@ async function distributeRewards(client, db, caravan) {
                     [guildId, userId, seed.id, seedCount]);
                 summary.push(`🌱 ${seedCount}x ${seed.name}`);
             }
-            // الحيوانات
             if (Math.random() < (dest.reward_animal_chance || 0.30)) {
                 const animal = farmAnimals[Math.floor(Math.random() * farmAnimals.length)];
                 if (animal) {
-                    const { getUsedCapacity, getPlayerCapacity } = require('../utils/farmUtils.js');
+                    const { getUsedCapacity, getPlayerCapacity } = require('./farmUtils.js');
                     const maxCap  = await getPlayerCapacity(client, userId, guildId);
                     const usedCap = await getUsedCapacity(db, userId, guildId);
                     const lifespan = usedCap >= maxCap
@@ -282,13 +267,11 @@ async function distributeRewards(client, db, caravan) {
         console.error('[Caravan distributeRewards]', e);
     }
 
-    // تحديث الإحصائيات
     await safeExecute(db,
         `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1, "successful_trips"="successful_trips"+$3
          WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId, attackMulti >= 0.5 ? 1 : 0]);
 
-    // حذف سجل القافلة
     await safeExecute(db,
         `DELETE FROM user_caravans WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId]);
@@ -296,7 +279,6 @@ async function distributeRewards(client, db, caravan) {
     return summary;
 }
 
-/* ─────────────────── إرسال إشعار الهجوم ─────────────────── */
 async function sendAttackNotification(client, db, caravan) {
     const userId  = caravan.userid  || caravan.userID;
     const guildId = caravan.guildid || caravan.guildID;
@@ -315,7 +297,6 @@ async function sendAttackNotification(client, db, caravan) {
     const channel = guild?.channels.cache.get(casinoId);
     if (!channel) return;
 
-    // تكلفة الحراسة: 10% من متوسط المكافأة المتوقعة
     let guardCost = 200;
     if (dest.reward_type === 'mora')
         guardCost = Math.floor(((dest.reward_min + dest.reward_max) / 2) * caravanConfig.attack.guard_cost_percent);
@@ -347,12 +328,10 @@ async function sendAttackNotification(client, db, caravan) {
         attackMsg = await channel.send({ content: `<@${userId}>`, embeds: [embed], components: [row] });
     } catch { return; }
 
-    // تحديث DB
     await safeExecute(db,
         `UPDATE user_caravans SET "guardMessageId"=$1,"attackChannelId"=$2 WHERE "id"=$3`,
         [attackMsg.id, casinoId, caravanId]);
 
-    // Collector: ينتهي بعد 30 دقيقة أو عند الضغط
     const collector = attackMsg.createMessageComponentCollector({
         filter: i => i.customId === `caravan_guards_${caravanId}` && i.user.id === userId,
         time:   caravanConfig.attack.guard_timeout_ms,
@@ -405,7 +384,6 @@ async function sendAttackNotification(client, db, caravan) {
     collector.on('end', async (collected, reason) => {
         client.caravanAttackCollectors?.delete(String(caravanId));
         if (reason === 'user') return;
-        // انتهت المهلة بدون رد → تطبيق العقوبة عبر processCaravanReturns
         const lossMin = caravanConfig.attack.ignored_loss_min;
         const lossMax = caravanConfig.attack.ignored_loss_max;
         const loss    = lossMin + Math.random() * (lossMax - lossMin);
@@ -419,7 +397,6 @@ async function sendAttackNotification(client, db, caravan) {
     });
 }
 
-/* ─────────────────── الفاحص التلقائي الدوري ─────────────────── */
 const pendingAttacks = new Set();
 
 async function processCaravanReturns(client, db) {
@@ -433,13 +410,12 @@ async function processCaravanReturns(client, db) {
         for (const caravan of active.rows) {
             const caravanId       = caravan.id;
             const attackAt        = Number(caravan.attackscheduledat || caravan.attackScheduledAt || 0);
-            const endTime         = Number(caravan.endtime           || caravan.endTime           || 0);
-            const attackResolved  = Number(caravan.attackresolved    || caravan.attackResolved    || 0);
-            const guardMsgId      = caravan.guardmessageid           || caravan.guardMessageId;
-            const userId          = caravan.userid                   || caravan.userID;
-            const guildId         = caravan.guildid                  || caravan.guildID;
+            const endTime         = Number(caravan.endtime            || caravan.endTime            || 0);
+            const attackResolved  = Number(caravan.attackresolved     || caravan.attackResolved    || 0);
+            const guardMsgId      = caravan.guardmessageid            || caravan.guardMessageId;
+            const userId          = caravan.userid                    || caravan.userID;
+            const guildId         = caravan.guildid                   || caravan.guildID;
 
-            // A. إرسال إشعار الهجوم إذا حان وقته
             if (attackAt > 0 && now >= attackAt && attackResolved === 0 && !guardMsgId) {
                 if (!pendingAttacks.has(caravanId)) {
                     pendingAttacks.add(caravanId);
@@ -449,10 +425,8 @@ async function processCaravanReturns(client, db) {
                 continue;
             }
 
-            // B. انتهاء الرحلة (بعد حل الهجوم أو بدون هجوم)
             if (now >= endTime && attackResolved !== 0 || (now >= endTime && attackAt === 0)) {
                 const summary = await distributeRewards(client, db, caravan);
-                // إشعار في قناة الكازينو
                 try {
                     const settingsRes = await safeQuery(db,
                         `SELECT "casinoChannelID" FROM settings WHERE "guild"=$1`, [guildId]);
@@ -480,7 +454,6 @@ async function processCaravanReturns(client, db) {
     }
 }
 
-/* ─────────────────── ترقية القافلة ─────────────────── */
 async function upgradeCaravan(db, userId, guildId, upgradeType) {
     const upgCfg = caravanConfig.upgrades[upgradeType];
     if (!upgCfg) return { error: 'نوع الترقية غير صالح.' };
@@ -491,7 +464,7 @@ async function upgradeCaravan(db, userId, guildId, upgradeType) {
 
     if (current >= upgCfg.max_level) return { error: `وصلت للمستوى الأقصى (${upgCfg.max_level})!` };
 
-    const cost = upgCfg.costs[current]; // current هو المستوى الحالي = index التكلفة التالي
+    const cost = upgCfg.costs[current]; 
     const userData = await safeQuery(db,
         `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [userId, guildId]);
     const mora = Number(userData.rows[0]?.mora || 0);
@@ -509,7 +482,6 @@ async function upgradeCaravan(db, userId, guildId, upgradeType) {
     return { ok: true, newLevel: current + 1, cost, upgCfg };
 }
 
-/* ─────────────────── بدء الفحص التلقائي (تُستدعى مرة واحدة) ─────────────────── */
 let _checkerStarted = false;
 function setupCaravanChecker(client, db) {
     if (_checkerStarted) return;
