@@ -22,8 +22,8 @@ try {
     }
 } catch(e) {}
 
-const W  = 1400;
-const H  = 800;
+const W  = 1600;
+const H  = 900;
 const FA = '"Bein","Arial",sans-serif';
 const FE = '"Emoji","Arial",sans-serif';
 
@@ -48,26 +48,10 @@ function formatArabicTime(ms) {
     let h = Math.floor(t / 3600000);
     let m = Math.floor((t % 3600000) / 60000);
 
-    function pluralizeHours(hours) {
-        if (hours === 1) return 'ساعة واحدة';
-        if (hours === 2) return 'ساعتان';
-        if (hours >= 3 && hours <= 10) return `${hours} ساعات`;
-        return `${hours} ساعة`;
-    }
-
-    function pluralizeMins(mins) {
-        if (mins === 1) return 'دقيقة واحدة';
-        if (mins === 2) return 'دقيقتان';
-        if (mins >= 3 && mins <= 10) return `${mins} دقائق`;
-        return `${mins} دقيقة`;
-    }
-
-    let parts = [];
-    if (h > 0) parts.push(pluralizeHours(h));
-    if (m > 0) parts.push(pluralizeMins(m));
-
-    if (parts.length === 0) return 'أقل من دقيقة';
-    return '\u202B' + parts.join(' و ') + '\u202C';
+    if (h > 0 && m > 0) return `${h} ساعة و ${m} دقيقة`;
+    if (h > 0) return `${h} ساعة`;
+    if (m > 0) return `${m} دقيقة`;
+    return 'أقل من دقيقة';
 }
 
 function getItemNameSafe(id) {
@@ -77,7 +61,7 @@ function getItemNameSafe(id) {
     return clean;
 }
 
-function rr(ctx, x, y, w, h, r = 20) {
+function rr(ctx, x, y, w, h, r = 24) {
     if (w < 0 || h < 0) return;
     r = Math.min(r, w / 2, h / 2);
     ctx.beginPath();
@@ -99,11 +83,11 @@ function drawBg(ctx) {
     ctx.fillRect(0, 0, W, H);
 
     ctx.save();
-    for (let i = 0; i < 250; i++) {
+    for (let i = 0; i < 180; i++) {
         const sx = Math.random() * W;
-        const sy = Math.random() * H * 0.75;
-        const sr = Math.random() * 1.8 + 0.2;
-        const sa = Math.random() * 0.7 + 0.1;
+        const sy = Math.random() * H * 0.70;
+        const sr = Math.random() * 2 + 0.2;
+        const sa = Math.random() * 0.8 + 0.1;
         ctx.globalAlpha = sa;
         ctx.fillStyle   = Math.random() > 0.85 ? '#FFF9C4' : '#FFFFFF';
         ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
@@ -113,23 +97,23 @@ function drawBg(ctx) {
     ctx.fillStyle = 'rgba(20,10,2,0.7)';
     ctx.beginPath();
     ctx.moveTo(0, H);
-    ctx.bezierCurveTo(W * .10, H - 90,  W * .25, H - 145, W * .42, H - 110);
-    ctx.bezierCurveTo(W * .58, H - 78,  W * .72, H - 130, W * .88, H - 95);
-    ctx.bezierCurveTo(W * .94, H - 80,  W,       H - 60,  W,       H);
+    ctx.bezierCurveTo(W * .10, H - 120,  W * .25, H - 170, W * .42, H - 130);
+    ctx.bezierCurveTo(W * .58, H - 90,   W * .72, H - 150, W * .88, H - 110);
+    ctx.bezierCurveTo(W * .94, H - 100,  W,       H - 80,  W,       H);
     ctx.closePath(); ctx.fill();
 
     ctx.fillStyle = '#100800';
     ctx.beginPath();
     ctx.moveTo(0, H);
-    ctx.bezierCurveTo(W * .15, H - 55,  W * .35, H - 85,  W * .55, H - 55);
-    ctx.bezierCurveTo(W * .70, H - 32,  W * .85, H - 70,  W,       H - 38);
+    ctx.bezierCurveTo(W * .15, H - 75,  W * .35, H - 105,  W * .55, H - 75);
+    ctx.bezierCurveTo(W * .70, H - 42,  W * .85, H - 90,   W,       H - 50);
     ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
 }
 
 function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
-    const radius = opts.radius || 20;
-    ctx.shadowColor = accent + '33';
-    ctx.shadowBlur  = 20;
+    const radius = opts.radius || 24;
+    ctx.shadowColor = accent + '22';
+    ctx.shadowBlur  = 16;
 
     const bg = ctx.createLinearGradient(x, y, x, y + h);
     bg.addColorStop(0, 'rgba(14,20,40,0.95)');
@@ -140,13 +124,13 @@ function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
 
     rr(ctx, x, y, w, h, radius);
     ctx.strokeStyle = accent + '55';
-    ctx.lineWidth   = 2;
+    ctx.lineWidth   = 2.5;
     ctx.stroke();
 
     if (!opts.noCorners) {
-        const cl = 24;
+        const cl = 28;
         ctx.strokeStyle = accent;
-        ctx.lineWidth   = 3;
+        ctx.lineWidth   = 3.5;
         ctx.shadowColor = accent;
         ctx.shadowBlur  = 12;
         ctx.beginPath();
@@ -178,12 +162,12 @@ function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
     rr(ctx, x, y, filled, h, h / 2);
     ctx.fillStyle   = grad;
     ctx.shadowColor = color;
-    ctx.shadowBlur  = 16;
+    ctx.shadowBlur  = 14;
     ctx.fill();
     ctx.shadowBlur  = 0;
 
     if (showLabel && h >= 16) {
-        ctx.font         = `bold ${Math.max(14, h - 6)}px ${FA}`;
+        ctx.font         = `bold ${Math.max(16, h - 8)}px ${FA}`;
         ctx.fillStyle    = '#FFFFFF';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
@@ -246,11 +230,11 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight, align = 'center') {
 }
 
 async function drawHeader(ctx, title, subtitle = '') {
-    const hg = ctx.createLinearGradient(0, 0, 0, 108);
-    hg.addColorStop(0, 'rgba(0,0,0,0.80)');
+    const hg = ctx.createLinearGradient(0, 0, 0, 130);
+    hg.addColorStop(0, 'rgba(0,0,0,0.85)');
     hg.addColorStop(1, 'rgba(0,0,0,0.50)');
     ctx.fillStyle = hg;
-    ctx.fillRect(0, 0, W, 108);
+    ctx.fillRect(0, 0, W, 130);
 
     const lineG = ctx.createLinearGradient(0, 0, W, 0);
     lineG.addColorStop(0,   'transparent');
@@ -258,12 +242,12 @@ async function drawHeader(ctx, title, subtitle = '') {
     lineG.addColorStop(0.7, C.gold);
     lineG.addColorStop(1,   'transparent');
     ctx.fillStyle = lineG;
-    ctx.fillRect(0, 106, W, 2);
+    ctx.fillRect(0, 128, W, 2.5);
 
-    ctx.shadowColor = C.gold + '66'; ctx.shadowBlur = 16;
-    M(ctx, title, W / 2, 44, 38, C.text, true);
+    ctx.shadowColor = C.gold + '66'; ctx.shadowBlur = 18;
+    M(ctx, title, W / 2, 54, 46, C.text, true);
     ctx.shadowBlur = 0;
-    if (subtitle) M(ctx, subtitle, W / 2, 82, 22, C.textD);
+    if (subtitle) M(ctx, subtitle, W / 2, 98, 24, C.textD);
 }
 
 function drawStars(ctx, n, max, x, y, size, color = C.gold) {
@@ -318,7 +302,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
     drawBg(ctx);
-    await drawHeader(ctx, '✦ نظام القوافل الإمبراطوري ✦');
+    await drawHeader(ctx, '✦ مركز القوافل ✦');
 
     const trips   = Number(stats.total_trips      || 0);
     const success = Number(stats.successful_trips || 0);
@@ -327,110 +311,88 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const repPts  = Number(profExtra.repPoints || 0);
     const repRank = getRepRankInfo(repPts);
 
-    const LX = 30, LY = 115, LW = 400, LH = 575;
-    drawPanel(ctx, LX, LY, LW, LH, rank.color, { radius: 20 });
+    const LX = 40, LY = 160, LW = 440, LH = 610;
+    drawPanel(ctx, LX, LY, LW, LH, rank.color, { radius: 24 });
 
     try {
         const av = await loadImage(user.displayAvatarURL({ extension: 'png', size: 256 }));
         ctx.save();
-        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 85, 65, 0, Math.PI * 2); ctx.clip();
-        ctx.drawImage(av, LX + LW / 2 - 65, LY + 20, 130, 130);
+        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 90, 70, 0, Math.PI * 2); ctx.clip();
+        ctx.drawImage(av, LX + LW / 2 - 70, LY + 20, 140, 140);
         ctx.restore();
         ctx.strokeStyle = rank.color; ctx.lineWidth = 4;
-        ctx.shadowColor = rank.color; ctx.shadowBlur = 18;
-        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 85, 65, 0, Math.PI * 2); ctx.stroke();
+        ctx.shadowColor = rank.color; ctx.shadowBlur = 20;
+        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 90, 70, 0, Math.PI * 2); ctx.stroke();
         ctx.shadowBlur  = 0;
     } catch {}
 
-    rr(ctx, LX + 20, LY + 20, 70, 36, 10);
+    rr(ctx, LX + 20, LY + 20, 80, 40, 12);
     ctx.fillStyle = 'rgba(0,0,0,0.70)'; ctx.fill();
     ctx.strokeStyle = C.gold + '99'; ctx.lineWidth = 1.5;
-    rr(ctx, LX + 20, LY + 20, 70, 36, 10); ctx.stroke();
-    M(ctx, `م.${level}`, LX + 55, LY + 38, 20, C.gold, true);
+    rr(ctx, LX + 20, LY + 20, 80, 40, 12); ctx.stroke();
+    M(ctx, `م.${level}`, LX + 60, LY + 41, 22, C.gold, true);
 
-    M(ctx, truncate(user.username, 18), LX + LW / 2, LY + 175, 28, C.text, true);
+    M(ctx, truncate(user.username, 18), LX + LW / 2, LY + 190, 30, C.text, true);
 
     ctx.shadowColor = rank.color; ctx.shadowBlur = 12;
-    M(ctx, `✦ ${rank.name} ✦`, LX + LW / 2, LY + 210, 22, rank.color, true);
+    M(ctx, `✦ ${rank.name} ✦`, LX + LW / 2, LY + 230, 24, rank.color, true);
     ctx.shadowBlur = 0;
 
-    const repText = `\u202B${repRank.name}\u202C`;
-    ctx.font = `bold 20px ${FA}`;
-    const txtWidth = ctx.measureText(repText).width;
-    
+    ctx.font = `bold 22px ${FA}`;
+    const txtWidth = ctx.measureText(repRank.name).width;
     const ptsText = repPts.toLocaleString();
-    ctx.font = `bold 16px Arial, sans-serif`;
+    ctx.font = `bold 18px Arial, sans-serif`;
     const ptsWidth = ctx.measureText(ptsText).width;
     
-    const pillW = Math.max(40, ptsWidth + 20);
-    const pillH = 34;
+    const pillW = Math.max(50, ptsWidth + 24);
+    const pillH = 38;
     const totalWidth = txtWidth + 20 + pillW;
-    
     const startX = LX + LW / 2 + totalWidth / 2; 
-    ctx.font = `bold 20px ${FA}`;
-    R(ctx, repText, startX, LY + 250, 20, repRank.color, true);
+    
+    ctx.font = `bold 22px ${FA}`;
+    R(ctx, repRank.name, startX, LY + 275, 22, repRank.color, true);
     
     const pillX = startX - txtWidth - 20 - pillW;
-    rr(ctx, pillX, LY + 250 - pillH / 2, pillW, pillH, pillH / 2);
+    rr(ctx, pillX, LY + 275 - pillH / 2, pillW, pillH, pillH / 2);
     ctx.fillStyle = repRank.color + '22';
     ctx.fill();
     ctx.strokeStyle = repRank.color + '77';
-    ctx.lineWidth = 1.5;
-    rr(ctx, pillX, LY + 250 - pillH / 2, pillW, pillH, pillH / 2);
+    ctx.lineWidth = 2;
+    rr(ctx, pillX, LY + 275 - pillH / 2, pillW, pillH, pillH / 2);
     ctx.stroke();
     
-    ctx.font = `bold 16px Arial, sans-serif`;
-    M(ctx, ptsText, pillX + pillW / 2, LY + 250 + 2, 16, repRank.color, true);
+    ctx.font = `bold 18px Arial, sans-serif`;
+    M(ctx, ptsText, pillX + pillW / 2, LY + 275 + 2, 18, repRank.color, true);
 
-    divLine(ctx, LX + 20, LY + 285, LW - 40, rank.color + '44');
-
-    const statItems = [
-        { label: 'إجمالي الرحلات', val: String(trips) },
-        { label: 'الرحلات الناجحة', val: String(success) },
-        { label: 'نسبة النجاح',    val: trips ? `${((success / trips) * 100).toFixed(0)}%` : '—' },
-    ];
-    let sy = LY + 305;
-    for (const s of statItems) {
-        rr(ctx, LX + 24, sy - 18, LW - 48, 44, 10);
-        ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fill();
-        R(ctx, s.label,    LX + LW - 36, sy + 4, 20, C.textD);
-        ctx.shadowColor = C.gold; ctx.shadowBlur = 6;
-        L(ctx, s.val,      LX + 36,      sy + 4, 20, C.gold, true);
-        ctx.shadowBlur = 0;
-        sy += 52;
-    }
-
-    divLine(ctx, LX + 20, sy + 10, LW - 40, rank.color + '44');
-    sy += 35;
-
-    M(ctx, 'مستوى الترقيات', LX + LW / 2, sy, 20, C.textD);
-    sy += 38;
+    divLine(ctx, LX + 30, LY + 315, LW - 60, rank.color + '44');
 
     const upgCfg = [
-        { key: 'capacity_rank', emoji: '📦', name: 'الحمولة', col: '#FF9933' },
-        { key: 'speed_rank',    emoji: '⚡', name: 'السرعة',  col: '#00C3FF' },
-        { key: 'defense_rank',  emoji: '🛡️', name: 'الدرع',   col: '#8888FF' },
-        { key: 'luck_rank',     emoji: '🍀', name: 'الحظ',    col: '#2ECC71' },
+        { key: 'capacity_rank', emoji: '📦', name: 'سعة الحمولة', col: '#FF9933' },
+        { key: 'speed_rank',    emoji: '⚡', name: 'سرعة القافلة',  col: '#00C3FF' },
+        { key: 'defense_rank',  emoji: '🛡️', name: 'درع القافلة',   col: '#8888FF' },
+        { key: 'luck_rank',     emoji: '🍀', name: 'حظ القافلة',    col: '#2ECC71' },
     ];
+    let sy = LY + 340;
     for (const u of upgCfg) {
         const lvl2 = Number(stats[u.key] || 1);
-        ctx.font = `26px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText(u.emoji, LX + 24, sy);
-        L(ctx, u.name, LX + 64, sy, 20, C.text);
-        drawStars(ctx, lvl2, 5, LX + LW - 24, sy, 22, u.col);
-        sy += 38;
+        ctx.font = `28px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(u.emoji, LX + 30, sy);
+        L(ctx, u.name, LX + 75, sy, 22, C.text);
+        drawStars(ctx, lvl2, 5, LX + LW - 30, sy, 24, u.col);
+        sy += 48;
     }
 
-    rr(ctx, LX + 24, LY + LH - 60, LW - 48, 48, 12);
+    rr(ctx, LX + 20, LY + LH - 65, LW - 40, 50, 12);
     ctx.fillStyle = 'rgba(0,0,0,0.50)'; ctx.fill();
     ctx.strokeStyle = C.gold + '66'; ctx.lineWidth = 1.5;
-    rr(ctx, LX + 24, LY + LH - 60, LW - 48, 48, 12); ctx.stroke();
+    rr(ctx, LX + 20, LY + LH - 65, LW - 40, 50, 12); ctx.stroke();
     ctx.shadowColor = C.gold; ctx.shadowBlur = 10;
-    M(ctx, `💰 رصيدك: ${Number(mora).toLocaleString()} مورا`, LX + LW / 2, LY + LH - 36, 22, C.gold, true);
+    M(ctx, `💰 رصيدك: ${Number(mora).toLocaleString()}`, LX + LW / 2, LY + LH - 39, 24, C.gold, true);
     ctx.shadowBlur = 0;
 
-    const MX = 450, MY = 115, MW = 920, MH = 575;
-    drawPanel(ctx, MX, MY, MW, MH, C.gold, { radius: 20 });
+    const MX = 510, MY = 160, MW = 600, MH = 610;
+    
+    const RX = 1140, RY = 160, RW = 420, RH = 610;
 
     if (active) {
         const destId = active.destinationid || active.destinationId;
@@ -442,10 +404,13 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const prog   = (end <= start) ? 1 : Math.min(1, Math.max(0, (now - start) / (end - start)));
         const atkRes = Number(active.attackresolved || active.attackResolved || 0);
         const hasAtk = atkRes === 0 && (active.guardmessageid || active.guardMessageId);
+        const rm     = Number(active.rewardmultiplier || active.rewardMultiplier || 1);
 
-        const oX = MX + 100,       oY = MY + MH - 120;
-        const dX = MX + MW - 100,  dY = MY + 140;
-        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 140;
+        drawPanel(ctx, MX, MY, MW, MH, acc, { radius: 24 });
+
+        const oX = MX + 80,       oY = MY + MH - 100;
+        const dX = MX + MW - 80,  dY = MY + 100;
+        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 160;
 
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
@@ -466,49 +431,92 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 20;
         ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        M(ctx, '🏠', oX, oY - 45, 40, C.text);
-        M(ctx, 'مدينتك', oX, oY + 40, 24, C.green, true);
+        M(ctx, '🏠', oX, oY - 40, 36, C.text);
 
-        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 30;
+        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 28;
         ctx.beginPath(); ctx.arc(dX, dY, 22, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.font = `55px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(dest?.emoji || '📍', dX, dY - 60);
-        M(ctx, dest?.name || '', dX, dY + 45, 24, acc, true);
+        ctx.font = `50px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(dest?.emoji || '📍', dX, dY - 50);
 
         const camelEmoji = hasAtk ? '⚔️' : '🐪';
-        ctx.font = `85px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 40;
-        ctx.fillText(camelEmoji, cX, cY - 20);
+        ctx.fillText(camelEmoji, cX, cY - 14);
         ctx.shadowBlur = 0;
 
-        if (hasAtk) {
-            const bw2 = 280, bx2 = cX - 140, by2 = cY - 110;
-            rr(ctx, bx2, by2, bw2, 48, 12);
-            ctx.fillStyle = 'rgba(231,76,60,0.95)'; ctx.fill();
-            ctx.strokeStyle = C.red; ctx.lineWidth = 2.5;
-            rr(ctx, bx2, by2, bw2, 48, 12); ctx.stroke();
-            M(ctx, '⚔️ القافلة تتعرض لهجوم', cX, by2 + 24, 22, '#FFFFFF', true);
+        drawPanel(ctx, RX, RY, RW, RH, acc, { radius: 24 });
+        
+        let rpy = RY + 50;
+        M(ctx, '📊 تقرير الرحلة', RX + RW / 2, rpy, 28, acc, true);
+        rpy += 50; divLine(ctx, RX + 30, rpy, RW - 60, acc + '55'); rpy += 40;
+
+        const tleft  = Math.max(0, end - now);
+        const stMap2 = {
+            'ok':  { t: '🟢 تتقدم بأمان',    c: C.green },
+            'atk': { t: '⚔️ تحت الهجوم!', c: C.red   },
+            '1':   { t: '🛡️ نجحت الحراسة', c: C.blue  },
+            '2':   { t: '😔 خسائر فادحة', c: '#FFA500' },
+            '-1':  { t: '💀 نُهبت بالكامل',     c: '#FF2222' },
+        };
+        const stk2 = hasAtk ? 'atk' : atkRes !== 0 ? String(atkRes) : 'ok';
+        const st2  = stMap2[stk2] || stMap2['ok'];
+        const rmC  = rm >= 1 ? C.green : rm >= 0.6 ? C.gold : C.red;
+
+        const infoRows = [
+            { label: 'الوجهة',          val: truncate(dest?.name || '', 14),           vc: acc   },
+            { label: 'الحالة',          val: st2.t,                                    vc: st2.c   },
+            { label: 'الوقت المتبقي',   val: formatArabicTime(tleft),                  vc: tleft <= 0 ? C.green : C.text },
+            { label: 'المكافآت',        val: `× ${rm.toFixed(2)}`,                    vc: rmC     },
+        ];
+
+        for (const row of infoRows) {
+            rr(ctx, RX + 20, rpy - 24, RW - 40, 52, 12);
+            ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
+            R(ctx, row.label,    RX + RW - 36, rpy + 3, 20, C.textD);
+            ctx.shadowColor = row.vc; ctx.shadowBlur = 8;
+            L(ctx, row.val,      RX + 36,      rpy + 3, 22, row.vc, true);
+            ctx.shadowBlur = 0;
+            rpy += 64;
         }
 
-        const barY2 = MY + MH - 70;
-        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 28, 26, acc, true);
-        drawBar(ctx, MX + 50, barY2, MW - 100, 40, prog, acc);
+        divLine(ctx, RX + 30, rpy + 10, RW - 60); rpy += 40;
 
-        M(ctx, `القافلة في طريقها إلى ${dest?.name || ''}`, MX + MW / 2, MY + 60, 32, acc, true);
+        M(ctx, 'نسبة الإنجاز', RX + RW / 2, rpy + 16, 20, C.textD);
+        rpy += 40; drawBar(ctx, RX + 30, rpy, RW - 60, 36, prog, acc); rpy += 60;
+
     } else {
-        ctx.font = `240px ${FE}`;
+        drawPanel(ctx, MX, MY, MW, MH, C.gold, { radius: 24 });
+        ctx.font = `200px ${FE}`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
         ctx.shadowColor  = C.gold; ctx.shadowBlur = 60;
-        ctx.fillText('🐪', MX + MW / 2, MY + MH * 0.50);
+        ctx.fillText('🐪', MX + MW / 2, MY + MH * 0.45);
         ctx.shadowBlur   = 0;
 
         ctx.shadowColor = C.gold + '88'; ctx.shadowBlur = 14;
-        M(ctx, '✦ القافلة مستعدة للإنطلاق ✦', MX + MW / 2, MY + MH - 100, 38, C.gold, true);
+        M(ctx, 'القوافل مستعدة للإنطلاق', MX + MW / 2, MY + MH - 110, 36, C.gold, true);
         ctx.shadowBlur = 0;
-        M(ctx, 'اضغط على زر الإرسال لبدء المغامرة وجمع الثروات', MX + MW / 2, MY + MH - 45, 24, C.textD);
+        M(ctx, 'قم بتجهيز القافلة وأرسلها', MX + MW / 2, MY + MH - 55, 24, C.textD);
+        
+        drawPanel(ctx, RX, RY, RW, RH, C.gold, { radius: 24 });
+        let rpy = RY + 50;
+        M(ctx, '📊 إحصائياتك العامة', RX + RW / 2, rpy, 28, C.gold, true);
+        rpy += 50; divLine(ctx, RX + 30, rpy, RW - 60, C.gold + '55'); rpy += 60;
+        
+        ctx.font = `140px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('🏜️', RX + RW / 2, rpy + 50);
+        rpy += 150;
+        
+        M(ctx, `رحلاتك الناجحة: ${success} من ${trips}`, RX + RW / 2, rpy + 40, 24, C.text, true);
+        const pct = trips > 0 ? ((success / trips) * 100).toFixed(0) : 0;
+        rpy += 80; drawBar(ctx, RX + 40, rpy, RW - 80, 32, pct / 100, C.gold, false);
+        M(ctx, `نسبة النجاح الإجمالية ${pct}%`, RX + RW / 2, rpy + 50, 20, C.textD);
     }
+
+    const barY = H - 100;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(0, barY, W, 100);
+    divLine(ctx, 0, barY, W, C.gold + '55');
 
     return toBuf(canvas);
 }
@@ -523,10 +531,10 @@ async function generateSendMap(user, stats, mora) {
     await drawHeader(ctx, '🗺️ تحديد مسار القافلة');
 
     const DESTS = cfg.destinations;
-    const cw = 256, ch = 420, cgap = 16;
+    const cw = 280, ch = 480, cgap = 25;
     const totalW = DESTS.length * cw + (DESTS.length - 1) * cgap;
     const startX = (W - totalW) / 2;
-    const cardY  = 140;
+    const cardY  = 160;
 
     DESTS.forEach((d, i) => {
         const cx   = startX + i * (cw + cgap);
@@ -538,25 +546,25 @@ async function generateSendMap(user, stats, mora) {
         rr(ctx, cx, cardY, cw, ch, 20);
         ctx.fillStyle = bg; ctx.fill();
         ctx.strokeStyle = acc + (canAfford ? 'CC' : '44');
-        ctx.lineWidth   = canAfford ? 2.5 : 1.5;
+        ctx.lineWidth   = canAfford ? 3 : 1.5;
         ctx.shadowColor = canAfford ? acc : 'transparent';
-        ctx.shadowBlur  = canAfford ? 16 : 0;
+        ctx.shadowBlur  = canAfford ? 20 : 0;
         rr(ctx, cx, cardY, cw, ch, 20); ctx.stroke();
         ctx.shadowBlur  = 0;
 
-        ctx.font = `74px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.shadowColor = acc; ctx.shadowBlur = 24;
-        ctx.fillText(d.emoji, cx + cw / 2, cardY + 75);
+        ctx.fillText(d.emoji, cx + cw / 2, cardY + 80);
         ctx.shadowBlur = 0;
 
         ctx.shadowColor = acc; ctx.shadowBlur = 10;
-        M(ctx, d.name, cx + cw / 2, cardY + 145, 26, acc, true);
+        M(ctx, d.name, cx + cw / 2, cardY + 160, 26, acc, true);
         ctx.shadowBlur = 0;
 
-        divLine(ctx, cx + 20, cardY + 175, cw - 40, acc + '44');
+        divLine(ctx, cx + 20, cardY + 195, cw - 40, acc + '44');
 
         ctx.font = `20px ${FA}`; ctx.fillStyle = C.textD;
-        wrapText(ctx, d.description || '', cx + cw / 2, cardY + 210, cw - 30, 30);
+        wrapText(ctx, d.description || '', cx + cw / 2, cardY + 235, cw - 40, 32);
 
         const adjDur  = core.calcDuration(d, { speed_rank: Number(stats.speed_rank || 1) }, { speedBuff: 0 });
         const adjRisk = core.calcRiskFactor(d, { defense_rank: Number(stats.defense_rank || 1) });
@@ -567,28 +575,27 @@ async function generateSendMap(user, stats, mora) {
             { label: 'الخطر',   val: `${(adjRisk * 100).toFixed(0)}%`,       vc: riskC     },
             { label: 'التكلفة', val: `${d.cost.toLocaleString()}`,     vc: canAfford ? C.gold : C.red },
         ];
-        let ry = cardY + 285;
+        let ry = cardY + 310;
         for (const row of rows) {
-            rr(ctx, cx + 16, ry - 18, cw - 32, 36, 8);
+            rr(ctx, cx + 16, ry - 18, cw - 32, 40, 8);
             ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
-            R(ctx, row.label, cx + cw - 24,  ry, 18, C.textD);
-            L(ctx, row.val,   cx + 24,        ry, 18, row.vc, true);
-            ry += 44;
+            R(ctx, row.label, cx + cw - 28,  ry + 3, 20, C.textD);
+            L(ctx, row.val,   cx + 28,        ry + 3, 20, row.vc, true);
+            ry += 48;
         }
 
         if (!canAfford) {
-            rr(ctx, cx + cw / 2 - 80, cardY + ch - 50, 160, 40, 10);
+            rr(ctx, cx + cw / 2 - 80, cardY + ch - 54, 160, 44, 10);
             ctx.fillStyle = 'rgba(231,76,60,0.30)'; ctx.fill();
             ctx.strokeStyle = C.red + '88'; ctx.lineWidth = 1.5;
-            rr(ctx, cx + cw / 2 - 80, cardY + ch - 50, 160, 40, 10); ctx.stroke();
+            rr(ctx, cx + cw / 2 - 80, cardY + ch - 54, 160, 44, 10); ctx.stroke();
             M(ctx, '❌ رصيد غير كافٍ', cx + cw / 2, cardY + ch - 30, 20, C.red, true);
         }
     });
 
-    const fy = cardY + ch + 25;
-    divLine(ctx, 40, fy, W - 80, C.gold + '33');
-    M(ctx, 'اختر وجهتك من القائمة أدناه', W / 2, fy + 35, 24, C.textD);
-    M(ctx, `إجمالي رصيدك ${Number(mora).toLocaleString()} مورا`, W / 2, fy + 70, 24, C.gold, true);
+    const fy = cardY + ch + 35;
+    divLine(ctx, 60, fy, W - 120, C.gold + '33');
+    M(ctx, `إجمالي رصيدك المتوفر: ${Number(mora).toLocaleString()}`, W / 2, fy + 45, 26, C.gold, true);
 
     return toBuf(canvas);
 }
@@ -610,85 +617,83 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
 
     drawBg(ctx);
     const subTitle = tleft <= 0 ? '✅ القافلة وصلت بسلام' : `⏳ متبقي ${formatArabicTime(tleft)}`;
-    await drawHeader(ctx, `رحلة القافلة إلى ${dest?.name || ''}`, subTitle);
+    await drawHeader(ctx, `متابعة قافلة ${dest?.name || ''}`, subTitle);
 
     if (mode === 'map') {
-        const MX = 40, MY = 120, MW = 1320, MH = 570;
-        drawPanel(ctx, MX, MY, MW, MH, acc, { radius: 24 });
+        const MX = 60, MY = 150, MW = 1480, MH = 620;
+        drawPanel(ctx, MX, MY, MW, MH, acc, { radius: 28 });
 
-        const oX = MX + 150,       oY = MY + MH - 120;
-        const dX = MX + MW - 150,  dY = MY + 150;
-        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 180;
+        const oX = MX + 180,       oY = MY + MH - 140;
+        const dX = MX + MW - 180,  dY = MY + 180;
+        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 200;
 
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
 
-        ctx.setLineDash([16, 14]);
-        ctx.strokeStyle = acc + '33'; ctx.lineWidth = 10;
+        ctx.setLineDash([20, 16]);
+        ctx.strokeStyle = acc + '33'; ctx.lineWidth = 14;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
 
         const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
         pathG.addColorStop(0, acc + '66'); pathG.addColorStop(1, acc);
-        ctx.strokeStyle = pathG; ctx.lineWidth = 12;
-        ctx.shadowColor = acc; ctx.shadowBlur = 28;
+        ctx.strokeStyle = pathG; ctx.lineWidth = 16;
+        ctx.shadowColor = acc; ctx.shadowBlur = 30;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
         ctx.shadowBlur  = 0;
 
-        ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 24;
-        ctx.beginPath(); ctx.arc(oX, oY, 24, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 30;
+        ctx.beginPath(); ctx.arc(oX, oY, 30, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        M(ctx, '🏠', oX, oY - 50, 48, C.text);
-        M(ctx, 'مدينتك', oX, oY + 45, 26, C.green, true);
+        M(ctx, '🏠', oX, oY - 60, 60, C.text);
+        M(ctx, 'المدينة الرئيسية', oX, oY + 60, 28, C.green, true);
 
-        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 34;
-        ctx.beginPath(); ctx.arc(dX, dY, 26, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 40;
+        ctx.beginPath(); ctx.arc(dX, dY, 32, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.font = `65px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(dest?.emoji || '📍', dX, dY - 65);
-        M(ctx, dest?.name || '', dX, dY + 50, 26, acc, true);
+        ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(dest?.emoji || '📍', dX, dY - 80);
+        M(ctx, dest?.name || '', dX, dY + 65, 30, acc, true);
 
         const camelEmoji = hasAtk ? '⚔️' : '🐪';
-        ctx.font = `110px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 45;
-        ctx.fillText(camelEmoji, cX, cY - 20);
+        ctx.font = `140px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 50;
+        ctx.fillText(camelEmoji, cX, cY - 25);
         ctx.shadowBlur = 0;
 
         if (hasAtk) {
-            const bw2 = 320, bx2 = cX - 160, by2 = cY - 140;
-            rr(ctx, bx2, by2, bw2, 56, 12);
+            const bw2 = 400, bx2 = cX - 200, by2 = cY - 180;
+            rr(ctx, bx2, by2, bw2, 70, 16);
             ctx.fillStyle = 'rgba(231,76,60,0.95)'; ctx.fill();
-            ctx.strokeStyle = C.red; ctx.lineWidth = 3;
-            rr(ctx, bx2, by2, bw2, 56, 12); ctx.stroke();
-            M(ctx, '⚔️ القافلة تتعرض لهجوم!', cX, by2 + 28, 26, '#FFFFFF', true);
+            ctx.strokeStyle = C.red; ctx.lineWidth = 4;
+            rr(ctx, bx2, by2, bw2, 70, 16); ctx.stroke();
+            M(ctx, '⚔️ القافلة تتعرض لهجوم!', cX, by2 + 35, 32, '#FFFFFF', true);
         }
 
-        const barY2 = MY + MH - 80;
-        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 32, 30, acc, true);
-        drawBar(ctx, MX + 80, barY2, MW - 160, 48, prog, acc);
-
-        M(ctx, `مسار الرحلة إلى ${dest?.name || ''}`, MX + MW / 2, MY + 60, 36, acc, true);
+        const barY2 = MY + MH - 100;
+        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 40, 36, acc, true);
+        drawBar(ctx, MX + 120, barY2, MW - 240, 60, prog, acc);
 
         return toBuf(canvas);
     }
 
-    const RX = 40, RY = 120, RW = 1320, RH = 570;
-    drawPanel(ctx, RX, RY, RW, RH, acc, { radius: 24 });
+    const RX = 60, RY = 150, RW = 1480, RH = 620;
+    drawPanel(ctx, RX, RY, RW, RH, acc, { radius: 28 });
 
-    let py = RY + 60;
-    M(ctx, '📊 التقرير المباشر للرحلة', RX + RW / 2, py, 38, acc, true);
-    py += 60; divLine(ctx, RX + 60, py, RW - 120, acc + '55'); py += 50;
+    let py = RY + 70;
+    M(ctx, '📊 التقرير التفصيلي والمباشر للرحلة', RX + RW / 2, py, 46, acc, true);
+    py += 80; divLine(ctx, RX + 80, py, RW - 160, acc + '55'); py += 60;
 
-    ctx.font = `100px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = acc; ctx.shadowBlur = 28;
-    ctx.fillText(dest?.emoji || '📍', RX + 80, py + 30);
+    ctx.font = `120px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = acc; ctx.shadowBlur = 30;
+    ctx.fillText(dest?.emoji || '📍', RX + 100, py + 30);
     ctx.shadowBlur = 0;
-    R(ctx, dest?.name || '',        RX + RW - 80, py, 38, acc, true);
-    ctx.font = `24px ${FA}`; ctx.fillStyle = C.textD;
-    wrapText(ctx, dest?.description || '', RX + RW - 80, py + 45, RW - 280, 34, 'right');
+    R(ctx, dest?.name || '',        RX + RW - 100, py, 46, acc, true);
+    ctx.font = `28px ${FA}`; ctx.fillStyle = C.textD;
+    wrapText(ctx, dest?.description || '', RX + RW - 100, py + 55, RW - 300, 42, 'right');
     
-    py += 110; divLine(ctx, RX + 60, py, RW - 120); py += 40;
+    py += 140; divLine(ctx, RX + 80, py, RW - 160); py += 50;
 
     const stMap2 = {
         'ok':  { t: '🟢 تتقدم بأمان',    c: C.green },
@@ -712,29 +717,13 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
     ];
 
     for (const row of infoRows) {
-        rr(ctx, RX + 60, py - 26, RW - 120, 60, 12);
+        rr(ctx, RX + 80, py - 30, RW - 160, 68, 16);
         ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
-        R(ctx, row.label,    RX + RW - 90, py + 4, 26, C.textD);
+        R(ctx, row.label,    RX + RW - 120, py + 5, 30, C.textD);
         ctx.shadowColor = row.vc; ctx.shadowBlur = 8;
-        L(ctx, row.val,      RX + 90,      py + 4, 26, row.vc, true);
+        L(ctx, row.val,      RX + 120,      py + 5, 30, row.vc, true);
         ctx.shadowBlur = 0;
-        py += 70;
-    }
-
-    divLine(ctx, RX + 60, py + 10, RW - 120); py += 40;
-
-    M(ctx, 'نسبة الإنجاز', RX + RW / 2, py + 16, 24, C.textD);
-    py += 50; drawBar(ctx, RX + 80, py, RW - 160, 36, prog, acc); py += 60;
-
-    if (arts.length > 0) {
-        divLine(ctx, RX + 60, py, RW - 120); py += 30;
-        M(ctx, '🔮 الأدوات الفعالة في هذه الرحلة', RX + RW / 2, py + 16, 26, C.purple, true);
-        py += 50;
-        arts.forEach(a => {
-            const cleanName = getItemNameSafe(a);
-            M(ctx, `• ${cleanName}`, RX + RW / 2, py, 24, C.textD);
-            py += 40;
-        });
+        py += 84;
     }
 
     return toBuf(canvas);
@@ -767,9 +756,9 @@ async function generateUpgradePanel(user, stats, mora) {
           col: '#2ECC71' },
     ];
 
-    const cw = 650, ch = 285, gap = 20;
+    const cw = 720, ch = 310, gap = 40;
     const gx0 = (W - (2 * cw + gap)) / 2; 
-    const gy0 = 124;
+    const gy0 = 150;
 
     upgList.forEach((u, i) => {
         const col   = u.col;
@@ -780,81 +769,69 @@ async function generateUpgradePanel(user, stats, mora) {
         const cx    = gx0 + (i % 2) * (cw + gap);
         const cy    = gy0 + Math.floor(i / 2) * (ch + gap);
 
-        drawPanel(ctx, cx, cy, cw, ch, col);
+        drawPanel(ctx, cx, cy, cw, ch, col, { radius: 24 });
 
         if (maxed) {
-            rr(ctx, cx + 24, cy + 24, 86, 36, 10);
+            rr(ctx, cx + 30, cy + 30, 96, 40, 12);
             ctx.fillStyle   = col + 'CC'; ctx.fill();
-            ctx.shadowColor = col; ctx.shadowBlur = 10;
-            M(ctx, '✦ MAX ✦', cx + 67, cy + 42, 18, '#FFF', true);
+            ctx.shadowColor = col; ctx.shadowBlur = 12;
+            M(ctx, '✦ MAX ✦', cx + 78, cy + 50, 20, '#FFF', true);
             ctx.shadowBlur  = 0;
         } else {
-            rr(ctx, cx + 24, cy + 24, 80, 36, 10);
+            rr(ctx, cx + 30, cy + 30, 90, 40, 12);
             ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fill();
-            ctx.strokeStyle = col + '88'; ctx.lineWidth = 1.5;
-            rr(ctx, cx + 24, cy + 24, 80, 36, 10); ctx.stroke();
-            M(ctx, `${rank} / ${u.max_level}`, cx + 64, cy + 42, 18, col, true);
+            ctx.strokeStyle = col + '88'; ctx.lineWidth = 2;
+            rr(ctx, cx + 30, cy + 30, 90, 40, 12); ctx.stroke();
+            M(ctx, `${rank} / ${u.max_level}`, cx + 75, cy + 50, 20, col, true);
         }
 
-        ctx.shadowColor  = col; ctx.shadowBlur = 8;
-        R(ctx, u.name, cx + cw - 28, cy + 42, 30, col, true);
+        ctx.shadowColor  = col; ctx.shadowBlur = 10;
+        R(ctx, u.name, cx + cw - 30, cy + 46, 32, col, true);
         ctx.shadowBlur   = 0;
 
-        R(ctx, u.effectLabel, cx + cw - 28, cy + 76, 20, C.textD);
+        R(ctx, u.effectLabel, cx + cw - 30, cy + 86, 22, C.textD);
 
-        ctx.font = `68px ${FE}`;
+        ctx.font = `76px ${FE}`;
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'middle';
-        ctx.shadowColor  = col; ctx.shadowBlur = 20;
-        ctx.fillText(u.emoji, cx + 28, cy + 90);
+        ctx.shadowColor  = col; ctx.shadowBlur = 24;
+        ctx.fillText(u.emoji, cx + 30, cy + 100);
         ctx.shadowBlur   = 0;
 
-        divLine(ctx, cx + 24, cy + 115, cw - 48, col + '44');
+        divLine(ctx, cx + 30, cy + 130, cw - 60, col + '44');
 
-        ctx.font         = `bold 34px Arial, sans-serif`;
+        ctx.font         = `bold 38px Arial, sans-serif`;
         ctx.textAlign    = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillStyle    = col;
-        ctx.shadowColor  = col; ctx.shadowBlur = 10;
-        ctx.fillText('★'.repeat(rank) + '☆'.repeat(Math.max(0, u.max_level - rank)), cx + cw - 28, cy + 145);
+        ctx.shadowColor  = col; ctx.shadowBlur = 12;
+        ctx.fillText('★'.repeat(rank) + '☆'.repeat(Math.max(0, u.max_level - rank)), cx + cw - 30, cy + 165);
         ctx.shadowBlur   = 0;
 
-        L(ctx, `المستوى ${rank}`, cx + 28, cy + 145, 22, C.textD);
+        L(ctx, `المستوى ${rank}`, cx + 30, cy + 165, 24, C.textD);
 
-        drawBar(ctx, cx + 28, cy + 170, cw - 56, 24, rank / u.max_level, col, false);
+        drawBar(ctx, cx + 30, cy + 195, cw - 60, 28, rank / u.max_level, col, false);
 
-        divLine(ctx, cx + 24, cy + 210, cw - 48, col + '33');
+        divLine(ctx, cx + 30, cy + 240, cw - 60, col + '33');
 
         if (maxed) {
-            ctx.shadowColor = col; ctx.shadowBlur = 14;
-            M(ctx, '✅ تم الوصول للحد الأقصى', cx + cw / 2, cy + 240, 24, col, true);
+            ctx.shadowColor = col; ctx.shadowBlur = 16;
+            M(ctx, '✅ تم الوصول للحد الأقصى', cx + cw / 2, cy + 270, 26, col, true);
             ctx.shadowBlur  = 0;
-            const pgx = cx + 28, pgy = cy + 260, pgw = cw - 56, pgh = 38;
-            const pg = ctx.createLinearGradient(pgx, 0, pgx + pgw, 0);
-            pg.addColorStop(0,   col + '00');
-            pg.addColorStop(0.4, col + 'AA');
-            pg.addColorStop(0.6, col + 'AA');
-            pg.addColorStop(1,   col + '00');
-            rr(ctx, pgx, pgy, pgw, pgh, 10);
-            ctx.fillStyle = pg; ctx.fill();
-            M(ctx, `تأثير تراكمي نشط بنسبة ${((rank - 1) * 25).toFixed(0)}%`, cx + cw / 2, cy + 279, 18, '#FFF', true);
         } else {
-            R(ctx, `التكلفة المادية`, cx + cw - 28, cy + 240, 18, C.textD);
-            ctx.shadowColor = canAf ? C.gold : C.red; ctx.shadowBlur = 6;
-            R(ctx, `💰 ${cost.toLocaleString()}`, cx + cw - 28, cy + 268, 22, canAf ? C.gold : C.red, true);
-            ctx.shadowBlur  = 0;
+            R(ctx, `💰 ${cost.toLocaleString()}`, cx + cw - 30, cy + 275, 24, canAf ? C.gold : C.red, true);
 
-            const btnW = 260, btnX = cx + 28, btnY = cy + 240;
-            const btnG = ctx.createLinearGradient(btnX, btnY, btnX + btnW, btnY + 48);
+            const btnW = 280, btnX = cx + 30, btnY = cy + 250;
+            const btnG = ctx.createLinearGradient(btnX, btnY, btnX + btnW, btnY + 50);
             btnG.addColorStop(0, canAf ? col + '44' : 'rgba(120,40,40,0.40)');
             btnG.addColorStop(1, canAf ? col + '20' : 'rgba(80,20,20,0.25)');
-            rr(ctx, btnX, btnY, btnW, 48, 10);
+            rr(ctx, btnX, btnY, btnW, 50, 12);
             ctx.fillStyle   = btnG; ctx.fill();
-            ctx.strokeStyle = canAf ? col + 'BB' : C.red + '66'; ctx.lineWidth = 2;
-            ctx.shadowColor = canAf ? col : C.red; ctx.shadowBlur = canAf ? 8 : 0;
-            rr(ctx, btnX, btnY, btnW, 48, 10); ctx.stroke();
+            ctx.strokeStyle = canAf ? col + 'BB' : C.red + '66'; ctx.lineWidth = 2.5;
+            ctx.shadowColor = canAf ? col : C.red; ctx.shadowBlur = canAf ? 10 : 0;
+            rr(ctx, btnX, btnY, btnW, 50, 12); ctx.stroke();
             ctx.shadowBlur  = 0;
-            M(ctx, canAf ? `متوفر للترقية` : 'رصيد غير كافٍ', cx + 158, cy + 264, 20, canAf ? '#FFF' : C.red, true);
+            M(ctx, canAf ? `متوفر للترقية` : 'رصيد غير كافٍ', cx + 170, cy + 276, 22, canAf ? '#FFF' : C.red, true);
         }
     });
 
@@ -874,9 +851,9 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         Epic: '#B968FF',   Legendary: '#FFD700',
     };
 
-    const sw = 430, sh = 175, sgap = 22;
+    const sw = 480, sh = 200, sgap = 30;
     const sx0 = (W - (3 * sw + 2 * sgap)) / 2;
-    const sy0 = 120;
+    const sy0 = 140;
 
     for (let s = 0; s < 3; s++) {
         const sx  = sx0 + s * (sw + sgap);
@@ -884,60 +861,60 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         const itm = id ? allItems.find(x => x.id === id) : null;
         const col = itm ? (RARITY_COL[itm.rarity] || C.textD) : '#2A3A4A';
 
-        drawPanel(ctx, sx, sy0, sw, sh, col, { noCorners: !itm });
+        drawPanel(ctx, sx, sy0, sw, sh, col, { noCorners: !itm, radius: 20 });
 
-        rr(ctx, sx + 16, sy0 + 16, 38, 30, 8);
+        rr(ctx, sx + 16, sy0 + 16, 42, 32, 8);
         ctx.fillStyle = col + '44'; ctx.fill();
-        M(ctx, String(s + 1), sx + 35, sy0 + 31, 18, col, true);
+        M(ctx, String(s + 1), sx + 37, sy0 + 32, 20, col, true);
 
         if (itm) {
-            ctx.font = `54px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-            ctx.shadowColor = col; ctx.shadowBlur = 14;
-            ctx.fillText(itm.type === 'book' ? '📖' : '⚙️', sx + 20, sy0 + 85);
+            ctx.font = `60px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.shadowColor = col; ctx.shadowBlur = 16;
+            ctx.fillText(itm.type === 'book' ? '📖' : '⚙️', sx + 24, sy0 + 95);
             ctx.shadowBlur = 0;
 
-            R(ctx, getItemNameSafe(id).substring(0, 18), sx + sw - 20, sy0 + 46, 24, col, true);
-            R(ctx, itm.rarity, sx + sw - 20, sy0 + 78, 18, C.textD);
+            R(ctx, getItemNameSafe(id).substring(0, 18), sx + sw - 20, sy0 + 50, 26, col, true);
+            R(ctx, itm.rarity, sx + sw - 20, sy0 + 86, 20, C.textD);
 
             const isMat = itm.type === 'material' || !itm.type?.includes('book');
             const bPct  = { Common:.03, Uncommon:.05, Rare:.08, Epic:.12, Legendary:.20 }[itm.rarity] || .03;
             const bLabel = isMat ? `⚡ سرعة إضافية ${(bPct*100).toFixed(0)}%` : `🍀 حظ إضافي ${(bPct*100).toFixed(0)}%`;
-            ctx.shadowColor = col; ctx.shadowBlur = 6;
-            R(ctx, bLabel, sx + sw - 20, sy0 + 110, 18, col, true);
+            ctx.shadowColor = col; ctx.shadowBlur = 8;
+            R(ctx, bLabel, sx + sw - 20, sy0 + 120, 20, col, true);
             ctx.shadowBlur = 0;
 
-            divLine(ctx, sx + 16, sy0 + 135, sw - 32, col + '44');
-            M(ctx, '✅ مجهّزة بالقافلة', sx + sw / 2, sy0 + 155, 18, '#4A7A4A');
+            divLine(ctx, sx + 20, sy0 + 155, sw - 40, col + '44');
+            M(ctx, '✅ مجهّزة بالقافلة', sx + sw / 2, sy0 + 175, 18, '#4A7A4A');
         } else {
             ctx.globalAlpha = 0.20;
-            ctx.font = `65px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText('➕', sx + sw / 2, sy0 + sh / 2 + 8);
+            ctx.font = `70px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('➕', sx + sw / 2, sy0 + sh / 2 + 10);
             ctx.globalAlpha = 1;
-            M(ctx, `الفتحة فارغة`, sx + sw / 2, sy0 + sh - 28, 20, '#334455');
+            M(ctx, `الفتحة فارغة`, sx + sw / 2, sy0 + sh - 30, 22, '#334455');
         }
     }
 
     const buffs = core.getEquippedBuffs(equipped);
-    const sumY  = sy0 + sh + 24;
-    const sbg   = ctx.createLinearGradient(40, sumY, W - 40, sumY + 60);
+    const sumY  = sy0 + sh + 30;
+    const sbg   = ctx.createLinearGradient(50, sumY, W - 50, sumY + 65);
     sbg.addColorStop(0, 'rgba(0,195,255,0.08)');
     sbg.addColorStop(1, 'rgba(46,204,113,0.08)');
-    rr(ctx, 40, sumY, W - 80, 60, 12);
+    rr(ctx, 50, sumY, W - 100, 65, 14);
     ctx.fillStyle = sbg; ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1.5;
-    rr(ctx, 40, sumY, W - 80, 60, 12); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2;
+    rr(ctx, 50, sumY, W - 100, 65, 14); ctx.stroke();
 
     const bText = `⚡ إجمالي السرعة ${(buffs.speedBuff * 100).toFixed(0)}%   |   🍀 إجمالي الحظ ${(buffs.luckBuff * 100).toFixed(0)}%`;
-    M(ctx, bText, W / 2, sumY + 30, 26, C.text, true);
+    M(ctx, bText, W / 2, sumY + 33, 26, C.text, true);
 
-    const gridY = sumY + 80;
-    divLine(ctx, 40, gridY, W - 80, C.gold + '33');
-    M(ctx, '📦 الأدوات المتوفرة في المخزن', W / 2, gridY + 28, 24, C.gold, true);
+    const gridY = sumY + 85;
+    divLine(ctx, 50, gridY, W - 100, C.gold + '33');
+    M(ctx, '📦 الأدوات المتوفرة في المخزن', W / 2, gridY + 35, 26, C.gold, true);
 
-    const iw = 210, ih = 125, igap = 16, cols = 6;
+    const iw = 230, ih = 140, igap = 20, cols = 6;
     const igw = cols * iw + (cols - 1) * igap;
     const igx = (W - igw) / 2;
-    const igy = gridY + 65;
+    const igy = gridY + 75;
     
     const safeRows = invRows || [];
     const maxShow = Math.min(safeRows.length, 12);
@@ -954,21 +931,21 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         const ibg = ctx.createLinearGradient(ix, iy, ix, iy + ih);
         ibg.addColorStop(0, col + (isEq ? '33' : '14'));
         ibg.addColorStop(1, 'rgba(4,6,14,0.95)');
-        rr(ctx, ix, iy, iw, ih, 12);
+        rr(ctx, ix, iy, iw, ih, 14);
         ctx.fillStyle = ibg; ctx.fill();
         ctx.strokeStyle = isEq ? col : col + '44';
-        ctx.lineWidth   = isEq ? 2.5 : 1.5;
+        ctx.lineWidth   = isEq ? 3 : 1.5;
         if (isEq) { ctx.shadowColor = col; ctx.shadowBlur = 12; }
-        rr(ctx, ix, iy, iw, ih, 12); ctx.stroke();
+        rr(ctx, ix, iy, iw, ih, 14); ctx.stroke();
         ctx.shadowBlur = 0;
 
-        if (isEq) { L(ctx, '✅', ix + 12, iy + 24, 18, C.green); }
+        if (isEq) { L(ctx, '✅', ix + 12, iy + 24, 20, C.green); }
 
-        ctx.font = `40px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(itm?.type === 'book' ? '📖' : '⚙️', ix + iw / 2, iy + 45);
+        ctx.font = `44px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(itm?.type === 'book' ? '📖' : '⚙️', ix + iw / 2, iy + 50);
 
-        M(ctx, truncate(getItemNameSafe(id), 12), ix + iw / 2, iy + 88, 18, col, true);
-        M(ctx, itm?.rarity || '',                 ix + iw / 2, iy + 110, 14, C.textD);
+        M(ctx, truncate(getItemNameSafe(id), 12), ix + iw / 2, iy + 95, 20, col, true);
+        M(ctx, itm?.rarity || '',                 ix + iw / 2, iy + 120, 16, C.textD);
     }
 
     return toBuf(canvas);
