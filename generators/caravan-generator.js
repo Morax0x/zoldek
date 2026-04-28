@@ -580,20 +580,25 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ];
         for (const u of upgCfg) {
             const lvl2 = Number(stats[u.key] || 1);
-            rr(ctx, RX + 14, rpy, RW - 28, 80, 14);
-            const rowBg = ctx.createLinearGradient(RX + 14, rpy, RX + RW - 14, rpy + 80);
+            // صف ارتفاعه 90px مع تباعد داخلي مريح
+            rr(ctx, RX + 14, rpy, RW - 28, 90, 14);
+            const rowBg = ctx.createLinearGradient(RX + 14, rpy, RX + RW - 14, rpy + 90);
             rowBg.addColorStop(0, u.col + '18'); rowBg.addColorStop(1, 'rgba(4,6,12,0.55)');
             ctx.fillStyle = rowBg; ctx.fill();
             ctx.strokeStyle = u.col + '33'; ctx.lineWidth = 1.5;
-            rr(ctx, RX + 14, rpy, RW - 28, 80, 14); ctx.stroke();
+            rr(ctx, RX + 14, rpy, RW - 28, 90, 14); ctx.stroke();
 
+            // أيقونة — مركزها على ارتفاع 30px من أعلى الصف
             ctx.font = `28px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-            ctx.fillText(u.emoji, RX + 26, rpy + 26);
-            L(ctx, u.name, RX + 68, rpy + 16, 20, C.text);
-            drawStars(ctx, lvl2, 5, RX + RW - 22, rpy + 16, 20, u.col);
-            drawBar(ctx, RX + 68, rpy + 44, RW - 106, 16, lvl2 / 5, u.col, false);
-            L(ctx, `المستوى ${lvl2}/5`, RX + 68, rpy + 64, 14, u.col);
-            rpy += 90;
+            ctx.fillText(u.emoji, RX + 26, rpy + 30);
+            // اسم الترقية والنجوم — في النصف العلوي
+            L(ctx, u.name, RX + 68, rpy + 22, 20, C.text);
+            drawStars(ctx, lvl2, 5, RX + RW - 22, rpy + 22, 20, u.col);
+            // شريط التقدم — منتصف الصف مع هامش كافٍ
+            drawBar(ctx, RX + 68, rpy + 50, RW - 106, 16, lvl2 / 5, u.col, false);
+            // نص المستوى — تحت الشريط بمسافة آمنة
+            L(ctx, `المستوى ${lvl2}/5`, RX + 68, rpy + 76, 14, u.col);
+            rpy += 100;
         }
         // ملخص الرحلات في الأسفل
         divLine(ctx, RX + 26, rpy + 6, RW - 52, C.gold + '33'); rpy += 34;
@@ -731,9 +736,9 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         const MX = 80, MY = 160, MW = 1440, MH = 680;
         drawPanel(ctx, MX, MY, MW, MH, acc, { radius: 32 });
 
-        const oX = MX + 200,       oY = MY + MH - 180;
+        const oX = MX + 200,       oY = MY + MH - 220;
         const dX = MX + MW - 200,  dY = MY + 200;
-        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 250;
+        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 220;
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
@@ -826,8 +831,8 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 24;
         ctx.beginPath(); ctx.arc(oX, oY, 35, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        M(ctx, '🏠', oX, oY - 70, 60, C.text);
-        M(ctx, 'المدينة', oX, oY + 70, 28, C.green);
+        M(ctx, '🏠', oX, oY - 52, 52, C.text);
+        M(ctx, 'المدينة', oX, oY - 96, 24, C.green);
 
         /* نقطة الوجهة مع نبض */
         const destP = ctx.createRadialGradient(dX, dY, 8, dX, dY, 55);
@@ -857,18 +862,22 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         }
 
         if (hasAtk) {
-            const bw2 = 450, bx2 = cX - 225, by2 = cY - 160;
-            rr(ctx, bx2, by2, bw2, 70, 16);
-            ctx.fillStyle = 'rgba(231,76,60,0.95)'; ctx.fill();
-            ctx.strokeStyle = C.red; ctx.lineWidth = 3;
-            rr(ctx, bx2, by2, bw2, 70, 16); ctx.stroke();
-            M(ctx, 'القافلة تتعرض لهجوم', cX, by2 + 35, 30, '#FFFFFF');
+            const bw2 = 440;
+            const bx2 = Math.max(MX + 12, Math.min(MX + MW - bw2 - 12, cX - bw2 / 2));
+            const by2 = Math.max(MY + 12, cY - 155);
+            rr(ctx, bx2, by2, bw2, 66, 16);
+            ctx.fillStyle = 'rgba(200,30,30,0.92)'; ctx.fill();
+            ctx.strokeStyle = C.red; ctx.lineWidth = 2.5;
+            ctx.shadowColor = C.red; ctx.shadowBlur = 14;
+            rr(ctx, bx2, by2, bw2, 66, 16); ctx.stroke();
+            ctx.shadowBlur = 0;
+            M(ctx, 'القافلة تتعرض لهجوم', bx2 + bw2 / 2, by2 + 33, 28, '#FFFFFF');
         }
 
-        /* شريط التقدم في الأسفل — قوس على اليسار + شريط على اليمين */
-        const barY2 = MY + MH - 112;
-        drawArcProgress(ctx, MX + 115, barY2 + 32, 50, prog, acc, 24, 'التقدم');
-        drawBar(ctx, MX + 255, barY2 + 12, MW - 420, 58, prog, acc);
+        /* شريط التقدم في الأسفل — منطقة مخصصة بعيدة عن مسار الجمل */
+        const barY2 = MY + MH - 95;
+        drawArcProgress(ctx, MX + 110, barY2 + 28, 44, prog, acc, 22, 'التقدم');
+        drawBar(ctx, MX + 240, barY2 + 6, MW - 400, 50, prog, acc);
 
         return toBuf(canvas);
     }
