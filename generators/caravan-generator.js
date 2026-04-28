@@ -198,12 +198,8 @@ function drawArcProgress(ctx, cx, cy, r, pct, color, labelSize = 26, subLabel = 
     const end = -Math.PI * 0.75 + Math.max(0.01, Math.min(1, pct)) * Math.PI * 1.5;
     ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI * 0.75, end); ctx.stroke();
     ctx.restore();
-    M(ctx, `${(pct * 100).toFixed(1)}%`, cx, cy - 4, labelSize, color);
-    
-    if (subLabel) {
-        const subSize = Math.max(12, labelSize - 12); 
-        M(ctx, subLabel, cx, cy + r - 4, subSize, '#8A9AAA');
-    }
+    M(ctx, `${(pct * 100).toFixed(1)}%`, cx, cy - 2, labelSize, color);
+    if (subLabel) M(ctx, subLabel, cx, cy + r + 16, Math.max(13, labelSize - 9), '#8A9AAA');
 }
 
 function drawCornerAccents(ctx, cw = W, ch = H, color = '#F5C51855', size = 55, r = 18) {
@@ -230,21 +226,23 @@ function divLine(ctx, x, y, w, color = 'rgba(255,255,255,0.12)') {
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight, align = 'center') {
     const words = cleanText(text).split(' ');
+    const fontSize = parseInt(ctx.font) || 20;
+    const fillColor = ctx.fillStyle;
     let line = ''; let currentY = y;
     for (let n = 0; n < words.length; n++) {
         const testLine = line + words[n] + ' ';
         const metrics = ctx.measureText(testLine);
         if (metrics.width > maxWidth && n > 0) {
-            if(align === 'center') M(ctx, line.trim(), x, currentY, parseInt(ctx.font), ctx.fillStyle);
-            else if(align === 'right') R(ctx, line.trim(), x, currentY, parseInt(ctx.font), ctx.fillStyle);
-            else L(ctx, line.trim(), x, currentY, parseInt(ctx.font), ctx.fillStyle);
+            if(align === 'center') M(ctx, line.trim(), x, currentY, fontSize, fillColor);
+            else if(align === 'right') R(ctx, line.trim(), x, currentY, fontSize, fillColor);
+            else L(ctx, line.trim(), x, currentY, fontSize, fillColor);
             line = words[n] + ' ';
             currentY += lineHeight;
         } else { line = testLine; }
     }
-    if(align === 'center') M(ctx, line.trim(), x, currentY, parseInt(ctx.font), ctx.fillStyle);
-    else if(align === 'right') R(ctx, line.trim(), x, currentY, parseInt(ctx.font), ctx.fillStyle);
-    else L(ctx, line.trim(), x, currentY, parseInt(ctx.font), ctx.fillStyle);
+    if(align === 'center') M(ctx, line.trim(), x, currentY, fontSize, fillColor);
+    else if(align === 'right') R(ctx, line.trim(), x, currentY, fontSize, fillColor);
+    else L(ctx, line.trim(), x, currentY, fontSize, fillColor);
 }
 
 async function drawHeader(ctx, title, subtitle = '') {
@@ -645,8 +643,11 @@ async function generateSendMap(user, stats, mora) {
         ctx.font = `20px ${FA}`; ctx.fillStyle = C.textD;
         wrapText(ctx, d.description || '', cx + cw / 2, cardY + 250, cw - 40, 32);
 
-        const adjDur  = core.calcDuration(d, { speed_rank: Number(stats.speed_rank || 1) }, { speedBuff: 0 });
-        const adjRisk = core.calcRiskFactor(d, { defense_rank: Number(stats.defense_rank || 1) });
+        let adjDur, adjRisk;
+        try { adjDur  = core.calcDuration(d, { speed_rank: Number(stats.speed_rank || 1) }, { speedBuff: 0 }); }
+        catch { adjDur = d.duration || 3600000; }
+        try { adjRisk = core.calcRiskFactor(d, { defense_rank: Number(stats.defense_rank || 1) }); }
+        catch { adjRisk = d.risk || 0.3; }
         const riskC   = adjRisk >= 0.35 ? C.red : adjRisk >= 0.25 ? '#FFA500' : C.green;
 
         const rows = [
@@ -743,7 +744,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
         });
         ctx.font = `bold 16px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#E74C3C'; ctx.fillText('N', compX, compY - compR + 16);
+        ctx.fillStyle = '#E74C3C'; ctx.fillText('N', compX, compY - compR + 22);
         ctx.restore();
 
         ctx.setLineDash([25, 20]);
@@ -1048,9 +1049,9 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         if (itm) {
             ctx.font = `70px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-            ctx.fillText(itm.type === 'book' ? '📖' : '⚙️', sx + 30, sy0 + 105);
+            ctx.fillText(itm.emoji || (itm.type === 'book' ? '📖' : '⚙️'), sx + 30, sy0 + 105);
 
-            R(ctx, getItemNameSafe(id).substring(0, 18), sx + sw - 20, sy0 + 55, 30, col);
+            R(ctx, (itm.name || getItemNameSafe(id)).substring(0, 18), sx + sw - 20, sy0 + 55, 30, col);
             R(ctx, itm.rarity, sx + sw - 20, sy0 + 95, 24, C.textD);
 
             const isMat = itm.type === 'material' || !itm.type?.includes('book');
@@ -1115,9 +1116,9 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         if (isEq) { L(ctx, '✅', ix + 12, iy + 26, 24, C.green); }
 
         ctx.font = `50px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(itm?.type === 'book' ? '📖' : '⚙️', ix + iw / 2, iy + 55);
+        ctx.fillText(itm?.emoji || (itm?.type === 'book' ? '📖' : '⚙️'), ix + iw / 2, iy + 55);
 
-        M(ctx, truncate(getItemNameSafe(id), 12), ix + iw / 2, iy + 105, 24, col);
+        M(ctx, truncate(itm?.name || getItemNameSafe(id), 12), ix + iw / 2, iy + 105, 24, col);
         M(ctx, itm?.rarity || '',                 ix + iw / 2, iy + 130, 18, C.textD);
     }
 
