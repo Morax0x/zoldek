@@ -275,6 +275,11 @@ function parseSafeArray(data) {
     try { return JSON.parse(data); } catch { return []; }
 }
 
+function truncate(str, max) {
+    const s = cleanText(String(str || ''));
+    return s.length > max ? s.slice(0, max) + '…' : s;
+}
+
 // ══════════════════════════════════════════════
 //  1. HUB — الشاشة الرئيسية (1600x900)
 // ══════════════════════════════════════════════
@@ -662,26 +667,112 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
 
+        /* helper — نقطة على منحنى بيزيه */
+        const bpt = (bt) => ({
+            x: (1-bt)*(1-bt)*oX + 2*(1-bt)*bt*cpX + bt*bt*dX,
+            y: (1-bt)*(1-bt)*oY + 2*(1-bt)*bt*cpY + bt*bt*dY,
+        });
+
+        /* بوصلة زخرفية — زاوية علوية يسرى */
+        const compX = MX + 110, compY = MY + 110, compR = 55;
+        ctx.save();
+        const compBg = ctx.createRadialGradient(compX, compY, 0, compX, compY, compR);
+        compBg.addColorStop(0, 'rgba(18,26,55,0.88)'); compBg.addColorStop(1, 'rgba(4,6,14,0.60)');
+        ctx.fillStyle = compBg;
+        ctx.beginPath(); ctx.arc(compX, compY, compR, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = acc + '55'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(compX, compY, compR, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = acc + '22'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(compX, compY, compR - 12, 0, Math.PI * 2); ctx.stroke();
+        [0, Math.PI / 2, Math.PI, Math.PI * 3 / 2].forEach((angle, ai) => {
+            const ex = compX + Math.sin(angle) * (compR - 8);
+            const ey = compY - Math.cos(angle) * (compR - 8);
+            ctx.fillStyle = ai === 0 ? '#E74C3C' : acc + '99';
+            ctx.shadowColor = ai === 0 ? '#E74C3C' : acc; ctx.shadowBlur = ai === 0 ? 14 : 6;
+            ctx.beginPath();
+            ctx.moveTo(ex, ey);
+            ctx.lineTo(compX + Math.sin(angle + 0.28) * 12, compY - Math.cos(angle + 0.28) * 12);
+            ctx.lineTo(compX, compY);
+            ctx.lineTo(compX + Math.sin(angle - 0.28) * 12, compY - Math.cos(angle - 0.28) * 12);
+            ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
+        });
+        ctx.font = `bold 16px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#E74C3C'; ctx.fillText('N', compX, compY - compR + 16);
+        ctx.restore();
+
+        /* مسار كامل (شبح متقطع) */
         ctx.setLineDash([25, 20]);
-        ctx.strokeStyle = acc + '33'; ctx.lineWidth = 18;
+        ctx.strokeStyle = acc + '22'; ctx.lineWidth = 14;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
 
+        /* نقاط أثر خلف القافلة */
+        if (prog > 0.05) {
+            for (let ti = 0.03; ti < prog - 0.05; ti += 0.04) {
+                const tp = bpt(ti);
+                ctx.globalAlpha = Math.min(0.60, 0.08 + ti * 0.65);
+                ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 5;
+                ctx.beginPath(); ctx.arc(tp.x, tp.y, 4 + ti * 5, 0, Math.PI * 2); ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        /* مسار مقطوع (التقدم) — توهج مزدوج */
         const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
-        pathG.addColorStop(0, acc + '66'); pathG.addColorStop(1, acc);
+        pathG.addColorStop(0, acc + '55'); pathG.addColorStop(0.6, acc + 'BB'); pathG.addColorStop(1, acc);
         ctx.strokeStyle = pathG; ctx.lineWidth = 20;
+        ctx.shadowColor = acc; ctx.shadowBlur = 28;
+        ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = acc + '66'; ctx.lineWidth = 8;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
 
-        ctx.fillStyle = C.green;
+        /* علامات المسافة 25٪ / 50٪ / 75٪ */
+        [0.25, 0.5, 0.75].forEach(mt => {
+            const mp = bpt(mt);
+            const passed = prog >= mt;
+            if (passed) {
+                const mh = ctx.createRadialGradient(mp.x, mp.y, 4, mp.x, mp.y, 30);
+                mh.addColorStop(0, acc + '55'); mh.addColorStop(1, 'transparent');
+                ctx.fillStyle = mh; ctx.beginPath(); ctx.arc(mp.x, mp.y, 30, 0, Math.PI * 2); ctx.fill();
+            }
+            ctx.fillStyle   = passed ? acc : 'rgba(255,255,255,0.22)';
+            ctx.shadowColor = passed ? acc : 'transparent'; ctx.shadowBlur = passed ? 18 : 0;
+            ctx.beginPath(); ctx.arc(mp.x, mp.y, passed ? 12 : 9, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur  = 0;
+            ctx.strokeStyle = passed ? acc + 'BB' : acc + '33'; ctx.lineWidth = 2.5;
+            ctx.beginPath(); ctx.arc(mp.x, mp.y, 20, 0, Math.PI * 2); ctx.stroke();
+            ctx.font = `bold 20px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.fillStyle = passed ? acc : acc + '55';
+            ctx.fillText(`${(mt * 100).toFixed(0)}%`, mp.x, mp.y - 26);
+        });
+
+        /* نقطة البداية مع هالة */
+        const startH = ctx.createRadialGradient(oX, oY, 8, oX, oY, 50);
+        startH.addColorStop(0, C.green + '55'); startH.addColorStop(1, 'transparent');
+        ctx.fillStyle = startH; ctx.beginPath(); ctx.arc(oX, oY, 50, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 24;
         ctx.beginPath(); ctx.arc(oX, oY, 35, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
         M(ctx, '🏠', oX, oY - 70, 60, C.text);
         M(ctx, 'المدينة', oX, oY + 70, 28, C.green);
 
-        ctx.fillStyle = acc;
+        /* نقطة الوجهة مع نبض */
+        const destP = ctx.createRadialGradient(dX, dY, 8, dX, dY, 55);
+        destP.addColorStop(0, acc + 'CC'); destP.addColorStop(1, acc + '00');
+        ctx.fillStyle = destP; ctx.beginPath(); ctx.arc(dX, dY, 55, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 32;
         ctx.beginPath(); ctx.arc(dX, dY, 35, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
         ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(dest?.emoji || '📍', dX, dY - 80);
+        ctx.fillText(dest?.emoji || '📍', dX, dY - 90);
         M(ctx, dest?.name || '', dX, dY + 70, 28, acc);
+
+        /* بريق حول موقع القافلة */
+        const camH = ctx.createRadialGradient(cX, cY, 14, cX, cY, 90);
+        camH.addColorStop(0, (hasAtk ? C.red : acc) + '66'); camH.addColorStop(1, 'transparent');
+        ctx.fillStyle = camH; ctx.fillRect(cX - 90, cY - 90, 180, 180);
 
         const camelImg = await fetchImageSafe('camel');
         if (camelImg) {
@@ -689,7 +780,9 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         } else {
             const camelEmoji = hasAtk ? '⚔️' : '🐪';
             ctx.font = `140px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 40;
             ctx.fillText(camelEmoji, cX, cY - 30);
+            ctx.shadowBlur = 0;
         }
 
         if (hasAtk) {
@@ -701,9 +794,23 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             M(ctx, 'القافلة تتعرض لهجوم', cX, by2 + 35, 30, '#FFFFFF');
         }
 
-        const barY2 = MY + MH - 100;
-        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 45, 34, acc);
-        drawBar(ctx, MX + 150, barY2, MW - 300, 60, prog, acc);
+        const barY2 = MY + MH - 110;
+        /* قوس التقدم على اليسار */
+        const arcCX = MX + 120, arcCY = barY2 + 30, arcR = 55;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 14;
+        ctx.beginPath(); ctx.arc(arcCX, arcCY, arcR, -Math.PI * 0.75, Math.PI * 0.75); ctx.stroke();
+        const arcG = ctx.createLinearGradient(arcCX - arcR, arcCY, arcCX + arcR, arcCY);
+        arcG.addColorStop(0, acc + '88'); arcG.addColorStop(1, acc);
+        ctx.strokeStyle = arcG; ctx.lineWidth = 14;
+        ctx.shadowColor = acc; ctx.shadowBlur = 22;
+        const arcEnd = -Math.PI * 0.75 + Math.max(0.01, prog) * Math.PI * 1.5;
+        ctx.beginPath(); ctx.arc(arcCX, arcCY, arcR, -Math.PI * 0.75, arcEnd); ctx.stroke();
+        ctx.shadowBlur = 0; ctx.lineCap = 'butt';
+        M(ctx, `${(prog * 100).toFixed(1)}%`, arcCX, arcCY - 2, 26, acc);
+        M(ctx, 'التقدم', arcCX, arcCY + 24, 18, C.textD);
+        /* شريط التقدم على اليمين */
+        drawBar(ctx, MX + 260, barY2 + 10, MW - 430, 60, prog, acc);
 
         return toBuf(canvas);
     }
@@ -899,11 +1006,19 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
             divLine(ctx, sx + 20, sy0 + 175, sw - 40, col + '44');
             M(ctx, 'مجهزة بالقافلة', sx + sw / 2, sy0 + 195, 22, '#4A7A4A');
         } else {
-            ctx.globalAlpha = 0.20;
+            /* إطار متقطع للفتحة الفارغة */
+            ctx.save();
+            ctx.setLineDash([8, 6]);
+            ctx.strokeStyle = '#2A4A5A'; ctx.lineWidth = 2;
+            rr(ctx, sx + 16, sy0 + 16, sw - 32, sh - 32, 18); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+            ctx.globalAlpha = 0.18;
             ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText('➕', sx + sw / 2, sy0 + sh / 2 + 10);
+            ctx.fillText('➕', sx + sw / 2, sy0 + sh / 2 - 10);
             ctx.globalAlpha = 1;
-            M(ctx, `الفتحة فارغة`, sx + sw / 2, sy0 + sh - 35, 26, '#334455');
+            M(ctx, 'الفتحة فارغة', sx + sw / 2, sy0 + sh - 68, 24, '#334455');
+            M(ctx, 'انقر للتجهيز', sx + sw / 2, sy0 + sh - 38, 20, '#2A7A55');
         }
     }
 
@@ -951,6 +1066,17 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         rr(ctx, ix, iy, iw, ih, 16); ctx.stroke();
 
         if (isEq) { L(ctx, '✅', ix + 12, iy + 26, 24, C.green); }
+
+        /* شارة الكمية في الزاوية العلوية اليمنى */
+        const qty = Number(row.quantity || row.qty || 1);
+        if (qty > 1) {
+            const bw = 64, bh = 28;
+            rr(ctx, ix + iw - bw - 6, iy + 6, bw, bh, 8);
+            ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fill();
+            ctx.strokeStyle = col + '88'; ctx.lineWidth = 1.5;
+            rr(ctx, ix + iw - bw - 6, iy + 6, bw, bh, 8); ctx.stroke();
+            M(ctx, `×${qty}`, ix + iw - bw / 2 - 6, iy + 20, 18, col);
+        }
 
         ctx.font = `50px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(itm?.type === 'book' ? '📖' : '⚙️', ix + iw / 2, iy + 55);
