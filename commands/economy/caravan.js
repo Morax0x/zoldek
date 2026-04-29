@@ -7,8 +7,10 @@ const {
 const {
     caravanConfig, getUserCaravanStats,
     getActiveCaravan, sendCaravan, upgradeCaravan, setupCaravanChecker,
-    safeQuery, safeExecute, EMOJI_MORA
+    checkCaravanCooldown, safeQuery, safeExecute, EMOJI_MORA
 } = require('../../handlers/caravan-core.js');
+
+const EMPEROR_ID = '1145327691772481577';
 
 const { startEscortLobby }         = require('../../handlers/caravan-lobby.js');
 const { registerCombatListeners }   = require('../../handlers/caravan-ambush.js');
@@ -170,6 +172,20 @@ module.exports = {
                         await i.followUp({ content: '❌ لديك رحلة نشطة بالفعل!', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
+                    }
+
+                    // 1-hour cooldown after caravan destruction (Emperor bypasses)
+                    if (user.id !== EMPEROR_ID) {
+                        const cd = await checkCaravanCooldown(db, user.id, guild.id);
+                        if (cd.onCooldown) {
+                            const ts = Math.floor(cd.expiresAt / 1000);
+                            await i.followUp({
+                                content: `⏳ قافلتك دُمِّرت مؤخراً!\nيمكنك إرسال قافلة جديدة <t:${ts}:R>.`,
+                                flags: [MessageFlags.Ephemeral],
+                            });
+                            activeProcesses.delete(user.id);
+                            return;
+                        }
                     }
                     const mora = await getMora(db, user.id, guild.id);
                     const stats = await getUserCaravanStats(db, user.id, guild.id);

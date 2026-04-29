@@ -21,14 +21,14 @@ const CLASS_OPTIONS = [
     { v: 'Summoner', l: 'المستدعي',  e: '🐺' },
 ];
 
-// ─── Ticket Helpers ───────────────────────────────────────────────────────────
-async function hasGuardTicket(db, userId, guildId) {
-    const r = await manageTickets(userId, guildId, db, 'check');
+// ─── Ticket Helpers (mirrors tickets.js — passes member for VIP bonus calc) ──
+async function hasGuardTicket(db, userId, guildId, member = null) {
+    const r = await manageTickets(userId, guildId, db, 'check', member);
     return r.tickets > 0;
 }
 
-async function consumeGuardTicket(db, userId, guildId) {
-    const r = await manageTickets(userId, guildId, db, 'consume');
+async function consumeGuardTicket(db, userId, guildId, member = null) {
+    const r = await manageTickets(userId, guildId, db, 'consume', member);
     return r.success === true;
 }
 
@@ -96,8 +96,8 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
                     if (party.includes(i.user.id))
                         return i.reply({ content: '✅ أنت منضم بالفعل.', flags: [MessageFlags.Ephemeral] });
 
-                    // Ticket check before showing class selector
-                    const hasTicket = await hasGuardTicket(db, i.user.id, guild.id);
+                    // Ticket check before showing class selector (pass member for VIP bonus)
+                    const hasTicket = await hasGuardTicket(db, i.user.id, guild.id, i.member);
                     if (!hasTicket)
                         return i.reply({
                             content: '🎟️ لا تملك **تذكرة زنزانة**! احصل عليها من نظام الزنزانة أولاً.',
@@ -135,8 +135,8 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
                     if (Array.from(partyClasses.values()).includes(chosen))
                         return sel.editReply({ content: '🚫 هذا التخصص أُخذ من شخص آخر!', components: [] }).catch(() => {});
 
-                    // Deduct ticket on confirmed join
-                    const consumed = await consumeGuardTicket(db, i.user.id, guild.id);
+                    // Deduct ticket on confirmed join (pass member for VIP bonus)
+                    const consumed = await consumeGuardTicket(db, i.user.id, guild.id, i.member);
                     if (!consumed)
                         return sel.editReply({ content: '❌ فشل خصم التذكرة، يبدو أنك استخدمتها للتو!', components: [] }).catch(() => {});
 

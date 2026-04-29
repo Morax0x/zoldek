@@ -58,8 +58,32 @@ async function initCaravanTables(db) {
             "luck_rank"       BIGINT DEFAULT 1,
             "total_trips"     BIGINT DEFAULT 0,
             "successful_trips" BIGINT DEFAULT 0,
+            "cooldown_until"  BIGINT DEFAULT 0,
             PRIMARY KEY ("userID","guildID")
         )`, []);
+
+    // Add column to existing tables that were created before this field existed
+    await safeExecute(db,
+        `ALTER TABLE user_caravan_stats ADD COLUMN IF NOT EXISTS "cooldown_until" BIGINT DEFAULT 0`, []);
+}
+
+// Returns { onCooldown, expiresAt (unix ms) }
+async function checkCaravanCooldown(db, userId, guildId) {
+    const res = await safeQuery(db,
+        `SELECT "cooldown_until" FROM user_caravan_stats WHERE "userID"=$1 AND "guildID"=$2`,
+        [userId, guildId]);
+    const until = Number(res.rows[0]?.cooldown_until || res.rows[0]?.cooldown_until || 0);
+    return { onCooldown: Date.now() < until, expiresAt: until };
+}
+
+// Call when a caravan is destroyed — sets a 1-hour cooldown
+async function setCaravanCooldown(db, userId, guildId) {
+    const until = Date.now() + 60 * 60 * 1000;
+    await safeExecute(db, `
+        INSERT INTO user_caravan_stats ("userID","guildID","cooldown_until")
+        VALUES ($1,$2,$3)
+        ON CONFLICT ("userID","guildID") DO UPDATE SET "cooldown_until"=$3`,
+        [userId, guildId, until]);
 }
 
 async function getUserCaravanStats(db, userId, guildId) {
@@ -393,6 +417,8 @@ module.exports = {
     processCaravanReturns,
     upgradeCaravan,
     setupCaravanChecker,
+    checkCaravanCooldown,
+    setCaravanCooldown,
     safeQuery,
     safeExecute,
     EMOJI_MORA,
