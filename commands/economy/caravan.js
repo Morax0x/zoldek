@@ -10,6 +10,8 @@ const {
     safeQuery, safeExecute, EMOJI_MORA
 } = require('../../handlers/caravan-core.js');
 
+const { startCaravanEscortLobby } = require('../../handlers/caravan-ambush.js');
+
 const upgradeMats = require('../../json/upgrade-materials.json');
 const path = require('path');
 
@@ -200,29 +202,140 @@ module.exports = {
                         activeProcesses.delete(user.id);
                         return;
                     }
-                    
+
+                    // Show escort choice screen
+                    const choiceEmbed = new EmbedBuilder()
+                        .setColor(dest.color || '#FFD700')
+                        .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
+                        .setDescription(
+                            `**التكلفة:** ${dest.cost.toLocaleString()} ${EMOJI_MORA}\n` +
+                            `**المدة:** ${dest.duration_hours} ساعة\n` +
+                            `**نسبة الخطر:** ${(dest.risk_factor*100).toFixed(0)}%\n\n` +
+                            `🛡️ **تأمين الطريق الآن** — قاتل 5 موجات قبل الإرسال، القافلة لن تُهاجَم.\n` +
+                            `🐫 **إرسال بدون حماية** — قد يحدث كمين مفاجئ أثناء الرحلة!`
+                        );
+                    await hubMsg.edit({
+                        embeds: [choiceEmbed],
+                        components: [
+                            new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`cv_escort_${destId}`)
+                                    .setLabel('🛡️ تأمين الطريق الآن')
+                                    .setStyle(ButtonStyle.Primary),
+                                new ButtonBuilder()
+                                    .setCustomId(`cv_noprotect_${destId}`)
+                                    .setLabel('🐫 إرسال بدون حماية')
+                                    .setStyle(ButtonStyle.Secondary),
+                                new ButtonBuilder()
+                                    .setCustomId('cv_back')
+                                    .setLabel('↩️ إلغاء')
+                                    .setStyle(ButtonStyle.Danger)
+                            )
+                        ]
+                    }).catch(() => {});
+                }
+
+                else if (id.startsWith('cv_noprotect_')) {
+                    const destId = id.replace('cv_noprotect_', '');
+                    const dest   = caravanConfig.destinations.find(d => d.id === destId);
+                    const mora   = await getMora(db, user.id, guild.id);
+                    if (mora < dest.cost) {
+                        await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA}. رصيدك: **${mora.toLocaleString()}**`, flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+
                     await safeExecute(db, `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [dest.cost, user.id, guild.id]);
 
-                    const sessionKey  = `${user.id}-${guild.id}`;
-                    const savedArts   = client.caravanEquip?.get(sessionKey) || [];
-                    const result      = await sendCaravan(db, user.id, guild.id, destId, savedArts);
-                    
+                    const sessionKey = `${user.id}-${guild.id}`;
+                    const savedArts  = client.caravanEquip?.get(sessionKey) || [];
+                    const result     = await sendCaravan(db, user.id, guild.id, destId, savedArts);
+
                     if (result.error) {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
-                    
+
                     const eta = Math.floor(result.endTime / 1000);
                     await i.followUp({
                         embeds: [new EmbedBuilder()
                             .setColor(dest.color || '#00FF88')
-                            .setTitle(`🐪 انطلقت القافلة بنجاح إلى ${dest.emoji} ${dest.name}!`)
-                            .setDescription(`📅 **وقت الوصول المتوقع:** <t:${eta}:R>\n⚠️ **نسبة الخطر في الطريق:** ${(result.riskFactor*100).toFixed(0)}%`)
+                            .setTitle(`🐪 انطلقت القافلة إلى ${dest.emoji} ${dest.name}!`)
+                            .setDescription(`📅 **وقت الوصول:** <t:${eta}:R>\n⚠️ **نسبة الخطر:** ${(result.riskFactor*100).toFixed(0)}%`)
                         ],
                         flags: [MessageFlags.Ephemeral],
                     }).catch(() => {});
                     await showHub(hubMsg);
+                }
+
+                else if (id.startsWith('cv_escort_')) {
+                    const destId = id.replace('cv_escort_', '');
+                    const dest   = caravanConfig.destinations.find(d => d.id === destId);
+                    if (!dest) { activeProcesses.delete(user.id); return; }
+
+                    const active = await getActiveCaravan(db, user.id, guild.id);
+                    if (active) {
+                        await i.followUp({ content: '❌ لديك رحلة نشطة بالفعل!', flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+
+                    // Disable hub while lobby is running
+                    await hubMsg.edit({
+                        content: '🛡️ **لوبي التأمين قيد الإعداد...**',
+                        embeds: [], components: []
+                    }).catch(() => {});
+
+                    // Fire-and-forget: lobby runs independently
+                    startCaravanEscortLobby(i.channel, user, guild, db, client, dest)
+                        .then(async escortResult => {
+                            if (escortResult.success) {
+                                // Only deduct cost and dispatch if escort won
+                                const mora2 = await getMora(db, user.id, guild.id);
+                                if (mora2 < dest.cost) {
+                                    await i.channel.send({
+                                        content: `❌ <@${user.id}> لا يوجد رصيد كافٍ لإرسال القافلة بعد التأمين!`
+                                    }).catch(() => {});
+                                } else {
+                                    await safeExecute(db,
+                                        `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`,
+                                        [dest.cost, user.id, guild.id]);
+                                    const sessionKey = `${user.id}-${guild.id}`;
+                                    const savedArts  = client.caravanEquip?.get(sessionKey) || [];
+                                    const cvResult   = await sendCaravan(db, user.id, guild.id, destId, savedArts);
+                                    // Mark route as secured — no ambush will happen
+                                    await safeExecute(db,
+                                        `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "userID"=$1 AND "guildID"=$2`,
+                                        [user.id, guild.id]);
+                                    const eta = Math.floor((cvResult.endTime || 0) / 1000);
+                                    await i.channel.send({
+                                        embeds: [new EmbedBuilder()
+                                            .setColor('#00FF88')
+                                            .setTitle(`🐪 انطلقت القافلة بأمان إلى ${dest.emoji} ${dest.name}!`)
+                                            .setDescription(
+                                                `📅 **وقت الوصول:** <t:${eta}:R>\n` +
+                                                `✅ **الطريق مؤمَّن — لن تُهاجَم القافلة!**`
+                                            )
+                                        ]
+                                    }).catch(() => {});
+                                }
+                            } else if (!escortResult.cancelled) {
+                                await i.channel.send({
+                                    embeds: [new EmbedBuilder()
+                                        .setColor('#FF4444')
+                                        .setTitle('💀 فشل التأمين!')
+                                        .setDescription(`<@${user.id}> لم تنجح الحراسة. القافلة لم تُرسَل ولم يُخصَم منك شيء.`)
+                                    ]
+                                }).catch(() => {});
+                            }
+                            await showHub(hubMsg);
+                        })
+                        .catch(async err => {
+                            console.error('[EscortLobby error]', err);
+                            await showHub(hubMsg);
+                        });
+                    // Return immediately — don't block collector
                 }
 
                 else if (id === 'cv_status' || id === 'cv_status_toggle') {
