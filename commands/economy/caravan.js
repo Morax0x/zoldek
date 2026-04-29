@@ -10,7 +10,8 @@ const {
     safeQuery, safeExecute, EMOJI_MORA
 } = require('../../handlers/caravan-core.js');
 
-const { startEscortLobby } = require('../../handlers/caravan-lobby.js');
+const { startEscortLobby }         = require('../../handlers/caravan-lobby.js');
+const { registerCombatListeners }   = require('../../handlers/caravan-ambush.js');
 
 const upgradeMats = require('../../json/upgrade-materials.json');
 const path = require('path');
@@ -111,6 +112,7 @@ module.exports = {
 
         const db = client.sql;
         setupCaravanChecker(client, db);
+        registerCombatListeners(client);
 
         const reply = async (payload) => {
             try {
