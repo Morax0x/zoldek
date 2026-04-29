@@ -140,8 +140,16 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
     const dmg = Math.floor(enemy.atk * (1 + waveNum * 0.03));
 
     if (sel.type === 'caravan') {
-        caravan.hp = Math.max(0, caravan.hp - dmg);
-        log.push(`🐪 **${enemy.name}** ضرب القافلة! (-${dmg} HP)`);
+        // Mechanic 3: Boss/enemy can crit the caravan (20% chance)
+        const isCritHit = Math.random() < 0.20;
+        const finalDmg  = isCritHit ? Math.floor(dmg * 1.5) : dmg;
+        caravan.hp = Math.max(0, caravan.hp - finalDmg);
+        if (isCritHit) {
+            log.push(`💥 **${enemy.name}** ضرب القافلة بضربة حاسمة! (-${finalDmg} HP) 📦 بضاعة تساقطت!`);
+            caravan.pendingLootDrop = true;   // flag picked up in battle loop
+        } else {
+            log.push(`🐪 **${enemy.name}** ضرب القافلة! (-${finalDmg} HP)`);
+        }
     } else {
         const t = sel.target;
         if (t && !t.isDead) {
@@ -328,13 +336,17 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
 }
 
 // ─── Party Rewards (owner + guards all receive same cumulative rewards) ───────
-async function distributePartyRewards(db, party, guildId, wavesCleared) {
+// lootPenalty: 0.0–1.0 fraction lost (from Sacrifice + uncollected loot drops)
+async function distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty = 0) {
+    const multiplier = Math.max(0, 1 - lootPenalty);
     let totalMora = 0, totalChests = 0, totalRep = 0;
     for (let w = 0; w < Math.min(wavesCleared, WAVE_REWARD_DELTAS.length); w++) {
         totalMora   += WAVE_REWARD_DELTAS[w].mora;
         totalChests += WAVE_REWARD_DELTAS[w].chests;
         totalRep    += WAVE_REWARD_DELTAS[w].rep;
     }
+    totalMora   = Math.floor(totalMora   * multiplier);
+    totalChests = Math.floor(totalChests * multiplier);
 
     const summary = [];
     for (const uid of party) {
@@ -372,7 +384,10 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         return { result: 'error', wavesCleared: 0 };
     }
 
-    const caravan    = { hp: CARAVAN_HP_MAX, maxHp: CARAVAN_HP_MAX, lootPenalty: 0, skipNextEnemyTurn: false };
+    const caravan = {
+        hp: CARAVAN_HP_MAX, maxHp: CARAVAN_HP_MAX,
+        lootPenalty: 0, skipNextEnemyTurn: false, pendingLootDrop: false,
+    };
     let wavesCleared = 0;
 
     for (let w = 0; w < WAVE_ENEMIES.length; w++) {
@@ -624,6 +639,42 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
             await processEnemyTurn(enemy, players, caravan, waveNum, log, thread);
             ensureDeadMarked(players);   // safety after enemy damage
 
+            // ── Mechanic 3: Loot Drop pickup window (15 s) ───────────────
+            if (caravan.pendingLootDrop) {
+                caravan.pendingLootDrop = false;
+                const lootMsg = await thread.send({
+                    content: '📦 **بضاعة تساقطت من القافلة!** أول حارس يضغط ينقذها (15 ثانية).',
+                    components: [new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('cvb_loot').setLabel('التقاط البضاعة').setEmoji('📦').setStyle(ButtonStyle.Success)
+                    )],
+                }).catch(() => null);
+
+                if (lootMsg) {
+                    const lootCollector = lootMsg.createMessageComponentCollector({
+                        filter: i => party.includes(i.user.id) && !players.find(pl => pl.id === i.user.id)?.isDead,
+                        time: 15000, max: 1,
+                    });
+                    await new Promise(res => {
+                        lootCollector.on('collect', async li => {
+                            await li.deferUpdate().catch(() => {});
+                            const savior = players.find(pl => pl.id === li.user.id);
+                            if (savior) {
+                                log.push(`📦 **${savior.name}** التقط البضاعة وأنقذها!`);
+                            }
+                            lootCollector.stop('saved');
+                        });
+                        lootCollector.on('end', async (_, r) => {
+                            if (r !== 'saved') {
+                                caravan.lootPenalty = Math.min(1, (caravan.lootPenalty || 0) + 0.10);
+                                log.push(`❌ لم يلتقط أحد البضاعة! (-10% مكافآت المالك)`);
+                            }
+                            await lootMsg.edit({ components: [] }).catch(() => {});
+                            res();
+                        });
+                    });
+                }
+            }
+
             if (caravan.hp <= 0) {
                 await battleMsg.edit({ content: '🐪 **دُمِّرت القافلة!**', components: [] }).catch(() => {});
                 return { result: 'lose_caravan', wavesCleared };
@@ -665,7 +716,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         }
     } // end wave loop
 
-    return { result: 'win', wavesCleared };
+    return { result: 'win', wavesCleared, lootPenalty: caravan.lootPenalty || 0 };
 }
 
 // ─── Escort Event Handler ─────────────────────────────────────────────────────
@@ -674,14 +725,14 @@ async function handleEscortReady(data) {
     const { thread, party, partyClasses, guild, dest, destId, hostId, channel, hubMsg, db, getMora, showHub } = data;
     const guards = party.filter(id => id !== hostId);
 
-    const { result, wavesCleared } = await runCaravanBattle(thread, party, partyClasses, db, guild, hostId, true).catch(err => {
+    const { result, wavesCleared, lootPenalty = 0 } = await runCaravanBattle(thread, party, partyClasses, db, guild, hostId, true).catch(err => {
         console.error('[EscortCombat]', err);
-        return { result: 'error', wavesCleared: 0 };
+        return { result: 'error', wavesCleared: 0, lootPenalty: 0 };
     });
 
     if (result === 'win' || result === 'escape') {
         // Everyone in the party (owner + guards) gets cumulative rewards
-        const rewardRes = await distributePartyRewards(db, party, guild.id, wavesCleared);
+        const rewardRes = await distributePartyRewards(db, party, guild.id, wavesCleared, lootPenalty);
 
         // Deduct cost and dispatch caravan
         const mora = await getMora(db, hostId, guild.id);
@@ -739,16 +790,16 @@ async function handleAmbushReady(data) {
     const { thread, party, partyClasses, guild, guildId, userId, caravanId, channel, db } = data;
     const guards = party.filter(id => id !== userId);
 
-    const { result, wavesCleared } = await runCaravanBattle(thread, party, partyClasses, db, guild, userId).catch(err => {
+    const { result, wavesCleared, lootPenalty = 0 } = await runCaravanBattle(thread, party, partyClasses, db, guild, userId).catch(err => {
         console.error('[AmbushCombat]', err);
-        return { result: 'error', wavesCleared: 0 };
+        return { result: 'error', wavesCleared: 0, lootPenalty: 0 };
     });
 
     if (result === 'win') {
         // Mark caravan as survived — trip continues with full rewards
         await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1 WHERE "id"=$1`, [caravanId]);
         // Everyone (owner + guards) gets cumulative rewards
-        const rewardRes = await distributePartyRewards(db, party, guildId, wavesCleared);
+        const rewardRes = await distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty);
 
         await thread.send({
             embeds: [new EmbedBuilder()
