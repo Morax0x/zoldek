@@ -5,6 +5,12 @@ const { checkLoanPayments } = require('./loan-handler.js');
 // 🔥 تم تصحيح اسم الملف هنا ليتطابق مع ملف المزرعة الفعلي لديك 🔥
 const { checkFarmIncome } = require('./farm-handler.js'); 
 
+// 🔥 استدعاء نظام فحص الرتب الخاصة 🔥
+const { checkDailyCustomRoleExpiration } = require('./custom-role-handler.js');
+
+// 🎂 استدعاء نظام أعياد الميلاد 🎂
+const { checkAndAnnounceBirthdays } = require('./birthday-handler.js');
+
 const handleMarketCrash = require('./market-crash-handler.js');
 const { checkDailyStreaks, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("../streak-handler.js");
 const { checkUnjailTask } = require('./report-handler.js'); 
@@ -254,6 +260,14 @@ module.exports = (client, db) => {
     setInterval(() => checkTemporaryRoles().catch(()=>{}), 60000); 
     setTimeout(() => checkTemporaryRoles().catch(()=>{}), 40000);
 
+    // 🔥 6️⃣ فحص الرتب الخاصة (VIP) كل ساعة 🔥
+    if (typeof checkDailyCustomRoleExpiration === 'function') {
+        setInterval(() => checkDailyCustomRoleExpiration(client, db).catch(()=>{}), 60 * 60 * 1000);
+        setTimeout(() => checkDailyCustomRoleExpiration(client, db).catch(()=>{}), 50000);
+    } else {
+        console.error("❌ دالة الرتب الخاصة غير متصلة بشكل صحيح بـ cron-jobs.js");
+    }
+
     setInterval(() => updateTimerChannels().catch(()=>{}), 5 * 60 * 1000); 
     setTimeout(() => updateTimerChannels().catch(()=>{}), 45000); 
     
@@ -331,6 +345,12 @@ module.exports = (client, db) => {
             sendMediaStreakReminders(client, db).catch(()=>{}); 
             client.lastReminderSentHour = ksaHour; 
         } else if (ksaHour !== 15) client.lastReminderSentHour = -1; 
+        
+        // 🎂 فحص أعياد الميلاد وإرسال التهنئة (الساعة 3 عصراً بتوقيت السعودية) 🎂
+        if (typeof checkAndAnnounceBirthdays === 'function') {
+            checkAndAnnounceBirthdays(client, db).catch(e => console.error("Birthday Announcement Error", e));
+        }
+        
     }, 60000); 
       
     // مسابقات الدروب العشوائية
