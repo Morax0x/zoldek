@@ -281,7 +281,7 @@ async function distributeRewards(client, db, caravan) {
 
 async function sendAttackNotification(client, db, caravan) {
     // Delegate to the new Caravan Ambush & Escort System
-    const { sendAmbushNotification } = require('./caravan-ambush.js');
+    const { sendAmbushNotification } = require('./caravan-lobby.js');
     return sendAmbushNotification(client, db, caravan);
 }
 
