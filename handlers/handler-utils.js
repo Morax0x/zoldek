@@ -42,6 +42,53 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
     const guildId = member.guild.id;
 
     try {
+        xpToAdd = Number(xpToAdd) || 0;
+        moraToAdd = Number(moraToAdd) || 0;
+
+        // 🔥 [1] إضافة وتصحيح منطق معزز الخبرة (XP Buff) وحذفه عند الانتهاء الفعلي 🔥
+        try {
+            let buffRes = await db.query(`SELECT "multiplier", "expiresAt" FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [userId, guildId])
+                .catch(() => db.query(`SELECT multiplier, expiresat as "expiresAt" FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [userId, guildId]).catch(()=>({rows:[]})));
+            
+            if (buffRes && buffRes.rows.length > 0) {
+                const activeBuff = buffRes.rows[0];
+                const expiresAt = Number(activeBuff.expiresAt || activeBuff.expiresat || 0);
+                
+                if (Date.now() > expiresAt) {
+                    // المعزز انتهى وقته الفعلي، يتم حذفه الآن
+                    await db.query(`DELETE FROM user_buffs WHERE "userID" = $1 AND "guildID" = $2 AND "buffType" = 'xp'`, [userId, guildId])
+                        .catch(() => db.query(`DELETE FROM user_buffs WHERE userid = $1 AND guildid = $2 AND bufftype = 'xp'`, [userId, guildId]).catch(()=>{}));
+                } else {
+                    // المعزز ما زال فعالاً، نطبق نسبة المضاعف على الـ XP
+                    const multiplier = Number(activeBuff.multiplier || 0);
+                    if (multiplier > 0) {
+                        xpToAdd = Math.floor(xpToAdd * (1 + multiplier));
+                    }
+                }
+            }
+        } catch(e) { console.error("[Buff Check Error]:", e); }
+
+        // 🔥 [2] إضافة وتصحيح تأثير معزز الرتب (Role Buffs / VIP) على الإكس بي 🔥
+        try {
+            let roleBuffsRes = await db.query(`SELECT "roleID", "buffPercent" FROM role_buffs WHERE "guildID" = $1`, [guildId])
+                .catch(() => db.query(`SELECT roleid as "roleID", buffpercent as "buffPercent" FROM role_buffs WHERE guildid = $1`, [guildId]).catch(()=>({rows:[]})));
+            
+            if (roleBuffsRes && roleBuffsRes.rows.length > 0) {
+                let maxRoleMultiplier = 0;
+                for (const rBuff of roleBuffsRes.rows) {
+                    const rId = rBuff.roleID || rBuff.roleid;
+                    if (member.roles.cache.has(rId)) {
+                        const rPercent = Number(rBuff.buffPercent || rBuff.buffpercent || 0);
+                        const rMult = rPercent / 100;
+                        if (rMult > maxRoleMultiplier) maxRoleMultiplier = rMult;
+                    }
+                }
+                if (maxRoleMultiplier > 0) {
+                    xpToAdd = Math.floor(xpToAdd * (1 + maxRoleMultiplier));
+                }
+            }
+        } catch(e) {}
+
         let userData = null;
         if (client.getLevel) userData = await client.getLevel(userId, guildId);
 
@@ -52,9 +99,9 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
             userData = res.rows[0] || { user: userId, guild: guildId, xp: 0, totalXP: 0, level: 1, mora: 0, bank: 0 };
         }
 
-        userData.xp = (Number(userData.xp) || 0) + Number(xpToAdd);
-        userData.totalXP = (Number(userData.totalXP || userData.totalxp) || 0) + Number(xpToAdd);
-        userData.mora = (Number(userData.mora) || 0) + Number(moraToAdd);
+        userData.xp = (Number(userData.xp) || 0) + xpToAdd;
+        userData.totalXP = (Number(userData.totalXP || userData.totalxp) || 0) + xpToAdd;
+        userData.mora = (Number(userData.mora) || 0) + moraToAdd;
         userData.level = Number(userData.level) || 1;
 
         let leveledUp = false;
@@ -105,6 +152,20 @@ async function addXPAndCheckLevel(client, member, db, xpToAdd, moraToAdd = 0, is
 
 async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpData, db) {
      let channelToSend = null;
+     
+     // 🔥 [3] إعطاء رتبة المستوى الجديد للاعب عند الترقية (الرتبة) 🔥
+     try {
+         let lvlRoleRes = await db.query(`SELECT "roleID" FROM level_roles WHERE "guildID" = $1 AND "level" = $2`, [interaction.guild.id, newLevel])
+             .catch(() => db.query(`SELECT roleid as "roleID" FROM level_roles WHERE guildid = $1 AND level = $2`, [interaction.guild.id, newLevel]).catch(()=>({rows:[]})));
+         
+         if (lvlRoleRes && lvlRoleRes.rows.length > 0) {
+             const roleIdToGive = lvlRoleRes.rows[0].roleID || lvlRoleRes.rows[0].roleid;
+             const roleToGive = interaction.guild.roles.cache.get(roleIdToGive);
+             if (roleToGive) {
+                 await member.roles.add(roleToGive).catch(()=>{});
+             }
+         }
+     } catch(e) {}
      
      try {
          let savedChannelId = null;
