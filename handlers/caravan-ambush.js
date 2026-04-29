@@ -129,6 +129,13 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
         log.push(`💢 **${enemy.name}** اشتعل غضباً! (+50% هجوم)`);
     }
 
+    // Mechanic 4: Sacrifice — owner burned 15% loot to skip this turn
+    if (caravan.skipNextEnemyTurn) {
+        caravan.skipNextEnemyTurn = false;
+        log.push(`🥩 العدو أُشغل بالبضاعة — أضاع دوره!`);
+        return;
+    }
+
     const sel = selectEnemyTarget(enemy, players, caravan);
     const dmg = Math.floor(enemy.atk * (1 + waveNum * 0.03));
 
@@ -193,17 +200,21 @@ function generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers
     return embed;
 }
 
-function makeBattleRows(disabled = false) {
-    return [
+// hostId passed to show the [Sacrifice] button only for the owner row
+function makeBattleRows(disabled = false, hostId = null, currentPlayerId = null) {
+    const rows = [
         new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('cvb_atk').setLabel('هجوم').setEmoji('⚔️').setStyle(ButtonStyle.Danger).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cvb_skill').setLabel('مهارة').setEmoji('✨').setStyle(ButtonStyle.Primary).setDisabled(disabled)
+            new ButtonBuilder().setCustomId('cvb_skill').setLabel('مهارة').setEmoji('✨').setStyle(ButtonStyle.Primary).setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cvb_repair').setLabel('إصلاح').setEmoji('🧰').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
         ),
         new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('cvb_def').setLabel('دفاع').setEmoji('🛡️').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cvb_heal').setLabel('جرعة').setEmoji('🧪').setStyle(ButtonStyle.Success).setDisabled(disabled)
+            new ButtonBuilder().setCustomId('cvb_heal').setLabel('جرعة').setEmoji('🧪').setStyle(ButtonStyle.Success).setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cvb_sacrifice').setLabel('رمي بضاعة').setEmoji('🥩').setStyle(ButtonStyle.Danger).setDisabled(disabled)
         ),
     ];
+    return rows;
 }
 
 function generateRestEmbed(players, caravan, waveNum) {
@@ -361,7 +372,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         return { result: 'error', wavesCleared: 0 };
     }
 
-    const caravan    = { hp: CARAVAN_HP_MAX, maxHp: CARAVAN_HP_MAX };
+    const caravan    = { hp: CARAVAN_HP_MAX, maxHp: CARAVAN_HP_MAX, lootPenalty: 0, skipNextEnemyTurn: false };
     let wavesCleared = 0;
 
     for (let w = 0; w < WAVE_ENEMIES.length; w++) {
@@ -438,10 +449,24 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                         const cid = i.customId;
 
                         if (cid === 'cvb_atk') {
+                            // Mechanic 2: Panic Mode — caravan < 30% HP
+                            const inPanic = caravan.hp < caravan.maxHp * 0.30;
+                            if (inPanic && pid !== hostId && Math.random() < 0.15) {
+                                // Guard misses due to panic
+                                log.push(`😰 **${p.name}** ذعر وأخطأ ضربته! (وضع الذعر)`);
+                                actedPlayers.push(pid); p.skipCount = 0;
+                                processingSet.delete(pid);
+                                await battleMsg.edit({ embeds: [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers)], components: makeBattleRows() }).catch(() => {});
+                                if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) { clearTimeout(turnTimer); collector.stop('turn_end'); }
+                                return;
+                            }
                             const res  = executeWeaponAttack(p, enemy, false);
-                            const dmgD = Math.max(0, res.damage || 0);
+                            let   dmgD = Math.max(0, res.damage || 0);
+                            if (inPanic && pid !== hostId) dmgD = Math.floor(dmgD * 1.20); // +20% dmg in panic
+                            enemy.hp = Math.max(0, enemy.hp - (inPanic && pid !== hostId ? Math.floor(res.damage * 0.20) : 0));
                             p.totalDamage = (p.totalDamage || 0) + dmgD;
-                            log.push(res.log || `⚔️ **${p.name}** هاجم (-${dmgD})`);
+                            const panicTag = (inPanic && pid !== hostId) ? ' 😰(ذعر+20%)' : '';
+                            log.push((res.log || `⚔️ **${p.name}** هاجم (-${dmgD})`) + panicTag);
                             actedPlayers.push(pid); p.skipCount = 0;
 
                         } else if (cid === 'cvb_def') {
@@ -508,6 +533,37 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                                 }
                             }
                             await pSel.editReply({ content: '✅ تم', components: [] }).catch(() => {});
+                            actedPlayers.push(pid); p.skipCount = 0;
+
+                        // ── Mechanic 1: Repair ────────────────────────────────
+                        } else if (cid === 'cvb_repair') {
+                            if (pid === hostId) {
+                                // Owner: sacrifices 25% of own HP to heal caravan
+                                const sacrifice = Math.floor(p.hp * 0.25);
+                                if (sacrifice < 1) {
+                                    await i.followUp({ content: '❌ صحتك منخفضة جداً للتضحية!', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                                    processingSet.delete(pid); return;
+                                }
+                                p.hp = Math.max(1, p.hp - sacrifice);
+                                caravan.hp = Math.min(caravan.maxHp, caravan.hp + sacrifice);
+                                log.push(`💉 **${p.name}** ضحّى بـ${sacrifice} HP لإصلاح القافلة (+${sacrifice} 🐪)`);
+                            } else {
+                                // Guard: skip turn, repair +300 caravan HP
+                                const repair = 300;
+                                caravan.hp = Math.min(caravan.maxHp, caravan.hp + repair);
+                                log.push(`🧰 **${p.name}** أصلح القافلة (+${repair} HP 🐪)`);
+                            }
+                            actedPlayers.push(pid); p.skipCount = 0;
+
+                        // ── Mechanic 4: Sacrifice (owner only) ────────────────
+                        } else if (cid === 'cvb_sacrifice') {
+                            if (pid !== hostId) {
+                                await i.followUp({ content: '⛔ هذا الزر للمالك فقط.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                                processingSet.delete(pid); return;
+                            }
+                            caravan.lootPenalty = Math.min(1, (caravan.lootPenalty || 0) + 0.15);
+                            caravan.skipNextEnemyTurn = true;
+                            log.push(`🥩 **${p.name}** رمى البضاعة — العدو مشتت! (دوره القادم يُهدر | -15% مكافآت)`);
                             actedPlayers.push(pid); p.skipCount = 0;
                         }
 
