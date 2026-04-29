@@ -3,7 +3,10 @@ const aiActionHandler = require('../../utils/aiActionHandler');
 require('dotenv').config();
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
-const MODEL = "gpt-4o-mini"; // نموذج سريع جداً ورخيص ويدعم العربية بقوة
+const OPENAI_MODEL = "gpt-4o-mini"; 
+
+// يمكنك التغيير إلى gemini-1.5-pro إذا رغبت، لكن flash أسرع ومناسب للمحادثات
+const GEMINI_MODEL = "gemini-1.5-flash"; 
 
 const chatSessions = {};
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -12,7 +15,6 @@ const messageQueue = [];
 let isProcessingQueue = false;
 const userCooldowns = new Map();
 
-// قللت وقت الطابور لأن OpenAI سريع جداً ويتحمل ضغط السيرفرات الكبيرة
 const QUEUE_DELAY = 1000; 
 const USER_COOLDOWN = 5000; 
 
@@ -65,6 +67,9 @@ async function processAiActions(responseText, messageObject) {
     return cleanText.trim();
 }
 
+// =========================================================
+// 🧠 محرك OpenAI
+// =========================================================
 async function callOpenAI(apiKey, messages) {
     const response = await fetch(OPENAI_API_URL, {
         method: "POST",
@@ -73,7 +78,7 @@ async function callOpenAI(apiKey, messages) {
             "Authorization": `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-            model: MODEL,
+            model: OPENAI_MODEL,
             messages: messages,
             max_tokens: 1500,
             temperature: 0.7
@@ -89,11 +94,71 @@ async function callOpenAI(apiKey, messages) {
     return data.choices[0].message.content ?? "";
 }
 
+// =========================================================
+// 🧠 محرك Gemini (مع مترجم الصيغ)
+// =========================================================
+async function callGemini(apiKey, messages) {
+    const contents = [];
+    let systemText = "";
+
+    // ترجمة صيغة OpenAI إلى صيغة Gemini
+    for (const msg of messages) {
+        if (msg.role === 'system') {
+            systemText += msg.content + "\n";
+            continue;
+        }
+        
+        const role = msg.role === 'assistant' ? 'model' : 'user';
+        const parts = [];
+        
+        if (typeof msg.content === 'string') {
+            parts.push({ text: msg.content });
+        } else if (Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+                if (part.type === 'text') {
+                    parts.push({ text: part.text });
+                } else if (part.type === 'image_url') {
+                    const base64Data = part.image_url.url.split(',')[1];
+                    const mimeType = part.image_url.url.match(/data:(.*?);base64/)[1];
+                    parts.push({
+                        inline_data: {
+                            mime_type: mimeType,
+                            data: base64Data
+                        }
+                    });
+                }
+            }
+        }
+        contents.push({ role, parts });
+    }
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemText.trim() }] },
+            contents: contents,
+            generationConfig: { maxOutputTokens: 1500, temperature: 0.7 }
+        })
+    });
+
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gemini API error ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    return data.candidates[0].content.parts[0].text;
+}
+
+// =========================================================
+// ⚙️ الموزع الرئيسي (نظام التحويل التلقائي السلس)
+// =========================================================
 async function executeAI(passedApiKey, systemInstruction, userMessage, userData, userId, username, imageAttachment, isNsfw, messageObject, channelId) {
-    // يسحب المفتاح تلقائياً من ريلواي عشان ما تضطر تعدل ملفات ثانية
-    const apiKey = process.env.OPENAI_API_KEY || passedApiKey;
+    const openaiApiKey = process.env.OPENAI_API_KEY || passedApiKey;
+    const geminiApiKey = process.env.GEMINI_API_KEY; 
     
-    if (!apiKey) return "⚠️ مفتاح الخزينة (OpenAI API Key) مفقود!";
+    if (!openaiApiKey && !geminiApiKey) return "⚠️ مفاتيح الذكاء الاصطناعي مفقودة من ملف .env!";
 
     const sessionKey = `${channelId}-SFW`;
     const totalWealth = (userData.balance || 0) + (userData.bank || 0);
@@ -102,11 +167,11 @@ async function executeAI(passedApiKey, systemInstruction, userMessage, userData,
     [Current Speaker Stats]:
     - User ID: ${userId}
     - Name: ${username}
-    - Cash: ${userData.balance} Mora
+    - Cash: ${userData.balance || 0} Mora
     - Bank: ${userData.bank || 0} Mora
     - Total Wealth: ${totalWealth} Mora
-    - Level: ${userData.level}
-    - Streak: ${userData.streak}
+    - Level: ${userData.level || 1}
+    - Streak: ${userData.streak || 0}
     `;
 
     // تجهيز الذاكرة إذا كانت محادثة جديدة
@@ -126,7 +191,7 @@ async function executeAI(passedApiKey, systemInstruction, userMessage, userData,
         text: `${contextInfo}\n\n[User: ${username} | ID: ${userId}]: ${userMessage || (imageAttachment ? "ما رأيك في هذه الصورة؟" : "")}`
     });
 
-    // معالجة الصور بطريقة OpenAI (تحويلها إلى Base64)
+    // معالجة الصور 
     if (imageAttachment) {
         try {
             const imageResponse = await fetch(imageAttachment.url);
@@ -146,22 +211,36 @@ async function executeAI(passedApiKey, systemInstruction, userMessage, userData,
 
     currentHistory.push({ role: "user", content: messageContent });
 
-    // تقليل الذاكرة إذا طالت (يحفظ آخر 15 رسالة عشان يركز أكثر)
+    // تقليل الذاكرة إذا طالت
     if (currentHistory.length > 15) {
         currentHistory.splice(2, currentHistory.length - 15);
     }
 
     try {
-        let responseText = await callOpenAI(apiKey, currentHistory);
+        let responseText;
+        
+        // 🔄 محاولة جيميناي أولاً
+        try {
+            if (!geminiApiKey) throw new Error("No Gemini Key");
+            responseText = await callGemini(geminiApiKey, currentHistory);
+        } catch (geminiError) {
+            // 🔄 فشل جيميناي (بسبب الضغط)، التحويل بصمت إلى أوبن إي آي
+            console.log(`[AI Fallback] Gemini limits hit (${geminiError.message.split('\n')[0]}), silently switching to OpenAI...`);
+            if (!openaiApiKey) throw new Error("No OpenAI Key available for fallback");
+            
+            responseText = await callOpenAI(openaiApiKey, currentHistory);
+        }
 
+        // حفظ المحادثة في الذاكرة
         chatSessions[sessionKey] = currentHistory;
         chatSessions[sessionKey].push({ role: "assistant", content: responseText });
 
+        // تنفيذ أوامر الأدمن المخفية إن وُجدت
         responseText = await processAiActions(responseText, messageObject);
         return enforceSingleEmoji(responseText);
 
     } catch (error) {
-        console.error(`[OpenAI Engine Error]: ${error.message.split('\n')[0]}`);
+        console.error(`[AI Engine Fatal Error]: ${error.message}`);
         return "🌑 .. واجهت مشكلة في التفكير، حاول مرة أخرى.";
     }
 }
