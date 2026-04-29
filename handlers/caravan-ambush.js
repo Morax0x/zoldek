@@ -5,7 +5,7 @@ const {
     ComponentType, MessageFlags,
 } = require('discord.js');
 
-const { safeExecute, caravanConfig, EMOJI_MORA } = require('./caravan-core.js');
+const { safeExecute, setCaravanCooldown, caravanConfig, EMOJI_MORA } = require('./caravan-core.js');
 const { setupPlayers }       = require('./dungeon/core/setup.js');
 const { buildHpBar, applyDamageToPlayer } = require('./dungeon/utils.js');
 const { handleSkillUsage }   = require('./dungeon/skills.js');
@@ -33,6 +33,14 @@ const WAVE_REWARD_DELTAS = [
     { mora: 0,    chests: 4,  rep: 0 },
     { mora: 5000, chests: 10, rep: 2 },
 ];
+
+// ─── Player Death Safety ──────────────────────────────────────────────────────
+// Catches any edge-case where HP hits 0/negative but isDead wasn't set
+function ensureDeadMarked(players) {
+    for (const p of players) {
+        if (!p.isDead && p.hp <= 0) { p.hp = 0; p.isDead = true; }
+    }
+}
 
 // ─── Enemy AI ─────────────────────────────────────────────────────────────────
 // Tank Provoke (taunt/titan effect) → 100% hits that Tank
@@ -217,19 +225,26 @@ function generateRestEmbed(players, caravan, waveNum) {
         );
 }
 
-function makeRestRows() {
-    return [new ActionRowBuilder().addComponents(
+// isEscort=true shows the [استكمال الرحلة] escape button (pre-emptive escort only)
+function makeRestRows(isEscort = false) {
+    const btns = [
         new ButtonBuilder().setCustomId('cvr_continue').setLabel('استمرار').setEmoji('▶️').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('cvr_potion').setLabel('جرعة').setEmoji('🧪').setStyle(ButtonStyle.Secondary)
-    )];
+        new ButtonBuilder().setCustomId('cvr_potion').setLabel('جرعة').setEmoji('🧪').setStyle(ButtonStyle.Secondary),
+    ];
+    if (isEscort) {
+        btns.push(
+            new ButtonBuilder().setCustomId('cvr_escape').setLabel('استكمال الرحلة').setEmoji('🐪').setStyle(ButtonStyle.Primary)
+        );
+    }
+    return [new ActionRowBuilder().addComponents(...btns)];
 }
 
 // ─── Rest Phase ───────────────────────────────────────────────────────────────
-// Returns 'continue' | 'timeout'
-async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild) {
+// Returns 'continue' | 'timeout' | 'escape'
+async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort = false) {
     const restMsg = await thread.send({
         embeds:     [generateRestEmbed(players, caravan, waveNum)],
-        components: makeRestRows(),
+        components: makeRestRows(isEscort),
     }).catch(() => null);
     if (!restMsg) return 'timeout';
 
@@ -241,7 +256,13 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild)
     const outcome = await new Promise(resolve => {
         collector.on('collect', async i => {
             try {
-                if (i.customId === 'cvr_continue') {
+                if (i.customId === 'cvr_escape') {
+                    if (i.user.id !== hostId)
+                        return i.reply({ content: '⛔ القائد فقط يستطيع استكمال الرحلة.', flags: [MessageFlags.Ephemeral] });
+                    await i.deferUpdate().catch(() => {});
+                    collector.stop('escape');
+
+                } else if (i.customId === 'cvr_continue') {
                     if (i.user.id !== hostId)
                         return i.reply({ content: '⛔ القائد فقط يستطيع المتابعة.', flags: [MessageFlags.Ephemeral] });
                     await i.deferUpdate().catch(() => {});
@@ -288,15 +309,15 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild)
                 }
             } catch (err) { console.error('[RestPhase]', err); }
         });
-        collector.on('end', (_, r) => resolve(r === 'continue' ? 'continue' : 'timeout'));
+        collector.on('end', (_, r) => resolve(r === 'continue' ? 'continue' : r === 'escape' ? 'escape' : 'timeout'));
     });
 
     await restMsg.edit({ components: [] }).catch(() => {});
     return outcome;
 }
 
-// ─── Guard Rewards (guards only — owner gets nothing) ─────────────────────────
-async function distributeGuardRewards(db, guards, guildId, wavesCleared) {
+// ─── Party Rewards (owner + guards all receive same cumulative rewards) ───────
+async function distributePartyRewards(db, party, guildId, wavesCleared) {
     let totalMora = 0, totalChests = 0, totalRep = 0;
     for (let w = 0; w < Math.min(wavesCleared, WAVE_REWARD_DELTAS.length); w++) {
         totalMora   += WAVE_REWARD_DELTAS[w].mora;
@@ -305,34 +326,35 @@ async function distributeGuardRewards(db, guards, guildId, wavesCleared) {
     }
 
     const summary = [];
-    for (const gid of guards) {
+    for (const uid of party) {
         if (totalMora > 0)
             await safeExecute(db,
                 `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
-                [totalMora, gid, guildId]);
+                [totalMora, uid, guildId]);
         if (totalChests > 0)
             await safeExecute(db,
                 `INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,'gacha_chest',$3)
                  ON CONFLICT ("guildID","userID","itemID") DO UPDATE SET "quantity"=user_inventory.quantity+$3`,
-                [guildId, gid, totalChests]);
+                [guildId, uid, totalChests]);
         if (totalRep > 0)
             await safeExecute(db,
                 `INSERT INTO user_reputation ("userID","guildID","rep_points") VALUES ($1,$2,$3)
                  ON CONFLICT ("userID","guildID") DO UPDATE SET "rep_points"=user_reputation.rep_points+$3`,
-                [gid, guildId, totalRep]);
+                [uid, guildId, totalRep]);
 
         const parts = [];
         if (totalMora   > 0) parts.push(`${totalMora.toLocaleString()} ${EMOJI_MORA}`);
         if (totalChests > 0) parts.push(`${totalChests} 🎁`);
         if (totalRep    > 0) parts.push(`${totalRep} 🌟`);
-        summary.push(`<@${gid}>: ${parts.join(' | ')}`);
+        summary.push(`<@${uid}>: ${parts.join(' | ')}`);
     }
     return { totalMora, totalChests, totalRep, summary };
 }
 
 // ─── Core 5-Wave Battle ───────────────────────────────────────────────────────
-// result: 'win' | 'lose_players' | 'lose_caravan' | 'lose_timeout' | 'error'
-async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId) {
+// result: 'win'|'escape'|'lose_players'|'lose_caravan'|'lose_timeout'|'error'
+// isEscort=true → shows escape button in rest phases (pre-emptive escort only)
+async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, isEscort = false) {
     const players = await setupPlayers(guild, party, partyClasses, db, null, null);
     if (!players.length) {
         await thread.send('❌ فشل في تحميل بيانات اللاعبين.').catch(() => {});
@@ -489,6 +511,9 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId) 
                             actedPlayers.push(pid); p.skipCount = 0;
                         }
 
+                        // Ensure any 0-HP player is marked dead
+                        ensureDeadMarked(players);
+
                         // Immediate win check
                         if (enemy.hp <= 0) {
                             enemy.hp  = 0;
@@ -541,6 +566,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId) 
 
             // ── Enemy turn ────────────────────────────────────────────────
             await processEnemyTurn(enemy, players, caravan, waveNum, log, thread);
+            ensureDeadMarked(players);   // safety after enemy damage
 
             if (caravan.hp <= 0) {
                 await battleMsg.edit({ content: '🐪 **دُمِّرت القافلة!**', components: [] }).catch(() => {});
@@ -571,7 +597,11 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId) 
 
         // ── Rest Phase (between waves, not after last) ────────────────────
         if (waveNum < WAVE_ENEMIES.length) {
-            const restResult = await doRestPhase(thread, players, caravan, waveNum, hostId, db, guild);
+            const restResult = await doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort);
+            if (restResult === 'escape') {
+                await thread.send('🐪 **القائد قرر استكمال الرحلة — المعركة توقفت والقافلة واصلة!**').catch(() => {});
+                return { result: 'escape', wavesCleared };
+            }
             if (restResult === 'timeout') {
                 await thread.send('⏰ **انتهى وقت الاستراحة! القافلة دُمِّرت.**').catch(() => {});
                 return { result: 'lose_timeout', wavesCleared };
@@ -588,14 +618,14 @@ async function handleEscortReady(data) {
     const { thread, party, partyClasses, guild, dest, destId, hostId, channel, hubMsg, db, getMora, showHub } = data;
     const guards = party.filter(id => id !== hostId);
 
-    const { result, wavesCleared } = await runCaravanBattle(thread, party, partyClasses, db, guild, hostId).catch(err => {
+    const { result, wavesCleared } = await runCaravanBattle(thread, party, partyClasses, db, guild, hostId, true).catch(err => {
         console.error('[EscortCombat]', err);
         return { result: 'error', wavesCleared: 0 };
     });
 
-    if (result === 'win') {
-        // Distribute guard rewards (owner gets nothing — caravan trip is their reward)
-        const rewardRes = await distributeGuardRewards(db, guards, guild.id, wavesCleared);
+    if (result === 'win' || result === 'escape') {
+        // Everyone in the party (owner + guards) gets cumulative rewards
+        const rewardRes = await distributePartyRewards(db, party, guild.id, wavesCleared);
 
         // Deduct cost and dispatch caravan
         const mora = await getMora(db, hostId, guild.id);
@@ -618,17 +648,19 @@ async function handleEscortReady(data) {
                     .setColor('#00FF88')
                     .setTitle('🎉 انتصار! الطريق آمن!')
                     .setDescription(
-                        `🐪 ستنطلق القافلة إلى **${dest.emoji} ${dest.name}** بأمان!\n` +
+                        `🐪 ستنطلق القافلة إلى **${dest.emoji} ${dest.name}**!\n` +
                         `📅 **وقت الوصول:** <t:${eta}:R>\n` +
-                        `✅ **الطريق مؤمَّن — لن تُهاجَم القافلة!**\n\n` +
-                        (guards.length
-                            ? `**مكافآت الحراس (${wavesCleared} موجة):**\n${rewardRes.summary.join('\n')}`
-                            : '_لا يوجد حراس خارجيون_')
+                        (result === 'escape'
+                            ? `⚠️ الطريق غير مؤمَّن تماماً — قد يحدث كمين أثناء الرحلة.`
+                            : `✅ **الطريق مؤمَّن — لن تُهاجَم القافلة!**`) +
+                        `\n\n**مكافآت الجميع (${wavesCleared} موجة):**\n${rewardRes.summary.join('\n')}`
                     )
                 ]
             }).catch(() => {});
         }
     } else {
+        // Apply 1-hour cooldown to owner on any loss
+        await setCaravanCooldown(db, hostId, guild.id).catch(() => {});
         const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
                      : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
                      : '☠️ سقط كل الحراس!';
@@ -636,7 +668,7 @@ async function handleEscortReady(data) {
             embeds: [new EmbedBuilder()
                 .setColor('#FF0000')
                 .setTitle('💀 فشل التأمين!')
-                .setDescription(`**${reason}**\nلم تُرسَل القافلة. لم يُخصَم منك شيء.`)
+                .setDescription(`**${reason}**\nلم تُرسَل القافلة. لم يُخصَم منك شيء.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`)
             ]
         }).catch(() => {});
     }
@@ -659,7 +691,8 @@ async function handleAmbushReady(data) {
     if (result === 'win') {
         // Mark caravan as survived — trip continues with full rewards
         await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1 WHERE "id"=$1`, [caravanId]);
-        const rewardRes = await distributeGuardRewards(db, guards, guildId, wavesCleared);
+        // Everyone (owner + guards) gets cumulative rewards
+        const rewardRes = await distributePartyRewards(db, party, guildId, wavesCleared);
 
         await thread.send({
             embeds: [new EmbedBuilder()
@@ -667,16 +700,15 @@ async function handleAmbushReady(data) {
                 .setTitle('🎉 نجحت الحراسة! القافلة آمنة!')
                 .setDescription(
                     `🐪 ستكمل القافلة رحلتها بمكافآت **كاملة**!\n\n` +
-                    (guards.length
-                        ? `**مكافآت الحراس (${wavesCleared} موجة):**\n${rewardRes.summary.join('\n')}`
-                        : '_لا يوجد حراس خارجيون_')
+                    `**مكافآت الجميع (${wavesCleared} موجة):**\n${rewardRes.summary.join('\n')}`
                 )
             ]
         }).catch(() => {});
 
         await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
     } else {
-        // Battle lost → delete caravan immediately (anti-zombie)
+        // Battle lost → delete caravan + apply 1-hour cooldown to owner
+        await setCaravanCooldown(db, userId, guildId).catch(() => {});
         await safeExecute(db,
             `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1 WHERE "userID"=$1 AND "guildID"=$2`,
             [userId, guildId]);
@@ -689,7 +721,7 @@ async function handleAmbushReady(data) {
             embeds: [new EmbedBuilder()
                 .setColor('#FF0000')
                 .setTitle('💀 فشلت الحراسة — القافلة نُهبت!')
-                .setDescription(`**${reason}**\nضاعت جميع البضائع. انتهت الرحلة.`)
+                .setDescription(`**${reason}**\nضاعت جميع البضائع. انتهت الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`)
             ]
         }).catch(() => {});
         await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم حذف الرحلة.`).catch(() => {});
@@ -718,7 +750,7 @@ module.exports = {
     generateRestEmbed,
     makeRestRows,
     doRestPhase,
-    distributeGuardRewards,
+    distributePartyRewards,
     runCaravanBattle,
     registerCombatListeners,
 };
