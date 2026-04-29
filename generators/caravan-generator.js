@@ -481,7 +481,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
             ctx.save();
             rr(ctx, RX, RY, RW, RH, 24); ctx.clip();
             ctx.globalAlpha = 0.22;
-            // ضمان عدم تشوه الصورة
             const imgRatio = destImg.width / destImg.height;
             const drawW = RW;
             const drawH = RW / imgRatio;
@@ -511,7 +510,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
             { label: 'الوجهة',          val: truncate(dest?.name || '', 14), vc: acc },
             { label: 'الحالة',          val: st2.t,                            vc: st2.c },
             { label: 'الوقت المتبقي',   val: formatArabicTime(tleft),          vc: tleft <= 0 ? C.green : C.text },
-            { label: 'المكافات',        val: `× ${rm.toFixed(2)}`,            vc: rmC },
+            { label: 'المكافات',        val: `× ${rm.toFixed(2)}`,             vc: rmC },
         ];
         for (const row of infoRows) {
             rr(ctx, RX + 18, rpy - 22, RW - 36, 52, 12);
@@ -707,7 +706,43 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
 
     if (mode === 'map') {
         const MX = 80, MY = 160, MW = 1440, MH = 680;
-        drawPanel(ctx, MX, MY, MW, MH, acc, { radius: 32 });
+        
+        ctx.save();
+        rr(ctx, MX, MY, MW, MH, 32);
+        ctx.clip(); 
+
+        const mapImg = await fetchImageSafe('worldmap'); 
+        if (mapImg) {
+            const imgRatio = mapImg.width / mapImg.height;
+            const boxRatio = MW / MH;
+            let drawW = MW;
+            let drawH = MH;
+            let offsetX = 0;
+            let offsetY = 0;
+
+            if (imgRatio > boxRatio) {
+                drawH = MH;
+                drawW = MH * imgRatio;
+                offsetX = (MW - drawW) / 2;
+            } else {
+                drawW = MW;
+                drawH = MW / imgRatio;
+                offsetY = (MH - drawH) / 2;
+            }
+            
+            ctx.drawImage(mapImg, MX + offsetX, MY + offsetY, drawW, drawH);
+            ctx.fillStyle = 'rgba(4,6,12,0.60)';
+            ctx.fillRect(MX, MY, MW, MH);
+        } else {
+            ctx.fillStyle = 'rgba(10,14,28,0.8)';
+            ctx.fillRect(MX, MY, MW, MH);
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = acc + '44';
+        ctx.lineWidth = 3;
+        rr(ctx, MX, MY, MW, MH, 32);
+        ctx.stroke();
 
         const oX = MX + 200,       oY = MY + MH - 220;
         const dX = MX + MW - 200,  dY = MY + 200;
@@ -839,13 +874,11 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         }
 
         const barY2 = MY + MH - 95;
-        // تمت إزالة arcProgress الخاطئة من هنا
         drawBar(ctx, MX + 240, barY2 + 6, MW - 480, 50, prog, acc);
 
         return toBuf(canvas);
     }
 
-    // شاشة التقرير التفصيلي
     const RX = 80, RY = 158, RW = 1440, RH = 684;
     drawPanel(ctx, RX, RY, RW, RH, acc, { radius: 32 });
 
@@ -865,7 +898,6 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
     if (destImg) {
         ctx.save();
         rr(ctx, RX + 40, RY + 52, 500, 590, 24); ctx.clip();
-        // تعديل نسبة الصورة لعدم الانضغاط
         const imgRatio = destImg.width / destImg.height;
         const drawH = 590;
         const drawW = 590 * imgRatio;
