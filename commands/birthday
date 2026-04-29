@@ -1,0 +1,95 @@
+const { SlashCommandBuilder, EmbedBuilder, PermissionsBitField, Colors, MessageFlags } = require('discord.js');
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('ميلاد')
+        .setDescription('نظام أعياد الميلاد في الإمبراطورية 🎂')
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('تعيين')
+                .setDescription('تحديد تاريخ ميلادك')
+                .addIntegerOption(option => option.setName('اليوم').setDescription('يوم ميلادك (1-31)').setRequired(true).setMinValue(1).setMaxValue(31))
+                .addIntegerOption(option => option.setName('الشهر').setDescription('شهر ميلادك (1-12)').setRequired(true).setMinValue(1).setMaxValue(12))
+                .addIntegerOption(option => option.setName('السنة').setDescription('سنة ميلادك (اختياري، لحساب العمر)').setRequired(false).setMinValue(1950).setMaxValue(new Date().getFullYear()))
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('عرض')
+                .setDescription('عرض تاريخ ميلادك أو ميلاد شخص آخر')
+                .addUserOption(option => option.setName('العضو').setDescription('الشخص الذي تريد معرفة ميلاده').setRequired(false))
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('إعدادات')
+                .setDescription('⚙️ (للإدارة فقط) إعداد روم ورتبة الميلاد')
+                .addChannelOption(option => option.setName('الروم').setDescription('روم التهنئة').setRequired(true))
+                .addRoleOption(option => option.setName('الرتبة').setDescription('رتبة أمير الميلاد').setRequired(true))
+        ),
+
+    async execute(interaction) {
+        const db = interaction.client.sql;
+        const subcommand = interaction.options.getSubcommand();
+        const guildId = interaction.guild.id;
+        const userId = interaction.user.id;
+
+        if (subcommand === 'تعيين') {
+            const day = interaction.options.getInteger('اليوم');
+            const month = interaction.options.getInteger('الشهر');
+            const year = interaction.options.getInteger('السنة') || null;
+
+            await db.query(
+                `INSERT INTO user_birthdays ("userID", "guildID", "day", "month", "year") VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT ("userID", "guildID") DO UPDATE SET "day" = EXCLUDED."day", "month" = EXCLUDED."month", "year" = EXCLUDED."year"`,
+                [userId, guildId, day, month, year]
+            ).catch(() => {
+                db.query(`INSERT OR REPLACE INTO user_birthdays (userID, guildID, day, month, year) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, day, month, year]);
+            });
+
+            return interaction.reply({ content: `✅ **تم تعيين تاريخ ميلادك بنجاح!** (${day}/${month}${year ? `/${year}` : ''})\nسنحتفل بك في الإمبراطورية عندما يحين الموعد! 🎂`, flags: [MessageFlags.Ephemeral] });
+        }
+
+        if (subcommand === 'عرض') {
+            const targetUser = interaction.options.getUser('العضو') || interaction.user;
+            const res = await db.query(`SELECT * FROM user_birthdays WHERE "userID" = $1 AND "guildID" = $2`, [targetUser.id, guildId]).catch(() => db.query(`SELECT * FROM user_birthdays WHERE userID = $1 AND guildID = $2`, [targetUser.id, guildId]));
+            
+            const data = res?.rows[0];
+            if (!data) return interaction.reply({ content: `❌ **${targetUser.username}** لم يقم بتحديد تاريخ ميلاده بعد.`, flags: [MessageFlags.Ephemeral] });
+
+            let ageText = "مخفي";
+            if (data.year || data.year > 0) {
+                const age = new Date().getFullYear() - data.year;
+                ageText = `${age} سنة`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🎂 بيانات ميلاد ${targetUser.displayName}`)
+                .setColor(Colors.Gold)
+                .addFields(
+                    { name: '📅 التاريخ', value: `${data.day}/${data.month}`, inline: true },
+                    { name: '📈 العمر الحالي', value: ageText, inline: true }
+                )
+                .setThumbnail(targetUser.displayAvatarURL());
+
+            return interaction.reply({ embeds: [embed] });
+        }
+
+        if (subcommand === 'إعدادات') {
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+                return interaction.reply({ content: '❌ لا تملك صلاحيات إدارة السيرفر.', flags: [MessageFlags.Ephemeral] });
+            }
+
+            const channel = interaction.options.getChannel('الروم');
+            const role = interaction.options.getRole('الرتبة');
+
+            await db.query(
+                `INSERT INTO birthday_settings ("guildID", "channelID", "roleID") VALUES ($1, $2, $3)
+                 ON CONFLICT ("guildID") DO UPDATE SET "channelID" = EXCLUDED."channelID", "roleID" = EXCLUDED."roleID"`,
+                [guildId, channel.id, role.id]
+            ).catch(() => {
+                db.query(`INSERT OR REPLACE INTO birthday_settings (guildID, channelID, roleID) VALUES ($1, $2, $3)`, [guildId, channel.id, role.id]);
+            });
+
+            return interaction.reply({ content: `✅ **تم ضبط إعدادات الميلاد بنجاح!**\nالروم: ${channel}\nالرتبة: ${role}` });
+        }
+    }
+};
