@@ -23,6 +23,12 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const level   = Number(profExtra.level    || 1);
     const repPts  = Number(profExtra.repPoints || 0);
     const repRank = getRepRankInfo(repPts);
+    
+    // استدعاء القيم الجديدة للسجل الإمبراطوري
+    const bestLoot = Number(profExtra.best_loot || 0);
+    const ambushes = Number(stats.ambush_survived || 0);
+    const favDestId = profExtra.favorite_dest || '';
+    const favDestName = cfg.destinations.find(d => d.id === favDestId)?.name || 'غير محدد';
 
     const LX = 40, LY = 150, LW = 420, LH = 710;
     drawPanel(ctx, LX, LY, LW, LH, rank.color);
@@ -46,9 +52,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     M(ctx, truncate(user.username, 18), LX + LW / 2, LY + 185, 28, C.text);
     M(ctx, rank.name, LX + LW / 2, LY + 225, 22, rank.color);
 
-    // ==========================================
-    // 🛡️ رسم إطار الرتبة مع الدويرة (Badge)
-    // ==========================================
     const repText = `\u200F${repRank.name}\u200F`; 
     ctx.font = `bold 20px ${FA}`;
     const txtWidth = ctx.measureText(repRank.name).width;
@@ -98,29 +101,35 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     ctx.fillStyle = '#FFFFFF';
     ctx.fillText(ptsText, circleX, circleY + 1); 
 
-    divLine(ctx, LX + 30, LY + 320, LW - 60, rank.color + '44');
+    divLine(ctx, LX + 30, LY + 310, LW - 60, rank.color + '44');
 
+    // ==========================================
+    // 📊 السجل الإمبراطوري (الإحصائيات)
+    // ==========================================
     const statItems = [
         { label: 'اجمالي الرحلات',  val: String(trips)   },
         { label: 'الرحلات الناجحة', val: String(success)  },
-        { label: 'نسبة النجاح',     val: trips ? `${((success / trips) * 100).toFixed(0)}%` : '—' },
+        { label: 'أكبر غنيمة',      val: bestLoot > 0 ? `${bestLoot.toLocaleString()} مورا` : '—', col: C.gold },
+        { label: 'الغارات الناجية',  val: String(ambushes), col: '#E74C3C' },
+        { label: 'الوجهة المفضلة',  val: truncate(favDestName, 12), col: '#00C3FF' },
     ];
-    let sy = LY + 342;
+    let sy = LY + 325;
     for (const s of statItems) {
-        rr(ctx, LX + 18, sy - 17, LW - 36, 40, 10);
+        rr(ctx, LX + 18, sy - 15, LW - 36, 36, 10);
         ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fill();
-        R(ctx, s.label, LX + LW - 28, sy + 3, 18, C.textD);
-        L(ctx, s.val,   LX + 28,      sy + 3, 20, C.gold);
-        sy += 48;
+        R(ctx, s.label, LX + LW - 28, sy + 3, 16, C.textD);
+        L(ctx, s.val,   LX + 28,      sy + 3, 18, s.col || C.text);
+        sy += 42;
     }
 
-    divLine(ctx, LX + 25, sy + 8, LW - 50, rank.color + '33');
-    sy += 50;
+    divLine(ctx, LX + 25, sy + 5, LW - 50, rank.color + '33');
+    sy += 40;
 
     const successRate = trips > 0 ? success / trips : 0;
     const arcCol = successRate >= 0.7 ? C.green : successRate >= 0.4 ? C.gold : C.red;
     
-    const arcX1 = LX + LW / 2, arcY1 = sy + 45, arcR1 = 48;
+    // رفع الدائرة قليلاً لتتناسب مع الإحصائيات الجديدة
+    const arcX1 = LX + LW / 2, arcY1 = sy + 50, arcR1 = 48;
     ctx.beginPath(); ctx.arc(arcX1, arcY1, arcR1, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 8; ctx.stroke();
     
@@ -133,40 +142,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     
     ctx.font = `11px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
     ctx.fillText('معدل النجاح', arcX1, arcY1 + 14);
-
-    // ==========================================
-    // 🌟 سجل الإنجازات (بديل الرصيد)
-    // ==========================================
-    const achY = LY + LH - 65; 
-    const achH = 50;
-    const achW = (LW - 44) / 2; // تقسيم المساحة لبطاقتين
-    const bx1 = LX + 18;
-    const bx2 = LX + 18 + achW + 8;
-
-    // 1. بطاقة الهجمات المصدودة
-    const ambushes = Number(stats.ambushes_survived || stats.ambush_survived || 0);
-    rr(ctx, bx1, achY, achW, achH, 12);
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
-    ctx.strokeStyle = rank.color + '44'; ctx.lineWidth = 1.5; ctx.stroke();
-    
-    ctx.font = `22px ${FE}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText('🛡️', bx1 + achW - 12, achY + achH / 2);
-    R(ctx, 'هجمات صُدت', bx1 + achW - 42, achY + 16, 12, C.textD);
-    R(ctx, String(ambushes), bx1 + achW - 42, achY + 36, 16, C.gold);
-
-    // 2. بطاقة الوجهة المفضلة
-    const favDestId = stats.favorite_destination || stats.favorite_dest || '';
-    const favDest = cfg.destinations.find(d => d.id === favDestId) || { name: 'مجهول', emoji: '🧭' };
-    
-    rr(ctx, bx2, achY, achW, achH, 12);
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
-    ctx.strokeStyle = rank.color + '44'; ctx.lineWidth = 1.5; ctx.stroke();
-
-    ctx.font = `22px ${FE}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText(favDest.emoji, bx2 + achW - 12, achY + achH / 2);
-    R(ctx, 'الوجهة المفضلة', bx2 + achW - 42, achY + 16, 12, C.textD);
-    R(ctx, truncate(favDest.name, 10), bx2 + achW - 42, achY + 36, 14, C.gold);
-    // ==========================================
 
     const MX = 480, MY = 150, MW = 630, MH = 710;
     const RX = 1130, RY = 150, RW = 440, RH = 710;
