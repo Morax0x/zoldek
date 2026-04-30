@@ -12,8 +12,8 @@
       "reward_min": 1500,
       "reward_max": 5000,
       "color": "#FFD700",
-      "map_x": 780,
-      "map_y": 180
+      "map_x": 360,
+      "map_y": 140
     },
     {
       "id": "magic_academy",
@@ -27,8 +27,8 @@
       "reward_min": 300,
       "reward_max": 1200,
       "color": "#8A2BE2",
-      "map_x": 680,
-      "map_y": 310
+      "map_x": 790,
+      "map_y": 100
     },
     {
       "id": "imperial_capital",
@@ -42,8 +42,8 @@
       "reward_min": 1,
       "reward_max": 10,
       "color": "#DC143C",
-      "map_x": 840,
-      "map_y": 350
+      "map_x": 1220,
+      "map_y": 240
     },
     {
       "id": "ancient_ruins",
@@ -56,8 +56,8 @@
       "reward_type": "artifact",
       "reward_pulls": 1,
       "color": "#CD853F",
-      "map_x": 560,
-      "map_y": 160
+      "map_x": 140,
+      "map_y": 420
     },
     {
       "id": "nature_valley",
@@ -72,8 +72,8 @@
       "reward_seeds_max": 4,
       "reward_animal_chance": 0.30,
       "color": "#228B22",
-      "map_x": 430,
-      "map_y": 290
+      "map_x": 790,
+      "map_y": 550
     }
   ],
   "upgrades": {
