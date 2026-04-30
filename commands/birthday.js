@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, PermissionFlagsBits } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, PermissionFlagsBits, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const db = require('../database');
 
 const getRandomColor = () => `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
@@ -158,7 +158,6 @@ module.exports = {
                     new ButtonBuilder().setCustomId('cancel_bday').setLabel('رفـض').setStyle(ButtonStyle.Danger)
                 );
 
-                // إرسال الرسالة بشكل ظاهر للجميع (إزالة الرد المخفي)
                 const response = await interaction.reply({ embeds: [confirmEmbed], components: [row] });
                 const collector = response.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
 
@@ -177,10 +176,8 @@ module.exports = {
                             .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
                             .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
 
-                        // تعديل نفس الرسالة الظاهرة بعد التأكيد
                         await i.update({ embeds: [successEmbed], components: [] });
                     } else {
-                        // تعديل نفس الرسالة بعد الرفض
                         await i.update({ content: '❌ تم رفض عملية التسجيل.', embeds: [], components: [] });
                     }
                 });
@@ -239,43 +236,83 @@ module.exports = {
             return await sendBirthdayView(message.author, guildId, message, true);
         }
 
-        const filter = m => m.author.id === message.author.id;
-        await message.reply('🎂 **أهلاً بك! لم تقم بتعيين تاريخ ميلادك بعد.**\nيرجى إرسال **يوم** ميلادك (رقم من 1 إلى 31):');
-        
-        const collector = message.channel.createMessageCollector({ filter, time: 60000, max: 3 });
-        let step = 1;
-        let day, month, year = null;
+        const setupEmbed = new EmbedBuilder()
+            .setColor(getRandomColor())
+            .setTitle('✥ وثـق ميلادك في سجلات الامبراطوريـة')
+            .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
+            .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
 
-        collector.on('collect', async m => {
-            if (step === 1) {
-                day = parseInt(m.content);
-                if (isNaN(day) || day < 1 || day > 31) {
-                    collector.stop('error');
-                    return message.reply('❌ رقم اليوم غير صحيح، يرجى إعادة كتابة الأمر والمحاولة من جديد.');
-                }
-                step = 2;
-                await message.reply('رائع! الآن أرسل **شهر** ميلادك (رقم من 1 إلى 12):');
-            
-            } else if (step === 2) {
-                month = parseInt(m.content);
-                if (isNaN(month) || month < 1 || month > 12 || !isValidDate(day, month)) {
-                    collector.stop('error');
-                    return message.reply('❌ رقم الشهر غير صحيح أو لا يتوافق مع اليوم، يرجى إعادة كتابة الأمر والمحاولة.');
-                }
-                step = 3;
-                await message.reply('ممتاز! أخيراً، أرسل **عام** ميلادك (مثال: 2005) أو أرسل كلمة **تخطي** إذا لم ترغب بوضع العام:');
-            
-            } else if (step === 3) {
-                if (m.content.trim() !== 'تخطي') {
-                    year = parseInt(m.content);
-                    const currentYear = new Date().getFullYear();
-                    if (isNaN(year) || year < 1900 || year > currentYear) {
-                        collector.stop('error');
-                        return message.reply('❌ عام غير صالح، يرجى إعادة كتابة الأمر من البداية.');
-                    }
+        const setupBtn = new ButtonBuilder()
+            .setCustomId(`open_bday_modal_${message.author.id}`)
+            .setLabel('تعيين تاريخ الميلاد')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('📅');
+
+        const setupRow = new ActionRowBuilder().addComponents(setupBtn);
+
+        const setupMsg = await message.reply({ embeds: [setupEmbed], components: [setupRow] });
+
+        const setupCollector = setupMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 120000 });
+
+        setupCollector.on('collect', async i => {
+            if (i.user.id !== message.author.id) {
+                return i.reply({ content: '❌ هذه الأزرار مخصصة لصاحب الأمر فقط.', flags: MessageFlags.Ephemeral });
+            }
+
+            const modal = new ModalBuilder()
+                .setCustomId(`bday_modal_${message.author.id}`)
+                .setTitle('تعيين تاريخ الميلاد');
+
+            const dayInput = new TextInputBuilder()
+                .setCustomId('bday_day')
+                .setLabel('اليـوم')
+                .setPlaceholder('مثال: 15')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(2);
+
+            const monthInput = new TextInputBuilder()
+                .setCustomId('bday_month')
+                .setLabel('الشـهـر')
+                .setPlaceholder('مثال: 8')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(2);
+
+            const yearInput = new TextInputBuilder()
+                .setCustomId('bday_year')
+                .setLabel('السنـة - اختـياري')
+                .setPlaceholder('مثال: 2001')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false)
+                .setMaxLength(4);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(dayInput),
+                new ActionRowBuilder().addComponents(monthInput),
+                new ActionRowBuilder().addComponents(yearInput)
+            );
+
+            await i.showModal(modal);
+
+            try {
+                const modalSubmit = await i.awaitModalSubmit({
+                    filter: mi => mi.customId === `bday_modal_${message.author.id}`,
+                    time: 120000
+                });
+
+                const day = parseInt(modalSubmit.fields.getTextInputValue('bday_day'));
+                const month = parseInt(modalSubmit.fields.getTextInputValue('bday_month'));
+                const yearStr = modalSubmit.fields.getTextInputValue('bday_year');
+                const year = yearStr ? parseInt(yearStr) : null;
+
+                if (isNaN(day) || isNaN(month) || !isValidDate(day, month)) {
+                    return modalSubmit.reply({ content: '❌ تاريخ غير صالح! يرجى التأكد من الأيام.', flags: MessageFlags.Ephemeral });
                 }
 
-                collector.stop('success');
+                if (year && (isNaN(year) || year < 1900 || year > new Date().getFullYear())) {
+                    return modalSubmit.reply({ content: '❌ عام غير صالح!', flags: MessageFlags.Ephemeral });
+                }
 
                 let confirmDateStr = year ? `عـام ${year} / شـهـر ${month} / يـوم ${day}` : `شـهـر ${month} / يـوم ${day}`;
                 const displayYear = year ? `/${year}` : '';
@@ -308,20 +345,23 @@ module.exports = {
                     .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
                     .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
 
-                const row = new ActionRowBuilder().addComponents(
+                const confirmRow = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`confirm_bday_pf_${message.author.id}`).setLabel('تـأكيـد').setStyle(ButtonStyle.Success),
                     new ButtonBuilder().setCustomId(`cancel_bday_pf_${message.author.id}`).setLabel('رفـض').setStyle(ButtonStyle.Danger)
                 );
 
-                const responseMsg = await message.reply({ embeds: [confirmEmbed], components: [row] });
-                const btnCollector = responseMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+                await modalSubmit.reply({ embeds: [confirmEmbed], components: [confirmRow] });
+                setupMsg.delete().catch(()=>{});
 
-                btnCollector.on('collect', async i => {
-                    if (i.user.id !== message.author.id) {
-                        return i.reply({ content: '❌ هذه الأزرار مخصصة لصاحب الأمر فقط.', flags: MessageFlags.Ephemeral });
+                const confirmMsg = await modalSubmit.fetchReply();
+                const confirmCollector = confirmMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+
+                confirmCollector.on('collect', async ci => {
+                    if (ci.user.id !== message.author.id) {
+                        return ci.reply({ content: '❌ هذه الأزرار مخصصة لصاحب الأمر فقط.', flags: MessageFlags.Ephemeral });
                     }
 
-                    if (i.customId.startsWith('confirm_bday_pf')) {
+                    if (ci.customId.startsWith('confirm_bday_pf')) {
                         await db.query(`INSERT INTO user_birthdays ("userID", "guildID", "day", "month", "year") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userID", "guildID") DO UPDATE SET "day" = EXCLUDED."day", "month" = EXCLUDED."month", "year" = EXCLUDED."year"`, [message.author.id, guildId, day, month, year]);
                         
                         const successEmbed = new EmbedBuilder()
@@ -331,25 +371,19 @@ module.exports = {
                             .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
                             .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
 
-                        // تعديل الرسالة لتتحول للإيمبد الجديد بنجاح
-                        await i.update({ embeds: [successEmbed], components: [] });
+                        await ci.update({ embeds: [successEmbed], components: [] });
                     } else {
-                        // تعديل الرسالة في حال الرفض
-                        await i.update({ content: '❌ تم رفض عملية التسجيل.', embeds: [], components: [] });
+                        await ci.update({ content: '❌ تم رفض عملية التسجيل.', embeds: [], components: [] });
                     }
                 });
 
-                btnCollector.on('end', collected => {
-                    if (btnCollector.endReason === 'time' && collected.size === 0) {
-                        responseMsg.edit({ content: '⏱️ انتهى وقت التأكيد وتم الإلغاء.', components: [] }).catch(()=>{});
+                confirmCollector.on('end', collected => {
+                    if (confirmCollector.endReason === 'time' && collected.size === 0) {
+                        confirmMsg.edit({ content: '⏱️ انتهى وقت التأكيد وتم الإلغاء.', embeds: [], components: [] }).catch(()=>{});
                     }
                 });
-            }
-        });
 
-        collector.on('end', (collected, reason) => {
-            if (reason === 'time') {
-                message.reply('⏱️ انتهى وقت الإجابة، يرجى كتابة الأمر مرة أخرى.');
+            } catch (e) {
             }
         });
     }
