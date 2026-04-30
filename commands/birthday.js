@@ -4,85 +4,87 @@ const db = require('../database');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('ميلاد') // تم تغييره للعربي
+        .setName('ميلاد')
         .setDescription('🎂 أوامر أعياد الميلاد والإعدادات')
         .addSubcommand(subcommand =>
             subcommand
-                .setName('set')
+                .setName('تعيين')
                 .setDescription('تعيين تاريخ ميلادك (لا يمكنك تغييره لاحقاً)')
                 .addIntegerOption(option => 
-                    option.setName('day')
+                    option.setName('يوم')
                         .setDescription('يوم الميلاد (1-31)')
                         .setRequired(true)
                         .setMinValue(1)
                         .setMaxValue(31))
                 .addIntegerOption(option => 
-                    option.setName('month')
+                    option.setName('شهر')
                         .setDescription('شهر الميلاد (1-12)')
                         .setRequired(true)
                         .setMinValue(1)
                         .setMaxValue(12))
                 .addIntegerOption(option => 
-                    option.setName('year')
-                        .setDescription('سنة الميلاد (اختياري، لحساب العمر)')
+                    option.setName('عام')
+                        .setDescription('عام الميلاد (اختياري، لحساب العمر)')
                         .setRequired(false)
                         .setMinValue(1900)
                         .setMaxValue(new Date().getFullYear()))
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName('view')
+                .setName('عرض')
                 .setDescription('عرض تاريخ ميلاد شخص معين (أو أنت)')
                 .addUserOption(option => 
-                    option.setName('user')
+                    option.setName('مستخدم')
                         .setDescription('المستخدم المراد عرض تاريخ ميلاده')
                         .setRequired(false))
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName('admin_set')
+                .setName('تعديل_اداري')
                 .setDescription('تعديل تاريخ ميلاد لاعب (للإدارة فقط)')
                 .addUserOption(option => 
-                    option.setName('user')
+                    option.setName('مستخدم')
                         .setDescription('المستخدم المراد تعديله')
                         .setRequired(true))
                 .addIntegerOption(option => 
-                    option.setName('day')
+                    option.setName('يوم')
                         .setDescription('يوم الميلاد')
                         .setRequired(true)
                         .setMinValue(1)
                         .setMaxValue(31))
                 .addIntegerOption(option => 
-                    option.setName('month')
+                    option.setName('شهر')
                         .setDescription('شهر الميلاد')
                         .setRequired(true)
                         .setMinValue(1)
                         .setMaxValue(12))
                 .addIntegerOption(option => 
-                    option.setName('year')
-                        .setDescription('سنة الميلاد (اختياري)')
+                    option.setName('عام')
+                        .setDescription('عام الميلاد (اختياري)')
                         .setRequired(false)
                         .setMinValue(1900)
                         .setMaxValue(new Date().getFullYear()))
         )
-        // ⚙️ أمر جديد للإدارة لتحديد القناة والرتبة
         .addSubcommand(subcommand =>
             subcommand
-                .setName('admin_setup')
+                .setName('اعداد_اداري')
                 .setDescription('إعداد قناة الاحتفال ورتبة أمير الميلاد (للإدارة فقط)')
                 .addChannelOption(option => 
-                    option.setName('channel')
-                        .setDescription('القناة التي سيتم إرسال التهنئة فيها (مثل الشات العام)')
+                    option.setName('قناة')
+                        .setDescription('القناة التي سيتم إرسال التهنئة فيها')
                         .setRequired(true))
                 .addRoleOption(option => 
-                    option.setName('role')
-                        .setDescription('رتبة أمير الميلاد (سيأخذها من بداية اليوم)')
+                    option.setName('رتبة')
+                        .setDescription('رتبة أمير الميلاد')
                         .setRequired(false))
         ),
 
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
         const guildId = interaction.guild.id;
+        
+        const getRandomColor = () => `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
+        const serverIcon = interaction.guild.iconURL({ dynamic: true }) || undefined;
 
         const isValidDate = (d, m) => {
             if (m === 2 && d > 29) return false;
@@ -90,10 +92,10 @@ module.exports = {
             return true;
         };
 
-        if (subcommand === 'set') {
-            const day = interaction.options.getInteger('day');
-            const month = interaction.options.getInteger('month');
-            const year = interaction.options.getInteger('year') || null;
+        if (subcommand === 'تعيين') {
+            const day = interaction.options.getInteger('يوم');
+            const month = interaction.options.getInteger('شهر');
+            const year = interaction.options.getInteger('عام') || null;
 
             if (!isValidDate(day, month)) {
                 return interaction.reply({ content: '❌ تاريخ غير صالح! يرجى التأكد من الأيام.', flags: MessageFlags.Ephemeral });
@@ -112,15 +114,54 @@ module.exports = {
                     });
                 }
 
+                // تنسيق التاريخ الخاص بالتأكيد
+                let confirmDateStr = '';
+                if (year) {
+                    confirmDateStr = `عـام ${year} / شـهـر ${month} / يـوم ${day}`;
+                } else {
+                    confirmDateStr = `شـهـر ${month} / يـوم ${day}`;
+                }
+
+                // تنسيق التاريخ العادي
                 const displayYear = year ? `/${year}` : '';
-                const confirmMsg = `⚠️ **تنبيه هام:**\nهل أنت متأكد أن تاريخ ميلادك هو **${day}/${month}${displayYear}**؟\n\n* - لن تتمكن من تعديله لاحقاً!*`;
+                const normalDateString = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}${displayYear}`;
+                
+                const today = new Date();
+                const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                
+                let ageText = '';
+                if (year) {
+                    let age = today.getFullYear() - year;
+                    if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day)) {
+                        age--;
+                    }
+                    ageText = `\n✶ عـمرك الان: ${age} عـام ⭐`;
+                }
+
+                let nextBirthday = new Date(today.getFullYear(), month - 1, day);
+                if (todayDateOnly > nextBirthday) {
+                    nextBirthday.setFullYear(today.getFullYear() + 1);
+                }
+                const diffTime = nextBirthday - todayDateOnly;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                const confirmDesc = `✬ هـل انـت متأكد من المعلومات التالية؟ - لا يمكنك تغييرها لاحقًا\n\n` +
+                                    `✶ تـاريـخ: ${confirmDateStr}\n` +
+                                    (ageText ? `${ageText.trim()}\n` : '') +
+                                    `✶ يـوم ميلادك القـادم: ${diffDays} يـوم 🪄`;
+
+                const confirmEmbed = new EmbedBuilder()
+                    .setColor(getRandomColor())
+                    .setDescription(confirmDesc)
+                    .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+                    .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
 
                 const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('confirm_bday').setLabel('تأكيد').setStyle(ButtonStyle.Success).setEmoji('✅'),
-                    new ButtonBuilder().setCustomId('cancel_bday').setLabel('إلغاء').setStyle(ButtonStyle.Danger).setEmoji('✖️')
+                    new ButtonBuilder().setCustomId('confirm_bday').setLabel('تـأكيـد').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId('cancel_bday').setLabel('رفـض').setStyle(ButtonStyle.Danger)
                 );
 
-                const response = await interaction.reply({ content: confirmMsg, components: [row], flags: MessageFlags.Ephemeral });
+                const response = await interaction.reply({ embeds: [confirmEmbed], components: [row], flags: MessageFlags.Ephemeral });
                 const collector = response.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
 
                 collector.on('collect', async i => {
@@ -133,21 +174,26 @@ module.exports = {
                             [interaction.user.id, guildId, day, month, year]
                         );
 
-                        const embed = new EmbedBuilder()
-                            .setColor('#FF69B4')
-                            .setTitle('🎉 تم توثيق الميلاد!')
-                            .setDescription(`حُفظ تاريخك: **${day}/${month}${displayYear}** 🎂\nسنحتفل بك في الإمبراطورية!`)
-                            .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }));
+                        const successDesc = `✶ تـم تعييـن: ${normalDateString} كـ تاريـخ ميـلادك\n` +
+                                            (ageText ? `${ageText.trim()}\n` : '') +
+                                            `✶ يـوم ميلادك القـادم: ${diffDays} يـوم 🪄`;
 
-                        await i.update({ content: '', embeds: [embed], components: [] });
+                        const successEmbed = new EmbedBuilder()
+                            .setColor(getRandomColor())
+                            .setTitle('✥ سـُجـل تـاريـخ ميلادك في سجلات الامبراطوريـة 👑')
+                            .setDescription(successDesc)
+                            .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+                            .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
+
+                        await i.update({ embeds: [successEmbed], components: [] });
                     } else {
-                        await i.update({ content: 'تم الإلغاء.', components: [] });
+                        await i.update({ content: '❌ تم رفض عملية التسجيل.', embeds: [], components: [] });
                     }
                 });
 
                 collector.on('end', collected => {
                     if (collector.endReason === 'time' && collected.size === 0) {
-                        interaction.editReply({ content: '⏱️ انتهى وقت التأكيد.', components: [] }).catch(()=>{});
+                        interaction.editReply({ content: '⏱️ انتهى وقت التأكيد.', embeds: [], components: [] }).catch(()=>{});
                     }
                 });
 
@@ -155,16 +201,17 @@ module.exports = {
                 await interaction.reply({ content: '❌ حدث خطأ داخلي.', flags: MessageFlags.Ephemeral });
             }
 
-        } else if (subcommand === 'admin_set' || subcommand === 'admin_setup') {
+        } else if (subcommand === 'تعديل_اداري' || subcommand === 'اعداد_اداري') {
+            // تجاهل صامت لغير الإداريين
             if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-                return interaction.reply({ content: '❌ هذا الأمر للإدارة فقط.', flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: '.', flags: MessageFlags.Ephemeral }).then(msg => msg.delete().catch(() => {}));
             }
 
-            if (subcommand === 'admin_set') {
-                const targetUser = interaction.options.getUser('user');
-                const day = interaction.options.getInteger('day');
-                const month = interaction.options.getInteger('month');
-                const year = interaction.options.getInteger('year') || null;
+            if (subcommand === 'تعديل_اداري') {
+                const targetUser = interaction.options.getUser('مستخدم');
+                const day = interaction.options.getInteger('يوم');
+                const month = interaction.options.getInteger('شهر');
+                const year = interaction.options.getInteger('عام') || null;
 
                 if (!isValidDate(day, month)) return interaction.reply({ content: '❌ تاريخ غير صالح!', flags: MessageFlags.Ephemeral });
 
@@ -174,12 +221,12 @@ module.exports = {
                     [targetUser.id, guildId, day, month, year]
                 );
 
-                await interaction.reply({ content: `✅ تم تعديل ميلاد **${targetUser.username}** إلى: **${day}/${month}** 🎂`, flags: MessageFlags.Ephemeral });
+                const displayYear = year ? `/${year}` : '';
+                await interaction.reply({ content: `✅ تم تعديل ميلاد **${targetUser.username}** إدارياً إلى: **${day}/${month}${displayYear}** 🎂`, flags: MessageFlags.Ephemeral });
             
-            } else if (subcommand === 'admin_setup') {
-                // حفظ إعدادات القناة والرتبة
-                const channel = interaction.options.getChannel('channel');
-                const role = interaction.options.getRole('role');
+            } else if (subcommand === 'اعداد_اداري') {
+                const channel = interaction.options.getChannel('قناة');
+                const role = interaction.options.getRole('رتبة');
                 const roleId = role ? role.id : null;
 
                 await db.query(
@@ -194,33 +241,51 @@ module.exports = {
                 await interaction.reply({ content: replyMsg, flags: MessageFlags.Ephemeral });
             }
 
-        } else if (subcommand === 'view') {
-            const targetUser = interaction.options.getUser('user') || interaction.user;
+        } else if (subcommand === 'عرض') {
+            const targetUser = interaction.options.getUser('مستخدم') || interaction.user;
 
             const result = await db.query('SELECT "day", "month", "year" FROM user_birthdays WHERE "userID" = $1 AND "guildID" = $2', [targetUser.id, guildId]);
 
             if (result.rows.length === 0 || !result.rows[0].day) {
-                return interaction.reply({ content: `❌ لم يتم توثيق تاريخ الميلاد بعد.`, flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: `❌ لم يتم توثيق تاريخ الميلاد في سجلات الإمبراطورية بعد.`, flags: MessageFlags.Ephemeral });
             }
 
             const { day: bDay, month: bMonth, year: bYear } = result.rows[0];
             const today = new Date();
+            const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            
             let nextBirthday = new Date(today.getFullYear(), bMonth - 1, bDay);
-            if (today > nextBirthday) nextBirthday.setFullYear(today.getFullYear() + 1);
+            if (todayDateOnly > nextBirthday) {
+                nextBirthday.setFullYear(today.getFullYear() + 1);
+            }
 
-            const diffDays = Math.ceil(Math.abs(nextBirthday - today) / (1000 * 60 * 60 * 24));
-            let ageText = bYear ? `\nالعمر: **${today.getFullYear() - bYear - (today < new Date(today.getFullYear(), bMonth - 1, bDay) ? 1 : 0)}** سنة 👑` : '';
+            const diffTime = nextBirthday - todayDateOnly;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            let ageText = '';
+            if (bYear) {
+                let age = today.getFullYear() - bYear;
+                if (today.getMonth() + 1 < bMonth || (today.getMonth() + 1 === bMonth && today.getDate() < bDay)) {
+                    age--;
+                }
+                ageText = `\n✶ الـعـمـر: ${age} عـام ⭐`;
+            }
 
-            let remainingText = (bDay === today.getDate() && bMonth === (today.getMonth() + 1))
-                ? `🎈 **عيد ميلاده اليوم!** 🎈${ageText}`
-                : `يصادف يوم **${bDay}/${bMonth}**${ageText}\n⏳ متبقي عليه: **${diffDays}** يوم`;
+            const displayYear = bYear ? `/${bYear}` : '';
+            const dateString = `${String(bDay).padStart(2, '0')}/${String(bMonth).padStart(2, '0')}${displayYear}`;
 
-            const embed = new EmbedBuilder()
-                .setColor('#FFD700') 
-                .setTitle(`🎂 السجل الإمبراطوري لميلاد ${targetUser.username}`)
-                .setDescription(remainingText);
+            const viewDesc = `✶ تـاريـخ ميلاد: ${targetUser}\n` +
+                             `✶ يصـادف: ${dateString}${ageText}\n` +
+                             `✶ متبقـي عليه: ${diffDays} يـوم 🪄`;
 
-            await interaction.reply({ embeds: [embed] });
+            const viewEmbed = new EmbedBuilder()
+                .setColor(getRandomColor())
+                .setTitle('✥ سجل مولـيـد الامبراطوريـة 👑')
+                .setDescription(viewDesc)
+                .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+                .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
+
+            await interaction.reply({ embeds: [viewEmbed] });
         }
     }
 };
