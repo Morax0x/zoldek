@@ -58,7 +58,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             }
 
             ctx.drawImage(mapImg, MX + offsetX, MY + offsetY, drawW, drawH);
-            ctx.fillStyle = 'rgba(4,6,12,0.60)';
+            ctx.fillStyle = 'rgba(4,6,12,0.30)'; // خففت التعتيم لتظهر الخريطة بشكل أوضح
             ctx.fillRect(MX, MY, MW, MH);
         } else {
             ctx.fillStyle = 'rgba(10,14,28,0.8)';
@@ -72,19 +72,20 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.stroke();
 
         // ==========================================
-        // 📍 نظام الإحداثيات الديناميكي للرحلات 📍
+        // 📍 نظام الإحداثيات الديناميكي المطور 📍
         // ==========================================
         
-        // الانطلاق دائماً من "المدينة" (وهي ثابتة بالزاوية اليسرى السفلية)
-        const oX = MX + 180,  oY = MY + MH - 200;
+        // نقطة الانطلاق: جعلتها في منتصف الخريطة تقريباً (حيث يوجد المبنى المركزي في صورتك)
+        const oX = MX + (MW / 2); 
+        const oY = MY + (MH / 2) + 20;
         
-        // الوجهة: يتم سحبها من الكونفيج، وإذا لم تكن موجودة نستخدم قيمة احتياطية
-        const dX = dest?.mapX ? MX + dest.mapX : MX + MW - 250;
-        const dY = dest?.mapY ? MY + dest.mapY : MY + 250;
+        // الوجهة: يتم سحبها من الكونفيج، وإذا لم تكن موجودة نعطيها موقع افتراضي
+        const dX = dest?.mapX ? MX + (MW * dest.mapX) : MX + MW - 250;
+        const dY = dest?.mapY ? MY + (MH * dest.mapY) : MY + 250;
 
-        // نقطة التحكم (لجعل الخط المنحني يبدو طبيعياً وينحني للأعلى دائماً)
+        // نقطة التحكم: تم ضبطها لعمل قوس بسيط بين نقطة الانطلاق والوصول
         const cpX = (oX + dX) / 2; 
-        const cpY = Math.min(oY, dY) - 150; 
+        const cpY = Math.min(oY, dY) - Math.abs(dX - oX) * 0.2; 
 
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
@@ -111,6 +112,8 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.beginPath(); ctx.arc(compX, compY, compR, 0, Math.PI * 2); ctx.stroke();
         ctx.strokeStyle = acc + '22'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(compX, compY, compR - 12, 0, Math.PI * 2); ctx.stroke();
+        
+        // رسم مؤشرات البوصلة بدون حرف N
         [0, Math.PI / 2, Math.PI, Math.PI * 3 / 2].forEach((angle, ai) => {
             const ex = compX + Math.sin(angle) * (compR - 8);
             const ey = compY - Math.cos(angle) * (compR - 8);
@@ -126,8 +129,8 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.restore();
         // ===============================================
 
-        ctx.setLineDash([25, 20]);
-        ctx.strokeStyle = acc + '22'; ctx.lineWidth = 14;
+        ctx.setLineDash([15, 15]); // تصغير الفراغات بين نقاط المسار
+        ctx.strokeStyle = acc + '22'; ctx.lineWidth = 10;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
 
@@ -144,11 +147,11 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
 
         const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
         pathG.addColorStop(0, acc + '55'); pathG.addColorStop(0.6, acc + 'BB'); pathG.addColorStop(1, acc);
-        ctx.strokeStyle = pathG; ctx.lineWidth = 20;
-        ctx.shadowColor = acc; ctx.shadowBlur = 28;
+        ctx.strokeStyle = pathG; ctx.lineWidth = 16; // تقليل سماكة خط التقدم قليلاً
+        ctx.shadowColor = acc; ctx.shadowBlur = 20;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
         ctx.shadowBlur = 0;
-        ctx.strokeStyle = acc + '66'; ctx.lineWidth = 8;
+        ctx.strokeStyle = acc + '66'; ctx.lineWidth = 6;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
 
         [0.25, 0.5, 0.75].forEach(mt => {
@@ -161,33 +164,32 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             }
             ctx.fillStyle   = passed ? acc : 'rgba(255,255,255,0.22)';
             ctx.shadowColor = passed ? acc : 'transparent'; ctx.shadowBlur = passed ? 18 : 0;
-            ctx.beginPath(); ctx.arc(mp.x, mp.y, passed ? 12 : 9, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(mp.x, mp.y, passed ? 10 : 7, 0, Math.PI * 2); ctx.fill();
             ctx.shadowBlur  = 0;
             ctx.strokeStyle = passed ? acc + 'BB' : acc + '33'; ctx.lineWidth = 2.5;
-            ctx.beginPath(); ctx.arc(mp.x, mp.y, 20, 0, Math.PI * 2); ctx.stroke();
-            ctx.font = `bold 20px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.beginPath(); ctx.arc(mp.x, mp.y, 16, 0, Math.PI * 2); ctx.stroke();
+            ctx.font = `bold 16px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
             ctx.fillStyle = passed ? acc : acc + '55';
-            ctx.fillText(`${(mt * 100).toFixed(0)}%`, mp.x, mp.y - 26);
+            ctx.fillText(`${(mt * 100).toFixed(0)}%`, mp.x, mp.y - 22);
         });
 
+        // رسم نقطة الانطلاق
         const startH = ctx.createRadialGradient(oX, oY, 8, oX, oY, 50);
         startH.addColorStop(0, C.green + '55'); startH.addColorStop(1, 'transparent');
         ctx.fillStyle = startH; ctx.beginPath(); ctx.arc(oX, oY, 50, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 24;
-        ctx.beginPath(); ctx.arc(oX, oY, 35, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.fill(); // تصغير حجم الدائرة
         ctx.shadowBlur = 0;
-        M(ctx, '🏠', oX, oY - 52, 52, C.text);
-        M(ctx, 'المدينة', oX, oY - 96, 24, C.green);
+        M(ctx, 'المركز', oX, oY - 40, 20, C.green); // تغيير النص ورفع الإحداثيات
 
+        // رسم الوجهة
         const destP = ctx.createRadialGradient(dX, dY, 8, dX, dY, 55);
         destP.addColorStop(0, acc + 'CC'); destP.addColorStop(1, acc + '00');
         ctx.fillStyle = destP; ctx.beginPath(); ctx.arc(dX, dY, 55, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 32;
-        ctx.beginPath(); ctx.arc(dX, dY, 35, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.fill(); // تصغير حجم الدائرة
         ctx.shadowBlur = 0;
-        ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(dest?.emoji || '📍', dX, dY - 90);
-        M(ctx, dest?.name || '', dX, dY + 70, 28, acc);
+        M(ctx, dest?.name || '', dX, dY - 40, 22, acc); // رفع النص ليكون فوق الهدف
 
         const camH = ctx.createRadialGradient(cX, cY, 14, cX, cY, 90);
         camH.addColorStop(0, (hasAtk ? C.red : acc) + '66'); camH.addColorStop(1, 'transparent');
@@ -195,12 +197,12 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
 
         const camelImg = await fetchImageSafe('camel');
         if (camelImg) {
-            ctx.drawImage(camelImg, cX - 100, cY - 120, 200, 200);
+            ctx.drawImage(camelImg, cX - 75, cY - 90, 150, 150); // تصغير حجم الجمل
         } else {
             const camelEmoji = hasAtk ? '⚔️' : '🐪';
-            ctx.font = `140px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.font = `100px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; // تصغير الجمل
             ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 40;
-            ctx.fillText(camelEmoji, cX, cY - 30);
+            ctx.fillText(camelEmoji, cX, cY - 20);
             ctx.shadowBlur = 0;
         }
 
@@ -223,6 +225,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         return toBuf(canvas);
     }
 
+// ... (بقية الكود الخاص بعرض details كما هو بدون تغيير)
     const RX = 80, RY = 158, RW = 1440, RH = 684;
     drawPanel(ctx, RX, RY, RW, RH, acc, { radius: 32 });
 
