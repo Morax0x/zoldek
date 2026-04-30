@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, MessageFlags } = require('discord.js');
 const db = require('../database');
 
 module.exports = {
@@ -35,31 +35,32 @@ module.exports = {
 
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
+        const guildId = interaction.guild.id;
 
         if (subcommand === 'set') {
             const day = interaction.options.getInteger('day');
             const month = interaction.options.getInteger('month');
 
-            // تحقق بسيط من صحة التاريخ (مثلاً شهر 2 لا يتعدى 29)
+            // تحقق بسيط من صحة التاريخ
             if (month === 2 && day > 29) {
-                return interaction.reply({ content: '❌ تاريخ غير صالح! شهر فبراير لا يحتوي على أكثر من 29 يوماً.', ephemeral: true });
+                return interaction.reply({ content: '❌ تاريخ غير صالح! شهر فبراير لا يحتوي على أكثر من 29 يوماً.', flags: MessageFlags.Ephemeral });
             }
             if ([4, 6, 9, 11].includes(month) && day > 30) {
-                 return interaction.reply({ content: '❌ تاريخ غير صالح! هذا الشهر لا يحتوي على 31 يوماً.', ephemeral: true });
+                 return interaction.reply({ content: '❌ تاريخ غير صالح! هذا الشهر لا يحتوي على 31 يوماً.', flags: MessageFlags.Ephemeral });
             }
 
             try {
-                // حفظ في قاعدة البيانات (تحديث أو إدخال جديد)
+                // استخدام جدول user_birthdays الموجود لديك مسبقاً في قاعدة البيانات
                 await db.query(
-                    `INSERT INTO user_profiles (user_id, birthday_day, birthday_month) 
-                     VALUES ($1, $2, $3)
-                     ON CONFLICT (user_id) 
-                     DO UPDATE SET birthday_day = EXCLUDED.birthday_day, birthday_month = EXCLUDED.birthday_month`,
-                    [interaction.user.id, day, month]
+                    `INSERT INTO user_birthdays ("userID", "guildID", "day", "month") 
+                     VALUES ($1, $2, $3, $4)
+                     ON CONFLICT ("userID", "guildID") 
+                     DO UPDATE SET "day" = EXCLUDED."day", "month" = EXCLUDED."month"`,
+                    [interaction.user.id, guildId, day, month]
                 );
 
                 const embed = new EmbedBuilder()
-                    .setColor('#FF69B4') // لون وردي احتفالي
+                    .setColor('#FF69B4') 
                     .setTitle('🎉 تم تعيين تاريخ الميلاد!')
                     .setDescription(`تم حفظ تاريخ ميلادك بنجاح: **${day}/${month}** 🎂\n\nسنحتفل بك في هذا اليوم! 🥳`)
                     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }));
@@ -68,33 +69,33 @@ module.exports = {
 
             } catch (error) {
                 console.error("Error setting birthday:", error);
-                await interaction.reply({ content: '❌ حدث خطأ أثناء حفظ تاريخ ميلادك. يرجى المحاولة لاحقاً.', ephemeral: true });
+                await interaction.reply({ content: '❌ حدث خطأ أثناء حفظ تاريخ ميلادك. يرجى المحاولة لاحقاً.', flags: MessageFlags.Ephemeral });
             }
 
         } else if (subcommand === 'view') {
             const targetUser = interaction.options.getUser('user') || interaction.user;
 
             try {
+                // جلب البيانات من جدول user_birthdays
                 const result = await db.query(
-                    'SELECT birthday_day, birthday_month FROM user_profiles WHERE user_id = $1',
-                    [targetUser.id]
+                    'SELECT "day", "month" FROM user_birthdays WHERE "userID" = $1 AND "guildID" = $2',
+                    [targetUser.id, guildId]
                 );
 
-                if (result.rows.length === 0 || !result.rows[0].birthday_day) {
+                if (result.rows.length === 0 || !result.rows[0].day) {
                     const msg = targetUser.id === interaction.user.id 
                         ? '❌ لم تقم بتعيين تاريخ ميلادك بعد! استخدم أمر `/birthday set`.' 
                         : `❌ المستخدم ${targetUser.username} لم يقم بتعيين تاريخ ميلاده.`;
-                    return interaction.reply({ content: msg, ephemeral: true });
+                    return interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
                 }
 
-                const bDay = result.rows[0].birthday_day;
-                const bMonth = result.rows[0].birthday_month;
+                const bDay = result.rows[0].day;
+                const bMonth = result.rows[0].month;
 
                 // حساب كم تبقى لعيد الميلاد
                 const today = new Date();
                 let nextBirthday = new Date(today.getFullYear(), bMonth - 1, bDay);
                 
-                // إذا كان عيد الميلاد قد مر هذا العام، احسب للعام القادم
                 if (today > nextBirthday) {
                     nextBirthday.setFullYear(today.getFullYear() + 1);
                 }
@@ -110,7 +111,7 @@ module.exports = {
                 }
 
                 const embed = new EmbedBuilder()
-                    .setColor('#FFD700') // لون ذهبي
+                    .setColor('#FFD700') 
                     .setTitle(`🎂 تاريخ ميلاد ${targetUser.username}`)
                     .setDescription(remainingText)
                     .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }));
@@ -119,7 +120,7 @@ module.exports = {
 
             } catch (error) {
                 console.error("Error fetching birthday:", error);
-                await interaction.reply({ content: '❌ حدث خطأ أثناء جلب البيانات.', ephemeral: true });
+                await interaction.reply({ content: '❌ حدث خطأ أثناء جلب البيانات.', flags: MessageFlags.Ephemeral });
             }
         }
     },
