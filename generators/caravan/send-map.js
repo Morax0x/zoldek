@@ -15,6 +15,23 @@ async function generateSendMap(user, stats, mora) {
     await drawHeader(ctx, 'تحديد مسار القافلة');
     drawCornerAccents(ctx);
 
+    // 🧭 البوصلة في الزاوية اليمنى العلوية 🧭
+    const compassX = W - 150; // إزاحة البوصلة لليمين
+    const compassY = 120;     // الارتفاع المناسب
+    
+    // رسم الإيموجي (البوصلة)
+    ctx.font = `60px ${FE}`; 
+    ctx.textAlign = 'center'; 
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🧭', compassX, compassY);
+
+    // رسم حرف N فوق البوصلة مع ضبط المسافة حتى لا يتداخل
+    ctx.font = `bold 24px "Bein", "Arial", sans-serif`;
+    ctx.fillStyle = C.gold;
+    // تم رفع حرف N للأعلى بمقدار 45 بيكسل لينفصل عن الإيموجي
+    ctx.fillText('N', compassX, compassY - 45); 
+
+
     const DESTS = cfg.destinations;
     const cw = 280, ch = 540, cgap = 25;
     const totalW = DESTS.length * cw + (DESTS.length - 1) * cgap;
@@ -70,16 +87,16 @@ async function generateSendMap(user, stats, mora) {
         const riskC   = adjRisk >= 0.35 ? C.red : adjRisk >= 0.25 ? '#FFA500' : C.green;
 
         const rows = [
-            { label: 'المدة',    val: formatArabicTime(adjDur),              vc: C.text    },
+            { label: 'المدة',    val: formatArabicTime(adjDur),            vc: C.text    },
             { label: 'الخطر',   val: `${(adjRisk * 100).toFixed(0)}%`,       vc: riskC     },
-            { label: 'التكلفة', val: `${d.cost.toLocaleString()}`,           vc: canAfford ? C.gold : C.red },
+            { label: 'التكلفة', val: `${d.cost.toLocaleString()}`,            vc: canAfford ? C.gold : C.red },
         ];
         let ry = cardY + 350;
         for (const row of rows) {
             rr(ctx, cx + 16, ry - 18, cw - 32, 42, 10);
             ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();
             R(ctx, row.label, cx + cw - 28,  ry + 3, 20, C.textD);
-            L(ctx, row.val,   cx + 28,        ry + 3, 20, row.vc);
+            L(ctx, row.val,   cx + 28,       ry + 3, 20, row.vc);
             ry += 50;
         }
 
