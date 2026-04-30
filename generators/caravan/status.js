@@ -58,7 +58,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             }
 
             ctx.drawImage(mapImg, MX + offsetX, MY + offsetY, drawW, drawH);
-            ctx.fillStyle = 'rgba(4,6,12,0.60)';
+            ctx.fillStyle = 'rgba(4,6,12,0.30)'; 
             ctx.fillRect(MX, MY, MW, MH);
         } else {
             ctx.fillStyle = 'rgba(10,14,28,0.8)';
@@ -71,9 +71,21 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         rr(ctx, MX, MY, MW, MH, 32);
         ctx.stroke();
 
-        const oX = MX + 200,       oY = MY + MH - 220;
-        const dX = MX + MW - 200,  dY = MY + 200;
-        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 220;
+        // ==========================================
+        // 📍 الإحداثيات وحساب المسافة
+        // ==========================================
+        const oX = MX + 720; 
+        const oY = MY + 340;
+        
+        const dX = dest?.map_x ? MX + dest.map_x : MX + MW - 250;
+        const dY = dest?.map_y ? MY + dest.map_y : MY + 250;
+
+        // حساب المسافة الفعلية بين الانطلاق والوصول
+        const totalDist = Math.hypot(dX - oX, dY - oY);
+
+        const cpX = (oX + dX) / 2; 
+        const cpY = Math.min(oY, dY) - Math.abs(dX - oX) * 0.15; 
+
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
@@ -83,7 +95,13 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             y: (1-bt)*(1-bt)*oY + 2*(1-bt)*bt*cpY + bt*bt*dY,
         });
 
-        const compX = MX + 110, compY = MY + 110, compR = 55;
+        // ===============================================
+        // 🧭 البوصلة
+        // ===============================================
+        const compX = MX + MW - 130; 
+        const compY = MY + MH - 150; 
+        const compR = 55;
+        
         ctx.save();
         const compBg = ctx.createRadialGradient(compX, compY, 0, compX, compY, compR);
         compBg.addColorStop(0, 'rgba(18,26,55,0.88)'); compBg.addColorStop(1, 'rgba(4,6,14,0.60)');
@@ -93,6 +111,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.beginPath(); ctx.arc(compX, compY, compR, 0, Math.PI * 2); ctx.stroke();
         ctx.strokeStyle = acc + '22'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(compX, compY, compR - 12, 0, Math.PI * 2); ctx.stroke();
+        
         [0, Math.PI / 2, Math.PI, Math.PI * 3 / 2].forEach((angle, ai) => {
             const ex = compX + Math.sin(angle) * (compR - 8);
             const ey = compY - Math.cos(angle) * (compR - 8);
@@ -105,72 +124,117 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             ctx.lineTo(compX + Math.sin(angle - 0.28) * 12, compY - Math.cos(angle - 0.28) * 12);
             ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
         });
-        ctx.font = `bold 16px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#E74C3C'; ctx.fillText('N', compX, compY - compR + 22);
         ctx.restore();
 
-        ctx.setLineDash([25, 20]);
-        ctx.strokeStyle = acc + '22'; ctx.lineWidth = 14;
+        // ===============================================
+        // 🗺️ رسم المسار (الخطوط)
+        // ===============================================
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.lineWidth = 14;
+        ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
+
+        ctx.setLineDash([15, 15]);
+        ctx.strokeStyle = acc + '99'; 
+        ctx.lineWidth = 8;
+        ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
 
-        if (prog > 0.05) {
-            for (let ti = 0.03; ti < prog - 0.05; ti += 0.04) {
-                const tp = bpt(ti);
-                ctx.globalAlpha = Math.min(0.60, 0.08 + ti * 0.65);
-                ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 5;
-                ctx.beginPath(); ctx.arc(tp.x, tp.y, 4 + ti * 5, 0, Math.PI * 2); ctx.fill();
-                ctx.shadowBlur = 0;
-            }
-            ctx.globalAlpha = 1;
+        if (prog > 0) {
+            const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
+            pathG.addColorStop(0, acc + 'AA'); 
+            pathG.addColorStop(0.7, acc); 
+            pathG.addColorStop(1, '#FFFFFF'); 
+
+            ctx.shadowColor = acc; 
+            ctx.shadowBlur = 20; 
+            ctx.strokeStyle = pathG; 
+            ctx.lineWidth = 12; 
+            ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
+            
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; 
+            ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
         }
 
-        const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
-        pathG.addColorStop(0, acc + '55'); pathG.addColorStop(0.6, acc + 'BB'); pathG.addColorStop(1, acc);
-        ctx.strokeStyle = pathG; ctx.lineWidth = 20;
-        ctx.shadowColor = acc; ctx.shadowBlur = 28;
-        ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = acc + '66'; ctx.lineWidth = 8;
-        ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
+        if (prog > 0.05) {
+            for (let ti = 0.05; ti < prog - 0.02; ti += 0.06) {
+                const tp = bpt(ti);
+                ctx.fillStyle = '#FFFFFF'; 
+                ctx.shadowColor = acc; 
+                ctx.shadowBlur = 10;
+                ctx.beginPath(); ctx.arc(tp.x, tp.y, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
 
-        [0.25, 0.5, 0.75].forEach(mt => {
+        // ===============================================
+        // 📊 محطات النسبة المئوية (نظام التباعد الذكي)
+        // ===============================================
+        let routeMarkers = [];
+        if (totalDist >= 380) {
+            routeMarkers = [0.25, 0.5, 0.75]; // رحلة طويلة: 3 محطات
+        } else if (totalDist >= 180) {
+            routeMarkers = [0.5]; // رحلة متوسطة: محطة واحدة بالمنتصف
+        } // رحلة قصيرة جداً: لا محطات
+
+        routeMarkers.forEach(mt => {
             const mp = bpt(mt);
             const passed = prog >= mt;
+            
             if (passed) {
                 const mh = ctx.createRadialGradient(mp.x, mp.y, 4, mp.x, mp.y, 30);
-                mh.addColorStop(0, acc + '55'); mh.addColorStop(1, 'transparent');
+                mh.addColorStop(0, acc + '88'); mh.addColorStop(1, 'transparent');
                 ctx.fillStyle = mh; ctx.beginPath(); ctx.arc(mp.x, mp.y, 30, 0, Math.PI * 2); ctx.fill();
             }
-            ctx.fillStyle   = passed ? acc : 'rgba(255,255,255,0.22)';
-            ctx.shadowColor = passed ? acc : 'transparent'; ctx.shadowBlur = passed ? 18 : 0;
-            ctx.beginPath(); ctx.arc(mp.x, mp.y, passed ? 12 : 9, 0, Math.PI * 2); ctx.fill();
+            
+            ctx.fillStyle   = passed ? acc : 'rgba(20, 20, 20, 0.9)';
+            ctx.shadowColor = passed ? acc : 'transparent'; ctx.shadowBlur = passed ? 15 : 0;
+            ctx.beginPath(); ctx.arc(mp.x, mp.y, passed ? 10 : 8, 0, Math.PI * 2); ctx.fill();
             ctx.shadowBlur  = 0;
-            ctx.strokeStyle = passed ? acc + 'BB' : acc + '33'; ctx.lineWidth = 2.5;
-            ctx.beginPath(); ctx.arc(mp.x, mp.y, 20, 0, Math.PI * 2); ctx.stroke();
-            ctx.font = `bold 20px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-            ctx.fillStyle = passed ? acc : acc + '55';
-            ctx.fillText(`${(mt * 100).toFixed(0)}%`, mp.x, mp.y - 26);
+            
+            ctx.strokeStyle = passed ? '#FFFFFF' : acc + '77'; 
+            ctx.lineWidth = passed ? 3 : 2;
+            ctx.beginPath(); ctx.arc(mp.x, mp.y, 16, 0, Math.PI * 2); ctx.stroke();
+            
+            ctx.font = `bold 18px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.fillStyle = passed ? '#FFFFFF' : acc + 'DD';
+            ctx.fillText(`${(mt * 100).toFixed(0)}%`, mp.x, mp.y - 22);
         });
+
+        // ===============================================
+        // رسم نقطة الانطلاق والوصول والجمَل
+        // ===============================================
+        const drawTextWithBg = (text, x, y, color) => {
+            ctx.font = `bold 24px "Bein", "Arial", sans-serif`;
+            const tW = ctx.measureText(text).width;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'; // خلفية داكنة خفيفة لضمان وضوح النص
+            rr(ctx, x - tW / 2 - 12, y - 18, tW + 24, 36, 8);
+            ctx.fill();
+            M(ctx, text, x, y + 4, 24, color);
+        };
 
         const startH = ctx.createRadialGradient(oX, oY, 8, oX, oY, 50);
         startH.addColorStop(0, C.green + '55'); startH.addColorStop(1, 'transparent');
         ctx.fillStyle = startH; ctx.beginPath(); ctx.arc(oX, oY, 50, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 24;
-        ctx.beginPath(); ctx.arc(oX, oY, 35, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.fill(); 
         ctx.shadowBlur = 0;
-        M(ctx, '🏠', oX, oY - 52, 52, C.text);
-        M(ctx, 'المدينة', oX, oY - 96, 24, C.green);
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3; 
+        ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.stroke();
+        drawTextWithBg('المركز', oX, oY - 45, '#FFFFFF');
 
         const destP = ctx.createRadialGradient(dX, dY, 8, dX, dY, 55);
         destP.addColorStop(0, acc + 'CC'); destP.addColorStop(1, acc + '00');
         ctx.fillStyle = destP; ctx.beginPath(); ctx.arc(dX, dY, 55, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 32;
-        ctx.beginPath(); ctx.arc(dX, dY, 35, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.fill(); 
         ctx.shadowBlur = 0;
-        ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(dest?.emoji || '📍', dX, dY - 90);
-        M(ctx, dest?.name || '', dX, dY + 70, 28, acc);
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3; 
+        ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.stroke();
+        drawTextWithBg(dest?.name || '', dX, dY - 45, '#FFFFFF');
 
         const camH = ctx.createRadialGradient(cX, cY, 14, cX, cY, 90);
         camH.addColorStop(0, (hasAtk ? C.red : acc) + '66'); camH.addColorStop(1, 'transparent');
@@ -178,12 +242,12 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
 
         const camelImg = await fetchImageSafe('camel');
         if (camelImg) {
-            ctx.drawImage(camelImg, cX - 100, cY - 120, 200, 200);
+            ctx.drawImage(camelImg, cX - 75, cY - 90, 150, 150); 
         } else {
             const camelEmoji = hasAtk ? '⚔️' : '🐪';
-            ctx.font = `140px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.font = `100px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; 
             ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 40;
-            ctx.fillText(camelEmoji, cX, cY - 30);
+            ctx.fillText(camelEmoji, cX, cY - 20);
             ctx.shadowBlur = 0;
         }
 

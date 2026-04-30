@@ -70,16 +70,16 @@ async function generateSendMap(user, stats, mora) {
         const riskC   = adjRisk >= 0.35 ? C.red : adjRisk >= 0.25 ? '#FFA500' : C.green;
 
         const rows = [
-            { label: 'المدة',    val: formatArabicTime(adjDur),              vc: C.text    },
+            { label: 'المدة',    val: formatArabicTime(adjDur),            vc: C.text    },
             { label: 'الخطر',   val: `${(adjRisk * 100).toFixed(0)}%`,       vc: riskC     },
-            { label: 'التكلفة', val: `${d.cost.toLocaleString()}`,           vc: canAfford ? C.gold : C.red },
+            { label: 'التكلفة', val: `${d.cost.toLocaleString()}`,            vc: canAfford ? C.gold : C.red },
         ];
         let ry = cardY + 350;
         for (const row of rows) {
             rr(ctx, cx + 16, ry - 18, cw - 32, 42, 10);
             ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();
             R(ctx, row.label, cx + cw - 28,  ry + 3, 20, C.textD);
-            L(ctx, row.val,   cx + 28,        ry + 3, 20, row.vc);
+            L(ctx, row.val,   cx + 28,       ry + 3, 20, row.vc);
             ry += 50;
         }
 
@@ -95,6 +95,23 @@ async function generateSendMap(user, stats, mora) {
     const fy = cardY + ch + 35;
     divLine(ctx, 60, fy, W - 120, C.gold + '33');
     M(ctx, `اجمالي رصيدك المتوفر: ${Number(mora).toLocaleString()}`, W / 2, fy + 45, 26, C.gold);
+
+    // ==========================================
+    // 🧭 رسم البوصلة في الزاوية اليمنى السفلية 🧭
+    // ==========================================
+    const compassX = W - 120; // محاذية لنهاية الخط الفاصل على اليمين
+    const compassY = fy + 45; // محاذية لنص "إجمالي الرصيد" بالأسفل
+    
+    ctx.font = `60px ${FE}`; 
+    ctx.textAlign = 'center'; 
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🧭', compassX, compassY);
+
+    // رسم حرف N مع مسافة فاصلة ومريحة للعين
+    ctx.font = `bold 24px "Bein", "Arial", sans-serif`;
+    ctx.fillStyle = C.gold;
+    // رفعنا الحرف بمقدار 55 بيكسل حتى ينفصل تماماً ولا يلتصق بشكل البوصلة
+    ctx.fillText('N', compassX, compassY - 55); 
 
     return toBuf(canvas);
 }
