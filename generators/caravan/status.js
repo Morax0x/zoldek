@@ -71,9 +71,21 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         rr(ctx, MX, MY, MW, MH, 32);
         ctx.stroke();
 
-        const oX = MX + 200,       oY = MY + MH - 220;
-        const dX = MX + MW - 200,  dY = MY + 200;
-        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 220;
+        // ==========================================
+        // 📍 نظام الإحداثيات الديناميكي للرحلات 📍
+        // ==========================================
+        
+        // الانطلاق دائماً من "المدينة" (وهي ثابتة بالزاوية اليسرى السفلية)
+        const oX = MX + 180,  oY = MY + MH - 200;
+        
+        // الوجهة: يتم سحبها من الكونفيج، وإذا لم تكن موجودة نستخدم قيمة احتياطية
+        const dX = dest?.mapX ? MX + dest.mapX : MX + MW - 250;
+        const dY = dest?.mapY ? MY + dest.mapY : MY + 250;
+
+        // نقطة التحكم (لجعل الخط المنحني يبدو طبيعياً وينحني للأعلى دائماً)
+        const cpX = (oX + dX) / 2; 
+        const cpY = Math.min(oY, dY) - 150; 
+
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
@@ -84,10 +96,10 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         });
 
         // ===============================================
-        // 🧭 تعديل البوصلة: النقل للزاوية اليمنى السفلية وإصلاح حرف N
+        // 🧭 البوصلة (بدون حرف N)
         // ===============================================
-        const compX = MX + MW - 130; // زاوية يمنى
-        const compY = MY + MH - 150; // زاوية سفلية
+        const compX = MX + MW - 130; 
+        const compY = MY + MH - 150; 
         const compR = 55;
         
         ctx.save();
@@ -111,11 +123,6 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             ctx.lineTo(compX + Math.sin(angle - 0.28) * 12, compY - Math.cos(angle - 0.28) * 12);
             ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
         });
-        
-        // إصلاح حرف N ليصبح منفصلاً تماماً عن رأس النجمة ومرفوع للأعلى
-        ctx.font = `bold 22px "Arial", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#E74C3C'; 
-        ctx.fillText('N', compX, compY - compR - 16); 
         ctx.restore();
         // ===============================================
 
