@@ -24,7 +24,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const repPts  = Number(profExtra.repPoints || 0);
     const repRank = getRepRankInfo(repPts);
     
-    // استدعاء القيم الجديدة للسجل الإمبراطوري
     const bestLoot = Number(profExtra.best_loot || 0);
     const ambushes = Number(stats.ambush_survived || 0);
     const favDestId = profExtra.favorite_dest || '';
@@ -103,9 +102,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
     divLine(ctx, LX + 30, LY + 310, LW - 60, rank.color + '44');
 
-    // ==========================================
-    // 📊 السجل الإمبراطوري (الإحصائيات)
-    // ==========================================
     const statItems = [
         { label: 'اجمالي الرحلات',  val: String(trips)   },
         { label: 'الرحلات الناجحة', val: String(success)  },
@@ -128,7 +124,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const successRate = trips > 0 ? success / trips : 0;
     const arcCol = successRate >= 0.7 ? C.green : successRate >= 0.4 ? C.gold : C.red;
     
-    // رفع الدائرة قليلاً لتتناسب مع الإحصائيات الجديدة
     const arcX1 = LX + LW / 2, arcY1 = sy + 50, arcR1 = 48;
     ctx.beginPath(); ctx.arc(arcX1, arcY1, arcR1, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 8; ctx.stroke();
@@ -294,14 +289,39 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.fillText(`${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 + 20); 
         ctx.shadowBlur = 0;
         
-        ctx.font = `bold 26px "Bein", "Arial", sans-serif`; 
+        // ==========================================
+        // 💎 لوحة العنوان الجديدة (Plaque Style)
+        // ==========================================
         const titleText = `في الطريق إلى ${dest?.name || ''}`;
-        const titleW = ctx.measureText(titleText).width + 80; 
+        ctx.font = `24px "Bein", "Arial", sans-serif`; // قياس النص ليكون دقيق
+        const textW = ctx.measureText(titleText).width;
         
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        rr(ctx, MX + MW / 2 - titleW / 2, MY + 20, titleW, 50, 12);
+        const titleW = textW + 70; // إضافة 35 بكسل فراغ يمين ويسار (Padding)
+        const titleH = 48; // ارتفاع الإطار
+        const titleX = MX + MW / 2 - titleW / 2;
+        const titleY = MY + 24; // مسافة من الأعلى
+        
+        // خلفية متدرجة للوحة
+        const titleBg = ctx.createLinearGradient(titleX, titleY, titleX, titleY + titleH);
+        titleBg.addColorStop(0, 'rgba(16, 20, 34, 0.95)');
+        titleBg.addColorStop(1, 'rgba(6, 8, 14, 0.85)');
+        
+        ctx.fillStyle = titleBg;
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 10;
+        rr(ctx, titleX, titleY, titleW, titleH, 24); // شكل كبسولة (نصف القطر = 24)
         ctx.fill();
-        M(ctx, titleText, MX + MW / 2, MY + 52, 26, acc);
+        ctx.shadowBlur = 0;
+
+        // إطار اللوحة بلون الوجهة
+        ctx.strokeStyle = acc + '88';
+        ctx.lineWidth = 2;
+        rr(ctx, titleX, titleY, titleW, titleH, 24);
+        ctx.stroke();
+
+        // رسم النص في منتصف الكبسولة تماماً
+        M(ctx, titleText, MX + MW / 2, titleY + titleH / 2 + 8, 24, acc);
+        // ==========================================
 
         drawPanel(ctx, RX, RY, RW, RH, acc);
 
