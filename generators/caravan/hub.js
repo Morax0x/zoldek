@@ -219,26 +219,59 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         drawArcProgress(ctx, RX + RW / 2, rpy + 45, 42, prog, acc, 22, 'نسبة التقدم');
 
     } else {
-        drawPanel(ctx, MX, MY, MW, MH, C.gold);
-        const camelImg = await fetchImageSafe('camel');
-        if(camelImg) {
-            ctx.drawImage(camelImg, MX + MW / 2 - 150, MY + MH * 0.45 - 150, 300, 300);
+        // ===============================================
+        // 🗺️ رسم المربع الأوسط عند عدم وجود رحلة (الخريطة المصغرة)
+        // ===============================================
+        ctx.save();
+        rr(ctx, MX, MY, MW, MH, 28); // انحناء أطراف المربع
+        ctx.clip(); // قص الصورة لتدخل المربع بأناقة
+        
+        const minimapImg = await fetchImageSafe('minimap');
+        if (minimapImg) {
+            const imgRatio = minimapImg.width / minimapImg.height;
+            const boxRatio = MW / MH;
+            let drawW = MW, drawH = MH;
+            let offsetX = 0, offsetY = 0;
+
+            if (imgRatio > boxRatio) {
+                drawH = MH; drawW = MH * imgRatio;
+                offsetX = (MW - drawW) / 2;
+            } else {
+                drawW = MW; drawH = MW / imgRatio;
+                offsetY = (MH - drawH) / 2;
+            }
+
+            ctx.globalAlpha = 0.9;
+            ctx.drawImage(minimapImg, MX + offsetX, MY + offsetY, drawW, drawH);
+            ctx.globalAlpha = 1.0;
         } else {
-            ctx.font = `200px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText('🐪', MX + MW / 2, MY + MH * 0.45);
+            // في حال فشل تحميل الصورة كاحتياط
+            ctx.fillStyle = 'rgba(10,14,28,0.85)';
+            ctx.fillRect(MX, MY, MW, MH);
         }
 
-        ctx.save();
-        const glowR = ctx.createRadialGradient(MX+MW/2, MY+MH*0.45, 80, MX+MW/2, MY+MH*0.45, 240);
-        glowR.addColorStop(0, C.gold + '22'); glowR.addColorStop(1, 'transparent');
-        ctx.fillStyle = glowR;
-        ctx.beginPath(); ctx.arc(MX+MW/2, MY+MH*0.45, 240, 0, Math.PI*2); ctx.fill();
+        // إضافة تدرج أسود خفيف من الأسفل للأعلى لكي يكون النص واضحاً ومقروءاً
+        const gradient = ctx.createLinearGradient(MX, MY + MH - 180, MX, MY + MH);
+        gradient.addColorStop(0, 'rgba(0,0,0,0)');
+        gradient.addColorStop(1, 'rgba(0,0,0,0.95)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(MX, MY + MH - 180, MW, 180);
+        
         ctx.restore();
 
-        ctx.shadowColor = C.gold + '77'; ctx.shadowBlur = 18;
-        M(ctx, 'القوافل مستعدة للانطلاق', MX + MW / 2, MY + MH - 120, 32, C.gold);
+        // رسم إطار ذهبي خفيف حول المربع
+        ctx.strokeStyle = C.gold + '44'; 
+        ctx.lineWidth = 3;
+        rr(ctx, MX, MY, MW, MH, 28); 
+        ctx.stroke();
+
+        ctx.shadowColor = C.gold + 'BB'; ctx.shadowBlur = 20;
+        M(ctx, 'القوافل مستعدة للانطلاق', MX + MW / 2, MY + MH - 100, 36, C.gold);
         ctx.shadowBlur = 0;
-        M(ctx, 'جهز قافلتك وابدأ رحلتك', MX + MW / 2, MY + MH - 68, 24, C.textD);
+        
+        ctx.shadowColor = '#000000'; ctx.shadowBlur = 10;
+        M(ctx, 'جهز قافلتك وابدأ رحلتك الآن نحو المجهول...', MX + MW / 2, MY + MH - 45, 24, '#EEEEEE');
+        ctx.shadowBlur = 0;
 
         drawPanel(ctx, RX, RY, RW, RH, C.gold);
         let rpy = RY + 52;
