@@ -58,7 +58,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             }
 
             ctx.drawImage(mapImg, MX + offsetX, MY + offsetY, drawW, drawH);
-            ctx.fillStyle = 'rgba(4,6,12,0.30)'; // خففت التعتيم لتظهر الخريطة بشكل أوضح
+            ctx.fillStyle = 'rgba(4,6,12,0.30)'; 
             ctx.fillRect(MX, MY, MW, MH);
         } else {
             ctx.fillStyle = 'rgba(10,14,28,0.8)';
@@ -72,20 +72,20 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.stroke();
 
         // ==========================================
-        // 📍 نظام الإحداثيات الديناميكي المطور 📍
+        // 📍 الانطلاق من المركز إلى الوجهات الحقيقية
         // ==========================================
         
-        // نقطة الانطلاق: جعلتها في منتصف الخريطة تقريباً (حيث يوجد المبنى المركزي في صورتك)
-        const oX = MX + (MW / 2); 
-        const oY = MY + (MH / 2) + 20;
+        // نقطة الانطلاق (المدينة المركزية في وسط الخريطة)
+        const oX = MX + 720; 
+        const oY = MY + 340;
         
-        // الوجهة: يتم سحبها من الكونفيج، وإذا لم تكن موجودة نعطيها موقع افتراضي
-        const dX = dest?.mapX ? MX + (MW * dest.mapX) : MX + MW - 250;
-        const dY = dest?.mapY ? MY + (MH * dest.mapY) : MY + 250;
+        // نقطة الوصول (تُقرأ من ملف JSON الجديد باستخدام map_x و map_y)
+        const dX = dest?.map_x ? MX + dest.map_x : MX + MW - 250;
+        const dY = dest?.map_y ? MY + dest.map_y : MY + 250;
 
-        // نقطة التحكم: تم ضبطها لعمل قوس بسيط بين نقطة الانطلاق والوصول
+        // نقطة التحكم للقوس
         const cpX = (oX + dX) / 2; 
-        const cpY = Math.min(oY, dY) - Math.abs(dX - oX) * 0.2; 
+        const cpY = Math.min(oY, dY) - Math.abs(dX - oX) * 0.15; 
 
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
@@ -97,7 +97,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         });
 
         // ===============================================
-        // 🧭 البوصلة (بدون حرف N)
+        // 🧭 البوصلة
         // ===============================================
         const compX = MX + MW - 130; 
         const compY = MY + MH - 150; 
@@ -113,7 +113,6 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.strokeStyle = acc + '22'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(compX, compY, compR - 12, 0, Math.PI * 2); ctx.stroke();
         
-        // رسم مؤشرات البوصلة بدون حرف N
         [0, Math.PI / 2, Math.PI, Math.PI * 3 / 2].forEach((angle, ai) => {
             const ex = compX + Math.sin(angle) * (compR - 8);
             const ey = compY - Math.cos(angle) * (compR - 8);
@@ -129,7 +128,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.restore();
         // ===============================================
 
-        ctx.setLineDash([15, 15]); // تصغير الفراغات بين نقاط المسار
+        ctx.setLineDash([15, 15]);
         ctx.strokeStyle = acc + '22'; ctx.lineWidth = 10;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
@@ -147,7 +146,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
 
         const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
         pathG.addColorStop(0, acc + '55'); pathG.addColorStop(0.6, acc + 'BB'); pathG.addColorStop(1, acc);
-        ctx.strokeStyle = pathG; ctx.lineWidth = 16; // تقليل سماكة خط التقدم قليلاً
+        ctx.strokeStyle = pathG; ctx.lineWidth = 16; 
         ctx.shadowColor = acc; ctx.shadowBlur = 20;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
         ctx.shadowBlur = 0;
@@ -173,23 +172,21 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             ctx.fillText(`${(mt * 100).toFixed(0)}%`, mp.x, mp.y - 22);
         });
 
-        // رسم نقطة الانطلاق
         const startH = ctx.createRadialGradient(oX, oY, 8, oX, oY, 50);
         startH.addColorStop(0, C.green + '55'); startH.addColorStop(1, 'transparent');
         ctx.fillStyle = startH; ctx.beginPath(); ctx.arc(oX, oY, 50, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 24;
-        ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.fill(); // تصغير حجم الدائرة
+        ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        M(ctx, 'المركز', oX, oY - 40, 20, C.green); // تغيير النص ورفع الإحداثيات
+        M(ctx, 'المركز', oX, oY - 35, 20, C.green);
 
-        // رسم الوجهة
         const destP = ctx.createRadialGradient(dX, dY, 8, dX, dY, 55);
         destP.addColorStop(0, acc + 'CC'); destP.addColorStop(1, acc + '00');
         ctx.fillStyle = destP; ctx.beginPath(); ctx.arc(dX, dY, 55, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 32;
-        ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.fill(); // تصغير حجم الدائرة
+        ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        M(ctx, dest?.name || '', dX, dY - 40, 22, acc); // رفع النص ليكون فوق الهدف
+        M(ctx, dest?.name || '', dX, dY - 35, 22, acc); 
 
         const camH = ctx.createRadialGradient(cX, cY, 14, cX, cY, 90);
         camH.addColorStop(0, (hasAtk ? C.red : acc) + '66'); camH.addColorStop(1, 'transparent');
@@ -197,10 +194,10 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
 
         const camelImg = await fetchImageSafe('camel');
         if (camelImg) {
-            ctx.drawImage(camelImg, cX - 75, cY - 90, 150, 150); // تصغير حجم الجمل
+            ctx.drawImage(camelImg, cX - 75, cY - 90, 150, 150); 
         } else {
             const camelEmoji = hasAtk ? '⚔️' : '🐪';
-            ctx.font = `100px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; // تصغير الجمل
+            ctx.font = `100px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; 
             ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 40;
             ctx.fillText(camelEmoji, cX, cY - 20);
             ctx.shadowBlur = 0;
@@ -225,7 +222,6 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         return toBuf(canvas);
     }
 
-// ... (بقية الكود الخاص بعرض details كما هو بدون تغيير)
     const RX = 80, RY = 158, RW = 1440, RH = 684;
     drawPanel(ctx, RX, RY, RW, RH, acc, { radius: 32 });
 
