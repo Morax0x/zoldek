@@ -46,6 +46,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     M(ctx, truncate(user.username, 18), LX + LW / 2, LY + 185, 28, C.text);
     M(ctx, rank.name, LX + LW / 2, LY + 225, 22, rank.color);
 
+    // ==========================================
+    // 🛡️ رسم إطار الرتبة مع الدويرة (Badge)
+    // ==========================================
     const repText = `\u200F${repRank.name}\u200F`; 
     ctx.font = `bold 20px ${FA}`;
     const txtWidth = ctx.measureText(repRank.name).width;
@@ -131,7 +134,39 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     ctx.font = `11px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
     ctx.fillText('معدل النجاح', arcX1, arcY1 + 14);
 
-    // تم إزالة مربع الرصيد بناءً على طلبك
+    // ==========================================
+    // 🌟 سجل الإنجازات (بديل الرصيد)
+    // ==========================================
+    const achY = LY + LH - 65; 
+    const achH = 50;
+    const achW = (LW - 44) / 2; // تقسيم المساحة لبطاقتين
+    const bx1 = LX + 18;
+    const bx2 = LX + 18 + achW + 8;
+
+    // 1. بطاقة الهجمات المصدودة
+    const ambushes = Number(stats.ambushes_survived || stats.ambush_survived || 0);
+    rr(ctx, bx1, achY, achW, achH, 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
+    ctx.strokeStyle = rank.color + '44'; ctx.lineWidth = 1.5; ctx.stroke();
+    
+    ctx.font = `22px ${FE}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText('🛡️', bx1 + achW - 12, achY + achH / 2);
+    R(ctx, 'هجمات صُدت', bx1 + achW - 42, achY + 16, 12, C.textD);
+    R(ctx, String(ambushes), bx1 + achW - 42, achY + 36, 16, C.gold);
+
+    // 2. بطاقة الوجهة المفضلة
+    const favDestId = stats.favorite_destination || stats.favorite_dest || '';
+    const favDest = cfg.destinations.find(d => d.id === favDestId) || { name: 'مجهول', emoji: '🧭' };
+    
+    rr(ctx, bx2, achY, achW, achH, 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
+    ctx.strokeStyle = rank.color + '44'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    ctx.font = `22px ${FE}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(favDest.emoji, bx2 + achW - 12, achY + achH / 2);
+    R(ctx, 'الوجهة المفضلة', bx2 + achW - 42, achY + 16, 12, C.textD);
+    R(ctx, truncate(favDest.name, 10), bx2 + achW - 42, achY + 36, 14, C.gold);
+    // ==========================================
 
     const MX = 480, MY = 150, MW = 630, MH = 710;
     const RX = 1130, RY = 150, RW = 440, RH = 710;
@@ -284,10 +319,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.fillText(`${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 + 20); 
         ctx.shadowBlur = 0;
         
-        // إصلاح إطار العنوان ليتناسب مع طول النص دائماً
-        ctx.font = `bold 26px "Bein", "Arial", sans-serif`; // تحديد الخط قبل القياس
+        ctx.font = `bold 26px "Bein", "Arial", sans-serif`; 
         const titleText = `في الطريق إلى ${dest?.name || ''}`;
-        const titleW = ctx.measureText(titleText).width + 80; // عرض أوسع لضمان الاحتواء
+        const titleW = ctx.measureText(titleText).width + 80; 
         
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         rr(ctx, MX + MW / 2 - titleW / 2, MY + 20, titleW, 50, 12);
