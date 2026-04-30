@@ -72,18 +72,14 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.stroke();
 
         // ==========================================
-        // 📍 الانطلاق من المركز إلى الوجهات الحقيقية
+        // 📍 الإحداثيات 
         // ==========================================
-        
-        // نقطة الانطلاق (المدينة المركزية في وسط الخريطة)
         const oX = MX + 720; 
         const oY = MY + 340;
         
-        // نقطة الوصول (تُقرأ من ملف JSON الجديد باستخدام map_x و map_y)
         const dX = dest?.map_x ? MX + dest.map_x : MX + MW - 250;
         const dY = dest?.map_y ? MY + dest.map_y : MY + 250;
 
-        // نقطة التحكم للقوس
         const cpX = (oX + dX) / 2; 
         const cpY = Math.min(oY, dY) - Math.abs(dX - oX) * 0.15; 
 
@@ -126,67 +122,104 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
         });
         ctx.restore();
+
+        // ===============================================
+        // 🗺️ رسم مسار الرحلة (الخطوط) بوضوح وجودة عالية
         // ===============================================
 
+        // 1. ظل خفيف وواضح تحت المسار بالكامل ليفصله عن الخريطة
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.lineWidth = 14;
+        ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
+
+        // 2. الخط المتقطع (المسار المتبقي)
         ctx.setLineDash([15, 15]);
-        ctx.strokeStyle = acc + '22'; ctx.lineWidth = 10;
+        ctx.strokeStyle = acc + '99'; // لون قوي وواضح
+        ctx.lineWidth = 8;
+        ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
 
-        if (prog > 0.05) {
-            for (let ti = 0.03; ti < prog - 0.05; ti += 0.04) {
-                const tp = bpt(ti);
-                ctx.globalAlpha = Math.min(0.60, 0.08 + ti * 0.65);
-                ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 5;
-                ctx.beginPath(); ctx.arc(tp.x, tp.y, 4 + ti * 5, 0, Math.PI * 2); ctx.fill();
-                ctx.shadowBlur = 0;
-            }
-            ctx.globalAlpha = 1;
+        // 3. خط التقدم (المسار المقطوع) بشكل لامع ومشع
+        if (prog > 0) {
+            const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
+            pathG.addColorStop(0, acc + 'AA'); 
+            pathG.addColorStop(0.7, acc); 
+            pathG.addColorStop(1, '#FFFFFF'); // ساطع في المقدمة
+
+            ctx.shadowColor = acc; 
+            ctx.shadowBlur = 20; // توهج قوي
+            ctx.strokeStyle = pathG; 
+            ctx.lineWidth = 12; 
+            ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
+            
+            // قلب الخط (Core) بلون أبيض ليعطي إضاءة نيون جذابة
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; 
+            ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
         }
 
-        const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
-        pathG.addColorStop(0, acc + '55'); pathG.addColorStop(0.6, acc + 'BB'); pathG.addColorStop(1, acc);
-        ctx.strokeStyle = pathG; ctx.lineWidth = 16; 
-        ctx.shadowColor = acc; ctx.shadowBlur = 20;
-        ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = acc + '66'; ctx.lineWidth = 6;
-        ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
+        // 4. نقاط الخطوات المضيئة
+        if (prog > 0.05) {
+            for (let ti = 0.05; ti < prog - 0.02; ti += 0.06) {
+                const tp = bpt(ti);
+                ctx.fillStyle = '#FFFFFF'; 
+                ctx.shadowColor = acc; 
+                ctx.shadowBlur = 10;
+                ctx.beginPath(); ctx.arc(tp.x, tp.y, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
 
+        // 5. محطات النسبة المئوية (25% - 50% - 75%)
         [0.25, 0.5, 0.75].forEach(mt => {
             const mp = bpt(mt);
             const passed = prog >= mt;
+            
             if (passed) {
                 const mh = ctx.createRadialGradient(mp.x, mp.y, 4, mp.x, mp.y, 30);
-                mh.addColorStop(0, acc + '55'); mh.addColorStop(1, 'transparent');
+                mh.addColorStop(0, acc + '88'); mh.addColorStop(1, 'transparent');
                 ctx.fillStyle = mh; ctx.beginPath(); ctx.arc(mp.x, mp.y, 30, 0, Math.PI * 2); ctx.fill();
             }
-            ctx.fillStyle   = passed ? acc : 'rgba(255,255,255,0.22)';
-            ctx.shadowColor = passed ? acc : 'transparent'; ctx.shadowBlur = passed ? 18 : 0;
-            ctx.beginPath(); ctx.arc(mp.x, mp.y, passed ? 10 : 7, 0, Math.PI * 2); ctx.fill();
+            
+            ctx.fillStyle   = passed ? acc : 'rgba(20, 20, 20, 0.9)';
+            ctx.shadowColor = passed ? acc : 'transparent'; ctx.shadowBlur = passed ? 15 : 0;
+            ctx.beginPath(); ctx.arc(mp.x, mp.y, passed ? 10 : 8, 0, Math.PI * 2); ctx.fill();
             ctx.shadowBlur  = 0;
-            ctx.strokeStyle = passed ? acc + 'BB' : acc + '33'; ctx.lineWidth = 2.5;
+            
+            ctx.strokeStyle = passed ? '#FFFFFF' : acc + '77'; 
+            ctx.lineWidth = passed ? 3 : 2;
             ctx.beginPath(); ctx.arc(mp.x, mp.y, 16, 0, Math.PI * 2); ctx.stroke();
-            ctx.font = `bold 16px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-            ctx.fillStyle = passed ? acc : acc + '55';
+            
+            ctx.font = `bold 18px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.fillStyle = passed ? '#FFFFFF' : acc + 'DD';
             ctx.fillText(`${(mt * 100).toFixed(0)}%`, mp.x, mp.y - 22);
         });
 
+        // ===============================================
+        // رسم نقطة الانطلاق والوصول والجمَل
+        // ===============================================
         const startH = ctx.createRadialGradient(oX, oY, 8, oX, oY, 50);
         startH.addColorStop(0, C.green + '55'); startH.addColorStop(1, 'transparent');
         ctx.fillStyle = startH; ctx.beginPath(); ctx.arc(oX, oY, 50, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 24;
-        ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.fill(); 
         ctx.shadowBlur = 0;
-        M(ctx, 'المركز', oX, oY - 35, 20, C.green);
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3; 
+        ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.stroke();
+        M(ctx, 'المركز', oX, oY - 35, 24, '#FFFFFF'); 
 
         const destP = ctx.createRadialGradient(dX, dY, 8, dX, dY, 55);
         destP.addColorStop(0, acc + 'CC'); destP.addColorStop(1, acc + '00');
         ctx.fillStyle = destP; ctx.beginPath(); ctx.arc(dX, dY, 55, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 32;
-        ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.fill(); 
         ctx.shadowBlur = 0;
-        M(ctx, dest?.name || '', dX, dY - 35, 22, acc); 
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3; 
+        ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.stroke();
+        M(ctx, dest?.name || '', dX, dY - 35, 24, '#FFFFFF'); 
 
         const camH = ctx.createRadialGradient(cX, cY, 14, cX, cY, 90);
         camH.addColorStop(0, (hasAtk ? C.red : acc) + '66'); camH.addColorStop(1, 'transparent');
