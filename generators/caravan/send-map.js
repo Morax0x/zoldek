@@ -15,23 +15,6 @@ async function generateSendMap(user, stats, mora) {
     await drawHeader(ctx, 'تحديد مسار القافلة');
     drawCornerAccents(ctx);
 
-    // 🧭 البوصلة في الزاوية اليمنى العلوية 🧭
-    const compassX = W - 150; // إزاحة البوصلة لليمين
-    const compassY = 120;     // الارتفاع المناسب
-    
-    // رسم الإيموجي (البوصلة)
-    ctx.font = `60px ${FE}`; 
-    ctx.textAlign = 'center'; 
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🧭', compassX, compassY);
-
-    // رسم حرف N فوق البوصلة مع ضبط المسافة حتى لا يتداخل
-    ctx.font = `bold 24px "Bein", "Arial", sans-serif`;
-    ctx.fillStyle = C.gold;
-    // تم رفع حرف N للأعلى بمقدار 45 بيكسل لينفصل عن الإيموجي
-    ctx.fillText('N', compassX, compassY - 45); 
-
-
     const DESTS = cfg.destinations;
     const cw = 280, ch = 540, cgap = 25;
     const totalW = DESTS.length * cw + (DESTS.length - 1) * cgap;
@@ -112,6 +95,23 @@ async function generateSendMap(user, stats, mora) {
     const fy = cardY + ch + 35;
     divLine(ctx, 60, fy, W - 120, C.gold + '33');
     M(ctx, `اجمالي رصيدك المتوفر: ${Number(mora).toLocaleString()}`, W / 2, fy + 45, 26, C.gold);
+
+    // ==========================================
+    // 🧭 رسم البوصلة في الزاوية اليمنى السفلية 🧭
+    // ==========================================
+    const compassX = W - 120; // محاذية لنهاية الخط الفاصل على اليمين
+    const compassY = fy + 45; // محاذية لنص "إجمالي الرصيد" بالأسفل
+    
+    ctx.font = `60px ${FE}`; 
+    ctx.textAlign = 'center'; 
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🧭', compassX, compassY);
+
+    // رسم حرف N مع مسافة فاصلة ومريحة للعين
+    ctx.font = `bold 24px "Bein", "Arial", sans-serif`;
+    ctx.fillStyle = C.gold;
+    // رفعنا الحرف بمقدار 55 بيكسل حتى ينفصل تماماً ولا يلتصق بشكل البوصلة
+    ctx.fillText('N', compassX, compassY - 55); 
 
     return toBuf(canvas);
 }
