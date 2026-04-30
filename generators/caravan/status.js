@@ -83,7 +83,13 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             y: (1-bt)*(1-bt)*oY + 2*(1-bt)*bt*cpY + bt*bt*dY,
         });
 
-        const compX = MX + 110, compY = MY + 110, compR = 55;
+        // ===============================================
+        // 🧭 تعديل البوصلة: النقل للزاوية اليمنى السفلية وإصلاح حرف N
+        // ===============================================
+        const compX = MX + MW - 130; // زاوية يمنى
+        const compY = MY + MH - 150; // زاوية سفلية
+        const compR = 55;
+        
         ctx.save();
         const compBg = ctx.createRadialGradient(compX, compY, 0, compX, compY, compR);
         compBg.addColorStop(0, 'rgba(18,26,55,0.88)'); compBg.addColorStop(1, 'rgba(4,6,14,0.60)');
@@ -105,9 +111,13 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             ctx.lineTo(compX + Math.sin(angle - 0.28) * 12, compY - Math.cos(angle - 0.28) * 12);
             ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
         });
-        ctx.font = `bold 16px ${FA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#E74C3C'; ctx.fillText('N', compX, compY - compR + 22);
+        
+        // إصلاح حرف N ليصبح منفصلاً تماماً عن رأس النجمة ومرفوع للأعلى
+        ctx.font = `bold 22px "Arial", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#E74C3C'; 
+        ctx.fillText('N', compX, compY - compR - 16); 
         ctx.restore();
+        // ===============================================
 
         ctx.setLineDash([25, 20]);
         ctx.strokeStyle = acc + '22'; ctx.lineWidth = 14;
