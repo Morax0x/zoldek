@@ -72,13 +72,16 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.stroke();
 
         // ==========================================
-        // 📍 الإحداثيات 
+        // 📍 الإحداثيات وحساب المسافة
         // ==========================================
         const oX = MX + 720; 
         const oY = MY + 340;
         
         const dX = dest?.map_x ? MX + dest.map_x : MX + MW - 250;
         const dY = dest?.map_y ? MY + dest.map_y : MY + 250;
+
+        // حساب المسافة الفعلية بين الانطلاق والوصول
+        const totalDist = Math.hypot(dX - oX, dY - oY);
 
         const cpX = (oX + dX) / 2; 
         const cpY = Math.min(oY, dY) - Math.abs(dX - oX) * 0.15; 
@@ -124,44 +127,38 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.restore();
 
         // ===============================================
-        // 🗺️ رسم مسار الرحلة (الخطوط) بوضوح وجودة عالية
+        // 🗺️ رسم المسار (الخطوط)
         // ===============================================
-
-        // 1. ظل خفيف وواضح تحت المسار بالكامل ليفصله عن الخريطة
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.lineWidth = 14;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
 
-        // 2. الخط المتقطع (المسار المتبقي)
         ctx.setLineDash([15, 15]);
-        ctx.strokeStyle = acc + '99'; // لون قوي وواضح
+        ctx.strokeStyle = acc + '99'; 
         ctx.lineWidth = 8;
         ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
 
-        // 3. خط التقدم (المسار المقطوع) بشكل لامع ومشع
         if (prog > 0) {
             const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
             pathG.addColorStop(0, acc + 'AA'); 
             pathG.addColorStop(0.7, acc); 
-            pathG.addColorStop(1, '#FFFFFF'); // ساطع في المقدمة
+            pathG.addColorStop(1, '#FFFFFF'); 
 
             ctx.shadowColor = acc; 
-            ctx.shadowBlur = 20; // توهج قوي
+            ctx.shadowBlur = 20; 
             ctx.strokeStyle = pathG; 
             ctx.lineWidth = 12; 
             ctx.lineCap = 'round';
             ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
             
-            // قلب الخط (Core) بلون أبيض ليعطي إضاءة نيون جذابة
             ctx.shadowBlur = 0;
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; 
             ctx.lineWidth = 4;
             ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
         }
 
-        // 4. نقاط الخطوات المضيئة
         if (prog > 0.05) {
             for (let ti = 0.05; ti < prog - 0.02; ti += 0.06) {
                 const tp = bpt(ti);
@@ -173,8 +170,17 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
             }
         }
 
-        // 5. محطات النسبة المئوية (25% - 50% - 75%)
-        [0.25, 0.5, 0.75].forEach(mt => {
+        // ===============================================
+        // 📊 محطات النسبة المئوية (نظام التباعد الذكي)
+        // ===============================================
+        let routeMarkers = [];
+        if (totalDist >= 380) {
+            routeMarkers = [0.25, 0.5, 0.75]; // رحلة طويلة: 3 محطات
+        } else if (totalDist >= 180) {
+            routeMarkers = [0.5]; // رحلة متوسطة: محطة واحدة بالمنتصف
+        } // رحلة قصيرة جداً: لا محطات
+
+        routeMarkers.forEach(mt => {
             const mp = bpt(mt);
             const passed = prog >= mt;
             
@@ -201,6 +207,15 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         // ===============================================
         // رسم نقطة الانطلاق والوصول والجمَل
         // ===============================================
+        const drawTextWithBg = (text, x, y, color) => {
+            ctx.font = `bold 24px "Bein", "Arial", sans-serif`;
+            const tW = ctx.measureText(text).width;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'; // خلفية داكنة خفيفة لضمان وضوح النص
+            rr(ctx, x - tW / 2 - 12, y - 18, tW + 24, 36, 8);
+            ctx.fill();
+            M(ctx, text, x, y + 4, 24, color);
+        };
+
         const startH = ctx.createRadialGradient(oX, oY, 8, oX, oY, 50);
         startH.addColorStop(0, C.green + '55'); startH.addColorStop(1, 'transparent');
         ctx.fillStyle = startH; ctx.beginPath(); ctx.arc(oX, oY, 50, 0, Math.PI * 2); ctx.fill();
@@ -209,7 +224,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.shadowBlur = 0;
         ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3; 
         ctx.beginPath(); ctx.arc(oX, oY, 20, 0, Math.PI * 2); ctx.stroke();
-        M(ctx, 'المركز', oX, oY - 35, 24, '#FFFFFF'); 
+        drawTextWithBg('المركز', oX, oY - 45, '#FFFFFF');
 
         const destP = ctx.createRadialGradient(dX, dY, 8, dX, dY, 55);
         destP.addColorStop(0, acc + 'CC'); destP.addColorStop(1, acc + '00');
@@ -219,7 +234,7 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         ctx.shadowBlur = 0;
         ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3; 
         ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.stroke();
-        M(ctx, dest?.name || '', dX, dY - 35, 24, '#FFFFFF'); 
+        drawTextWithBg(dest?.name || '', dX, dY - 45, '#FFFFFF');
 
         const camH = ctx.createRadialGradient(cX, cY, 14, cX, cY, 90);
         camH.addColorStop(0, (hasAtk ? C.red : acc) + '66'); camH.addColorStop(1, 'transparent');
