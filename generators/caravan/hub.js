@@ -114,46 +114,126 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const hasAtk = atkRes === 0 && (active.guardmessageid || active.guardMessageId);
         const rm     = Number(active.rewardmultiplier || active.rewardMultiplier || 1);
 
-        drawPanel(ctx, MX, MY, MW, MH, acc);
+        // ===============================================
+        // 🗺️ رسم الخريطة المصغرة كخلفية أثناء الرحلة
+        // ===============================================
+        ctx.save();
+        rr(ctx, MX, MY, MW, MH, 28);
+        ctx.clip();
+        
+        const minimapImg = await fetchImageSafe('minimap');
+        if (minimapImg) {
+            const imgRatio = minimapImg.width / minimapImg.height;
+            const boxRatio = MW / MH;
+            let drawW = MW, drawH = MH;
+            let offsetX = 0, offsetY = 0;
 
-        const oX = MX + 100,       oY = MY + MH - 220;
-        const dX = MX + MW - 100,  dY = MY + 150;
-        const cpX = (oX + dX) / 2, cpY = (oY + dY) / 2 - 140;
+            if (imgRatio > boxRatio) {
+                drawH = MH; drawW = MH * imgRatio;
+                offsetX = (MW - drawW) / 2;
+            } else {
+                drawW = MW; drawH = MW / imgRatio;
+                offsetY = (MH - drawH) / 2;
+            }
+
+            ctx.globalAlpha = 0.50; // تعتيم خفيف للخريطة لكي يبرز المسار
+            ctx.drawImage(minimapImg, MX + offsetX, MY + offsetY, drawW, drawH);
+            ctx.globalAlpha = 1.0;
+        } else {
+            ctx.fillStyle = 'rgba(10,14,28,0.85)';
+            ctx.fillRect(MX, MY, MW, MH);
+        }
+        
+        // تدرج لوني بالأسفل لتوضيح شريط التقدم
+        const gradient = ctx.createLinearGradient(MX, MY + MH - 180, MX, MY + MH);
+        gradient.addColorStop(0, 'rgba(0,0,0,0)');
+        gradient.addColorStop(1, 'rgba(0,0,0,0.95)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(MX, MY + MH - 180, MW, 180);
+        
+        ctx.restore();
+
+        // إطار اللوحة
+        ctx.strokeStyle = acc + '44'; 
+        ctx.lineWidth = 3;
+        rr(ctx, MX, MY, MW, MH, 28); 
+        ctx.stroke();
+
+        // ===============================================
+        // 📍 تحويل الإحداثيات للخريطة المصغرة
+        // ===============================================
+        // نقطة الانطلاق (المركز)
+        const oX = MX + (MW / 2); 
+        const oY = MY + (MH / 2);
+
+        // الوجهة (نحول الإحداثيات من الخريطة الكبيرة 1440x680 إلى الصغيرة 630x710)
+        let relX = dest?.map_x ? dest.map_x / 1440 : 0.5;
+        let relY = dest?.map_y ? dest.map_y / 680 : 0.2;
+        
+        const dX = MX + (relX * MW);
+        const dY = MY + (relY * MH);
+
+        const cpX = (oX + dX) / 2; 
+        const cpY = Math.min(oY, dY) - Math.abs(dX - oX) * 0.15; 
 
         const t  = prog;
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
 
-        ctx.setLineDash([14, 12]);
-        ctx.strokeStyle = acc + '33'; ctx.lineWidth = 8;
+        // ===============================================
+        // 🗺️ رسم المسار (الخطوط)
+        // ===============================================
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.lineWidth = 10;
+        ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
+
+        ctx.setLineDash([10, 10]);
+        ctx.strokeStyle = acc + '99'; 
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
         ctx.setLineDash([]);
 
-        const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
-        pathG.addColorStop(0, acc + '66'); pathG.addColorStop(1, acc);
-        ctx.strokeStyle = pathG; ctx.lineWidth = 10;
-        ctx.shadowColor = acc; ctx.shadowBlur = 20;
-        ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
-        ctx.shadowBlur  = 0;
+        if (prog > 0) {
+            const pathG = ctx.createLinearGradient(oX, oY, cX, cY);
+            pathG.addColorStop(0, acc + 'AA'); 
+            pathG.addColorStop(0.7, acc); 
+            pathG.addColorStop(1, '#FFFFFF'); 
+
+            ctx.shadowColor = acc; 
+            ctx.shadowBlur = 15; 
+            ctx.strokeStyle = pathG; 
+            ctx.lineWidth = 8; 
+            ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
+            
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; 
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, cX, cY); ctx.stroke();
+        }
 
         ctx.fillStyle = C.green; ctx.shadowColor = C.green; ctx.shadowBlur = 15;
-        ctx.beginPath(); ctx.arc(oX, oY, 18, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(oX, oY, 14, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        M(ctx, '🏠', oX, oY - 35, 34, C.text);
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2; 
+        ctx.beginPath(); ctx.arc(oX, oY, 14, 0, Math.PI * 2); ctx.stroke();
 
-        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 25;
-        ctx.beginPath(); ctx.arc(dX, dY, 20, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = acc; ctx.shadowColor = acc; ctx.shadowBlur = 20;
+        ctx.beginPath(); ctx.arc(dX, dY, 14, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.font = `46px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(dest?.emoji || '📍', dX, dY - 45);
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2; 
+        ctx.beginPath(); ctx.arc(dX, dY, 14, 0, Math.PI * 2); ctx.stroke();
 
         const camelImg = await fetchImageSafe('camel');
         if (camelImg) {
-            ctx.drawImage(camelImg, cX - 60, cY - 70, 120, 120);
+            ctx.drawImage(camelImg, cX - 45, cY - 50, 90, 90);
         } else {
             const camelEmoji = hasAtk ? '⚔️' : '🐪';
-            ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(camelEmoji, cX, cY - 14);
+            ctx.font = `60px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 20;
+            ctx.fillText(camelEmoji, cX, cY - 10);
+            ctx.shadowBlur = 0;
         }
 
         if (hasAtk) {
@@ -176,11 +256,19 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         if (destImg) {
             ctx.save();
             rr(ctx, RX, RY, RW, RH, 24); ctx.clip();
-            ctx.globalAlpha = 0.22;
+            ctx.globalAlpha = 0.60; // 🔥 رفع وضوح خلفية المدينة لتصبح بارزة وجميلة 🔥
             const imgRatio = destImg.width / destImg.height;
             const drawW = RW;
             const drawH = RW / imgRatio;
             ctx.drawImage(destImg, RX, RY + (RH - drawH)/2, drawW, drawH);
+            
+            // إضافة تدرج لوني خفيف فوق الصورة عشان ما يخرب قراءة النصوص
+            const fadeBg = ctx.createLinearGradient(RX, RY, RX, RY + RH);
+            fadeBg.addColorStop(0, 'rgba(10,14,28,0.7)');
+            fadeBg.addColorStop(1, 'rgba(10,14,28,0.95)');
+            ctx.fillStyle = fadeBg;
+            ctx.fillRect(RX, RY, RW, RH);
+            
             ctx.restore();
         }
 
@@ -210,7 +298,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ];
         for (const row of infoRows) {
             rr(ctx, RX + 18, rpy - 22, RW - 36, 52, 12);
-            ctx.fillStyle = 'rgba(0,0,0,0.52)'; ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fill(); // تغميق خلفية النص عشان تبرز فوق الصورة
             R(ctx, row.label, RX + RW - 26, rpy + 4, 20, C.textD);
             L(ctx, row.val,   RX + 26,      rpy + 4, 22, row.vc);
             rpy += 68;
@@ -219,12 +307,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         drawArcProgress(ctx, RX + RW / 2, rpy + 45, 42, prog, acc, 22, 'نسبة التقدم');
 
     } else {
-        // ===============================================
-        // 🗺️ رسم المربع الأوسط عند عدم وجود رحلة (الخريطة المصغرة)
-        // ===============================================
         ctx.save();
-        rr(ctx, MX, MY, MW, MH, 28); // انحناء أطراف المربع
-        ctx.clip(); // قص الصورة لتدخل المربع بأناقة
+        rr(ctx, MX, MY, MW, MH, 28);
+        ctx.clip();
         
         const minimapImg = await fetchImageSafe('minimap');
         if (minimapImg) {
@@ -245,12 +330,10 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
             ctx.drawImage(minimapImg, MX + offsetX, MY + offsetY, drawW, drawH);
             ctx.globalAlpha = 1.0;
         } else {
-            // في حال فشل تحميل الصورة كاحتياط
             ctx.fillStyle = 'rgba(10,14,28,0.85)';
             ctx.fillRect(MX, MY, MW, MH);
         }
 
-        // إضافة تدرج أسود خفيف من الأسفل للأعلى لكي يكون النص واضحاً ومقروءاً
         const gradient = ctx.createLinearGradient(MX, MY + MH - 180, MX, MY + MH);
         gradient.addColorStop(0, 'rgba(0,0,0,0)');
         gradient.addColorStop(1, 'rgba(0,0,0,0.95)');
@@ -259,7 +342,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         
         ctx.restore();
 
-        // رسم إطار ذهبي خفيف حول المربع
         ctx.strokeStyle = C.gold + '44'; 
         ctx.lineWidth = 3;
         rr(ctx, MX, MY, MW, MH, 28); 
