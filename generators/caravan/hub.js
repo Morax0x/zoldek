@@ -46,37 +46,65 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     M(ctx, truncate(user.username, 18), LX + LW / 2, LY + 185, 28, C.text);
     M(ctx, rank.name, LX + LW / 2, LY + 225, 22, rank.color);
 
-    const repText = `‫${repRank.name}‬`;
+    // ==========================================
+    // 🛡️ رسم إطار الرتبة مع الدويرة (Badge)
+    // ==========================================
+    const repText = repRank.name;
     ctx.font = `bold 20px ${FA}`;
     const txtWidth = ctx.measureText(repText).width;
+    
     const ptsText = repPts.toLocaleString();
-    ctx.font = `bold 16px Arial, sans-serif`;
+    ctx.font = `bold 14px Arial, sans-serif`;
     const ptsWidth = ctx.measureText(ptsText).width;
 
-    const pillW = Math.max(50, ptsWidth + 20);
-    const pillH = 34;
-    const totalWidth = txtWidth + 16 + pillW;
-    const startX = LX + LW / 2 + totalWidth / 2;
+    // إعدادات الإطار (الرتبة)
+    const boxW = Math.max(120, txtWidth + 50);
+    const boxH = 40;
+    const boxX = LX + LW / 2 - boxW / 2;
+    const boxY = LY + 255;
 
+    // رسم الإطار المستطيل
+    rr(ctx, boxX, boxY, boxW, boxH, 12);
+    ctx.fillStyle = repRank.color + '1A'; // خلفية شفافة بلون الرتبة
+    ctx.fill();
+    ctx.strokeStyle = repRank.color + '88'; 
+    ctx.lineWidth = 2;
+    rr(ctx, boxX, boxY, boxW, boxH, 12);
+    ctx.stroke();
+
+    // كتابة اسم الرتبة في المنتصف
     ctx.font = `bold 20px ${FA}`;
-    R(ctx, repText, startX, LY + 270, 20, repRank.color);
+    M(ctx, repText, LX + LW / 2, boxY + boxH / 2 + 2, 20, repRank.color);
 
-    const pillX = startX - txtWidth - 16 - pillW;
-    rr(ctx, pillX, LY + 270 - pillH / 2, pillW, pillH, pillH / 2);
-    ctx.fillStyle = repRank.color + '22'; ctx.fill();
-    ctx.strokeStyle = repRank.color + '77'; ctx.lineWidth = 2;
-    rr(ctx, pillX, LY + 270 - pillH / 2, pillW, pillH, pillH / 2); ctx.stroke();
-    ctx.font = `bold 16px Arial, sans-serif`;
-    M(ctx, ptsText, pillX + pillW / 2, LY + 270 + 2, 16, repRank.color);
+    // إعدادات الدائرة الصغيرة (النقاط) على الزاوية العلوية اليمنى
+    const circleR = Math.max(14, ptsWidth / 2 + 6);
+    const circleX = boxX + boxW - 5; // على طرف الإطار اليمين
+    const circleY = boxY;            // على الطرف العلوي
 
-    divLine(ctx, LX + 30, LY + 310, LW - 60, rank.color + '44');
+    // رسم الدائرة
+    ctx.beginPath();
+    ctx.arc(circleX, circleY, circleR, 0, Math.PI * 2);
+    ctx.fillStyle = repRank.color; // لون صلب للدائرة
+    ctx.fill();
+    
+    // إطار داكن للدائرة يعطي تأثير القص الجميل (Cutout Effect)
+    ctx.strokeStyle = 'rgba(10, 14, 28, 0.9)'; 
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    
+    // كتابة النقاط داخل الدائرة بلون أبيض أو أسود حسب التصميم (الأبيض يعطي وضوح أقوى)
+    ctx.font = `bold 14px Arial, sans-serif`;
+    M(ctx, ptsText, circleX, circleY + 2, 14, '#FFFFFF'); 
+    // ==========================================
+
+    divLine(ctx, LX + 30, LY + 320, LW - 60, rank.color + '44');
 
     const statItems = [
         { label: 'اجمالي الرحلات',  val: String(trips)   },
         { label: 'الرحلات الناجحة', val: String(success)  },
         { label: 'نسبة النجاح',     val: trips ? `${((success / trips) * 100).toFixed(0)}%` : '—' },
     ];
-    let sy = LY + 332;
+    let sy = LY + 342;
     for (const s of statItems) {
         rr(ctx, LX + 18, sy - 17, LW - 36, 40, 10);
         ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fill();
@@ -114,9 +142,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const hasAtk = atkRes === 0 && (active.guardmessageid || active.guardMessageId);
         const rm     = Number(active.rewardmultiplier || active.rewardMultiplier || 1);
 
-        // ===============================================
-        // 🗺️ رسم الخريطة المصغرة كخلفية أثناء الرحلة (مُحسنة وواضحة)
-        // ===============================================
         ctx.save();
         rr(ctx, MX, MY, MW, MH, 28);
         ctx.clip();
@@ -136,7 +161,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
                 offsetY = (MH - drawH) / 2;
             }
 
-            ctx.globalAlpha = 0.85; // 🔥 رفع وضوح الخريطة لتكون بارزة جداً 🔥
+            ctx.globalAlpha = 0.50; 
             ctx.drawImage(minimapImg, MX + offsetX, MY + offsetY, drawW, drawH);
             ctx.globalAlpha = 1.0;
         } else {
@@ -144,35 +169,28 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
             ctx.fillRect(MX, MY, MW, MH);
         }
         
-        // تدرج لوني بالأسفل لتوضيح شريط التقدم فقط
         const gradient = ctx.createLinearGradient(MX, MY + MH - 180, MX, MY + MH);
         gradient.addColorStop(0, 'rgba(0,0,0,0)');
-        gradient.addColorStop(1, 'rgba(0,0,0,0.85)');
+        gradient.addColorStop(1, 'rgba(0,0,0,0.95)');
         ctx.fillStyle = gradient;
         ctx.fillRect(MX, MY + MH - 180, MW, 180);
         
         ctx.restore();
 
-        // إطار اللوحة
         ctx.strokeStyle = acc + '44'; 
         ctx.lineWidth = 3;
         rr(ctx, MX, MY, MW, MH, 28); 
         ctx.stroke();
 
-        // ===============================================
-        // 📍 تحويل الإحداثيات للخريطة المصغرة
-        // ===============================================
-        // نقطة الانطلاق (المركز)
         const oX = MX + (MW * 0.48); 
         const oY = MY + (MH * 0.45);
 
-        // قاموس إحداثيات الخريطة المصغرة بالملي حسب الصورة
         const miniMapCoords = {
-            "gold_city":        { x: 0.15, y: 0.38 }, // مدينة الذهب (يسار)
-            "magic_academy":    { x: 0.50, y: 0.15 }, // أكاديمية السحر (أعلى المنتصف)
-            "imperial_capital": { x: 0.85, y: 0.50 }, // العاصمة الإمبراطورية (يمين)
-            "ancient_ruins":    { x: 0.25, y: 0.75 }, // الأطلال القديمة (أسفل يسار)
-            "nature_valley":    { x: 0.75, y: 0.75 }  // وادي الطبيعة (أسفل يمين)
+            "gold_city":        { x: 0.15, y: 0.38 }, 
+            "magic_academy":    { x: 0.50, y: 0.15 }, 
+            "imperial_capital": { x: 0.85, y: 0.50 }, 
+            "ancient_ruins":    { x: 0.25, y: 0.75 }, 
+            "nature_valley":    { x: 0.75, y: 0.75 }  
         };
 
         const relCoords = miniMapCoords[destId] || { x: 0.5, y: 0.2 }; 
@@ -187,9 +205,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const cX = (1 - t) * (1 - t) * oX + 2 * (1 - t) * t * cpX + t * t * dX;
         const cY = (1 - t) * (1 - t) * oY + 2 * (1 - t) * t * cpY + t * t * dY;
 
-        // ===============================================
-        // 🗺️ رسم المسار (الخطوط)
-        // ===============================================
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.lineWidth = 10;
         ctx.beginPath(); ctx.moveTo(oX, oY); ctx.quadraticCurveTo(cpX, cpY, dX, dY); ctx.stroke();
@@ -254,7 +269,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
         const barY2 = MY + MH - 80;
         
-        // إضافة خلفية داكنة خفيفة وراء نص النسبة المئوية في الخريطة لتوضيحه
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         rr(ctx, MX + MW / 2 - 40, barY2 - 40, 80, 30, 8);
         ctx.fill();
@@ -262,32 +276,27 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 25, 24, acc);
         drawBar(ctx, MX + 50, barY2, MW - 100, 40, prog, acc);
         
-        // خلفية داكنة خفيفة لعنوان الوجهة من فوق
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         const titleW = ctx.measureText(`في الطريق الى ${dest?.name || ''}`).width + 60;
         rr(ctx, MX + MW / 2 - titleW / 2, MY + 25, titleW, 45, 12);
         ctx.fill();
         M(ctx, `في الطريق الى ${dest?.name || ''}`, MX + MW / 2, MY + 53, 26, acc);
 
-        // ===============================================
-        // 📜 رسم لوحة تقرير الرحلة (بوضوح عالي)
-        // ===============================================
         drawPanel(ctx, RX, RY, RW, RH, acc);
 
         const destImg = await fetchImageSafe(destId);
         if (destImg) {
             ctx.save();
             rr(ctx, RX, RY, RW, RH, 24); ctx.clip();
-            ctx.globalAlpha = 1.0; // 🔥 صورة وجهة كاملة الوضوح 100% 🔥
+            ctx.globalAlpha = 0.60; 
             const imgRatio = destImg.width / destImg.height;
             const drawW = RW;
             const drawH = RW / imgRatio;
             ctx.drawImage(destImg, RX, RY + (RH - drawH)/2, drawW, drawH);
             
-            // تدرج لوني خفيف جداً لكي لا يطمس الصورة
             const fadeBg = ctx.createLinearGradient(RX, RY, RX, RY + RH);
-            fadeBg.addColorStop(0, 'rgba(10,14,28,0.4)');
-            fadeBg.addColorStop(1, 'rgba(10,14,28,0.85)');
+            fadeBg.addColorStop(0, 'rgba(10,14,28,0.7)');
+            fadeBg.addColorStop(1, 'rgba(10,14,28,0.95)');
             ctx.fillStyle = fadeBg;
             ctx.fillRect(RX, RY, RW, RH);
             
@@ -295,7 +304,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         }
 
         let rpy = RY + 56;
-        ctx.shadowColor = acc + '88'; ctx.shadowBlur = 14;
+        ctx.shadowColor = acc + '66'; ctx.shadowBlur = 14;
         M(ctx, 'تقرير الرحلة', RX + RW / 2, rpy, 28, acc);
         ctx.shadowBlur = 0;
         rpy += 46; divLine(ctx, RX + 26, rpy, RW - 52, acc + '55'); rpy += 36;
@@ -320,16 +329,13 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ];
         for (const row of infoRows) {
             rr(ctx, RX + 18, rpy - 22, RW - 36, 52, 12);
-            ctx.fillStyle = 'rgba(0,0,0,0.85)'; // 🔥 خلفية داكنة وقوية لكي يبرز النص 100% 🔥
+            ctx.fillStyle = 'rgba(0,0,0,0.65)';
             ctx.fill();
             R(ctx, row.label, RX + RW - 26, rpy + 4, 20, C.textD);
             L(ctx, row.val,   RX + 26,      rpy + 4, 22, row.vc);
             rpy += 68;
         }
 
-        // عزل دائرة التقدم أيضاً بخلفية داكنة خفيفة
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.beginPath(); ctx.arc(RX + RW / 2, rpy + 45, 60, 0, Math.PI * 2); ctx.fill();
         drawArcProgress(ctx, RX + RW / 2, rpy + 45, 42, prog, acc, 22, 'نسبة التقدم');
 
     } else {
@@ -352,7 +358,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
                 offsetY = (MH - drawH) / 2;
             }
 
-            ctx.globalAlpha = 0.95; // 🔥 خريطة واضحة جداً في وضع الاستعداد 🔥
+            ctx.globalAlpha = 0.95;
             ctx.drawImage(minimapImg, MX + offsetX, MY + offsetY, drawW, drawH);
             ctx.globalAlpha = 1.0;
         } else {
@@ -375,7 +381,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
         ctx.shadowColor = C.gold + 'BB'; ctx.shadowBlur = 20;
         
-        // خلفية لنصوص الاستعداد لضمان الوضوح
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         rr(ctx, MX + MW / 2 - 180, MY + MH - 135, 360, 100, 16);
         ctx.fill();
@@ -404,7 +409,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
             const lvl2 = Number(stats[u.key] || 1);
             rr(ctx, RX + 14, rpy, RW - 28, 90, 14);
             const rowBg = ctx.createLinearGradient(RX + 14, rpy, RX + RW - 14, rpy + 90);
-            rowBg.addColorStop(0, u.col + '18'); rowBg.addColorStop(1, 'rgba(4,6,12,0.85)'); // تغميق
+            rowBg.addColorStop(0, u.col + '18'); rowBg.addColorStop(1, 'rgba(4,6,12,0.85)'); 
             ctx.fillStyle = rowBg; ctx.fill();
             ctx.strokeStyle = u.col + '33'; ctx.lineWidth = 1.5;
             rr(ctx, RX + 14, rpy, RW - 28, 90, 14); ctx.stroke();
