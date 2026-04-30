@@ -11,7 +11,6 @@ const isValidDate = (d, m) => {
     return true;
 };
 
-// الدالة المسؤولة عن عرض الإيمبد الخاص بالميلاد (تستخدم في السلاش والنصي)
 async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPrefix = false) {
     const serverIcon = interactionOrMessage.guild.iconURL({ dynamic: true }) || undefined;
     const result = await db.query('SELECT "day", "month", "year" FROM user_birthdays WHERE "userID" = $1 AND "guildID" = $2', [targetUser.id, guildId]);
@@ -63,11 +62,8 @@ async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPre
 
 module.exports = {
     name: 'ميلاد',
-    description: '🎂 أوامر أعياد الميلاد',
+    description: '🎂 أوامر أعياد الميلاد والإعدادات',
     
-    // ==========================================
-    // 1️⃣ إعدادات السلاش (Slash Command)
-    // ==========================================
     data: new SlashCommandBuilder()
         .setName('ميلاد')
         .setDescription('🎂 أوامر أعياد الميلاد والإعدادات')
@@ -106,9 +102,6 @@ module.exports = {
                 .addRoleOption(option => option.setName('رتبة').setDescription('رتبة أمير الميلاد').setRequired(false))
         ),
 
-    // ==========================================
-    // 2️⃣ تنفيذ أمر السلاش (Slash Execution)
-    // ==========================================
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
         const guildId = interaction.guild.id;
@@ -165,28 +158,41 @@ module.exports = {
                     new ButtonBuilder().setCustomId('cancel_bday').setLabel('رفـض').setStyle(ButtonStyle.Danger)
                 );
 
-                const response = await interaction.reply({ embeds: [confirmEmbed], components: [row], flags: MessageFlags.Ephemeral });
+                // إرسال الرسالة بشكل ظاهر للجميع (إزالة الرد المخفي)
+                const response = await interaction.reply({ embeds: [confirmEmbed], components: [row] });
                 const collector = response.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
 
                 collector.on('collect', async i => {
-                    if (i.user.id !== interaction.user.id) return;
+                    if (i.user.id !== interaction.user.id) {
+                        return i.reply({ content: '❌ هذه الأزرار مخصصة لصاحب الأمر فقط.', flags: MessageFlags.Ephemeral });
+                    }
+
                     if (i.customId === 'confirm_bday') {
                         await db.query(`INSERT INTO user_birthdays ("userID", "guildID", "day", "month", "year") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userID", "guildID") DO UPDATE SET "day" = EXCLUDED."day", "month" = EXCLUDED."month", "year" = EXCLUDED."year"`, [interaction.user.id, guildId, day, month, year]);
-                        const successEmbed = new EmbedBuilder().setColor(getRandomColor()).setTitle('✥ سـُجـل تـاريـخ ميلادك في سجلات الامبراطوريـة 👑').setDescription(`✶ تـم تعييـن: ${normalDateString} كـ تاريـخ ميـلادك\n` + (ageText ? `${ageText.trim()}\n` : '') + `✶ يـوم ميلادك القـادم: ${diffDays} يـوم 🪄`).setThumbnail(interaction.user.displayAvatarURL({ dynamic: true })).setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
+                        
+                        const successEmbed = new EmbedBuilder()
+                            .setColor(getRandomColor())
+                            .setTitle('✥ سـُجـل تـاريـخ ميلادك في سجلات الامبراطوريـة 👑')
+                            .setDescription(`✶ تـم تعييـن: ${normalDateString} كـ تاريـخ ميـلادك\n` + (ageText ? `${ageText.trim()}\n` : '') + `✶ يـوم ميلادك القـادم: ${diffDays} يـوم 🪄`)
+                            .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+                            .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
+
+                        // تعديل نفس الرسالة الظاهرة بعد التأكيد
                         await i.update({ embeds: [successEmbed], components: [] });
                     } else {
+                        // تعديل نفس الرسالة بعد الرفض
                         await i.update({ content: '❌ تم رفض عملية التسجيل.', embeds: [], components: [] });
                     }
                 });
 
                 collector.on('end', collected => {
                     if (collector.endReason === 'time' && collected.size === 0) {
-                        interaction.editReply({ content: '⏱️ انتهى وقت التأكيد.', embeds: [], components: [] }).catch(()=>{});
+                        interaction.editReply({ content: '⏱️ انتهى وقت التأكيد وتم الإلغاء.', embeds: [], components: [] }).catch(()=>{});
                     }
                 });
 
             } catch (error) {
-                await interaction.reply({ content: '❌ حدث خطأ داخلي.', flags: MessageFlags.Ephemeral });
+                await interaction.followUp({ content: '❌ حدث خطأ داخلي.', flags: MessageFlags.Ephemeral });
             }
 
         } else if (subcommand === 'تعديل_اداري' || subcommand === 'اعداد_اداري') {
@@ -219,28 +225,21 @@ module.exports = {
         }
     },
 
-    // ==========================================
-    // 3️⃣ تنفيذ الأمر النصي (Prefix Command)
-    // ==========================================
     async executePrefix(client, message, args) {
         const guildId = message.guild.id;
         const serverIcon = message.guild.iconURL({ dynamic: true }) || undefined;
 
-        // إذا كان هناك منشن، نقوم بعرض تاريخ ميلاد الشخص الممنشن
         if (message.mentions.users.size > 0) {
             const targetUser = message.mentions.users.first();
             return await sendBirthdayView(targetUser, guildId, message, true);
         }
 
-        // إذا لم يكن هناك منشن، نتحقق إذا كان اللاعب مسجلاً مسبقاً
         const checkUser = await db.query('SELECT "day" FROM user_birthdays WHERE "userID" = $1 AND "guildID" = $2', [message.author.id, guildId]);
         if (checkUser.rows.length > 0 && checkUser.rows[0].day) {
             return await sendBirthdayView(message.author, guildId, message, true);
         }
 
-        // إذا لم يكن مسجلاً ولم يمنشن أحد، نبدأ نظام الأسئلة التفاعلي
         const filter = m => m.author.id === message.author.id;
-        
         await message.reply('🎂 **أهلاً بك! لم تقم بتعيين تاريخ ميلادك بعد.**\nيرجى إرسال **يوم** ميلادك (رقم من 1 إلى 31):');
         
         const collector = message.channel.createMessageCollector({ filter, time: 60000, max: 3 });
@@ -278,7 +277,6 @@ module.exports = {
 
                 collector.stop('success');
 
-                // إرسال رسالة التأكيد بعد إتمام الأسئلة
                 let confirmDateStr = year ? `عـام ${year} / شـهـر ${month} / يـوم ${day}` : `شـهـر ${month} / يـوم ${day}`;
                 const displayYear = year ? `/${year}` : '';
                 const normalDateString = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}${displayYear}`;
@@ -316,12 +314,11 @@ module.exports = {
                 );
 
                 const responseMsg = await message.reply({ embeds: [confirmEmbed], components: [row] });
-
                 const btnCollector = responseMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
 
                 btnCollector.on('collect', async i => {
                     if (i.user.id !== message.author.id) {
-                        return i.reply({ content: '❌ هذه الأزرار ليست لك.', flags: MessageFlags.Ephemeral });
+                        return i.reply({ content: '❌ هذه الأزرار مخصصة لصاحب الأمر فقط.', flags: MessageFlags.Ephemeral });
                     }
 
                     if (i.customId.startsWith('confirm_bday_pf')) {
@@ -334,15 +331,17 @@ module.exports = {
                             .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
                             .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
 
+                        // تعديل الرسالة لتتحول للإيمبد الجديد بنجاح
                         await i.update({ embeds: [successEmbed], components: [] });
                     } else {
+                        // تعديل الرسالة في حال الرفض
                         await i.update({ content: '❌ تم رفض عملية التسجيل.', embeds: [], components: [] });
                     }
                 });
 
                 btnCollector.on('end', collected => {
                     if (btnCollector.endReason === 'time' && collected.size === 0) {
-                        responseMsg.edit({ content: '⏱️ انتهى وقت التأكيد.', components: [] }).catch(()=>{});
+                        responseMsg.edit({ content: '⏱️ انتهى وقت التأكيد وتم الإلغاء.', components: [] }).catch(()=>{});
                     }
                 });
             }
