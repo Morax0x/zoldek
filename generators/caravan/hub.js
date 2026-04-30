@@ -290,18 +290,17 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.shadowBlur = 0;
         
         // ==========================================
-        // 💎 لوحة العنوان الجديدة (Plaque Style)
+        // 💎 لوحة العنوان المُحسنة (Plaque Style) 💎
         // ==========================================
         const titleText = `في الطريق إلى ${dest?.name || ''}`;
-        ctx.font = `24px "Bein", "Arial", sans-serif`; // قياس النص ليكون دقيق
+        ctx.font = `bold 22px ${FA}`; // توحيد مقاس ونوع الخط للقياس
         const textW = ctx.measureText(titleText).width;
         
-        const titleW = textW + 70; // إضافة 35 بكسل فراغ يمين ويسار (Padding)
-        const titleH = 48; // ارتفاع الإطار
+        const titleW = textW + 80; // مساحة يمين ويسار
+        const titleH = 46; // الارتفاع
         const titleX = MX + MW / 2 - titleW / 2;
-        const titleY = MY + 24; // مسافة من الأعلى
+        const titleY = MY + 25; 
         
-        // خلفية متدرجة للوحة
         const titleBg = ctx.createLinearGradient(titleX, titleY, titleX, titleY + titleH);
         titleBg.addColorStop(0, 'rgba(16, 20, 34, 0.95)');
         titleBg.addColorStop(1, 'rgba(6, 8, 14, 0.85)');
@@ -309,18 +308,21 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.fillStyle = titleBg;
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 10;
-        rr(ctx, titleX, titleY, titleW, titleH, 24); // شكل كبسولة (نصف القطر = 24)
+        rr(ctx, titleX, titleY, titleW, titleH, titleH / 2); // كبسولة دائرية الأطراف 100%
         ctx.fill();
         ctx.shadowBlur = 0;
 
-        // إطار اللوحة بلون الوجهة
         ctx.strokeStyle = acc + '88';
         ctx.lineWidth = 2;
-        rr(ctx, titleX, titleY, titleW, titleH, 24);
+        rr(ctx, titleX, titleY, titleW, titleH, titleH / 2);
         ctx.stroke();
 
-        // رسم النص في منتصف الكبسولة تماماً
-        M(ctx, titleText, MX + MW / 2, titleY + titleH / 2 + 8, 24, acc);
+        // رسم النص بتوسيط مطلق (Absolute Centering) بنفس مقاس القياس
+        ctx.font = `bold 22px ${FA}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = acc;
+        ctx.fillText(titleText, MX + MW / 2, titleY + titleH / 2 + 2); // +2 لوزن الخط العربي بصرياً
         // ==========================================
 
         drawPanel(ctx, RX, RY, RW, RH, acc);
