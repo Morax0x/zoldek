@@ -117,9 +117,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const successRate = trips > 0 ? success / trips : 0;
     const arcCol = successRate >= 0.7 ? C.green : successRate >= 0.4 ? C.gold : C.red;
     
-    // ==========================================
-    // 📊 رسم دائرة معدل النجاح والنص بداخلها
-    // ==========================================
     const arcX1 = LX + LW / 2, arcY1 = sy + 45, arcR1 = 48;
     ctx.beginPath(); ctx.arc(arcX1, arcY1, arcR1, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 8; ctx.stroke();
@@ -133,15 +130,8 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     
     ctx.font = `11px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
     ctx.fillText('معدل النجاح', arcX1, arcY1 + 14);
-    // ==========================================
 
-    const moraBoxY = LY + LH - 62;
-    rr(ctx, LX + 18, moraBoxY, LW - 36, 48, 12);
-    ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fill();
-    ctx.strokeStyle = C.gold + '77'; ctx.lineWidth = 1.5;
-    rr(ctx, LX + 18, moraBoxY, LW - 36, 48, 12); ctx.stroke();
-    // إزالة كلمة "رصيدك:" وترك الرقم والمورا فقط
-    M(ctx, `${Number(mora).toLocaleString()} مورا`, LX + LW / 2, moraBoxY + 24, 22, C.gold);
+    // تم إزالة مربع الرصيد بناءً على طلبك
 
     const MX = 480, MY = 150, MW = 630, MH = 710;
     const RX = 1130, RY = 150, RW = 440, RH = 710;
@@ -285,25 +275,24 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
         const barY2 = MY + MH - 80;
         
-        // ==========================================
-        // 📉 رسم شريط التقدم بداخلة النسبة المئوية
-        // ==========================================
-        drawBar(ctx, MX + 50, barY2, MW - 100, 40, prog, acc, false); // إخفاء النص الافتراضي
+        drawBar(ctx, MX + 50, barY2, MW - 100, 40, prog, acc, false); 
         
         ctx.font = `bold 18px Arial, sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillStyle = '#FFFFFF';
         ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
-        // وضع النسبة المئوية في منتصف شريط التقدم تماماً
         ctx.fillText(`${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 + 20); 
         ctx.shadowBlur = 0;
-        // ==========================================
+        
+        // إصلاح إطار العنوان ليتناسب مع طول النص دائماً
+        ctx.font = `bold 26px "Bein", "Arial", sans-serif`; // تحديد الخط قبل القياس
+        const titleText = `في الطريق إلى ${dest?.name || ''}`;
+        const titleW = ctx.measureText(titleText).width + 80; // عرض أوسع لضمان الاحتواء
         
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        const titleW = ctx.measureText(`في الطريق الى ${dest?.name || ''}`).width + 60;
-        rr(ctx, MX + MW / 2 - titleW / 2, MY + 25, titleW, 45, 12);
+        rr(ctx, MX + MW / 2 - titleW / 2, MY + 20, titleW, 50, 12);
         ctx.fill();
-        M(ctx, `في الطريق الى ${dest?.name || ''}`, MX + MW / 2, MY + 53, 26, acc);
+        M(ctx, titleText, MX + MW / 2, MY + 52, 26, acc);
 
         drawPanel(ctx, RX, RY, RW, RH, acc);
 
@@ -362,9 +351,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         ctx.beginPath(); ctx.arc(RX + RW / 2, rpy + 45, 60, 0, Math.PI * 2); ctx.fill();
 
-        // ==========================================
-        // 📊 رسم دائرة نسبة التقدم والنص بداخلها
-        // ==========================================
         const arcX2 = RX + RW / 2, arcY2 = rpy + 45, arcR2 = 48;
         ctx.beginPath(); ctx.arc(arcX2, arcY2, arcR2, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 8; ctx.stroke();
@@ -378,7 +364,6 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         
         ctx.font = `11px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
         ctx.fillText('نسبة التقدم', arcX2, arcY2 + 14);
-        // ==========================================
 
     } else {
         ctx.save();
