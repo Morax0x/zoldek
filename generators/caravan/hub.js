@@ -2,7 +2,7 @@ const { loadImage } = require('@napi-rs/canvas');
 const {
     createCanvas, W, H, C, FA, FE,
     drawBg, drawHeader, drawCornerAccents, drawPanel,
-    drawBar, drawArcProgress, drawStars, divLine,
+    drawBar, drawStars, divLine,
     fetchImageSafe, toBuf,
     R, M, L, rr,
     truncate, caravanRank, getRepRankInfo,
@@ -46,56 +46,54 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     M(ctx, truncate(user.username, 18), LX + LW / 2, LY + 185, 28, C.text);
     M(ctx, rank.name, LX + LW / 2, LY + 225, 22, rank.color);
 
-    // ==========================================
-    // 🛡️ رسم إطار الرتبة مع الدويرة (Badge)
-    // ==========================================
-    const repText = repRank.name;
+    const repText = `\u200F${repRank.name}\u200F`; 
     ctx.font = `bold 20px ${FA}`;
-    const txtWidth = ctx.measureText(repText).width;
-    
-    const ptsText = repPts.toLocaleString();
-    ctx.font = `bold 14px Arial, sans-serif`;
+    const txtWidth = ctx.measureText(repRank.name).width;
+
+    let ptsText = repPts.toString();
+    if (repPts >= 1000000) {
+        ptsText = (repPts / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    } else if (repPts >= 1000) {
+        ptsText = (repPts / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    }
+
+    ctx.font = `bold 15px Arial, sans-serif`;
     const ptsWidth = ctx.measureText(ptsText).width;
 
-    // إعدادات الإطار (الرتبة)
-    const boxW = Math.max(120, txtWidth + 50);
-    const boxH = 40;
+    const boxW = Math.max(130, txtWidth + 50); 
+    const boxH = 42;
     const boxX = LX + LW / 2 - boxW / 2;
-    const boxY = LY + 255;
+    const boxY = LY + 250;
 
-    // رسم الإطار المستطيل
     rr(ctx, boxX, boxY, boxW, boxH, 12);
-    ctx.fillStyle = repRank.color + '1A'; // خلفية شفافة بلون الرتبة
+    ctx.fillStyle = repRank.color + '1A';
     ctx.fill();
     ctx.strokeStyle = repRank.color + '88'; 
     ctx.lineWidth = 2;
     rr(ctx, boxX, boxY, boxW, boxH, 12);
     ctx.stroke();
 
-    // كتابة اسم الرتبة في المنتصف
     ctx.font = `bold 20px ${FA}`;
     M(ctx, repText, LX + LW / 2, boxY + boxH / 2 + 2, 20, repRank.color);
 
-    // إعدادات الدائرة الصغيرة (النقاط) على الزاوية العلوية اليمنى
-    const circleR = Math.max(14, ptsWidth / 2 + 6);
-    const circleX = boxX + boxW - 5; // على طرف الإطار اليمين
-    const circleY = boxY;            // على الطرف العلوي
+    const circleR = Math.max(16, ptsWidth / 2 + 8); 
+    const circleX = boxX + boxW; 
+    const circleY = boxY;        
 
-    // رسم الدائرة
     ctx.beginPath();
     ctx.arc(circleX, circleY, circleR, 0, Math.PI * 2);
-    ctx.fillStyle = repRank.color; // لون صلب للدائرة
+    ctx.fillStyle = repRank.color; 
     ctx.fill();
     
-    // إطار داكن للدائرة يعطي تأثير القص الجميل (Cutout Effect)
-    ctx.strokeStyle = 'rgba(10, 14, 28, 0.9)'; 
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(10, 14, 28, 1)'; 
+    ctx.lineWidth = 4;
     ctx.stroke();
     
-    // كتابة النقاط داخل الدائرة بلون أبيض أو أسود حسب التصميم (الأبيض يعطي وضوح أقوى)
-    ctx.font = `bold 14px Arial, sans-serif`;
-    M(ctx, ptsText, circleX, circleY + 2, 14, '#FFFFFF'); 
-    // ==========================================
+    ctx.font = `bold 15px Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(ptsText, circleX, circleY + 1); 
 
     divLine(ctx, LX + 30, LY + 320, LW - 60, rank.color + '44');
 
@@ -118,14 +116,32 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
     const successRate = trips > 0 ? success / trips : 0;
     const arcCol = successRate >= 0.7 ? C.green : successRate >= 0.4 ? C.gold : C.red;
-    drawArcProgress(ctx, LX + LW / 2, sy + 45, 42, successRate, arcCol, 22, 'معدل النجاح');
+    
+    // ==========================================
+    // 📊 رسم دائرة معدل النجاح والنص بداخلها
+    // ==========================================
+    const arcX1 = LX + LW / 2, arcY1 = sy + 45, arcR1 = 48;
+    ctx.beginPath(); ctx.arc(arcX1, arcY1, arcR1, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 8; ctx.stroke();
+    
+    ctx.beginPath(); ctx.arc(arcX1, arcY1, arcR1, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * Math.max(0.001, successRate)));
+    ctx.strokeStyle = arcCol; ctx.lineWidth = 8; ctx.lineCap = 'round';
+    ctx.shadowColor = arcCol; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
+    
+    ctx.font = `bold 18px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#FFFFFF'; ctx.fillText(`${(successRate * 100).toFixed(1)}%`, arcX1, arcY1 - 8);
+    
+    ctx.font = `11px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
+    ctx.fillText('معدل النجاح', arcX1, arcY1 + 14);
+    // ==========================================
 
     const moraBoxY = LY + LH - 62;
     rr(ctx, LX + 18, moraBoxY, LW - 36, 48, 12);
     ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fill();
     ctx.strokeStyle = C.gold + '77'; ctx.lineWidth = 1.5;
     rr(ctx, LX + 18, moraBoxY, LW - 36, 48, 12); ctx.stroke();
-    M(ctx, `رصيدك: ${Number(mora).toLocaleString()} مورا`, LX + LW / 2, moraBoxY + 24, 20, C.gold);
+    // إزالة كلمة "رصيدك:" وترك الرقم والمورا فقط
+    M(ctx, `${Number(mora).toLocaleString()} مورا`, LX + LW / 2, moraBoxY + 24, 22, C.gold);
 
     const MX = 480, MY = 150, MW = 630, MH = 710;
     const RX = 1130, RY = 150, RW = 440, RH = 710;
@@ -161,7 +177,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
                 offsetY = (MH - drawH) / 2;
             }
 
-            ctx.globalAlpha = 0.50; 
+            ctx.globalAlpha = 0.85; 
             ctx.drawImage(minimapImg, MX + offsetX, MY + offsetY, drawW, drawH);
             ctx.globalAlpha = 1.0;
         } else {
@@ -269,12 +285,19 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
         const barY2 = MY + MH - 80;
         
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        rr(ctx, MX + MW / 2 - 40, barY2 - 40, 80, 30, 8);
-        ctx.fill();
+        // ==========================================
+        // 📉 رسم شريط التقدم بداخلة النسبة المئوية
+        // ==========================================
+        drawBar(ctx, MX + 50, barY2, MW - 100, 40, prog, acc, false); // إخفاء النص الافتراضي
         
-        M(ctx, `${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 - 25, 24, acc);
-        drawBar(ctx, MX + 50, barY2, MW - 100, 40, prog, acc);
+        ctx.font = `bold 18px Arial, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
+        // وضع النسبة المئوية في منتصف شريط التقدم تماماً
+        ctx.fillText(`${(prog * 100).toFixed(1)}%`, MX + MW / 2, barY2 + 20); 
+        ctx.shadowBlur = 0;
+        // ==========================================
         
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         const titleW = ctx.measureText(`في الطريق الى ${dest?.name || ''}`).width + 60;
@@ -288,15 +311,15 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         if (destImg) {
             ctx.save();
             rr(ctx, RX, RY, RW, RH, 24); ctx.clip();
-            ctx.globalAlpha = 0.60; 
+            ctx.globalAlpha = 1.0; 
             const imgRatio = destImg.width / destImg.height;
             const drawW = RW;
             const drawH = RW / imgRatio;
             ctx.drawImage(destImg, RX, RY + (RH - drawH)/2, drawW, drawH);
             
             const fadeBg = ctx.createLinearGradient(RX, RY, RX, RY + RH);
-            fadeBg.addColorStop(0, 'rgba(10,14,28,0.7)');
-            fadeBg.addColorStop(1, 'rgba(10,14,28,0.95)');
+            fadeBg.addColorStop(0, 'rgba(10,14,28,0.4)');
+            fadeBg.addColorStop(1, 'rgba(10,14,28,0.85)');
             ctx.fillStyle = fadeBg;
             ctx.fillRect(RX, RY, RW, RH);
             
@@ -336,7 +359,26 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
             rpy += 68;
         }
 
-        drawArcProgress(ctx, RX + RW / 2, rpy + 45, 42, prog, acc, 22, 'نسبة التقدم');
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath(); ctx.arc(RX + RW / 2, rpy + 45, 60, 0, Math.PI * 2); ctx.fill();
+
+        // ==========================================
+        // 📊 رسم دائرة نسبة التقدم والنص بداخلها
+        // ==========================================
+        const arcX2 = RX + RW / 2, arcY2 = rpy + 45, arcR2 = 48;
+        ctx.beginPath(); ctx.arc(arcX2, arcY2, arcR2, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 8; ctx.stroke();
+        
+        ctx.beginPath(); ctx.arc(arcX2, arcY2, arcR2, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * Math.max(0.001, prog)));
+        ctx.strokeStyle = acc; ctx.lineWidth = 8; ctx.lineCap = 'round';
+        ctx.shadowColor = acc; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
+        
+        ctx.font = `bold 18px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#FFFFFF'; ctx.fillText(`${(prog * 100).toFixed(1)}%`, arcX2, arcY2 - 8);
+        
+        ctx.font = `11px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
+        ctx.fillText('نسبة التقدم', arcX2, arcY2 + 14);
+        // ==========================================
 
     } else {
         ctx.save();
