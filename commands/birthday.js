@@ -12,7 +12,7 @@ const isValidDate = (d, m) => {
 };
 
 async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPrefix = false) {
-    const serverIcon = interactionOrMessage.guild.iconURL({ dynamic: true }) || undefined;
+    const serverIcon = interactionOrMessage.guild?.iconURL({ dynamic: true }) || undefined;
     const result = await db.query('SELECT "day", "month", "year" FROM user_birthdays WHERE "userID" = $1 AND "guildID" = $2', [targetUser.id, guildId]);
 
     if (result.rows.length === 0 || !result.rows[0].day) {
@@ -62,55 +62,63 @@ async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPre
 
 module.exports = {
     name: 'ميلاد',
-    description: '🎂 أوامر أعياد الميلاد والإعدادات',
+    description: '🎂 أوامر أعياد الميلاد',
     
     data: new SlashCommandBuilder()
-        .setName('ميلاد')
+        .setName('birthday')
         .setDescription('🎂 أوامر أعياد الميلاد والإعدادات')
         .addSubcommand(subcommand =>
             subcommand
-                .setName('تعيين')
+                .setName('set')
                 .setDescription('تعيين تاريخ ميلادك (لا يمكنك تغييره لاحقاً)')
                 .addIntegerOption(option => 
-                    option.setName('يوم').setDescription('يوم الميلاد (1-31)').setRequired(true).setMinValue(1).setMaxValue(31))
+                    option.setName('day').setDescription('يوم الميلاد (1-31)').setRequired(true).setMinValue(1).setMaxValue(31))
                 .addIntegerOption(option => 
-                    option.setName('شهر').setDescription('شهر الميلاد (1-12)').setRequired(true).setMinValue(1).setMaxValue(12))
+                    option.setName('month').setDescription('شهر الميلاد (1-12)').setRequired(true).setMinValue(1).setMaxValue(12))
                 .addIntegerOption(option => 
-                    option.setName('عام').setDescription('عام الميلاد (اختياري، لحساب العمر)').setRequired(false).setMinValue(1900).setMaxValue(new Date().getFullYear()))
+                    option.setName('year').setDescription('عام الميلاد (اختياري، لحساب العمر)').setRequired(false).setMinValue(1900).setMaxValue(new Date().getFullYear()))
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName('عرض')
-                .setDescription('عرض تاريخ ميلاد شخص معين (أو أنت)')
+                .setName('view')
+                .setDescription('عرض تاريخ الميلاد')
                 .addUserOption(option => 
-                    option.setName('مستخدم').setDescription('المستخدم المراد عرض تاريخ ميلاده').setRequired(false))
+                    option.setName('user').setDescription('المستخدم المراد عرض تاريخ ميلاده').setRequired(false))
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName('تعديل_اداري')
+                .setName('admin_set')
                 .setDescription('تعديل تاريخ ميلاد لاعب (للإدارة فقط)')
-                .addUserOption(option => option.setName('مستخدم').setDescription('المستخدم المراد تعديله').setRequired(true))
-                .addIntegerOption(option => option.setName('يوم').setDescription('يوم الميلاد').setRequired(true).setMinValue(1).setMaxValue(31))
-                .addIntegerOption(option => option.setName('شهر').setDescription('شهر الميلاد').setRequired(true).setMinValue(1).setMaxValue(12))
-                .addIntegerOption(option => option.setName('عام').setDescription('عام الميلاد (اختياري)').setRequired(false).setMinValue(1900).setMaxValue(new Date().getFullYear()))
+                .addUserOption(option => option.setName('user').setDescription('المستخدم المراد تعديله').setRequired(true))
+                .addIntegerOption(option => option.setName('day').setDescription('يوم الميلاد').setRequired(true).setMinValue(1).setMaxValue(31))
+                .addIntegerOption(option => option.setName('month').setDescription('شهر الميلاد').setRequired(true).setMinValue(1).setMaxValue(12))
+                .addIntegerOption(option => option.setName('year').setDescription('عام الميلاد (اختياري)').setRequired(false).setMinValue(1900).setMaxValue(new Date().getFullYear()))
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName('اعداد_اداري')
+                .setName('admin_setup')
                 .setDescription('إعداد قناة الاحتفال ورتبة أمير الميلاد (للإدارة فقط)')
-                .addChannelOption(option => option.setName('قناة').setDescription('القناة التي سيتم إرسال التهنئة فيها').setRequired(true))
-                .addRoleOption(option => option.setName('رتبة').setDescription('رتبة أمير الميلاد').setRequired(false))
+                .addChannelOption(option => option.setName('channel').setDescription('القناة التي سيتم إرسال التهنئة فيها').setRequired(true))
+                .addRoleOption(option => option.setName('role').setDescription('رتبة أمير الميلاد').setRequired(false))
         ),
 
-    async execute(interaction) {
+    async execute(interaction, arg2, arg3) {
+        // الموجه الذكي لحل تعطل البريفكس
+        if (!interaction.options || typeof interaction.options.getSubcommand !== 'function') {
+            const message = interaction.content !== undefined ? interaction : arg2;
+            const args = interaction.content !== undefined ? arg2 : arg3;
+            if (this.executePrefix) return this.executePrefix(message.client, message, args);
+            return;
+        }
+
         const subcommand = interaction.options.getSubcommand();
         const guildId = interaction.guild.id;
         const serverIcon = interaction.guild.iconURL({ dynamic: true }) || undefined;
 
-        if (subcommand === 'تعيين') {
-            const day = interaction.options.getInteger('يوم');
-            const month = interaction.options.getInteger('شهر');
-            const year = interaction.options.getInteger('عام') || null;
+        if (subcommand === 'set') {
+            const day = interaction.options.getInteger('day');
+            const month = interaction.options.getInteger('month');
+            const year = interaction.options.getInteger('year') || null;
 
             if (!isValidDate(day, month)) {
                 return interaction.reply({ content: '❌ تاريخ غير صالح! يرجى التأكد من الأيام.', flags: MessageFlags.Ephemeral });
@@ -154,8 +162,8 @@ module.exports = {
                     .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
 
                 const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('confirm_bday').setLabel('تـأكيـد').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId('cancel_bday').setLabel('رفـض').setStyle(ButtonStyle.Danger)
+                    new ButtonBuilder().setCustomId('confirm_bday_sl').setLabel('تـأكيـد').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId('cancel_bday_sl').setLabel('رفـض').setStyle(ButtonStyle.Danger)
                 );
 
                 const response = await interaction.reply({ embeds: [confirmEmbed], components: [row] });
@@ -166,7 +174,7 @@ module.exports = {
                         return i.reply({ content: '❌ هذه الأزرار مخصصة لصاحب الأمر فقط.', flags: MessageFlags.Ephemeral });
                     }
 
-                    if (i.customId === 'confirm_bday') {
+                    if (i.customId === 'confirm_bday_sl') {
                         await db.query(`INSERT INTO user_birthdays ("userID", "guildID", "day", "month", "year") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userID", "guildID") DO UPDATE SET "day" = EXCLUDED."day", "month" = EXCLUDED."month", "year" = EXCLUDED."year"`, [interaction.user.id, guildId, day, month, year]);
                         
                         const successEmbed = new EmbedBuilder()
@@ -192,32 +200,34 @@ module.exports = {
                 await interaction.followUp({ content: '❌ حدث خطأ داخلي.', flags: MessageFlags.Ephemeral });
             }
 
-        } else if (subcommand === 'تعديل_اداري' || subcommand === 'اعداد_اداري') {
+        } else if (subcommand === 'admin_set') {
             if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
                 return interaction.reply({ content: '.', flags: MessageFlags.Ephemeral }).then(msg => msg.delete().catch(() => {}));
             }
 
-            if (subcommand === 'تعديل_اداري') {
-                const targetUser = interaction.options.getUser('مستخدم');
-                const day = interaction.options.getInteger('يوم');
-                const month = interaction.options.getInteger('شهر');
-                const year = interaction.options.getInteger('عام') || null;
+            const targetUser = interaction.options.getUser('user');
+            const day = interaction.options.getInteger('day');
+            const month = interaction.options.getInteger('month');
+            const year = interaction.options.getInteger('year') || null;
 
-                if (!isValidDate(day, month)) return interaction.reply({ content: '❌ تاريخ غير صالح!', flags: MessageFlags.Ephemeral });
+            if (!isValidDate(day, month)) return interaction.reply({ content: '❌ تاريخ غير صالح!', flags: MessageFlags.Ephemeral });
 
-                await db.query(`INSERT INTO user_birthdays ("userID", "guildID", "day", "month", "year") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userID", "guildID") DO UPDATE SET "day" = EXCLUDED."day", "month" = EXCLUDED."month", "year" = EXCLUDED."year"`, [targetUser.id, guildId, day, month, year]);
-                const displayYear = year ? `/${year}` : '';
-                await interaction.reply({ content: `✅ تم تعديل ميلاد **${targetUser.username}** إدارياً إلى: **${day}/${month}${displayYear}** 🎂`, flags: MessageFlags.Ephemeral });
+            await db.query(`INSERT INTO user_birthdays ("userID", "guildID", "day", "month", "year") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userID", "guildID") DO UPDATE SET "day" = EXCLUDED."day", "month" = EXCLUDED."month", "year" = EXCLUDED."year"`, [targetUser.id, guildId, day, month, year]);
+            const displayYear = year ? `/${year}` : '';
+            await interaction.reply({ content: `✅ تم تعديل ميلاد **${targetUser.username}** إدارياً إلى: **${day}/${month}${displayYear}** 🎂`, flags: MessageFlags.Ephemeral });
             
-            } else if (subcommand === 'اعداد_اداري') {
-                const channel = interaction.options.getChannel('قناة');
-                const role = interaction.options.getRole('رتبة');
-                await db.query(`INSERT INTO birthday_settings ("guildID", "channelID", "roleID") VALUES ($1, $2, $3) ON CONFLICT ("guildID") DO UPDATE SET "channelID" = EXCLUDED."channelID", "roleID" = EXCLUDED."roleID"`, [guildId, channel.id, role ? role.id : null]);
-                await interaction.reply({ content: `✅ تم تحديد قناة الاحتفالات: ${channel}` + (role ? `\n✅ وتم تحديد رتبة أمير الميلاد: ${role}` : ''), flags: MessageFlags.Ephemeral });
+        } else if (subcommand === 'admin_setup') {
+            if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+                return interaction.reply({ content: '.', flags: MessageFlags.Ephemeral }).then(msg => msg.delete().catch(() => {}));
             }
 
-        } else if (subcommand === 'عرض') {
-            const targetUser = interaction.options.getUser('مستخدم') || interaction.user;
+            const channel = interaction.options.getChannel('channel');
+            const role = interaction.options.getRole('role');
+            await db.query(`INSERT INTO birthday_settings ("guildID", "channelID", "roleID") VALUES ($1, $2, $3) ON CONFLICT ("guildID") DO UPDATE SET "channelID" = EXCLUDED."channelID", "roleID" = EXCLUDED."roleID"`, [guildId, channel.id, role ? role.id : null]);
+            await interaction.reply({ content: `✅ تم تحديد قناة الاحتفالات: ${channel}` + (role ? `\n✅ وتم تحديد رتبة أمير الميلاد: ${role}` : ''), flags: MessageFlags.Ephemeral });
+
+        } else if (subcommand === 'view') {
+            const targetUser = interaction.options.getUser('user') || interaction.user;
             await sendBirthdayView(targetUser, guildId, interaction, false);
         }
     },
