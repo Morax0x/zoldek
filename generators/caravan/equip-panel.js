@@ -15,18 +15,6 @@ const RARITY_AR = {
     'Legendary': 'أسطوري'
 };
 
-// 👑 معالج الروابط الذكي (يحذف المسارات القديمة ويسحب من R2 مباشرة) 👑
-function getCorrectUrl(pathStr) {
-    if (!pathStr) return null;
-    let p = pathStr;
-    p = p.replace('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/materials/', '');
-    p = p.replace('images/materials/', '');
-    if (!p.startsWith('http')) {
-        p = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/${p}`;
-    }
-    return p;
-}
-
 async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const core   = require('../../handlers/caravan-core.js');
     const canvas = createCanvas(W, H);
@@ -41,7 +29,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     };
 
     const sw = 480, sh = 220, sgap = 30;
-    const sx0 = (W - (3 * sw + 2 * sgap)) / 2;
+    const sx0 = (W - (3 * sw + sgap * 2)) / 2;
     const sy0 = 160;
 
     // 1️⃣ رسم الخانات العلوية للتجهيزات
@@ -62,10 +50,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         M(ctx, String(s + 1), sx + 44, sy0 + 38, 24, col);
 
         if (itm) {
+            // سحب مباشر من المسار المحلي المضمون
             let hasImage = false;
             if (itm.imgPath) {
-                const finalImgUrl = getCorrectUrl(itm.imgPath);
-                const img = await fetchImageSafe(finalImgUrl);
+                const img = await fetchImageSafe(itm.imgPath);
                 if (img) {
                     ctx.drawImage(img, sx + 25, sy0 + 65, 80, 80);
                     hasImage = true;
@@ -116,7 +104,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     divLine(ctx, 60, gridY, W - 120, C.gold + '33');
     M(ctx, 'الادوات المتوفرة في المخزن', W / 2, gridY + 40, 30, C.gold);
 
-    // 👑 تعديل المقاسات لكي لا تخرج من حدود الصورة (تناسب 2 صفوف و6 أعمدة)
+    // 👑 تعديل المقاسات لتناسب الكانفاس 100% 👑
     const iw = 220, ih = 140, igap = 20, cols = 6;
     const igw = cols * iw + (cols - 1) * igap;
     const igx = (W - igw) / 2;
@@ -124,7 +112,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
     const safeRows = invRows || [];
     
-    // تأكيد الترتيب التنازلي هنا أيضاً للرسم
+    // ترتيب تنازلي في الواجهة لتطابق المنيو
     safeRows.sort((a, b) => {
         const qtyA = Number(a.quantity || a.QUANTITY || 0);
         const qtyB = Number(b.quantity || b.QUANTITY || 0);
@@ -157,11 +145,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         if (isEq) { L(ctx, '✅', ix + 12, iy + 26, 24, C.green); }
 
+        // سحب ورسم الصورة المحلية
         let hasGridImage = false;
         if (itm && itm.imgPath) {
-            // سحب مباشر وسريع للصورة من R2
-            const finalImgUrl = getCorrectUrl(itm.imgPath);
-            const img = await fetchImageSafe(finalImgUrl);
+            const img = await fetchImageSafe(itm.imgPath);
             if (img) {
                 ctx.drawImage(img, ix + iw / 2 - 30, iy + 15, 60, 60);
                 hasGridImage = true;
