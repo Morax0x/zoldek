@@ -6,6 +6,8 @@ const {
     getItemNameSafe, truncate,
 } = require('./shared');
 
+const path = require('path'); // 👑 ضروري جداً لجلب المسار المطلق
+
 // 👑 تعريب الندرة 👑
 const RARITY_AR = {
     'Common': 'عادي',
@@ -36,9 +38,13 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     for (let s = 0; s < 3; s++) {
         const sx  = sx0 + s * (sw + sgap);
         
+        // دعم التوافقية مع النظام القديم والجديد
         const eqObj = equipped[s] || null;
-        const id  = eqObj ? eqObj.id : null;
-        const count = eqObj ? eqObj.count : 0;
+        let id = null, count = 0;
+        if (eqObj) {
+            if (typeof eqObj === 'string') { id = eqObj; count = 1; }
+            else { id = eqObj.id; count = eqObj.count; }
+        }
         
         const itm = id ? allItems.find(x => x.id === id) : null;
         const col = itm ? (RARITY_COL[itm.rarity] || C.textD) : '#2A3A4A';
@@ -50,15 +56,28 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         M(ctx, String(s + 1), sx + 44, sy0 + 38, 24, col);
 
         if (itm) {
-            // سحب مباشر من المسار المحلي المضمون
+            // 👑 المحمل الدبابة: يبحث بكل الطرق الممكنة لسحب الصورة 👑
             let hasImage = false;
             if (itm.imgPath) {
-                const img = await fetchImageSafe(itm.imgPath);
+                // المحاولة 1: مسار محلي مطلق (الأضمن للكانفاس)
+                let img = await fetchImageSafe(path.join(process.cwd(), itm.imgPath));
+                
+                // المحاولة 2: مسار نسبي عادي (مثل الانفنتوري)
+                if (!img) img = await fetchImageSafe(itm.imgPath);
+                
+                // المحاولة 3: السيرفر السحابي R2 (يسحبها من الرابط مباشرة)
+                if (!img) {
+                    const cdnPath = itm.imgPath.replace('images/materials/', '');
+                    const cdnUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/${cdnPath}`;
+                    img = await fetchImageSafe(cdnUrl);
+                }
+
                 if (img) {
                     ctx.drawImage(img, sx + 25, sy0 + 65, 80, 80);
                     hasImage = true;
                 }
             }
+
             if (!hasImage) {
                 ctx.font = `70px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
                 ctx.fillText(itm.emoji || (itm.type === 'book' ? '📖' : '⚙️'), sx + 30, sy0 + 105);
@@ -104,7 +123,6 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     divLine(ctx, 60, gridY, W - 120, C.gold + '33');
     M(ctx, 'الادوات المتوفرة في المخزن', W / 2, gridY + 40, 30, C.gold);
 
-    // 👑 تعديل المقاسات لتناسب الكانفاس 100% 👑
     const iw = 220, ih = 140, igap = 20, cols = 6;
     const igw = cols * iw + (cols - 1) * igap;
     const igx = (W - igw) / 2;
@@ -127,7 +145,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         const itm  = allItems.find(x => x.id === id);
         const col  = itm ? (RARITY_COL[itm.rarity] || C.textD) : '#334455';
         
-        const eqObj = equipped.find(x => x.id === id);
+        const eqObj = equipped.find(x => {
+            if (typeof x === 'string') return x === id;
+            return x.id === id;
+        });
         const isEq = !!eqObj;
         const availableQty = Number(row.quantity || row.QUANTITY || 0);
         
@@ -145,15 +166,23 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         if (isEq) { L(ctx, '✅', ix + 12, iy + 26, 24, C.green); }
 
-        // سحب ورسم الصورة المحلية
+        // 👑 تطبيق نفس المحمل الدبابة على شبكة المخزن 👑
         let hasGridImage = false;
         if (itm && itm.imgPath) {
-            const img = await fetchImageSafe(itm.imgPath);
+            let img = await fetchImageSafe(path.join(process.cwd(), itm.imgPath));
+            if (!img) img = await fetchImageSafe(itm.imgPath);
+            if (!img) {
+                const cdnPath = itm.imgPath.replace('images/materials/', '');
+                const cdnUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/${cdnPath}`;
+                img = await fetchImageSafe(cdnUrl);
+            }
+
             if (img) {
                 ctx.drawImage(img, ix + iw / 2 - 30, iy + 15, 60, 60);
                 hasGridImage = true;
             }
         }
+
         if (!hasGridImage) {
             ctx.font = `50px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(itm?.emoji || (itm?.type === 'book' ? '📖' : '⚙️'), ix + iw / 2, iy + 45);
