@@ -2,7 +2,7 @@ const {
     SlashCommandBuilder, AttachmentBuilder, EmbedBuilder,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, MessageFlags,
-    ModalBuilder, TextInputBuilder, TextInputStyle // 👑 تم إضافة متطلبات المودل
+    ModalBuilder, TextInputBuilder, TextInputStyle // 👑 متطلبات المودل
 } = require('discord.js');
 
 const {
@@ -147,38 +147,52 @@ module.exports = {
             return reply(payload);
         }
 
-        // 👑 دالة مساعدة لتحديث واجهة التجهيز بسرعة وسهولة 👑
+        // 👑 دالة تحديث الواجهة المحمية من مشاكل الداتا بيس 👑
         async function updateEquipUI(actionCtx, updatedEquip = null, isModal = false) {
-            const invRes = await safeQuery(db, `SELECT "itemID", "itemid", "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "quantity">0`, [user.id, guild.id]);
+            // سحب المخزن بطريقة تتجاهل حساسية الأحرف
+            let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
+            if (!invRes || !invRes.rows || invRes.rows.length === 0) {
+                invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]);
+            }
             
-            if (!invRes.rows.length) {
-                const msg = '📦 ليس لديك أدوات لتجهيزها، احصل عليها من الدانجون أو الحدادة.';
+            const allRows = invRes?.rows || [];
+            const allItems  = allItemsList();
+            const validIds = allItems.map(x => x.id);
+            
+            // فلترة ذكية لارتيفاكتات القافلة فقط
+            const validArtifacts = allRows.filter(row => {
+                const id = row.itemid || row.itemID || row.ITEMID;
+                const qty = Number(row.quantity || row.QUANTITY || 0);
+                return qty > 0 && validIds.includes(id);
+            });
+
+            if (!validArtifacts.length) {
+                const msg = '📦 ليس لديك أدوات قافلة (مواد ترقية أو كتب مهارات) في المخزن لتجهيزها.';
                 if (isModal) await actionCtx.reply({ content: msg, flags: [MessageFlags.Ephemeral] });
                 else await actionCtx.followUp({ content: msg, flags: [MessageFlags.Ephemeral] });
                 return;
             }
             
-            const allItems   = allItemsList();
             const sessionKey = `${user.id}-${guild.id}`;
             if (!client.caravanEquip) client.caravanEquip = new Map();
-            const equipped   = updatedEquip || client.caravanEquip.get(sessionKey) || [];
-            const mora       = await getMora(db, user.id, guild.id);
+            const equipped  = updatedEquip || client.caravanEquip.get(sessionKey) || [];
+            const mora      = await getMora(db, user.id, guild.id);
             
-            const payload = await sendCanvas(GEN.generateEquipPanel, [user, equipped, invRes.rows, allItems, mora]);
+            const payload   = await sendCanvas(GEN.generateEquipPanel, [user, equipped, validArtifacts, allItems, mora]);
 
-            const opts = invRes.rows.slice(0, 25).map(row => {
+            const opts = validArtifacts.slice(0, 25).map(row => {
                 const id2  = row.itemid || row.itemID || row.ITEMID;
                 const itm  = allItems.find(x => x.id === id2) || {};
                 const cleanName = getItemNameSafe(id2);
-                const eqObj = equipped.find(x => x.id === id2); // 👑 فحص بنظام الكائنات الجديد
-                const isEq = !!eqObj;
-                const availableQty = Number(row.quantity);
+                const eqItem = equipped.find(x => x.id === id2);
+                const isEq = !!eqItem;
+                const availableQty = Number(row.quantity || row.QUANTITY || 0);
                 const rarityTxt = itm.rarity ? `[${itm.rarity}] ` : '';
                 
                 return {
                     label:       cleanName.substring(0, 25),
                     value:       id2,
-                    description: isEq ? `✅ مجهزة (${eqObj.count} حبة) - انقر للإزالة` : `${rarityTxt}المتوفر: ${availableQty} | انقر للتجهيز`,
+                    description: isEq ? `✅ مجهزة (${eqItem.count} حبة) - انقر للإزالة` : `${rarityTxt}المتوفر: ${availableQty} | انقر للتجهيز`,
                     emoji:       isEq ? '✅' : '📦',
                 };
             });
@@ -331,7 +345,7 @@ module.exports = {
                         return;
                     }
 
-                    // 👑 مسح الارتيفاكتات بعد إرسال القافلة بنجاح 👑
+                    // مسح الارتيفاكتات من الذاكرة المؤقتة بعد انطلاق القافلة بنجاح
                     if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
 
                     const eta = Math.floor(result.endTime / 1000);
@@ -517,9 +531,9 @@ module.exports = {
 
                     const existingIndex = current.findIndex(x => x.id === itemId);
                     
-                    // إذا كان مجهزاً مسبقاً -> قم بإزالته 
+                    // إزالة ذكية
                     if (existingIndex !== -1) {
-                        await i.deferUpdate().catch(() => {}); // نحتاج defer لأننا لن نفتح مودل
+                        await i.deferUpdate().catch(() => {});
                         current.splice(existingIndex, 1);
                         if (!client.caravanEquip) client.caravanEquip = new Map();
                         client.caravanEquip.set(sessionKey, current);
@@ -528,7 +542,7 @@ module.exports = {
                         return;
                     }
 
-                    // التأكد من أن الخانات لا تتجاوز 3
+                    // التأكد من السعة القصوى
                     if (current.length >= 3) {
                         await i.deferUpdate().catch(() => {});
                         await i.followUp({ content: '❌ مساحة القافلة ممتلئة (3 أنواع كحد أقصى). اخلع أداة لتتمكن من إضافة غيرها.', flags: [MessageFlags.Ephemeral] });
@@ -536,9 +550,14 @@ module.exports = {
                         return;
                     }
 
-                    // التحقق من المخزن
-                    const invResCheck = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR "itemid"=$3)`, [user.id, guild.id, itemId]);
-                    const availableQty = invResCheck.rows.length ? Number(invResCheck.rows[0].quantity) : 0;
+                    // 👑 جلب المخزن بشكل آمن يتجاهل حساسية الأحرف 👑
+                    let invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
+                    if (!invResCheck || !invResCheck.rows || invResCheck.rows.length === 0) {
+                        invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]);
+                    }
+                    
+                    const targetRow = (invResCheck?.rows || []).find(r => (r.itemid || r.itemID || r.ITEMID) === itemId);
+                    const availableQty = targetRow ? Number(targetRow.quantity || targetRow.QUANTITY || 0) : 0;
 
                     if (availableQty <= 0) {
                         await i.deferUpdate().catch(() => {});
@@ -547,7 +566,7 @@ module.exports = {
                         return;
                     }
 
-                    // إذا كان يملك حبة واحدة فقط، لا داعي للمودل
+                    // إضافة مباشرة أو مودل
                     if (availableQty === 1) {
                         await i.deferUpdate().catch(() => {});
                         current.push({ id: itemId, count: 1 });
@@ -555,7 +574,7 @@ module.exports = {
                         client.caravanEquip.set(sessionKey, current);
                         await updateEquipUI(i, current);
                     } else {
-                        // إظهار المودل الذكي لاختيار الكمية
+                        // إظهار المودل
                         const modalId = `cv_eq_mod_${Date.now()}`;
                         const modal = new ModalBuilder().setCustomId(modalId).setTitle('تحديد كمية الارتيفاكت');
                         
@@ -563,7 +582,7 @@ module.exports = {
                         const qtyInput = new TextInputBuilder()
                             .setCustomId('qty')
                             .setLabel(`الكمية المراد تجهيزها (1 إلى ${maxAllowed})`)
-                            .setPlaceholder(`تملك ${availableQty} في المخزن (تحرق بعد الاستخدام)`)
+                            .setPlaceholder(`تملك ${availableQty} حبة (تُحرق بعد الاستخدام)`)
                             .setStyle(TextInputStyle.Short)
                             .setRequired(true);
                             
