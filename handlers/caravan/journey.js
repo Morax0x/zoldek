@@ -9,6 +9,19 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) 
     const dest = caravanConfig.destinations.find(d => d.id === destId);
     if (!dest) return { error: 'وجهة غير موجودة.' };
 
+    // 👑 التعديل الجديد: حرق الارتيفاكتات وخصمها من المخزن نهائياً 👑
+    if (equippedArtifacts && equippedArtifacts.length > 0) {
+        for (const art of equippedArtifacts) {
+            // خصم الكمية المحددة (count) من الحقيبة
+            await safeExecute(db, 
+                `UPDATE user_inventory 
+                 SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1) 
+                 WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR "itemid"=$4)`, 
+                [art.count, userId, guildId, art.id]
+            );
+        }
+    }
+
     const stats      = await getUserCaravanStats(db, userId, guildId);
     const buffs      = getEquippedBuffs(equippedArtifacts);
     const durationMs = calcDuration(dest, stats, buffs);
@@ -170,11 +183,11 @@ async function processCaravanReturns(client, db) {
         for (const caravan of active.rows) {
             const caravanId      = caravan.id;
             const attackAt       = Number(caravan.attackscheduledat || caravan.attackScheduledAt || 0);
-            const endTime        = Number(caravan.endtime           || caravan.endTime           || 0);
-            const attackResolved = Number(caravan.attackresolved    || caravan.attackResolved    || 0);
-            const guardMsgId     = caravan.guardmessageid           || caravan.guardMessageId;
-            const userId         = caravan.userid                   || caravan.userID;
-            const guildId        = caravan.guildid                  || caravan.guildID;
+            const endTime        = Number(caravan.endtime            || caravan.endTime            || 0);
+            const attackResolved = Number(caravan.attackresolved     || caravan.attackResolved    || 0);
+            const guardMsgId     = caravan.guardmessageid            || caravan.guardMessageId;
+            const userId         = caravan.userid                    || caravan.userID;
+            const guildId        = caravan.guildid                   || caravan.guildID;
 
             if (attackAt > 0 && now >= attackAt && attackResolved === 0 && !guardMsgId) {
                 if (!pendingAttacks.has(caravanId)) {
