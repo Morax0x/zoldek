@@ -12,13 +12,24 @@ function getEquippedBuffs(equippedArtifacts) {
 
     const artifactBufCfg = caravanConfig.artifact_buffs;
 
-    for (const itemId of equippedArtifacts) {
+    // 👑 التعديل الجديد: قراءة كائنات الارتيفاكت مع حساب الكمية (Count)
+    for (const art of equippedArtifacts) {
+        // إذا كان النظام القديم لا يزال موجوداً بالخطأ كنصوص، نتفاداه
+        const itemId = typeof art === 'string' ? art : art.id;
+        const count  = typeof art === 'object' && art.count ? Number(art.count) : 1;
+
         const item = allItems.find(i => i.id === itemId);
         if (!item) continue;
+
         const rarity = item.rarity || 'Common';
         const isMat  = !!upgradeMats.weapon_materials?.some(race => race.materials.some(m => m.id === itemId));
-        if (isMat) speedBuff += (artifactBufCfg.material[rarity] || 0);
-        else       luckBuff  += (artifactBufCfg.book[rarity]     || 0);
+        
+        // ضرب تأثير الارتيفاكت الواحد في الكمية المجهزة
+        if (isMat) {
+            speedBuff += (artifactBufCfg.material[rarity] || 0) * count;
+        } else {
+            luckBuff  += (artifactBufCfg.book[rarity]     || 0) * count;
+        }
     }
     return { speedBuff, luckBuff };
 }
@@ -26,6 +37,7 @@ function getEquippedBuffs(equippedArtifacts) {
 function calcDuration(destConfig, stats, equippedBuffs) {
     const speedRank = Number(stats.speed_rank || 1);
     const speedCfg  = caravanConfig.upgrades.speed;
+    // تم رفع سقف تخفيض الوقت بناءً على كمية الارتيفاكت المضافة، أو تركه كما تشاء (حالياً 70% كحد أقصى)
     const reduction = Math.min((speedRank - 1) * speedCfg.time_reduction + equippedBuffs.speedBuff, 0.70);
     const baseMs    = destConfig.duration_hours * 3600 * 1000;
     return Math.floor(baseMs * (1 - reduction));
@@ -43,6 +55,8 @@ function calcRewardMultiplier(stats, equippedBuffs) {
     const luckRank = Number(stats.luck_rank     || 1);
     const capCfg   = caravanConfig.upgrades.capacity;
     const luckCfg  = caravanConfig.upgrades.luck;
+    
+    // البف الخاص بالحظ الآن يتضاعف مع الكمية (مثال: 5 كتب نادرة تعطي 5 أضعاف التأثير)
     return 1
         + (capRank  - 1) * capCfg.bonus_per_level
         + (luckRank - 1) * luckCfg.bonus_per_level
