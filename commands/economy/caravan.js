@@ -236,7 +236,6 @@ module.exports = {
                 const isEq = !!eqItem;
                 const availableQty = Number(row.quantity || row.QUANTITY || 0);
                 
-                // تعريب الندرة
                 const rarityTxt = itm.rarity ? `[${RARITY_AR[itm.rarity] || itm.rarity}] ` : '';
                 
                 return {
@@ -256,11 +255,11 @@ module.exports = {
                 ),
             ];
 
-            // 👑 تحديث ذكي لتفادي تعليق المنيو 👑
-            if (!actionCtx.replied && !actionCtx.deferred && typeof actionCtx.update === 'function') {
-                await actionCtx.update(payload).catch(() => {});
-            } else if (actionCtx.editReply) {
+            // 👑 تحديث ذكي لتفادي تعليق المنيو وتأخير المودل 👑
+            if (actionCtx.deferred || actionCtx.replied) {
                 await actionCtx.editReply(payload).catch(() => {});
+            } else if (typeof actionCtx.update === 'function') {
+                await actionCtx.update(payload).catch(() => {});
             } else {
                 await hubMsg.edit(payload).catch(() => {});
             }
@@ -283,7 +282,7 @@ module.exports = {
             }
             activeProcesses.add(user.id);
             
-            // لا نعمل deferUpdate لتفاعل المنيو أبداً، لكي يفتح المودل بسلاسة
+            // لا نعمل deferUpdate للمودل لأنه يحتاجه لكي يفتح
             if (i.customId !== 'cv_eq_sel') {
                 await i.deferUpdate().catch(() => {});
             }
@@ -583,8 +582,8 @@ module.exports = {
 
                     const existingIndex = current.findIndex(x => x.id === itemId);
                     
-                    // إذا كان مجهزاً مسبقاً -> قم بإزالته 
                     if (existingIndex !== -1) {
+                        await i.deferUpdate().catch(() => {}); 
                         current.splice(existingIndex, 1);
                         if (!client.caravanEquip) client.caravanEquip = new Map();
                         client.caravanEquip.set(sessionKey, current);
@@ -593,14 +592,13 @@ module.exports = {
                         return;
                     }
 
-                    // التأكد من أن الخانات لا تتجاوز 3
                     if (current.length >= 3) {
-                        await i.reply({ content: '❌ مساحة القافلة ممتلئة (3 أنواع كحد أقصى). اخلع أداة لتتمكن من إضافة غيرها.', flags: [MessageFlags.Ephemeral] });
+                        await i.deferUpdate().catch(() => {});
+                        await i.followUp({ content: '❌ مساحة القافلة ممتلئة (3 أنواع كحد أقصى). اخلع أداة لتتمكن من إضافة غيرها.', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
 
-                    // التحقق من المخزن بطريقة آمنة تماماً
                     let invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
                     if (!invResCheck || !invResCheck.rows || invResCheck.rows.length === 0) {
                         invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]);
@@ -609,19 +607,19 @@ module.exports = {
                     const availableQty = targetRow ? Number(targetRow.quantity || targetRow.QUANTITY || 0) : 0;
 
                     if (availableQty <= 0) {
-                        await i.reply({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
+                        await i.deferUpdate().catch(() => {});
+                        await i.followUp({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
 
-                    // إذا كان يملك حبة واحدة فقط، لا داعي للمودل
                     if (availableQty === 1) {
+                        await i.deferUpdate().catch(() => {});
                         current.push({ id: itemId, count: 1 });
                         if (!client.caravanEquip) client.caravanEquip = new Map();
                         client.caravanEquip.set(sessionKey, current);
                         await updateEquipUI(i, current);
                     } else {
-                        // إظهار المودل الذكي لاختيار الكمية
                         const modalId = `cv_eq_mod_${Date.now()}`;
                         const modal = new ModalBuilder().setCustomId(modalId).setTitle('تحديد كمية الارتيفاكت');
                         
@@ -638,11 +636,15 @@ module.exports = {
 
                         try {
                             const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
+                            
+                            // 👑 إرسال استجابة فورية لتفادي مشكلة (Interaction Failed) وتأخير الرسم
+                            await modalSubmit.deferUpdate().catch(() => {});
+
                             const qtyStr = modalSubmit.fields.getTextInputValue('qty');
                             let qty = parseInt(qtyStr);
 
                             if (isNaN(qty) || qty < 1 || qty > maxAllowed) {
-                                await modalSubmit.reply({ content: `❌ كمية غير صالحة. الرجاء إدخال رقم صحيح بين 1 و ${maxAllowed}.`, flags: [MessageFlags.Ephemeral] });
+                                await modalSubmit.followUp({ content: `❌ كمية غير صالحة. الرجاء إدخال رقم صحيح بين 1 و ${maxAllowed}.`, flags: [MessageFlags.Ephemeral] });
                                 activeProcesses.delete(user.id);
                                 return;
                             }
@@ -657,7 +659,6 @@ module.exports = {
                         }
                     }
                 }
-                // 👑 نهاية التجهيز الذكي 👑
 
                 else if (id === 'cv_back') {
                     await showHub(hubMsg);
