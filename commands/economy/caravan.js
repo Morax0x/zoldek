@@ -2,7 +2,7 @@ const {
     SlashCommandBuilder, AttachmentBuilder, EmbedBuilder,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, MessageFlags,
-    ModalBuilder, TextInputBuilder, TextInputStyle
+    ModalBuilder, TextInputBuilder, TextInputStyle // 👑 تم إضافة متطلبات المودل
 } = require('discord.js');
 
 const {
@@ -50,40 +50,22 @@ const RARITY_AR = {
     'Legendary': 'أسطوري'
 };
 
-const R2_BASE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/materials';
-
-const ID_TO_IMAGE = {
-    'mat_dragon_1': 'dragon_ash.png', 'mat_dragon_2': 'dragon_scale.png', 'mat_dragon_3': 'dragon_claw.png', 'mat_dragon_4': 'dragon_heart.png', 'mat_dragon_5': 'dragon_core.png',
-    'mat_human_1': 'human_iron.png', 'mat_human_2': 'human_steel.png', 'mat_human_3': 'human_meteor.png', 'mat_human_4': 'human_seal.png', 'mat_human_5': 'human_crown.png',
-    'mat_elf_1': 'elf_branch.png', 'mat_elf_2': 'elf_bark.png', 'mat_elf_3': 'elf_flower.png', 'mat_elf_4': 'elf_crystal.png', 'mat_elf_5': 'elf_tear.png',
-    'mat_darkelf_1': 'darkelf_obsidian.png', 'mat_darkelf_2': 'darkelf_glass.png', 'mat_darkelf_3': 'darkelf_crystal.png', 'mat_darkelf_4': 'darkelf_void.png', 'mat_darkelf_5': 'darkelf_ash.png',
-    'mat_seraphim_1': 'seraphim_feathe.png', 'mat_seraphim_2': 'seraphim_halo.png', 'mat_seraphim_3': 'seraphim_crystal.png', 'mat_seraphim_4': 'seraphim_core.png', 'mat_seraphim_5': 'seraphim_chalice.png',
-    'mat_demon_1': 'demon_ember.png', 'mat_demon_2': 'demon_horn.png', 'mat_demon_3': 'demon_crystal.png', 'mat_demon_4': 'demon_flame.png', 'mat_demon_5': 'demon_crown.png',
-    'mat_vampire_1': 'vampire_blood.png', 'mat_vampire_2': 'vampire_vial.png', 'mat_vampire_3': 'vampire_fang.png', 'mat_vampire_4': 'vampire_moon.png', 'mat_vampire_5': 'vampire_chalice.png',
-    'mat_spirit_1': 'spirit_dust.png', 'mat_spirit_2': 'spirit_remnant.png', 'mat_spirit_3': 'spirit_crystal.png', 'mat_spirit_4': 'spirit_core.png', 'mat_spirit_5': 'spirit_pulse.png',
-    'mat_hybrid_1': 'hybrid_claw.png', 'mat_hybrid_2': 'hybrid_fur.png', 'mat_hybrid_3': 'hybrid_bone.png', 'mat_hybrid_4': 'hybrid_crystal.png', 'mat_hybrid_5': 'hybrid_soul.png',
-    'mat_dwarf_1': 'dwarf_copper.png', 'mat_dwarf_2': 'dwarf_bronze.png', 'mat_dwarf_3': 'dwarf_mithril.png', 'mat_dwarf_4': 'dwarf_heart.png', 'mat_dwarf_5': 'dwarf_hammer.png',
-    'mat_ghoul_1': 'ghoul_bone.png', 'mat_ghoul_2': 'ghoul_remains.png', 'mat_ghoul_3': 'ghoul_skull.png', 'mat_ghoul_4': 'ghoul_crystal.png', 'mat_ghoul_5': 'ghoul_core.png',
-    'book_general_1': 'gen_book_tactic.png', 'book_general_2': 'gen_book_combat.png', 'book_general_3': 'gen_book_arts.png', 'book_general_4': 'gen_book_war.png', 'book_general_5': 'gen_book_wisdom.png',
-    'book_race_1': 'race_book_stone.png', 'book_race_2': 'race_book_ancestor.png', 'book_race_3': 'race_book_secrets.png', 'book_race_4': 'race_book_covenant.png', 'book_race_5': 'race_book_pact.png'
-};
+const R2_BASE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
 function allItemsList() {
     const list = [];
     if (upgradeMats?.weapon_materials) {
         upgradeMats.weapon_materials.forEach(r => {
-            const raceFolder = r.race.toLowerCase().replace(' ', '_');
             r.materials.forEach(m => {
-                const img = `${R2_BASE}/${raceFolder}/${ID_TO_IMAGE[m.id] || m.id + '.png'}`;
+                const img = m.image ? `${R2_BASE}/${m.image}` : null;
                 list.push({ ...m, type: 'material', imgPath: img });
             });
         });
     }
     if (upgradeMats?.skill_books) {
         upgradeMats.skill_books.forEach(c => {
-            const typeFolder = c.category === 'General_Skills' ? 'general' : 'race';
             c.books.forEach(b => {
-                const img = `${R2_BASE}/${typeFolder}/${ID_TO_IMAGE[b.id] || b.id + '.png'}`;
+                const img = b.image ? `${R2_BASE}/${b.image}` : null;
                 list.push({ ...b, type: 'book', imgPath: img });
             });
         });
@@ -593,8 +575,7 @@ module.exports = {
                     }
 
                     if (current.length >= 3) {
-                        await i.deferUpdate().catch(() => {});
-                        await i.followUp({ content: '❌ مساحة القافلة ممتلئة (3 أنواع كحد أقصى). اخلع أداة لتتمكن من إضافة غيرها.', flags: [MessageFlags.Ephemeral] });
+                        await i.reply({ content: '❌ مساحة القافلة ممتلئة (3 أنواع كحد أقصى). اخلع أداة لتتمكن من إضافة غيرها.', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
@@ -607,8 +588,7 @@ module.exports = {
                     const availableQty = targetRow ? Number(targetRow.quantity || targetRow.QUANTITY || 0) : 0;
 
                     if (availableQty <= 0) {
-                        await i.deferUpdate().catch(() => {});
-                        await i.followUp({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
+                        await i.reply({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
