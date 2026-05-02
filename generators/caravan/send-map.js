@@ -7,11 +7,21 @@ const {
 } = require('./shared');
 
 async function generateSendMap(user, stats, mora) {
+    // 👑 تصحيح المسارات للمجلد الجديد
     const cfg  = require('../../json/caravan-config.json');
-    const core = require('../../handlers/caravan-core.js');
+    const core = require('../../handlers/caravan/index.js');
+    
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
-    await drawBg(ctx, 'journeymap');
+
+    // حماية الخلفية
+    try {
+        await drawBg(ctx, 'journeymap');
+    } catch(e) {
+        ctx.fillStyle = '#05050A';
+        ctx.fillRect(0, 0, W, H);
+    }
+
     await drawHeader(ctx, 'تحديد مسار القافلة');
     drawCornerAccents(ctx);
 
@@ -27,7 +37,11 @@ async function generateSendMap(user, stats, mora) {
         const acc  = d.color || C.gold;
         const canAfford = Number(mora) >= d.cost;
 
-        const destImg = await fetchImageSafe(d.id);
+        // 👑 حماية صور المدن من الانهيار
+        let destImg = null;
+        try {
+            destImg = await fetchImageSafe(d.id).catch(() => null);
+        } catch(e) { destImg = null; }
 
         rr(ctx, cx, cardY, cw, ch, 24);
         if(destImg) {
@@ -46,6 +60,10 @@ async function generateSendMap(user, stats, mora) {
             const bg = ctx.createLinearGradient(cx, cardY, cx, cardY + ch);
             bg.addColorStop(0, acc + '33'); bg.addColorStop(1, 'rgba(4,6,14,0.95)');
             ctx.fillStyle = bg; ctx.fill();
+            
+            // رسم إيموجي بديل إذا لم توجد صورة
+            ctx.font = `60px ${FE}`; ctx.textAlign = 'center';
+            ctx.fillText('🏰', cx + cw / 2, cardY + ch / 2);
         }
 
         ctx.strokeStyle = acc + (canAfford ? 'CC' : '44');
@@ -59,14 +77,19 @@ async function generateSendMap(user, stats, mora) {
 
         divLine(ctx, cx + 20, cardY + 210, cw - 40, acc + '44');
 
-        ctx.font = `20px ${"\"Bein\",\"Arial\",sans-serif"}`; ctx.fillStyle = C.textD;
+        ctx.font = `20px "Bein","Arial",sans-serif`; ctx.fillStyle = C.textD;
         wrapText(ctx, d.description || '', cx + cw / 2, cardY + 250, cw - 40, 32);
 
         let adjDur, adjRisk;
-        try { adjDur  = core.calcDuration(d, { speed_rank: Number(stats.speed_rank || 1) }, { speedBuff: 0 }); }
-        catch { adjDur = d.duration || 3600000; }
-        try { adjRisk = core.calcRiskFactor(d, { defense_rank: Number(stats.defense_rank || 1) }); }
-        catch { adjRisk = d.risk || 0.3; }
+        try { 
+            // 👑 استخدام الحسابات من الهاندرلر الموحد
+            adjDur  = core.calcDuration(d, { speed_rank: Number(stats.speed_rank || 1) }, { speedBuff: 0 }); 
+        } catch { adjDur = (d.duration_hours * 3600000) || 3600000; }
+        
+        try { 
+            adjRisk = core.calcRiskFactor(d, { defense_rank: Number(stats.defense_rank || 1) }); 
+        } catch { adjRisk = d.risk_factor || 0.3; }
+        
         const riskC   = adjRisk >= 0.35 ? C.red : adjRisk >= 0.25 ? '#FFA500' : C.green;
 
         const rows = [
@@ -74,6 +97,7 @@ async function generateSendMap(user, stats, mora) {
             { label: 'الخطر',   val: `${(adjRisk * 100).toFixed(0)}%`,       vc: riskC     },
             { label: 'التكلفة', val: `${d.cost.toLocaleString()}`,            vc: canAfford ? C.gold : C.red },
         ];
+        
         let ry = cardY + 350;
         for (const row of rows) {
             rr(ctx, cx + 16, ry - 18, cw - 32, 42, 10);
@@ -96,21 +120,16 @@ async function generateSendMap(user, stats, mora) {
     divLine(ctx, 60, fy, W - 120, C.gold + '33');
     M(ctx, `اجمالي رصيدك المتوفر: ${Number(mora).toLocaleString()}`, W / 2, fy + 45, 26, C.gold);
 
-    // ==========================================
-    // 🧭 رسم البوصلة في الزاوية اليمنى السفلية 🧭
-    // ==========================================
-    const compassX = W - 120; // محاذية لنهاية الخط الفاصل على اليمين
-    const compassY = fy + 45; // محاذية لنص "إجمالي الرصيد" بالأسفل
+    const compassX = W - 120;
+    const compassY = fy + 45;
     
     ctx.font = `60px ${FE}`; 
     ctx.textAlign = 'center'; 
     ctx.textBaseline = 'middle';
     ctx.fillText('🧭', compassX, compassY);
 
-    // رسم حرف N مع مسافة فاصلة ومريحة للعين
     ctx.font = `bold 24px "Bein", "Arial", sans-serif`;
     ctx.fillStyle = C.gold;
-    // رفعنا الحرف بمقدار 55 بيكسل حتى ينفصل تماماً ولا يلتصق بشكل البوصلة
     ctx.fillText('N', compassX, compassY - 55); 
 
     return toBuf(canvas);
