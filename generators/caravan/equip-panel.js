@@ -11,7 +11,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
     await drawBg(ctx, 'hubbg');
-    await drawHeader(ctx, 'تجهيز القافلة', 'الحد الاقصى 3 ادوات فقط');
+    await drawHeader(ctx, 'تجهيز القافلة', 'الحد الاقصى 3 ادوات - بحد أقصى 20 لكل أداة');
     drawCornerAccents(ctx);
 
     const RARITY_COL = {
@@ -25,7 +25,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
     for (let s = 0; s < 3; s++) {
         const sx  = sx0 + s * (sw + sgap);
-        const id  = equipped[s] || null;
+        const eqObj = equipped[s] || null;
+        const id  = eqObj ? eqObj.id : null;
+        const count = eqObj ? eqObj.count : 0;
+        
         const itm = id ? allItems.find(x => x.id === id) : null;
         const col = itm ? (RARITY_COL[itm.rarity] || C.textD) : '#2A3A4A';
 
@@ -40,15 +43,17 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
             ctx.fillText(itm.emoji || (itm.type === 'book' ? '📖' : '⚙️'), sx + 30, sy0 + 105);
 
             R(ctx, (itm.name || getItemNameSafe(id)).substring(0, 18), sx + sw - 20, sy0 + 55, 30, col);
-            R(ctx, itm.rarity, sx + sw - 20, sy0 + 95, 24, C.textD);
+            R(ctx, `${itm.rarity} | الكمية: ${count}`, sx + sw - 20, sy0 + 95, 24, C.textD);
 
             const isMat = itm.type === 'material' || !itm.type?.includes('book');
             const bPct  = { Common:.03, Uncommon:.05, Rare:.08, Epic:.12, Legendary:.20 }[itm.rarity] || .03;
-            const bLabel = isMat ? `سرعة اضافية ${(bPct*100).toFixed(0)}%` : `حظ اضافي ${(bPct*100).toFixed(0)}%`;
+            // نضرب النسبة في العدد
+            const totalPct = (bPct * count * 100).toFixed(0); 
+            const bLabel = isMat ? `سرعة اضافية ${totalPct}%` : `حظ اضافي ${totalPct}%`;
             R(ctx, bLabel, sx + sw - 20, sy0 + 135, 24, col);
 
             divLine(ctx, sx + 20, sy0 + 175, sw - 40, col + '44');
-            M(ctx, 'مجهزة بالقافلة', sx + sw / 2, sy0 + 195, 22, '#4A7A4A');
+            M(ctx, 'مجهزة بالقافلة (اضغط لإزالتها)', sx + sw / 2, sy0 + 195, 22, '#4A7A4A');
         } else {
             ctx.globalAlpha = 0.20;
             ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -88,7 +93,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         const id   = row.itemid || row.itemID;
         const itm  = allItems.find(x => x.id === id);
         const col  = itm ? (RARITY_COL[itm.rarity] || C.textD) : '#334455';
-        const isEq = equipped.includes(id);
+        
+        const eqObj = equipped.find(x => x.id === id);
+        const isEq = !!eqObj;
+        
         const ix   = igx + (i % cols) * (iw + igap);
         const iy   = igy + Math.floor(i / cols) * (ih + igap);
 
