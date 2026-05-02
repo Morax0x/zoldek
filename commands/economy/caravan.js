@@ -55,7 +55,7 @@ function allItemsList() {
     if (upgradeMats?.weapon_materials) {
         upgradeMats.weapon_materials.forEach(r => {
             r.materials.forEach(m => {
-                const imgUrl = m.image ? `${R2_BASE}/${m.image}` : null;
+                const imgUrl = m.image ? `${R2_BASE}/images/materials/${m.image}` : null;
                 list.push({ ...m, type: 'material', imgPath: imgUrl });
             });
         });
@@ -63,7 +63,7 @@ function allItemsList() {
     if (upgradeMats?.skill_books) {
         upgradeMats.skill_books.forEach(c => {
             c.books.forEach(b => {
-                const imgUrl = b.image ? `${R2_BASE}/${b.image}` : null;
+                const imgUrl = b.image ? `${R2_BASE}/images/materials/${b.image}` : null;
                 list.push({ ...b, type: 'book', imgPath: imgUrl });
             });
         });
