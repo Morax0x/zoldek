@@ -1,14 +1,28 @@
+const { loadImage } = require('@napi-rs/canvas'); // 👑 سحب مباشر من المكتبة القوية
+
 const {
     createCanvas, W, H, C, FE,
     drawBg, drawHeader, drawCornerAccents, drawPanel,
-    divLine, fetchImageSafe, toBuf,
+    divLine, toBuf,
     M, L, R, rr,
     getItemNameSafe, truncate,
 } = require('./shared');
 
-const path = require('path'); // 👑 ضروري جداً لجلب المسار المطلق
+// 👑 نظام الكاش الخاص بك لسحب الصور السحابية بدون فشل 👑
+const imageCache = new Map();
+async function getCachedImage(imageUrl) {
+    if (!imageUrl) return null;
+    const encodedUrl = encodeURI(imageUrl);
+    if (imageCache.has(encodedUrl)) return imageCache.get(encodedUrl);
+    try {
+        const img = await loadImage(encodedUrl);
+        imageCache.set(encodedUrl, img);
+        return img;
+    } catch (e) {
+        return null;
+    }
+}
 
-// 👑 تعريب الندرة 👑
 const RARITY_AR = {
     'Common': 'عادي',
     'Uncommon': 'شائع',
@@ -34,11 +48,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const sx0 = (W - (3 * sw + sgap * 2)) / 2;
     const sy0 = 160;
 
-    // 1️⃣ رسم الخانات العلوية للتجهيزات
+    // 1️⃣ الخانات العلوية
     for (let s = 0; s < 3; s++) {
         const sx  = sx0 + s * (sw + sgap);
         
-        // دعم التوافقية مع النظام القديم والجديد
         const eqObj = equipped[s] || null;
         let id = null, count = 0;
         if (eqObj) {
@@ -56,22 +69,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         M(ctx, String(s + 1), sx + 44, sy0 + 38, 24, col);
 
         if (itm) {
-            // 👑 المحمل الدبابة: يبحث بكل الطرق الممكنة لسحب الصورة 👑
             let hasImage = false;
             if (itm.imgPath) {
-                // المحاولة 1: مسار محلي مطلق (الأضمن للكانفاس)
-                let img = await fetchImageSafe(path.join(process.cwd(), itm.imgPath));
-                
-                // المحاولة 2: مسار نسبي عادي (مثل الانفنتوري)
-                if (!img) img = await fetchImageSafe(itm.imgPath);
-                
-                // المحاولة 3: السيرفر السحابي R2 (يسحبها من الرابط مباشرة)
-                if (!img) {
-                    const cdnPath = itm.imgPath.replace('images/materials/', '');
-                    const cdnUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/${cdnPath}`;
-                    img = await fetchImageSafe(cdnUrl);
-                }
-
+                // 👑 استخدام الدالة الجديدة الأكيدة 👑
+                const img = await getCachedImage(itm.imgPath);
                 if (img) {
                     ctx.drawImage(img, sx + 25, sy0 + 65, 80, 80);
                     hasImage = true;
@@ -104,7 +105,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         }
     }
 
-    // 2️⃣ رسم شريط تأثيرات البف الإجمالية
+    // 2️⃣ شريط التأثيرات الإجمالية
     const buffs = core.getEquippedBuffs(equipped);
     const sumY  = sy0 + sh + 35; // 415
     const sbg   = ctx.createLinearGradient(60, sumY, W - 60, sumY + 70);
@@ -118,7 +119,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const bText = `اجمالي السرعة ${(buffs.speedBuff * 100).toFixed(0)}%   |   اجمالي الحظ ${(buffs.luckBuff * 100).toFixed(0)}%`;
     M(ctx, bText, W / 2, sumY + 35, 30, C.text);
 
-    // 3️⃣ رسم قسم المخزن والأدوات المتوفرة
+    // 3️⃣ المخزن
     const gridY = sumY + 90; // 505
     divLine(ctx, 60, gridY, W - 120, C.gold + '33');
     M(ctx, 'الادوات المتوفرة في المخزن', W / 2, gridY + 40, 30, C.gold);
@@ -130,7 +131,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
     const safeRows = invRows || [];
     
-    // ترتيب تنازلي في الواجهة لتطابق المنيو
+    // ترتيب تنازلي
     safeRows.sort((a, b) => {
         const qtyA = Number(a.quantity || a.QUANTITY || 0);
         const qtyB = Number(b.quantity || b.QUANTITY || 0);
@@ -166,17 +167,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         if (isEq) { L(ctx, '✅', ix + 12, iy + 26, 24, C.green); }
 
-        // 👑 تطبيق نفس المحمل الدبابة على شبكة المخزن 👑
         let hasGridImage = false;
         if (itm && itm.imgPath) {
-            let img = await fetchImageSafe(path.join(process.cwd(), itm.imgPath));
-            if (!img) img = await fetchImageSafe(itm.imgPath);
-            if (!img) {
-                const cdnPath = itm.imgPath.replace('images/materials/', '');
-                const cdnUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/${cdnPath}`;
-                img = await fetchImageSafe(cdnUrl);
-            }
-
+            // 👑 استخدام الدالة الجديدة الأكيدة للمخزن 👑
+            const img = await getCachedImage(itm.imgPath);
             if (img) {
                 ctx.drawImage(img, ix + iw / 2 - 30, iy + 15, 60, 60);
                 hasGridImage = true;
@@ -193,7 +187,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         M(ctx, `${rarityArabic} | المتوفر: ${availableQty}`, ix + iw / 2, iy + 125, 16, C.textD);
     }
 
-    return toBuf(canvas);
+    return await canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png');
 }
 
 module.exports = { generateEquipPanel };
