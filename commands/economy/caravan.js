@@ -1,7 +1,8 @@
 const {
     SlashCommandBuilder, AttachmentBuilder, EmbedBuilder,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
-    StringSelectMenuBuilder, MessageFlags
+    StringSelectMenuBuilder, MessageFlags,
+    ModalBuilder, TextInputBuilder, TextInputStyle // 👑 تم إضافة متطلبات المودل
 } = require('discord.js');
 
 const {
@@ -146,6 +147,58 @@ module.exports = {
             return reply(payload);
         }
 
+        // 👑 دالة مساعدة لتحديث واجهة التجهيز بسرعة وسهولة 👑
+        async function updateEquipUI(actionCtx, updatedEquip = null, isModal = false) {
+            const invRes = await safeQuery(db, `SELECT "itemID", "itemid", "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "quantity">0`, [user.id, guild.id]);
+            
+            if (!invRes.rows.length) {
+                const msg = '📦 ليس لديك أدوات لتجهيزها، احصل عليها من الدانجون أو الحدادة.';
+                if (isModal) await actionCtx.reply({ content: msg, flags: [MessageFlags.Ephemeral] });
+                else await actionCtx.followUp({ content: msg, flags: [MessageFlags.Ephemeral] });
+                return;
+            }
+            
+            const allItems   = allItemsList();
+            const sessionKey = `${user.id}-${guild.id}`;
+            if (!client.caravanEquip) client.caravanEquip = new Map();
+            const equipped   = updatedEquip || client.caravanEquip.get(sessionKey) || [];
+            const mora       = await getMora(db, user.id, guild.id);
+            
+            const payload = await sendCanvas(GEN.generateEquipPanel, [user, equipped, invRes.rows, allItems, mora]);
+
+            const opts = invRes.rows.slice(0, 25).map(row => {
+                const id2  = row.itemid || row.itemID || row.ITEMID;
+                const itm  = allItems.find(x => x.id === id2) || {};
+                const cleanName = getItemNameSafe(id2);
+                const eqObj = equipped.find(x => x.id === id2); // 👑 فحص بنظام الكائنات الجديد
+                const isEq = !!eqObj;
+                const availableQty = Number(row.quantity);
+                const rarityTxt = itm.rarity ? `[${itm.rarity}] ` : '';
+                
+                return {
+                    label:       cleanName.substring(0, 25),
+                    value:       id2,
+                    description: isEq ? `✅ مجهزة (${eqObj.count} حبة) - انقر للإزالة` : `${rarityTxt}المتوفر: ${availableQty} | انقر للتجهيز`,
+                    emoji:       isEq ? '✅' : '📦',
+                };
+            });
+            
+            payload.components = [
+                new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder().setCustomId('cv_eq_sel').setPlaceholder('🔧 اختر أداة لتركيبها أو خلعها...').addOptions(opts)
+                ),
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع للرئيسية').setStyle(ButtonStyle.Secondary)
+                ),
+            ];
+
+            if (isModal) {
+                await actionCtx.update(payload).catch(() => {});
+            } else {
+                await hubMsg.edit(payload).catch(() => {});
+            }
+        }
+
         const hubMsg = await showHub();
         if (!hubMsg) return;
 
@@ -162,7 +215,12 @@ module.exports = {
                 return i.reply({ content: '⏳ الرجاء الانتظار، جاري المعالجة...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             }
             activeProcesses.add(user.id);
-            await i.deferUpdate().catch(() => {});
+            
+            // لا نعمل deferUpdate للمودل لأنه يحتاجه لكي يفتح
+            if (i.customId !== 'cv_eq_sel') {
+                await i.deferUpdate().catch(() => {});
+            }
+
             const id = i.customId;
 
             try {
@@ -174,7 +232,6 @@ module.exports = {
                         return;
                     }
 
-                    // 1-hour cooldown after caravan destruction (Emperor bypasses)
                     if (user.id !== EMPEROR_ID) {
                         const cd = await checkCaravanCooldown(db, user.id, guild.id);
                         if (cd.onCooldown) {
@@ -221,7 +278,6 @@ module.exports = {
                         return;
                     }
 
-                    // Show escort choice screen
                     const choiceEmbed = new EmbedBuilder()
                         .setColor(dest.color || '#FFD700')
                         .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
@@ -275,6 +331,9 @@ module.exports = {
                         return;
                     }
 
+                    // 👑 مسح الارتيفاكتات بعد إرسال القافلة بنجاح 👑
+                    if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
+
                     const eta = Math.floor(result.endTime / 1000);
                     await i.followUp({
                         embeds: [new EmbedBuilder()
@@ -299,17 +358,14 @@ module.exports = {
                         return;
                     }
 
-                    // Disable hub while lobby is running
                     await hubMsg.edit({
                         content: '🛡️ **لوبي التأمين قيد الإعداد...**',
                         embeds: [], components: []
                     }).catch(() => {});
 
-                    // Fire-and-forget: lobby + combat run independently (Phase 2 handles combat)
                     startEscortLobby(i.channel, user, guild, db, dest)
                         .then(async lobbyResult => {
                             if (lobbyResult.ready) {
-                                // Lobby ready — emit for combat engine (Phase 2)
                                 client.emit('caravan_escort_ready', {
                                     thread:       lobbyResult.thread,
                                     party:        lobbyResult.party,
@@ -324,7 +380,6 @@ module.exports = {
                                     getMora,
                                     showHub,
                                 });
-                                // showHub is called by the combat handler after result
                                 return;
                             }
                             if (!lobbyResult.cancelled) {
@@ -342,7 +397,6 @@ module.exports = {
                             console.error('[EscortLobby error]', err);
                             await showHub(hubMsg);
                         });
-                    // Return immediately — don't block collector
                 }
 
                 else if (id === 'cv_status' || id === 'cv_status_toggle') {
@@ -445,6 +499,7 @@ module.exports = {
                     await hubMsg.edit(payload2).catch(() => {});
                 }
 
+                // 👑 بداية التجهيز الذكي 👑
                 else if (id === 'cv_equip') {
                     const active = await getActiveCaravan(db, user.id, guild.id);
                     if (active) {
@@ -452,87 +507,91 @@ module.exports = {
                         activeProcesses.delete(user.id);
                         return;
                     }
-                    const invRes = await safeQuery(db, `SELECT "itemID","quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "quantity">0`, [user.id, guild.id]);
-                    if (!invRes.rows.length) {
-                        await i.followUp({ content: '📦 ليس لديك أدوات لتجهيزها، احصل عليها من الدانجون أو الحدادة.', flags: [MessageFlags.Ephemeral] });
-                        activeProcesses.delete(user.id);
-                        return;
-                    }
-                    
-                    const allItems  = allItemsList();
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    if (!client.caravanEquip) client.caravanEquip = new Map();
-                    const equipped  = client.caravanEquip.get(sessionKey) || [];
-                    const mora      = await getMora(db, user.id, guild.id);
-                    const payload   = await sendCanvas(GEN.generateEquipPanel, [user, equipped, invRes.rows, allItems, mora]);
-
-                    const opts = invRes.rows.slice(0, 25).map(row => {
-                        const id2  = row.itemid || row.itemID || row.ITEMID;
-                        const cleanName = getItemNameSafe(id2);
-                        const isEq = equipped.includes(id2);
-                        return {
-                            label:       cleanName.substring(0, 25),
-                            value:       id2,
-                            description: isEq ? '✅ تم تجهيزها في القافلة' : 'توجد في المخزن',
-                            emoji:       isEq ? '✅' : '📦',
-                        };
-                    });
-                    
-                    payload.components = [
-                        new ActionRowBuilder().addComponents(
-                            new StringSelectMenuBuilder().setCustomId('cv_eq_sel').setPlaceholder('🔧 اختر أداة لتركيبها أو خلعها...').addOptions(opts)
-                        ),
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع للرئيسية').setStyle(ButtonStyle.Secondary)
-                        ),
-                    ];
-                    await hubMsg.edit(payload).catch(() => {});
+                    await updateEquipUI(i);
                 }
 
                 else if (id === 'cv_eq_sel') {
                     const sessionKey = `${user.id}-${guild.id}`;
-                    const current    = client.caravanEquip?.get(sessionKey) || [];
-                    const itemId     = i.values[0];
-                    let updated;
-                    if (current.includes(itemId)) {
-                        updated = current.filter(x => x !== itemId);
-                    } else if (current.length >= 3) {
-                        await i.followUp({ content: '❌ مساحة القافلة ممتلئة (3 أدوات كحد أقصى). اخلع أداة لتتمكن من إضافة غيرها.', flags: [MessageFlags.Ephemeral] });
+                    let current = client.caravanEquip?.get(sessionKey) || [];
+                    const itemId = i.values[0];
+
+                    const existingIndex = current.findIndex(x => x.id === itemId);
+                    
+                    // إذا كان مجهزاً مسبقاً -> قم بإزالته 
+                    if (existingIndex !== -1) {
+                        await i.deferUpdate().catch(() => {}); // نحتاج defer لأننا لن نفتح مودل
+                        current.splice(existingIndex, 1);
+                        if (!client.caravanEquip) client.caravanEquip = new Map();
+                        client.caravanEquip.set(sessionKey, current);
+                        
+                        await updateEquipUI(i, current);
+                        return;
+                    }
+
+                    // التأكد من أن الخانات لا تتجاوز 3
+                    if (current.length >= 3) {
+                        await i.deferUpdate().catch(() => {});
+                        await i.followUp({ content: '❌ مساحة القافلة ممتلئة (3 أنواع كحد أقصى). اخلع أداة لتتمكن من إضافة غيرها.', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
-                    } else {
-                        updated = [...current, itemId];
                     }
-                    if (!client.caravanEquip) client.caravanEquip = new Map();
-                    client.caravanEquip.set(sessionKey, updated);
 
-                    const invRes2   = await safeQuery(db, `SELECT "itemID","quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "quantity">0`, [user.id, guild.id]);
-                    const allItems2 = allItemsList();
-                    const mora2     = await getMora(db, user.id, guild.id);
-                    const payload2  = await sendCanvas(GEN.generateEquipPanel, [user, updated, invRes2.rows, allItems2, mora2]);
-                    
-                    const opts2 = invRes2.rows.slice(0, 25).map(row => {
-                        const id2  = row.itemid || row.itemID || row.ITEMID;
-                        const cleanName = getItemNameSafe(id2);
-                        const isEq = updated.includes(id2);
-                        return {
-                            label:       cleanName.substring(0, 25),
-                            value:       id2,
-                            description: isEq ? '✅ تم تجهيزها في القافلة' : 'توجد في المخزن',
-                            emoji:       isEq ? '✅' : '📦',
-                        };
-                    });
-                    
-                    payload2.components = [
-                        new ActionRowBuilder().addComponents(
-                            new StringSelectMenuBuilder().setCustomId('cv_eq_sel').setPlaceholder('🔧 اختر أداة لتركيبها أو خلعها...').addOptions(opts2)
-                        ),
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع للرئيسية').setStyle(ButtonStyle.Secondary)
-                        ),
-                    ];
-                    await hubMsg.edit(payload2).catch(() => {});
+                    // التحقق من المخزن
+                    const invResCheck = await safeQuery(db, `SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR "itemid"=$3)`, [user.id, guild.id, itemId]);
+                    const availableQty = invResCheck.rows.length ? Number(invResCheck.rows[0].quantity) : 0;
+
+                    if (availableQty <= 0) {
+                        await i.deferUpdate().catch(() => {});
+                        await i.followUp({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+
+                    // إذا كان يملك حبة واحدة فقط، لا داعي للمودل
+                    if (availableQty === 1) {
+                        await i.deferUpdate().catch(() => {});
+                        current.push({ id: itemId, count: 1 });
+                        if (!client.caravanEquip) client.caravanEquip = new Map();
+                        client.caravanEquip.set(sessionKey, current);
+                        await updateEquipUI(i, current);
+                    } else {
+                        // إظهار المودل الذكي لاختيار الكمية
+                        const modalId = `cv_eq_mod_${Date.now()}`;
+                        const modal = new ModalBuilder().setCustomId(modalId).setTitle('تحديد كمية الارتيفاكت');
+                        
+                        const maxAllowed = Math.min(availableQty, 20);
+                        const qtyInput = new TextInputBuilder()
+                            .setCustomId('qty')
+                            .setLabel(`الكمية المراد تجهيزها (1 إلى ${maxAllowed})`)
+                            .setPlaceholder(`تملك ${availableQty} في المخزن (تحرق بعد الاستخدام)`)
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true);
+                            
+                        modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
+                        await i.showModal(modal);
+
+                        try {
+                            const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
+                            const qtyStr = modalSubmit.fields.getTextInputValue('qty');
+                            let qty = parseInt(qtyStr);
+
+                            if (isNaN(qty) || qty < 1 || qty > maxAllowed) {
+                                await modalSubmit.reply({ content: `❌ كمية غير صالحة. الرجاء إدخال رقم صحيح بين 1 و ${maxAllowed}.`, flags: [MessageFlags.Ephemeral] });
+                                activeProcesses.delete(user.id);
+                                return;
+                            }
+
+                            current.push({ id: itemId, count: qty });
+                            if (!client.caravanEquip) client.caravanEquip = new Map();
+                            client.caravanEquip.set(sessionKey, current);
+
+                            await updateEquipUI(modalSubmit, current, true);
+                        } catch (e) {
+                            activeProcesses.delete(user.id);
+                        }
+                    }
                 }
+                // 👑 نهاية التجهيز الذكي 👑
 
                 else if (id === 'cv_back') {
                     await showHub(hubMsg);
