@@ -6,6 +6,18 @@ const {
     getItemNameSafe, truncate,
 } = require('./shared');
 
+// 👑 تعريب الندرة لطباعتها في الصورة 👑
+const RARITY_AR = {
+    'Common': 'عادي',
+    'Uncommon': 'شائع',
+    'Rare': 'نادر',
+    'Epic': 'ملحمي',
+    'Legendary': 'أسطوري'
+};
+
+// 👑 الرابط الأساسي للسيرفر السحابي 👑
+const R2_BASE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/';
+
 async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const core   = require('../../handlers/caravan-core.js');
     const canvas = createCanvas(W, H);
@@ -26,7 +38,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     for (let s = 0; s < 3; s++) {
         const sx  = sx0 + s * (sw + sgap);
         
-        // 👑 قراءة النظام الجديد (كائنات تحتوي على العدد)
+        // قراءة النظام الجديد (كائنات تحتوي على العدد)
         const eqObj = equipped[s] || null;
         const id  = eqObj ? eqObj.id : null;
         const count = eqObj ? eqObj.count : 0;
@@ -41,10 +53,12 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         M(ctx, String(s + 1), sx + 44, sy0 + 38, 24, col);
 
         if (itm) {
-            // 👑 سحب ورسم صورة الارتيفاكت بدلاً من الإيموجي
+            // 👑 سحب ورسم صورة الارتيفاكت من الرابط السحابي 👑
             let hasImage = false;
             if (itm.imgPath) {
-                const img = await fetchImageSafe(itm.imgPath);
+                // التأكد من أن الرابط كامل للرسم
+                const finalImgUrl = itm.imgPath.startsWith('http') ? itm.imgPath : `${R2_BASE}${itm.imgPath}`;
+                const img = await fetchImageSafe(finalImgUrl);
                 if (img) {
                     ctx.drawImage(img, sx + 25, sy0 + 65, 80, 80);
                     hasImage = true;
@@ -55,9 +69,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
                 ctx.fillText(itm.emoji || (itm.type === 'book' ? '📖' : '⚙️'), sx + 30, sy0 + 105);
             }
 
-            // رسم الاسم، الندرة، والكمية التي تم تحديدها
+            // رسم الاسم، الندرة (بالعربي)، والكمية
+            const rarityArabic = RARITY_AR[itm.rarity] || itm.rarity;
             R(ctx, (itm.name || getItemNameSafe(id)).substring(0, 18), sx + sw - 20, sy0 + 55, 30, col);
-            R(ctx, `${itm.rarity} | الكمية: ${count}`, sx + sw - 20, sy0 + 95, 24, C.textD);
+            R(ctx, `${rarityArabic} | الكمية: ${count}`, sx + sw - 20, sy0 + 95, 24, C.textD);
 
             const isMat = itm.type === 'material' || !itm.type?.includes('book');
             const bPct  = { Common:.03, Uncommon:.05, Rare:.08, Epic:.12, Legendary:.20 }[itm.rarity] || .03;
@@ -99,6 +114,14 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const igy = gridY + 80;
 
     const safeRows = invRows || [];
+    
+    // 👑 ترتيب العناصر التنازلي في الرسم من الأكثر عدداً إلى الأقل 👑
+    safeRows.sort((a, b) => {
+        const qtyA = Number(a.quantity || a.QUANTITY || 0);
+        const qtyB = Number(b.quantity || b.QUANTITY || 0);
+        return qtyB - qtyA; 
+    });
+
     const maxShow = Math.min(safeRows.length, 12);
 
     for (let i = 0; i < maxShow; i++) {
@@ -124,10 +147,11 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         if (isEq) { L(ctx, '✅', ix + 12, iy + 26, 24, C.green); }
 
-        // 👑 رسم الصور للأدوات في المخزن السفلي 👑
+        // 👑 سحب ورسم الصورة في قسم المخزن السفلي 👑
         let hasGridImage = false;
         if (itm && itm.imgPath) {
-            const img = await fetchImageSafe(itm.imgPath);
+            const finalImgUrl = itm.imgPath.startsWith('http') ? itm.imgPath : `${R2_BASE}${itm.imgPath}`;
+            const img = await fetchImageSafe(finalImgUrl);
             if (img) {
                 ctx.drawImage(img, ix + iw / 2 - 30, iy + 15, 60, 60);
                 hasGridImage = true;
@@ -138,8 +162,9 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
             ctx.fillText(itm?.emoji || (itm?.type === 'book' ? '📖' : '⚙️'), ix + iw / 2, iy + 55);
         }
 
+        const rarityArabic = RARITY_AR[itm?.rarity] || itm?.rarity || '';
         M(ctx, truncate(itm?.name || getItemNameSafe(id), 12), ix + iw / 2, iy + 105, 24, col);
-        M(ctx, itm?.rarity || '',                 ix + iw / 2, iy + 130, 18, C.textD);
+        M(ctx, rarityArabic, ix + iw / 2, iy + 130, 18, C.textD);
     }
 
     return toBuf(canvas);
