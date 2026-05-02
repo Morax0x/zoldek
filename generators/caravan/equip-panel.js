@@ -1,4 +1,4 @@
-const { loadImage } = require('@napi-rs/canvas'); // 👑 سحب مباشر من المكتبة القوية
+const { loadImage } = require('@napi-rs/canvas'); 
 
 const {
     createCanvas, W, H, C, FE,
@@ -8,7 +8,8 @@ const {
     getItemNameSafe, truncate,
 } = require('./shared');
 
-// 👑 نظام الكاش الخاص بك لسحب الصور السحابية بدون فشل 👑
+const path = require('path');
+
 const imageCache = new Map();
 async function getCachedImage(imageUrl) {
     if (!imageUrl) return null;
@@ -32,7 +33,7 @@ const RARITY_AR = {
 };
 
 async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
-    const core   = require('../../handlers/caravan-core.js');
+    const core   = require('../../handlers/caravan/index.js');
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
     await drawBg(ctx, 'hubbg');
@@ -48,7 +49,6 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const sx0 = (W - (3 * sw + sgap * 2)) / 2;
     const sy0 = 160;
 
-    // 1️⃣ الخانات العلوية
     for (let s = 0; s < 3; s++) {
         const sx  = sx0 + s * (sw + sgap);
         
@@ -71,7 +71,6 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         if (itm) {
             let hasImage = false;
             if (itm.imgPath) {
-                // 👑 استخدام الدالة الجديدة الأكيدة 👑
                 const img = await getCachedImage(itm.imgPath);
                 if (img) {
                     ctx.drawImage(img, sx + 25, sy0 + 65, 80, 80);
@@ -89,8 +88,12 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
             R(ctx, `${rarityArabic} | الكمية: ${count}`, sx + sw - 20, sy0 + 95, 24, C.textD);
 
             const isMat = itm.type === 'material' || !itm.type?.includes('book');
-            const bPct  = { Common:.03, Uncommon:.05, Rare:.08, Epic:.12, Legendary:.20 }[itm.rarity] || .03;
-            const totalPct = (bPct * count * 100).toFixed(0); 
+            
+            // 👑 تطبيق النسب الجديدة هنا 👑
+            const bPct  = { Common: 0.005, Uncommon: 0.01, Rare: 0.02, Epic: 0.05, Legendary: 0.10 }[itm.rarity] || 0.005;
+            
+            // عشان يطلع 0.5% وما يطلع 0.50% شكلها يغث
+            const totalPct = (bPct * count * 100).toFixed(1).replace(/\.0$/, ''); 
             const bLabel = isMat ? `سرعة اضافية ${totalPct}%` : `حظ اضافي ${totalPct}%`;
             R(ctx, bLabel, sx + sw - 20, sy0 + 135, 24, col);
 
@@ -105,9 +108,8 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         }
     }
 
-    // 2️⃣ شريط التأثيرات الإجمالية
     const buffs = core.getEquippedBuffs(equipped);
-    const sumY  = sy0 + sh + 35; // 415
+    const sumY  = sy0 + sh + 35;
     const sbg   = ctx.createLinearGradient(60, sumY, W - 60, sumY + 70);
     sbg.addColorStop(0, 'rgba(0,195,255,0.08)');
     sbg.addColorStop(1, 'rgba(46,204,113,0.08)');
@@ -116,11 +118,10 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2;
     rr(ctx, 60, sumY, W - 120, 70, 16); ctx.stroke();
 
-    const bText = `اجمالي السرعة ${(buffs.speedBuff * 100).toFixed(0)}%   |   اجمالي الحظ ${(buffs.luckBuff * 100).toFixed(0)}%`;
+    const bText = `اجمالي السرعة ${(buffs.speedBuff * 100).toFixed(1).replace(/\.0$/, '')}%   |   اجمالي الحظ ${(buffs.luckBuff * 100).toFixed(1).replace(/\.0$/, '')}%`;
     M(ctx, bText, W / 2, sumY + 35, 30, C.text);
 
-    // 3️⃣ المخزن
-    const gridY = sumY + 90; // 505
+    const gridY = sumY + 90;
     divLine(ctx, 60, gridY, W - 120, C.gold + '33');
     M(ctx, 'الادوات المتوفرة في المخزن', W / 2, gridY + 40, 30, C.gold);
 
@@ -131,7 +132,6 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
     const safeRows = invRows || [];
     
-    // ترتيب تنازلي
     safeRows.sort((a, b) => {
         const qtyA = Number(a.quantity || a.QUANTITY || 0);
         const qtyB = Number(b.quantity || b.QUANTITY || 0);
@@ -169,7 +169,6 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         let hasGridImage = false;
         if (itm && itm.imgPath) {
-            // 👑 استخدام الدالة الجديدة الأكيدة للمخزن 👑
             const img = await getCachedImage(itm.imgPath);
             if (img) {
                 ctx.drawImage(img, ix + iw / 2 - 30, iy + 15, 60, 60);
