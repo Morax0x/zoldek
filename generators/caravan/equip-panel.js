@@ -11,7 +11,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
     await drawBg(ctx, 'hubbg');
-    await drawHeader(ctx, 'تجهيز القافلة', 'الحد الاقصى 3 ادوات - بحد أقصى 20 لكل أداة');
+    await drawHeader(ctx, 'تجهيز القافلة', 'الحد الاقصى 3 ادوات (بحد أقصى 20 حبة لكل أداة)');
     drawCornerAccents(ctx);
 
     const RARITY_COL = {
@@ -25,6 +25,8 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
     for (let s = 0; s < 3; s++) {
         const sx  = sx0 + s * (sw + sgap);
+        
+        // 👑 قراءة النظام الجديد (كائنات تحتوي على العدد)
         const eqObj = equipped[s] || null;
         const id  = eqObj ? eqObj.id : null;
         const count = eqObj ? eqObj.count : 0;
@@ -39,21 +41,32 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         M(ctx, String(s + 1), sx + 44, sy0 + 38, 24, col);
 
         if (itm) {
-            ctx.font = `70px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-            ctx.fillText(itm.emoji || (itm.type === 'book' ? '📖' : '⚙️'), sx + 30, sy0 + 105);
+            // 👑 سحب ورسم صورة الارتيفاكت بدلاً من الإيموجي
+            let hasImage = false;
+            if (itm.imgPath) {
+                const img = await fetchImageSafe(itm.imgPath);
+                if (img) {
+                    ctx.drawImage(img, sx + 25, sy0 + 65, 80, 80);
+                    hasImage = true;
+                }
+            }
+            if (!hasImage) {
+                ctx.font = `70px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                ctx.fillText(itm.emoji || (itm.type === 'book' ? '📖' : '⚙️'), sx + 30, sy0 + 105);
+            }
 
+            // رسم الاسم، الندرة، والكمية التي تم تحديدها
             R(ctx, (itm.name || getItemNameSafe(id)).substring(0, 18), sx + sw - 20, sy0 + 55, 30, col);
             R(ctx, `${itm.rarity} | الكمية: ${count}`, sx + sw - 20, sy0 + 95, 24, C.textD);
 
             const isMat = itm.type === 'material' || !itm.type?.includes('book');
             const bPct  = { Common:.03, Uncommon:.05, Rare:.08, Epic:.12, Legendary:.20 }[itm.rarity] || .03;
-            // نضرب النسبة في العدد
             const totalPct = (bPct * count * 100).toFixed(0); 
             const bLabel = isMat ? `سرعة اضافية ${totalPct}%` : `حظ اضافي ${totalPct}%`;
             R(ctx, bLabel, sx + sw - 20, sy0 + 135, 24, col);
 
             divLine(ctx, sx + 20, sy0 + 175, sw - 40, col + '44');
-            M(ctx, 'مجهزة بالقافلة (اضغط لإزالتها)', sx + sw / 2, sy0 + 195, 22, '#4A7A4A');
+            M(ctx, 'مجهزة بالقافلة (اضغط للإزالة)', sx + sw / 2, sy0 + 195, 22, '#4A7A4A');
         } else {
             ctx.globalAlpha = 0.20;
             ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -111,8 +124,19 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         if (isEq) { L(ctx, '✅', ix + 12, iy + 26, 24, C.green); }
 
-        ctx.font = `50px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(itm?.emoji || (itm?.type === 'book' ? '📖' : '⚙️'), ix + iw / 2, iy + 55);
+        // 👑 رسم الصور للأدوات في المخزن السفلي 👑
+        let hasGridImage = false;
+        if (itm && itm.imgPath) {
+            const img = await fetchImageSafe(itm.imgPath);
+            if (img) {
+                ctx.drawImage(img, ix + iw / 2 - 30, iy + 15, 60, 60);
+                hasGridImage = true;
+            }
+        }
+        if (!hasGridImage) {
+            ctx.font = `50px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(itm?.emoji || (itm?.type === 'book' ? '📖' : '⚙️'), ix + iw / 2, iy + 55);
+        }
 
         M(ctx, truncate(itm?.name || getItemNameSafe(id), 12), ix + iw / 2, iy + 105, 24, col);
         M(ctx, itm?.rarity || '',                 ix + iw / 2, iy + 130, 18, C.textD);
