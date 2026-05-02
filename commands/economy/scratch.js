@@ -8,7 +8,7 @@ const TIERS = {
 };
 
 const SYMBOLS = {
-    MORA_CROWN: { emoji: '👑', type: 'mora', multi: 5, name: 'التاج الإمبراطوري' },
+    MORA_CROWN: { emoji: '👑', type: 'mora', multi: 10, name: 'التاج الإمبراطوري' },
     MORA_SWORD: { emoji: '⚔️', type: 'mora', multi: 3, name: 'سيـف الفرسان' },
     MORA_FISH:  { emoji: '🐟', type: 'mora', multi: 1.5, name: 'السمكة الذهبية' },
     GACHA:      { emoji: '🎁', type: 'item', item: 'gacha_chest', name: 'صندوق غاتشا' },
@@ -22,7 +22,6 @@ const SYMBOLS = {
     JUNK:       ['🪨', '🪵', '🍄', '☁️', '🦴', '🍎', '🧩'] 
 };
 
-// 🛡️ نظام الحماية المزدوج
 const activeProcesses = new Set();
 const activeGames = new Set();
 
@@ -30,15 +29,24 @@ const EMPEROR_ID = '1145327691772481577';
 const BANNER_IMAGE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/img/sk.png'; 
 
 let loadedSeeds = [], loadedPotions = [], loadedBaits = [], loadedAnimals = [];
+
 try { loadedSeeds = require(path.join(process.cwd(), 'json', 'seeds.json')); } catch(e){}
 try { loadedPotions = require(path.join(process.cwd(), 'json', 'potions.json')); } catch(e){}
-try { loadedBaits = require(path.join(process.cwd(), 'json', 'baits.json')); } catch(e){}
 try { loadedAnimals = require(path.join(process.cwd(), 'json', 'farm-animals.json')); } catch(e){}
+try { 
+    const fishConfig = require(path.join(process.cwd(), 'json', 'fishing-config.json')); 
+    loadedBaits = fishConfig.baits || []; 
+} catch(e){
+    try { 
+        const shop = require(path.join(process.cwd(), 'json', 'shop-items.json'));
+        loadedBaits = shop.filter(item => item.id && item.id.includes('bait'));
+    } catch(err) {}
+}
 
-const fallbackSeeds = ['seed_wheat', 'seed_carrot', 'seed_tomato', 'seed_potato'];
-const fallbackPotions = ['health_potion_1', 'health_potion_2', 'strength_potion_1'];
-const fallbackBaits = ['bait_worm', 'bait_meat', 'bait_magic'];
-const fallbackAnimals = ['cow', 'chicken', 'sheep'];
+const fallbackSeeds = ['seed_wheat', 'seed_strawberry', 'seed_carrot', 'seed_potato', 'seed_tomato', 'seed_corn', 'seed_eggplant', 'seed_rice', 'seed_pumpkin', 'seed_watermelon', 'seed_pineapple', 'seed_dates'];
+const fallbackPotions = ['potion_heal', 'potion_stealth', 'potion_reflect', 'potion_time', 'potion_titan', 'potion_sacrifice'];
+const fallbackAnimals = ['chicken', 'fish', 'bee', 'goat', 'sheep', 'cow', 'camel', 'horse', 'lion'];
+const fallbackBaits = ['bait_worm', 'bait_meat', 'bait_magic']; 
 
 const seedIds = loadedSeeds.length ? loadedSeeds.map(s => s.id) : fallbackSeeds;
 const potionIds = loadedPotions.length ? loadedPotions.map(p => p.id) : fallbackPotions;
@@ -49,11 +57,42 @@ function getRandomColor() {
     return Math.floor(Math.random() * 16777215);
 }
 
+async function getCooldownReductionMs(db, userId, guildId) {
+    try {
+        let repRes;
+        try { repRes = await db.query(`SELECT "rep_points" FROM user_reputation WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]); }
+        catch(e) { repRes = await db.query(`SELECT rep_points FROM user_reputation WHERE userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>({rows:[]})); }
+        
+        const points = repRes.rows[0]?.rep_points || 0;
+        
+        let reductionMinutes = 0;
+        if (points >= 1000) reductionMinutes = 30;
+        else if (points >= 500) reductionMinutes = 15;
+        else if (points >= 250) reductionMinutes = 10;
+        else if (points >= 100) reductionMinutes = 8;
+        else if (points >= 50) reductionMinutes = 7;
+        else if (points >= 25) reductionMinutes = 6;
+        else if (points >= 10) reductionMinutes = 5;
+
+        return reductionMinutes * 60 * 1000; 
+    } catch(e) { return 0; }
+}
+
 function generateGrid(tierId) {
     const grid = [];
+    const junkCounts = {}; // 👑 نظام مراقبة الخردة لمنع ظهور 3 متشابهة
+
     for (let i = 0; i < 9; i++) {
         let r = Math.random() * 100;
-        let randomJunk = SYMBOLS.JUNK[Math.floor(Math.random() * SYMBOLS.JUNK.length)];
+
+        // دالة ذكية لاختيار خردة لا تتجاوز حبتين في الشبكة
+        const getSafeJunk = () => {
+            let availableJunk = SYMBOLS.JUNK.filter(j => (junkCounts[j] || 0) < 2);
+            if (availableJunk.length === 0) availableJunk = SYMBOLS.JUNK; // لتفادي أي خطأ غير متوقع
+            let chosenJunk = availableJunk[Math.floor(Math.random() * availableJunk.length)];
+            junkCounts[chosenJunk] = (junkCounts[chosenJunk] || 0) + 1;
+            return chosenJunk;
+        };
 
         if (tierId === 'gold') {
             if (r < 8) grid.push(SYMBOLS.MIMIC.emoji);        
@@ -63,9 +102,9 @@ function generateGrid(tierId) {
             else if (r < 15) grid.push(SYMBOLS.ANIMAL.emoji);  
             else if (r < 19) grid.push(SYMBOLS.MORA_CROWN.emoji); 
             else if (r < 25) grid.push(SYMBOLS.POTION.emoji);  
-            else if (r < 35) grid.push(SYMBOLS.MORA_SWORD.emoji); 
-            else if (r < 45) grid.push(SYMBOLS.BAIT.emoji);    
-            else grid.push(randomJunk);                        
+            else if (r < 37) grid.push(SYMBOLS.MORA_SWORD.emoji); 
+            else if (r < 50) grid.push(SYMBOLS.BAIT.emoji);    
+            else grid.push(getSafeJunk()); // 👑 تم تطبيق نظام الحماية هنا                        
         } else if (tierId === 'silver') {
             if (r < 1.5) grid.push(SYMBOLS.JOKER.emoji);         
             else if (r < 2.5) grid.push(SYMBOLS.GACHA.emoji);    
@@ -73,15 +112,15 @@ function generateGrid(tierId) {
             else if (r < 15) grid.push(SYMBOLS.MORA_SWORD.emoji); 
             else if (r < 25) grid.push(SYMBOLS.MORA_FISH.emoji);  
             else if (r < 35) grid.push(SYMBOLS.BAIT.emoji);    
-            else if (r < 45) grid.push(SYMBOLS.SEED.emoji);    
-            else grid.push(randomJunk);                        
+            else if (r < 50) grid.push(SYMBOLS.SEED.emoji);    
+            else grid.push(getSafeJunk()); // 👑 تم تطبيق نظام الحماية هنا                            
         } else { 
-            if (r < 1) grid.push(SYMBOLS.JOKER.emoji);       
+            if (r < 1) grid.push(SYMBOLS.JOKER.emoji);        
             else if (r < 1.5) grid.push(SYMBOLS.GACHA.emoji);    
             else if (r < 8.5) grid.push(SYMBOLS.MORA_FISH.emoji);
             else if (r < 20) grid.push(SYMBOLS.BAIT.emoji);    
-            else if (r < 40) grid.push(SYMBOLS.SEED.emoji);    
-            else grid.push(randomJunk);                        
+            else if (r < 45) grid.push(SYMBOLS.SEED.emoji);    
+            else grid.push(getSafeJunk()); // 👑 تم تطبيق نظام الحماية هنا                            
         }
     }
     return grid;
@@ -101,7 +140,6 @@ function checkWin(revealedSymbols) {
             return { win: true, symbolObj: symbolObj };
         }
     }
-
     return { win: false };
 }
 
@@ -170,7 +208,7 @@ async function giveReputation(db, guildId, userId) {
 module.exports = {
     name: 'scratch',
     description: '✥ اشـتـري بـطـاقـة اليانـصيـب🎟️',
-    aliases: ['يانصيب', 'حظ', 'خدش', 'scr'],
+    aliases: ['يانصيب', 'حظ', 'خدش', 'sc'],
     category: 'Economy',
 
     async execute(message, args) {
@@ -188,26 +226,13 @@ module.exports = {
         if (!data) data = { ...(client.defaultData || {}), user: author.id, guild: guild.id, mora: 0 };
 
         if (author.id !== EMPEROR_ID) {
-            const baseCooldown = 3600 * 1000; 
-            let discount = 0;
-
-            let advRank = data.adventurer_rank || data.rank || data.adventurerRank || data.rankName || ""; 
-            if (typeof advRank === 'string') {
-                const rankLower = advRank.toLowerCase();
-                if (rankLower.includes('اسطوري') || rankLower.includes('s')) discount = 0.50;      
-                else if (rankLower.includes('ماسي') || rankLower.includes('a')) discount = 0.40;   
-                else if (rankLower.includes('ذهبي') || rankLower.includes('b')) discount = 0.30;   
-                else if (rankLower.includes('فضي') || rankLower.includes('c')) discount = 0.20;    
-                else if (rankLower.includes('برونزي') || rankLower.includes('d')) discount = 0.10; 
-            } else if (typeof advRank === 'number') {
-                discount = Math.min(advRank * 0.05, 0.50); 
-            }
-
-            const finalCooldown = baseCooldown - (baseCooldown * discount);
+            const COOLDOWN_MS = 3600 * 1000; 
+            const reductionMs = await getCooldownReductionMs(db, author.id, guild.id);
+            const effectiveCooldown = Math.max(0, COOLDOWN_MS - reductionMs);
             const lastScratch = Number(data.lastScratch || data.lastscratch) || 0;
 
             if (lastScratch > 0) {
-                const expirationTime = lastScratch + finalCooldown;
+                const expirationTime = lastScratch + effectiveCooldown;
                 if (Date.now() < expirationTime) {
                     const expireTimestamp = Math.floor(expirationTime / 1000); 
                     activeGames.delete(author.id); 
@@ -246,7 +271,10 @@ module.exports = {
         let revealed = Array(9).fill(false);
 
         collector.on('collect', async (i) => {
-            if (activeProcesses.has(i.user.id)) return i.reply({ content: "⚠️ هدي اللعب! جاري معالجة طلبك السابق.", ephemeral: true });
+            if (activeProcesses.has(i.user.id)) {
+                await i.deferUpdate().catch(()=>{});
+                return;
+            }
             activeProcesses.add(i.user.id);
 
             if (i.customId.startsWith('buy_')) {
@@ -345,8 +373,9 @@ module.exports = {
                                 await giveFarmAnimal(db, guild.id, author.id, itemId);
                             } 
                             else if (s.item === 'gacha_chest') {
-                                prizeText = `**صندوق غاتشا** 🎁`;
-                                await giveInventoryItem(db, guild.id, author.id, 'gacha_chest', 1);
+                                qty = Math.floor(Math.random() * 20) + 1;
+                                prizeText = `**${qty} صندوق غاتشا** 🎁`;
+                                await giveInventoryItem(db, guild.id, author.id, 'gacha_chest', qty);
                             }
                         }
 
