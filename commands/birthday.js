@@ -33,13 +33,45 @@ async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPre
     const diffTime = nextBirthday - todayDateOnly;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
+    // حساب العمر الدقيق والتاريخ الهجري 👑
     let ageText = '';
+    let exactYears = 0, exactMonths = 0, exactDays = 0;
+    let hijriDateStr = 'غير معروف';
+    let hijriAge = 0;
+
     if (bYear) {
-        let age = today.getFullYear() - bYear;
-        if (today.getMonth() + 1 < bMonth || (today.getMonth() + 1 === bMonth && today.getDate() < bDay)) {
-            age--;
+        const birthDate = new Date(bYear, bMonth - 1, bDay);
+        
+        exactYears = today.getFullYear() - birthDate.getFullYear();
+        exactMonths = today.getMonth() - birthDate.getMonth();
+        exactDays = today.getDate() - birthDate.getDate();
+
+        if (exactDays < 0) {
+            exactMonths--;
+            const prevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+            exactDays += prevMonth.getDate();
         }
-        ageText = `\n✶ الـعـمـر: ${age} عـام ⭐`;
+        if (exactMonths < 0) {
+            exactYears--;
+            exactMonths += 12;
+        }
+        
+        ageText = `\n✶ الـعـمـر: ${exactYears} عـام ⭐`;
+        
+        // التحويل للهجري
+        try {
+            hijriDateStr = new Intl.DateTimeFormat('ar-SA-u-ca-islamic', { day: 'numeric', month: 'long', year: 'numeric' }).format(birthDate);
+            const tHijriYear = parseInt(new Intl.DateTimeFormat('en-US-u-ca-islamic', { year: 'numeric' }).format(today));
+            const bHijriYear = parseInt(new Intl.DateTimeFormat('en-US-u-ca-islamic', { year: 'numeric' }).format(birthDate));
+            hijriAge = tHijriYear - bHijriYear;
+        } catch (e) {
+            hijriDateStr = 'تعذر الحساب';
+        }
+    } else {
+        try {
+            const dummyBirthDate = new Date(today.getFullYear(), bMonth - 1, bDay);
+            hijriDateStr = new Intl.DateTimeFormat('ar-SA-u-ca-islamic', { day: 'numeric', month: 'long' }).format(dummyBirthDate);
+        } catch (e) {}
     }
 
     const displayYear = bYear ? `/${bYear}` : '';
@@ -56,8 +88,57 @@ async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPre
         .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
         .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
 
-    if (isPrefix) return interactionOrMessage.reply({ embeds: [viewEmbed] });
-    return interactionOrMessage.reply({ embeds: [viewEmbed] });
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('btn_hijri').setEmoji('🌙').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('btn_details').setEmoji('🍀').setStyle(ButtonStyle.Secondary)
+    );
+
+    let sentMsg;
+    if (isPrefix) {
+        sentMsg = await interactionOrMessage.reply({ embeds: [viewEmbed], components: [row] });
+    } else {
+        if (interactionOrMessage.deferred || interactionOrMessage.replied) {
+            sentMsg = await interactionOrMessage.followUp({ embeds: [viewEmbed], components: [row], fetchReply: true });
+        } else {
+            sentMsg = await interactionOrMessage.reply({ embeds: [viewEmbed], components: [row], fetchReply: true });
+        }
+    }
+
+    const collector = sentMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 120000 });
+
+    collector.on('collect', async i => {
+        if (i.user.id !== (isPrefix ? interactionOrMessage.author.id : interactionOrMessage.user.id)) {
+            return i.reply({ content: '❌ هذه الأزرار مخصصة لصاحب الأمر فقط.', flags: MessageFlags.Ephemeral });
+        }
+
+        if (i.customId === 'btn_hijri') {
+            const hijriAgeText = bYear ? `\n✶ الـعـمـر (بالهجري): ${hijriAge} عـام 🌙` : '';
+            const hDesc = `✶ تـاريـخ ميلاد: ${targetUser}\n` +
+                          `✶ بالهجري: ${hijriDateStr}${hijriAgeText}\n` +
+                          `✶ متبقـي عليه (بالميلادي): ${diffDays} يـوم 🪄`;
+
+            const hEmbed = EmbedBuilder.from(viewEmbed).setDescription(hDesc);
+            await i.reply({ embeds: [hEmbed], flags: MessageFlags.Ephemeral });
+        } 
+        else if (i.customId === 'btn_details') {
+            const daysOfWeek = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+            const nextDayName = daysOfWeek[nextBirthday.getDay()];
+            const nextDateFmt = `${nextBirthday.getFullYear()}-${String(bMonth).padStart(2, '0')}-${String(bDay).padStart(2, '0')}`;
+            
+            let detailsText = '';
+            if (bYear) {
+                detailsText = `\n\n**العمر بالتفصيل:** ${exactYears} سنة و ${exactMonths} شهر و ${exactDays} يوم\n`;
+            }
+            detailsText += `سيكون عيد ميلادك يوم **${nextDayName}** الموافق ${nextDateFmt}`;
+
+            const dEmbed = EmbedBuilder.from(viewEmbed).setDescription(viewDesc + detailsText);
+            await i.reply({ embeds: [dEmbed], flags: MessageFlags.Ephemeral });
+        }
+    });
+
+    collector.on('end', () => {
+        sentMsg.edit({ components: [] }).catch(()=>{});
+    });
 }
 
 module.exports = {
@@ -103,7 +184,6 @@ module.exports = {
         ),
 
     async execute(interaction, arg2, arg3) {
-        // الموجه الذكي لحل تعطل البريفكس
         if (!interaction.options || typeof interaction.options.getSubcommand !== 'function') {
             const message = interaction.content !== undefined ? interaction : arg2;
             const args = interaction.content !== undefined ? arg2 : arg3;
@@ -139,9 +219,18 @@ module.exports = {
                 
                 let ageText = '';
                 if (year) {
-                    let age = today.getFullYear() - year;
-                    if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day)) age--;
-                    ageText = `\n✶ عـمرك الان: ${age} عـام ⭐`;
+                    const birthDate = new Date(year, month - 1, day);
+                    let exactYears = today.getFullYear() - birthDate.getFullYear();
+                    let exactMonths = today.getMonth() - birthDate.getMonth();
+                    let exactDays = today.getDate() - birthDate.getDate();
+
+                    if (exactDays < 0) {
+                        exactMonths--;
+                    }
+                    if (exactMonths < 0) {
+                        exactYears--;
+                    }
+                    ageText = `\n✶ عـمرك الان: ${exactYears} عـام ⭐`;
                 }
 
                 let nextBirthday = new Date(today.getFullYear(), month - 1, day);
@@ -333,9 +422,15 @@ module.exports = {
                 
                 let ageText = '';
                 if (year) {
-                    let age = today.getFullYear() - year;
-                    if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day)) age--;
-                    ageText = `\n✶ عـمرك الان: ${age} عـام ⭐`;
+                    const birthDate = new Date(year, month - 1, day);
+                    let exactYears = today.getFullYear() - birthDate.getFullYear();
+                    let exactMonths = today.getMonth() - birthDate.getMonth();
+                    let exactDays = today.getDate() - birthDate.getDate();
+
+                    if (exactDays < 0) exactMonths--;
+                    if (exactMonths < 0) exactYears--;
+                    
+                    ageText = `\n✶ عـمرك الان: ${exactYears} عـام ⭐`;
                 }
 
                 let nextBirthday = new Date(today.getFullYear(), month - 1, day);
