@@ -5,16 +5,15 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 
+// 👑 توجيه مباشر لمجلد الكارافان الجديد (تنظيف الملفات القديمة) 👑
 const {
     caravanConfig, getUserCaravanStats,
     getActiveCaravan, sendCaravan, upgradeCaravan, setupCaravanChecker,
-    checkCaravanCooldown, safeQuery, safeExecute, EMOJI_MORA
-} = require('../../handlers/caravan-core.js');
+    checkCaravanCooldown, safeQuery, safeExecute, EMOJI_MORA,
+    startEscortLobby, registerCombatListeners
+} = require('../../handlers/caravan/index.js');
 
 const EMPEROR_ID = '1145327691772481577';
-
-const { startEscortLobby }         = require('../../handlers/caravan-lobby.js');
-const { registerCombatListeners }   = require('../../handlers/caravan-ambush.js');
 
 const upgradeMats = require('../../json/upgrade-materials.json');
 const path = require('path');
@@ -41,7 +40,6 @@ function getItemNameSafe(id) {
     return String(id).replace(/_/g, ' ');
 }
 
-// 👑 قواميس التعريب 👑
 const RARITY_AR = {
     'Common': 'عادي',
     'Uncommon': 'شائع',
@@ -52,7 +50,6 @@ const RARITY_AR = {
 
 const R2_BASE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
-// 👑 سحب الأدوات مع قراءة المسار مباشرة من الـ JSON 👑
 function allItemsList() {
     const list = [];
     if (upgradeMats?.weapon_materials) {
@@ -171,7 +168,6 @@ module.exports = {
             return reply(payload);
         }
 
-        // 👑 تحديث الواجهة والترتيب حسب العدد 👑
         async function updateEquipUI(actionCtx, updatedEquip = null) {
             let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
             if (!invRes || !invRes.rows || invRes.rows.length === 0) {
@@ -188,7 +184,6 @@ module.exports = {
                 return qty > 0 && validIds.includes(id);
             });
 
-            // 👑 ترتيب العناصر التنازلي من الأكبر للأصغر كمية 👑
             validArtifacts.sort((a, b) => {
                 const qtyA = Number(a.quantity || a.QUANTITY || 0);
                 const qtyB = Number(b.quantity || b.QUANTITY || 0);
@@ -209,7 +204,6 @@ module.exports = {
             
             const payload   = await sendCanvas(GEN.generateEquipPanel, [user, equipped, validArtifacts, allItems, mora]);
 
-            // 👑 تجهيز المنيو (الاسم والعدد والندرة المعربة) 👑
             const opts = validArtifacts.slice(0, 25).map(row => {
                 const id2  = row.itemid || row.itemID || row.ITEMID;
                 const itm  = allItems.find(x => x.id === id2) || {};
@@ -237,7 +231,6 @@ module.exports = {
                 ),
             ];
 
-            // 👑 تفادي تعليق المنيو وتأخير المودل 👑
             if (actionCtx.deferred || actionCtx.replied) {
                 await actionCtx.editReply(payload).catch(() => {});
             } else if (typeof actionCtx.update === 'function') {
@@ -545,7 +538,6 @@ module.exports = {
                     await hubMsg.edit(payload2).catch(() => {});
                 }
 
-                // 👑 بداية التجهيز الذكي 👑
                 else if (id === 'cv_equip') {
                     const active = await getActiveCaravan(db, user.id, guild.id);
                     if (active) {
@@ -616,7 +608,6 @@ module.exports = {
                         try {
                             const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
                             
-                            // 👑 إرسال استجابة فورية لتفادي مشكلة (Interaction Failed) 👑
                             await modalSubmit.deferUpdate().catch(() => {});
 
                             const qtyStr = modalSubmit.fields.getTextInputValue('qty');
