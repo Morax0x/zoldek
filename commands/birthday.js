@@ -77,30 +77,57 @@ async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPre
     const displayYear = bYear ? `/${bYear}` : '';
     const dateString = `${String(bDay).padStart(2, '0')}/${String(bMonth).padStart(2, '0')}${displayYear}`;
 
+    // 1️⃣ الوصف للواجهة الرئيسية (الميلادي)
     const viewDesc = `✶ تـاريـخ ميلاد: ${targetUser}\n` +
                      `✶ يصـادف: ${dateString}${ageText}\n` +
                      `✶ متبقـي عليه: ${diffDays} يـوم 🪄`;
 
-    const viewEmbed = new EmbedBuilder()
+    // 2️⃣ الوصف للواجهة الهجرية
+    const hijriAgeText = bYear ? `\n✶ الـعـمـر (بالهجري): ${hijriAge} عـام 🌙` : '';
+    const hDesc = `✶ تـاريـخ ميلاد: ${targetUser}\n` +
+                  `✶ بالهجري: ${hijriDateStr}${hijriAgeText}\n` +
+                  `✶ متبقـي عليه (بالميلادي): ${diffDays} يـوم 🪄`;
+
+    // 3️⃣ الوصف لواجهة التفاصيل والأيام
+    const daysOfWeek = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+    const nextDayName = daysOfWeek[nextBirthday.getDay()];
+    const nextDateFmt = `${nextBirthday.getFullYear()}-${String(bMonth).padStart(2, '0')}-${String(bDay).padStart(2, '0')}`;
+    
+    let detailsText = '';
+    if (bYear) {
+        detailsText = `\n\n**العمر بالتفصيل:** ${exactYears} سنة و ${exactMonths} شهر و ${exactDays} يوم\n`;
+    }
+    detailsText += `سيكون عيد ميلادك يوم **${nextDayName}** الموافق ${nextDateFmt}`;
+    const dDesc = viewDesc + detailsText;
+
+    // تجهيز الإمبيدات مسبقاً
+    const mainEmbed = new EmbedBuilder()
         .setColor(getRandomColor())
         .setTitle('✥ سجل مولـيـد الامبراطوريـة 👑')
         .setDescription(viewDesc)
         .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
         .setFooter({ text: 'Empire | الامبراطورية ™', iconURL: serverIcon });
 
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('btn_hijri').setEmoji('🌙').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('btn_details').setEmoji('🍀').setStyle(ButtonStyle.Secondary)
-    );
+    const hijriEmbed = EmbedBuilder.from(mainEmbed).setDescription(hDesc);
+    const detailsEmbed = EmbedBuilder.from(mainEmbed).setDescription(dDesc);
+
+    // دالة ذكية لتحديث حالة الأزرار
+    const getRow = (activeView) => {
+        return new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('btn_main').setEmoji('🎂').setStyle(ButtonStyle.Secondary).setDisabled(activeView === 'main'),
+            new ButtonBuilder().setCustomId('btn_hijri').setEmoji('🌙').setStyle(ButtonStyle.Secondary).setDisabled(activeView === 'hijri'),
+            new ButtonBuilder().setCustomId('btn_details').setEmoji('🍀').setStyle(ButtonStyle.Secondary).setDisabled(activeView === 'details')
+        );
+    };
 
     let sentMsg;
     if (isPrefix) {
-        sentMsg = await interactionOrMessage.reply({ embeds: [viewEmbed], components: [row] });
+        sentMsg = await interactionOrMessage.reply({ embeds: [mainEmbed], components: [getRow('main')] });
     } else {
         if (interactionOrMessage.deferred || interactionOrMessage.replied) {
-            sentMsg = await interactionOrMessage.followUp({ embeds: [viewEmbed], components: [row], fetchReply: true });
+            sentMsg = await interactionOrMessage.followUp({ embeds: [mainEmbed], components: [getRow('main')], fetchReply: true });
         } else {
-            sentMsg = await interactionOrMessage.reply({ embeds: [viewEmbed], components: [row], fetchReply: true });
+            sentMsg = await interactionOrMessage.reply({ embeds: [mainEmbed], components: [getRow('main')], fetchReply: true });
         }
     }
 
@@ -111,38 +138,26 @@ async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPre
             return i.reply({ content: '❌ هذه الأزرار مخصصة لصاحب الأمر فقط.', flags: MessageFlags.Ephemeral });
         }
 
-        if (i.customId === 'btn_hijri') {
-            const hijriAgeText = bYear ? `\n✶ الـعـمـر (بالهجري): ${hijriAge} عـام 🌙` : '';
-            const hDesc = `✶ تـاريـخ ميلاد: ${targetUser}\n` +
-                          `✶ بالهجري: ${hijriDateStr}${hijriAgeText}\n` +
-                          `✶ متبقـي عليه (بالميلادي): ${diffDays} يـوم 🪄`;
-
-            const hEmbed = EmbedBuilder.from(viewEmbed).setDescription(hDesc);
-            await i.reply({ embeds: [hEmbed], flags: MessageFlags.Ephemeral });
+        // التحديث السلس لنفس الرسالة 👑
+        if (i.customId === 'btn_main') {
+            await i.update({ embeds: [mainEmbed], components: [getRow('main')] });
+        } 
+        else if (i.customId === 'btn_hijri') {
+            await i.update({ embeds: [hijriEmbed], components: [getRow('hijri')] });
         } 
         else if (i.customId === 'btn_details') {
-            const daysOfWeek = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-            const nextDayName = daysOfWeek[nextBirthday.getDay()];
-            const nextDateFmt = `${nextBirthday.getFullYear()}-${String(bMonth).padStart(2, '0')}-${String(bDay).padStart(2, '0')}`;
-            
-            let detailsText = '';
-            if (bYear) {
-                detailsText = `\n\n**العمر بالتفصيل:** ${exactYears} سنة و ${exactMonths} شهر و ${exactDays} يوم\n`;
-            }
-            detailsText += `سيكون عيد ميلادك يوم **${nextDayName}** الموافق ${nextDateFmt}`;
-
-            const dEmbed = EmbedBuilder.from(viewEmbed).setDescription(viewDesc + detailsText);
-            await i.reply({ embeds: [dEmbed], flags: MessageFlags.Ephemeral });
+            await i.update({ embeds: [detailsEmbed], components: [getRow('details')] });
         }
     });
 
     collector.on('end', () => {
-        sentMsg.edit({ components: [] }).catch(()=>{});
+        sentMsg.edit({ components: [getRow('disabled')] }).catch(()=>{});
     });
 }
 
 module.exports = {
     name: 'ميلاد',
+    aliases: ['عمر', 'عمري', 'ميلادي', 'عيد_ميلاد'], // 👑 تمت إضافة الاختصارات هنا
     description: '🎂 أوامر أعياد الميلاد',
     
     data: new SlashCommandBuilder()
@@ -157,7 +172,8 @@ module.exports = {
                 .addIntegerOption(option => 
                     option.setName('month').setDescription('شهر الميلاد (1-12)').setRequired(true).setMinValue(1).setMaxValue(12))
                 .addIntegerOption(option => 
-                    option.setName('year').setDescription('عام الميلاد (اختياري، لحساب العمر)').setRequired(false).setMinValue(1900).setMaxValue(new Date().getFullYear()))
+                    // 👑 تحديد الحد الأدنى للسنة 1950
+                    option.setName('year').setDescription('عام الميلاد (اختياري، لحساب العمر)').setRequired(false).setMinValue(1950).setMaxValue(new Date().getFullYear()))
         )
         .addSubcommand(subcommand =>
             subcommand
@@ -173,7 +189,7 @@ module.exports = {
                 .addUserOption(option => option.setName('user').setDescription('المستخدم المراد تعديله').setRequired(true))
                 .addIntegerOption(option => option.setName('day').setDescription('يوم الميلاد').setRequired(true).setMinValue(1).setMaxValue(31))
                 .addIntegerOption(option => option.setName('month').setDescription('شهر الميلاد').setRequired(true).setMinValue(1).setMaxValue(12))
-                .addIntegerOption(option => option.setName('year').setDescription('عام الميلاد (اختياري)').setRequired(false).setMinValue(1900).setMaxValue(new Date().getFullYear()))
+                .addIntegerOption(option => option.setName('year').setDescription('عام الميلاد (اختياري)').setRequired(false).setMinValue(1950).setMaxValue(new Date().getFullYear()))
         )
         .addSubcommand(subcommand =>
             subcommand
@@ -226,9 +242,12 @@ module.exports = {
 
                     if (exactDays < 0) {
                         exactMonths--;
+                        const prevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+                        exactDays += prevMonth.getDate();
                     }
                     if (exactMonths < 0) {
                         exactYears--;
+                        exactMonths += 12;
                     }
                     ageText = `\n✶ عـمرك الان: ${exactYears} عـام ⭐`;
                 }
@@ -409,8 +428,9 @@ module.exports = {
                     return modalSubmit.reply({ content: '❌ تاريخ غير صالح! يرجى التأكد من الأيام.', flags: MessageFlags.Ephemeral });
                 }
 
-                if (year && (isNaN(year) || year < 1900 || year > new Date().getFullYear())) {
-                    return modalSubmit.reply({ content: '❌ عام غير صالح!', flags: MessageFlags.Ephemeral });
+                // 👑 حماية العمر (السنوات)
+                if (year && (isNaN(year) || year < 1950 || year > new Date().getFullYear())) {
+                    return modalSubmit.reply({ content: '❌ عام غير صالح! يرجى إدخال سنة ميلاد صحيحة (مثال: 2001).', flags: MessageFlags.Ephemeral });
                 }
 
                 let confirmDateStr = year ? `عـام ${year} / شـهـر ${month} / يـوم ${day}` : `شـهـر ${month} / يـوم ${day}`;
@@ -427,8 +447,15 @@ module.exports = {
                     let exactMonths = today.getMonth() - birthDate.getMonth();
                     let exactDays = today.getDate() - birthDate.getDate();
 
-                    if (exactDays < 0) exactMonths--;
-                    if (exactMonths < 0) exactYears--;
+                    if (exactDays < 0) {
+                        exactMonths--;
+                        const prevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+                        exactDays += prevMonth.getDate();
+                    }
+                    if (exactMonths < 0) {
+                        exactYears--;
+                        exactMonths += 12;
+                    }
                     
                     ageText = `\n✶ عـمرك الان: ${exactYears} عـام ⭐`;
                 }
