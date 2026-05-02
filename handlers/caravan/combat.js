@@ -2,7 +2,7 @@
 
 const {
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-    ComponentType, MessageFlags,
+    ComponentType, MessageFlags, AttachmentBuilder,
 } = require('discord.js');
 
 const { safeExecute }        = require('./db');
@@ -13,6 +13,53 @@ const { buildHpBar, applyDamageToPlayer } = require('../dungeon/utils.js');
 const { handleSkillUsage }   = require('../dungeon/skills.js');
 const { executeWeaponAttack } = require('../combat/weapon-calculator.js');
 const { buildSkillSelector, buildPotionSelector } = require('../dungeon/ui.js');
+
+let _generateCaravanBattleImage = null;
+let _generateCaravanRestImage   = null;
+let _generateCaravanResultImage = null;
+try {
+    ({ generateCaravanBattleImage: _generateCaravanBattleImage } = require('../../generators/caravan/battle-generator'));
+    ({ generateCaravanRestImage: _generateCaravanRestImage, generateCaravanResultImage: _generateCaravanResultImage } = require('../../generators/caravan/summary-generator'));
+} catch (e) { console.warn('[CaravanCombat] generators not loaded:', e.message); }
+
+async function buildBattlePayload(players, enemy, caravan, waveNum, log, actedIds, hostId, guild) {
+    if (_generateCaravanBattleImage) {
+        try {
+            const buf = await Promise.race([
+                _generateCaravanBattleImage(players, enemy, caravan, waveNum, log, actedIds, hostId, guild),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000)),
+            ]);
+            if (buf) return { files: [new AttachmentBuilder(buf, { name: 'caravan_battle.png' })], embeds: [] };
+        } catch {}
+    }
+    return { files: [], embeds: [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedIds)] };
+}
+
+async function buildRestPayload(players, caravan, waveNum, guild) {
+    if (_generateCaravanRestImage) {
+        try {
+            const buf = await Promise.race([
+                _generateCaravanRestImage(players, caravan, waveNum, guild),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000)),
+            ]);
+            if (buf) return { files: [new AttachmentBuilder(buf, { name: 'caravan_rest.png' })], embeds: [] };
+        } catch {}
+    }
+    return { files: [], embeds: [generateRestEmbed(players, caravan, waveNum)] };
+}
+
+async function buildResultPayload(result, players, caravan, wavesCleared, rewards, guild) {
+    if (_generateCaravanResultImage) {
+        try {
+            const buf = await Promise.race([
+                _generateCaravanResultImage(result, players, caravan, wavesCleared, rewards, guild),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 12000)),
+            ]);
+            if (buf) return new AttachmentBuilder(buf, { name: 'caravan_result.png' });
+        } catch {}
+    }
+    return null;
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CARAVAN_HP_MAX   = 1000;
@@ -157,6 +204,8 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
         if (t && !t.isDead) {
             const finalDmg = t.defending ? Math.floor(dmg * 0.5) : dmg;
             const taken    = applyDamageToPlayer(t, finalDmg);
+            // Enforce real death in caravan context (bypass any dev-protection)
+            if (t.hp <= 0) { t.hp = 0; t.isDead = true; }
             log.push(`⚔️ **${enemy.name}** ضرب **${t.name}** (-${taken})`);
             if (t.isDead) {
                 log.push(`💀 **${t.name}** سقط!`);
@@ -263,10 +312,8 @@ function makeRestRows(isEscort = false) {
 // ─── Rest Phase ───────────────────────────────────────────────────────────────
 // Returns 'continue' | 'timeout' | 'escape'
 async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort = false) {
-    const restMsg = await thread.send({
-        embeds:     [generateRestEmbed(players, caravan, waveNum)],
-        components: makeRestRows(isEscort),
-    }).catch(() => null);
+    const restPayload = await buildRestPayload(players, caravan, waveNum, guild);
+    const restMsg = await thread.send({ ...restPayload, components: makeRestRows(isEscort) }).catch(() => null);
     if (!restMsg) return 'timeout';
 
     const collector = restMsg.createMessageComponentCollector({
@@ -325,7 +372,8 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                             await pSel.editReply({ content: '✅ استُخدمت الجرعة.', components: [] }).catch(() => {});
                         }
                         // Refresh rest embed with updated HP
-                        await restMsg.edit({ embeds: [generateRestEmbed(players, caravan, waveNum)] }).catch(() => {});
+                        const updatedRestPayload = await buildRestPayload(players, caravan, waveNum, guild);
+                        await restMsg.edit({ ...updatedRestPayload }).catch(() => {});
                     }
                 }
             } catch (err) { console.error('[RestPhase]', err); }
@@ -418,10 +466,8 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
         let battleMsg;
         try {
-            battleMsg = await thread.send({
-                embeds:     [generateBattleEmbed(players, enemy, caravan, waveNum, log)],
-                components: makeBattleRows(),
-            });
+            const initPayload = await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild);
+            battleMsg = await thread.send({ ...initPayload, components: makeBattleRows() });
         } catch { break; }
 
         // ── Round loop for this wave ──────────────────────────────────────
@@ -473,7 +519,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                                 log.push(`😰 **${p.name}** ذعر وأخطأ ضربته! (وضع الذعر)`);
                                 actedPlayers.push(pid); p.skipCount = 0;
                                 processingSet.delete(pid);
-                                await battleMsg.edit({ embeds: [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers)], components: makeBattleRows() }).catch(() => {});
+                                await battleMsg.edit({ ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild)), components: makeBattleRows() }).catch(() => {});
                                 if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) { clearTimeout(turnTimer); collector.stop('turn_end'); }
                                 return;
                             }
@@ -603,7 +649,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                         }
 
                         await battleMsg.edit({
-                            embeds:     [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers)],
+                            ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild)),
                             components: makeBattleRows(),
                         }).catch(() => {});
 
@@ -629,11 +675,8 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
             if (earlyEnd === 'enemy_dead' || enemy.hp <= 0) {
                 waveWon = true;
-                await battleMsg.edit({
-                    content:    `✅ **سقط ${enemy.name}!**`,
-                    embeds:     [generateBattleEmbed(players, enemy, caravan, waveNum, log)],
-                    components: [],
-                }).catch(() => {});
+                const winPayload1 = await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild);
+                await battleMsg.edit({ ...winPayload1, content: `✅ **سقط ${enemy.name}!**`, components: [] }).catch(() => {});
                 break;
             }
 
@@ -687,17 +730,14 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
             }
             if (enemy.hp <= 0) {
                 waveWon = true;
-                await battleMsg.edit({
-                    content:    `✅ **سقط ${enemy.name}!**`,
-                    embeds:     [generateBattleEmbed(players, enemy, caravan, waveNum, log)],
-                    components: [],
-                }).catch(() => {});
+                const winPayload2 = await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild);
+                await battleMsg.edit({ ...winPayload2, content: `✅ **سقط ${enemy.name}!**`, components: [] }).catch(() => {});
                 break;
             }
 
             // Refresh board
             await battleMsg.edit({
-                embeds:     [generateBattleEmbed(players, enemy, caravan, waveNum, log)],
+                ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild)),
                 components: makeBattleRows(),
             }).catch(() => {});
         } // end round loop

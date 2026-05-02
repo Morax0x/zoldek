@@ -73,7 +73,14 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
             if (itm.imgPath) {
                 const img = await getCachedImage(itm.imgPath);
                 if (img) {
-                    ctx.drawImage(img, sx + 25, sy0 + 65, 80, 80);
+                    const imgSize = 90;
+                    const imgX = sx + 20;
+                    const imgY = sy0 + 60;
+                    ctx.save();
+                    rr(ctx, imgX, imgY, imgSize, imgSize, 12);
+                    ctx.clip();
+                    ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
+                    ctx.restore();
                     hasImage = true;
                 }
             }
@@ -171,14 +178,21 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         if (itm && itm.imgPath) {
             const img = await getCachedImage(itm.imgPath);
             if (img) {
-                ctx.drawImage(img, ix + iw / 2 - 30, iy + 15, 60, 60);
+                const gImgSize = 60;
+                const gImgX = ix + iw / 2 - gImgSize / 2;
+                const gImgY = iy + 12;
+                ctx.save();
+                rr(ctx, gImgX, gImgY, gImgSize, gImgSize, 10);
+                ctx.clip();
+                ctx.drawImage(img, gImgX, gImgY, gImgSize, gImgSize);
+                ctx.restore();
                 hasGridImage = true;
             }
         }
 
         if (!hasGridImage) {
             ctx.font = `50px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(itm?.emoji || (itm?.type === 'book' ? '📖' : '⚙️'), ix + iw / 2, iy + 45);
+            ctx.fillText(itm?.emoji || (itm?.type === 'book' ? '📖' : '⚙️'), ix + iw / 2, iy + 42);
         }
 
         const rarityArabic = RARITY_AR[itm?.rarity] || itm?.rarity || '';
