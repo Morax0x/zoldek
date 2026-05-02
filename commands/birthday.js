@@ -82,22 +82,31 @@ async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPre
                      `✶ يصـادف: ${dateString}${ageText}\n` +
                      `✶ متبقـي عليه: ${diffDays} يـوم 🪄`;
 
-    // 2️⃣ الوصف للواجهة الهجرية
-    const hijriAgeText = bYear ? `\n✶ الـعـمـر (بالهجري): ${hijriAge} عـام 🌙` : '';
+    // 2️⃣ الوصف للواجهة الهجرية 👑 (بدون أقواس)
+    const hijriAgeText = bYear ? `\n✶ الـعـمـر بالهجري: ${hijriAge} عـام 🌙` : '';
     const hDesc = `✶ تـاريـخ ميلاد: ${targetUser}\n` +
                   `✶ بالهجري: ${hijriDateStr}${hijriAgeText}\n` +
-                  `✶ متبقـي عليه (بالميلادي): ${diffDays} يـوم 🪄`;
+                  `✶ متبقـي عليه بالميلادي: ${diffDays} يـوم 🪄`;
 
-    // 3️⃣ الوصف لواجهة التفاصيل والأيام
+    // 3️⃣ الوصف لواجهة التفاصيل والأيام 👑 (النجمة وإخفاء الأصفار)
     const daysOfWeek = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
     const nextDayName = daysOfWeek[nextBirthday.getDay()];
     const nextDateFmt = `${nextBirthday.getFullYear()}-${String(bMonth).padStart(2, '0')}-${String(bDay).padStart(2, '0')}`;
     
     let detailsText = '';
     if (bYear) {
-        detailsText = `\n\n**العمر بالتفصيل:** ${exactYears} سنة و ${exactMonths} شهر و ${exactDays} يوم\n`;
+        let ageParts = [];
+        if (exactYears > 0) ageParts.push(`${exactYears} سنة`);
+        if (exactMonths > 0) ageParts.push(`${exactMonths} شهر`);
+        if (exactDays > 0) ageParts.push(`${exactDays} يوم`);
+        
+        let ageStr = ageParts.length > 0 ? ageParts.join(' و ') : 'أقل من يوم';
+        
+        detailsText = `\n\n✶ **العمر بالتفصيل:** ${ageStr}\n`;
+    } else {
+        detailsText = '\n\n';
     }
-    detailsText += `سيكون عيد ميلادك يوم **${nextDayName}** الموافق ${nextDateFmt}`;
+    detailsText += `✶ سيكون عيد ميلادك يوم **${nextDayName}** الموافق ${nextDateFmt}`;
     const dDesc = viewDesc + detailsText;
 
     // تجهيز الإمبيدات مسبقاً
@@ -138,7 +147,6 @@ async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPre
             return i.reply({ content: '❌ هذه الأزرار مخصصة لصاحب الأمر فقط.', flags: MessageFlags.Ephemeral });
         }
 
-        // التحديث السلس لنفس الرسالة 👑
         if (i.customId === 'btn_main') {
             await i.update({ embeds: [mainEmbed], components: [getRow('main')] });
         } 
@@ -157,7 +165,7 @@ async function sendBirthdayView(targetUser, guildId, interactionOrMessage, isPre
 
 module.exports = {
     name: 'ميلاد',
-    aliases: ['عمر', 'عمري', 'ميلادي', 'عيد_ميلاد'], // 👑 تمت إضافة الاختصارات هنا
+    aliases: ['عمر', 'عمري', 'ميلادي', 'عيد_ميلاد'],
     description: '🎂 أوامر أعياد الميلاد',
     
     data: new SlashCommandBuilder()
@@ -172,7 +180,6 @@ module.exports = {
                 .addIntegerOption(option => 
                     option.setName('month').setDescription('شهر الميلاد (1-12)').setRequired(true).setMinValue(1).setMaxValue(12))
                 .addIntegerOption(option => 
-                    // 👑 تحديد الحد الأدنى للسنة 1950
                     option.setName('year').setDescription('عام الميلاد (اختياري، لحساب العمر)').setRequired(false).setMinValue(1950).setMaxValue(new Date().getFullYear()))
         )
         .addSubcommand(subcommand =>
@@ -428,7 +435,6 @@ module.exports = {
                     return modalSubmit.reply({ content: '❌ تاريخ غير صالح! يرجى التأكد من الأيام.', flags: MessageFlags.Ephemeral });
                 }
 
-                // 👑 حماية العمر (السنوات)
                 if (year && (isNaN(year) || year < 1950 || year > new Date().getFullYear())) {
                     return modalSubmit.reply({ content: '❌ عام غير صالح! يرجى إدخال سنة ميلاد صحيحة (مثال: 2001).', flags: MessageFlags.Ephemeral });
                 }
