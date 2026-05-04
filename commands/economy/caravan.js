@@ -5,12 +5,16 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 
-// 👑 توجيه مباشر لمجلد الكارافان الجديد (تنظيف الملفات القديمة) 👑
 const {
     caravanConfig, getUserCaravanStats,
     getActiveCaravan, sendCaravan, upgradeCaravan, setupCaravanChecker,
     checkCaravanCooldown, safeQuery, safeExecute, EMOJI_MORA,
-    startEscortLobby, registerCombatListeners
+    startEscortLobby, registerCombatListeners,
+    showMarketSetup, handleAddItemSelect, handlePriceModalSubmit,
+    handleRemoveItemSelect, finalizeListings, clearMarketListingsCache,
+    getMarketListingsCache, handleBuySelect, handleBuyModalSubmit,
+    handleRefresh, handleOwnerPriceChange, handlePriceChangeSelect,
+    handleNewPriceModalSubmit, setupMarketChecker,
 } = require('../../handlers/caravan/index.js');
 
 const EMPEROR_ID = '1145327691772481577';
@@ -137,6 +141,7 @@ module.exports = {
         const db = client.sql;
         setupCaravanChecker(client, db);
         registerCombatListeners(client);
+        setupMarketChecker(client, db);
 
         const reply = async (payload) => {
             try {
@@ -318,6 +323,10 @@ module.exports = {
                         return;
                     }
 
+                    const sessionKey = `${user.id}-${guild.id}`;
+                    if (!client.pendingCaravanDest) client.pendingCaravanDest = new Map();
+                    client.pendingCaravanDest.set(sessionKey, destId);
+
                     const choiceEmbed = new EmbedBuilder()
                         .setColor(dest.color || '#FFD700')
                         .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
@@ -326,7 +335,8 @@ module.exports = {
                             `**المدة:** ${dest.duration_hours} ساعة\n` +
                             `**نسبة الخطر:** ${(dest.risk_factor*100).toFixed(0)}%\n\n` +
                             `🛡️ **تأمين الطريق** — قاتل 5 موجات قبل الإرسال، القافلة لن تُهاجَم *(الحراس يدفعون تذكرة زنزانة)*\n` +
-                            `🐫 **إرسال بدون حماية** — قد يحدث كمين مفاجئ أثناء الرحلة!`
+                            `🐫 **إرسال بدون حماية** — قد يحدث كمين مفاجئ أثناء الرحلة!\n` +
+                            `🏪 **إضافة بضائع للسوق** — بع عناصرك للاعبين عند الوصول!`
                         );
                     await hubMsg.edit({
                         embeds: [choiceEmbed],
@@ -339,7 +349,13 @@ module.exports = {
                                 new ButtonBuilder()
                                     .setCustomId(`cv_noprotect_${destId}`)
                                     .setLabel('🐫 إرسال بدون حماية')
-                                    .setStyle(ButtonStyle.Secondary),
+                                    .setStyle(ButtonStyle.Secondary)
+                            ),
+                            new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`cv_market_${destId}`)
+                                    .setLabel('🏪 إضافة بضائع للسوق')
+                                    .setStyle(ButtonStyle.Success),
                                 new ButtonBuilder()
                                     .setCustomId('cv_back')
                                     .setLabel('↩️ إلغاء')
@@ -369,6 +385,15 @@ module.exports = {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
+                    }
+
+                    const caravanRes = await safeQuery(db,
+                        `SELECT "id" FROM user_caravans WHERE "userID"=$1 AND "guildID"=$2`,
+                        [user.id, guild.id]);
+                    const caravanId = caravanRes.rows[0]?.id || caravanRes.rows[0]?.ID;
+
+                    if (caravanId) {
+                        await finalizeListings(client, db, caravanId, user.id, guild.id);
                     }
 
                     if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
@@ -436,6 +461,154 @@ module.exports = {
                             console.error('[EscortLobby error]', err);
                             await showHub(hubMsg);
                         });
+                }
+
+                else if (id.startsWith('cv_market_')) {
+                    const destId = id.replace('cv_market_', '');
+                    const dest = caravanConfig.destinations.find(d => d.id === destId);
+                    if (!dest) { activeProcesses.delete(user.id); return; }
+
+                    await showMarketSetup(i, client, db, user, guild, dest);
+                }
+
+                else if (id === 'mkt_add_item') {
+                    const sessionKey = `${user.id}-${guild.id}`;
+                    const destId = client.pendingCaravanDest?.get(sessionKey) || 'gold_city';
+                    const dest = caravanConfig.destinations.find(d => d.id === destId);
+                    await handleAddItemSelect(i, client, db, user, guild, dest);
+                }
+
+                else if (id === 'mkt_remove_item') {
+                    const sessionKey = `${user.id}-${guild.id}`;
+                    const destId = client.pendingCaravanDest?.get(sessionKey) || 'gold_city';
+                    const dest = caravanConfig.destinations.find(d => d.id === destId);
+                    await handleRemoveItemSelect(i, client, db, user, guild, dest);
+                }
+
+                else if (id === 'mkt_launch') {
+                    const sessionKey = `${user.id}-${guild.id}`;
+                    const destId = client.pendingCaravanDest?.get(sessionKey);
+                    if (!destId) {
+                        await i.followUp({ content: '❌ لم يتم تحديد وجهة!', flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+                    const dest = caravanConfig.destinations.find(d => d.id === destId);
+                    const mora = await getMora(db, user.id, guild.id);
+                    if (mora < dest.cost) {
+                        await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA}.`, flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+
+                    await i.deferUpdate().catch(() => {});
+                    await i.followUp({ content: '\u2705 تم حفظ بضائع السوق! الآن اختر طريقة الإرسال...', flags: [MessageFlags.Ephemeral] });
+
+                    const choiceEmbed = new EmbedBuilder()
+                        .setColor(dest.color || '#FFD700')
+                        .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
+                        .setDescription(
+                            `**التكلفة:** ${dest.cost.toLocaleString()} ${EMOJI_MORA}\n` +
+                            `**المدة:** ${dest.duration_hours} ساعة\n` +
+                            `**نسبة الخطر:** ${(dest.risk_factor*100).toFixed(0)}%\n\n` +
+                            `🛡️ **تأمين الطريق** — قاتل 5 موجات قبل الإرسال\n` +
+                            `🐫 **إرسال بدون حماية** — قد يحدث كمين مفاجئ!`
+                        );
+                    await hubMsg.edit({
+                        embeds: [choiceEmbed],
+                        components: [
+                            new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`cv_escort_${destId}`)
+                                    .setLabel('🛡️ تأمين الطريق')
+                                    .setStyle(ButtonStyle.Primary),
+                                new ButtonBuilder()
+                                    .setCustomId(`cv_noprotect_${destId}`)
+                                    .setLabel('🐫 إرسال بدون حماية')
+                                    .setStyle(ButtonStyle.Secondary),
+                                new ButtonBuilder()
+                                    .setCustomId('cv_back')
+                                    .setLabel('↩️ إلغاء')
+                                    .setStyle(ButtonStyle.Danger)
+                            )
+                        ]
+                    }).catch(() => {});
+                }
+
+                else if (id === 'mkt_skip') {
+                    clearMarketListingsCache(client, user.id, guild.id);
+                    const sessionKey = `${user.id}-${guild.id}`;
+                    const destId = client.pendingCaravanDest?.get(sessionKey) || 'gold_city';
+                    const dest = caravanConfig.destinations.find(d => d.id === destId);
+
+                    await i.deferUpdate().catch(() => {});
+                    await i.followUp({ content: '\u23ed\uFE0F تم تخطي السوق.', flags: [MessageFlags.Ephemeral] });
+
+                    const choiceEmbed = new EmbedBuilder()
+                        .setColor(dest.color || '#FFD700')
+                        .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
+                        .setDescription(
+                            `**التكلفة:** ${dest.cost.toLocaleString()} ${EMOJI_MORA}\n` +
+                            `**المدة:** ${dest.duration_hours} ساعة\n` +
+                            `**نسبة الخطر:** ${(dest.risk_factor*100).toFixed(0)}%\n\n` +
+                            `🛡️ **تأمين الطريق** — قاتل 5 موجات قبل الإرسال\n` +
+                            `🐫 **إرسال بدون حماية** — قد يحدث كمين مفاجئ!`
+                        );
+                    await hubMsg.edit({
+                        embeds: [choiceEmbed],
+                        components: [
+                            new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`cv_escort_${destId}`)
+                                    .setLabel('🛡️ تأمين الطريق')
+                                    .setStyle(ButtonStyle.Primary),
+                                new ButtonBuilder()
+                                    .setCustomId(`cv_noprotect_${destId}`)
+                                    .setLabel('🐫 إرسال بدون حماية')
+                                    .setStyle(ButtonStyle.Secondary),
+                                new ButtonBuilder()
+                                    .setCustomId('cv_back')
+                                    .setLabel('↩️ إلغاء')
+                                    .setStyle(ButtonStyle.Danger)
+                            )
+                        ]
+                    }).catch(() => {});
+                }
+
+                else if (id === 'mkt_back') {
+                    const sessionKey = `${user.id}-${guild.id}`;
+                    const destId = client.pendingCaravanDest?.get(sessionKey) || 'gold_city';
+                    const dest = caravanConfig.destinations.find(d => d.id === destId);
+
+                    await i.deferUpdate().catch(() => {});
+
+                    const choiceEmbed = new EmbedBuilder()
+                        .setColor(dest.color || '#FFD700')
+                        .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
+                        .setDescription(
+                            `**التكلفة:** ${dest.cost.toLocaleString()} ${EMOJI_MORA}\n` +
+                            `**المدة:** ${dest.duration_hours} ساعة\n` +
+                            `**نسبة الخطر:** ${(dest.risk_factor*100).toFixed(0)}%`
+                        );
+                    await hubMsg.edit({
+                        embeds: [choiceEmbed],
+                        components: [
+                            new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`cv_escort_${destId}`)
+                                    .setLabel('🛡️ تأمين الطريق')
+                                    .setStyle(ButtonStyle.Primary),
+                                new ButtonBuilder()
+                                    .setCustomId(`cv_noprotect_${destId}`)
+                                    .setLabel('🐫 إرسال بدون حماية')
+                                    .setStyle(ButtonStyle.Secondary),
+                                new ButtonBuilder()
+                                    .setCustomId('cv_back')
+                                    .setLabel('↩️ إلغاء')
+                                    .setStyle(ButtonStyle.Danger)
+                            )
+                        ]
+                    }).catch(() => {});
                 }
 
                 else if (id === 'cv_status' || id === 'cv_status_toggle') {

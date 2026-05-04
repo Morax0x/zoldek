@@ -12,6 +12,14 @@ const { handleLandInteractions } = require('./handlers/farm-land.js');
 const { handleAuctionSystem } = require('./handlers/auction-handler.js');
 const { handleGuildBoard, handleQuestPanel } = require('./handlers/guild-board-handler.js');
 const { generateNotificationControlPanel } = require('./generators/notification-generator.js');
+const {
+    handlePriceModalSubmit,
+    handleBuyModalSubmit,
+    handleNewPriceModalSubmit,
+    handleBuySelect,
+    handleRefresh,
+    handlePriceChangeSelect,
+} = require('./handlers/caravan/market/index.js');
 
 const { handleNewSuggestion, handleSuggestionButtons, handleSuggestionModals } = require('./handlers/suggestion-handler.js');
 
@@ -235,6 +243,14 @@ module.exports = (client, db, antiRolesCache) => {
                 } 
                 else if (id.startsWith('pvp_')) {
                     await handlePvpInteraction(i, client, db);
+                } else if (id.startsWith('mkt_buy_select') || id === 'mkt_refresh' || id.startsWith('mkt_price_change_select')) {
+                    if (id.startsWith('mkt_buy_select')) {
+                        await handleBuySelect(i, client, db, i.user, i.guild);
+                    } else if (id === 'mkt_refresh') {
+                        await handleRefresh(i, client, db);
+                    } else if (id.startsWith('mkt_price_change_select')) {
+                        await handlePriceChangeSelect(i, client, db, i.user);
+                    }
                 } else if (
                     id === 'shop_open_menu' ||
                     (id.startsWith('buy_') && !id.includes('_animal_') && !id.includes('_seed_') && !id.includes('_feed_') && !id.includes('asset_')) ||
@@ -320,6 +336,12 @@ module.exports = (client, db, antiRolesCache) => {
                     await handleMarketInteraction(i, client, db);
                 } else if (handleShopModal && await handleShopModal(i, client, db)) {
 
+                } else if (i.customId.startsWith('mkt_price_modal_')) {
+                    await handlePriceModalSubmit(i, client, db, i.user, i.guild);
+                } else if (i.customId.startsWith('mkt_buy_modal_')) {
+                    await handleBuyModalSubmit(i, client, db, i.user, i.guild);
+                } else if (i.customId.startsWith('mkt_new_price_modal_')) {
+                    await handleNewPriceModalSubmit(i, client, db, i.user);
                 } else if (i.customId.startsWith('customrole_modal_')) {
                     await handleCustomRoleInteraction(i, client, db);
                 }

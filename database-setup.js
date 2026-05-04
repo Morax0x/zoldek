@@ -118,7 +118,11 @@ async function setupDatabase(clientOrSql) {
         // 🎂 جداول أعياد الميلاد المضافة حديثاً 🎂
         `CREATE TABLE IF NOT EXISTS user_birthdays ("userID" TEXT, "guildID" TEXT, "day" BIGINT, "month" BIGINT, "year" BIGINT, PRIMARY KEY ("userID", "guildID"))`,
         `CREATE TABLE IF NOT EXISTS birthday_settings ("guildID" TEXT PRIMARY KEY, "channelID" TEXT, "roleID" TEXT, "lastAnnouncedDate" TEXT)`,
-        `CREATE TABLE IF NOT EXISTS active_birthdays ("userID" TEXT, "guildID" TEXT, "roleID" TEXT, "dateAdded" TEXT, PRIMARY KEY ("userID", "guildID"))`
+        `CREATE TABLE IF NOT EXISTS active_birthdays ("userID" TEXT, "guildID" TEXT, "roleID" TEXT, "dateAdded" TEXT, PRIMARY KEY ("userID", "guildID"))`,
+        // 🏪 جداول ماركت القافلة 🏪
+        `CREATE TABLE IF NOT EXISTS caravan_market_listings ("id" BIGSERIAL PRIMARY KEY, "caravanId" BIGINT NOT NULL, "ownerID" TEXT NOT NULL, "guildID" TEXT NOT NULL, "itemID" TEXT NOT NULL, "itemName" TEXT NOT NULL, "itemEmoji" TEXT DEFAULT '📦', "quantity" BIGINT NOT NULL, "pricePerUnit" BIGINT NOT NULL, "quantitySold" BIGINT DEFAULT 0, "status" TEXT DEFAULT 'active', "threadId" TEXT DEFAULT NULL, "createdAt" BIGINT DEFAULT 0)`,
+        `CREATE TABLE IF NOT EXISTS caravan_market_sessions ("id" BIGSERIAL PRIMARY KEY, "caravanId" BIGINT NOT NULL, "ownerID" TEXT NOT NULL, "guildID" TEXT NOT NULL, "destinationId" TEXT NOT NULL, "threadId" TEXT NOT NULL, "channelId" TEXT NOT NULL, "createdAt" BIGINT DEFAULT 0, "expiresAt" BIGINT DEFAULT 0, "status" TEXT DEFAULT 'open', "npcSpawnCount" BIGINT DEFAULT 0, "totalSales" BIGINT DEFAULT 0, "totalRevenue" BIGINT DEFAULT 0)`,
+        `CREATE TABLE IF NOT EXISTS caravan_market_transactions ("id" BIGSERIAL PRIMARY KEY, "listingId" BIGINT NOT NULL, "buyerID" TEXT NOT NULL, "sellerID" TEXT NOT NULL, "guildID" TEXT NOT NULL, "itemID" TEXT NOT NULL, "quantity" BIGINT NOT NULL, "pricePerUnit" BIGINT NOT NULL, "totalPrice" BIGINT NOT NULL, "buyerType" TEXT DEFAULT 'player', "createdAt" BIGINT DEFAULT 0)`
     ];
 
     try {

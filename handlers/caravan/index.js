@@ -6,6 +6,7 @@ const stats        = require('./stats');
 const journey      = require('./journey');
 const lobby        = require('./lobby');
 const combat       = require('./combat');
+const market       = require('./market');
 
 module.exports = {
     // db
@@ -62,4 +63,29 @@ module.exports = {
     distributePartyRewards: combat.distributePartyRewards,
     runCaravanBattle:      combat.runCaravanBattle,
     registerCombatListeners: combat.registerCombatListeners,
+
+    // market
+    initMarketTables:         market.initMarketTables,
+    showMarketSetup:          market.showMarketSetup,
+    handleAddItemSelect:      market.handleAddItemSelect,
+    handlePriceModalSubmit:   market.handlePriceModalSubmit,
+    handleRemoveItemSelect:   market.handleRemoveItemSelect,
+    finalizeListings:         market.finalizeListings,
+    clearMarketListingsCache: market.clearMarketListingsCache,
+    getMarketListingsCache:   market.getMarketListingsCache,
+    createMarketThread:       market.createMarketThread,
+    setupMarketChecker:       market.setupMarketChecker,
+    handleBuySelect:          market.handleBuySelect,
+    handleBuyModalSubmit:     market.handleBuyModalSubmit,
+    handleRefresh:            market.handleRefresh,
+    handleOwnerPriceChange:   market.handleOwnerPriceChange,
+    handlePriceChangeSelect:  market.handlePriceChangeSelect,
+    handleNewPriceModalSubmit: market.handleNewPriceModalSubmit,
+    spawnNpc:                 market.spawnNpc,
+    getListingsBySession:     market.getListingsBySession,
+    getSessionByThread:       market.getSessionByThread,
+    returnUnsoldItems:        market.returnUnsoldItems,
+    closeSession:             market.closeSession,
+    buildMarketEmbed:         market.buildMarketEmbed,
+    buildMarketComponents:    market.buildMarketComponents,
 };

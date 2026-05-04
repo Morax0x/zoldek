@@ -4,6 +4,7 @@ const { caravanConfig, farmAnimals, seedsData, upgradeMats, EMOJI_MORA } = requi
 const { getEquippedBuffs, calcDuration, calcRiskFactor, calcRewardMultiplier } = require('./calculations');
 const { getUserCaravanStats } = require('./stats');
 const { initCaravanTables } = require('./tables');
+const { initMarketTables, createMarketThread, getListingsByCaravan } = require('./market');
 
 async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) {
     const dest = caravanConfig.destinations.find(d => d.id === destId);
@@ -175,6 +176,7 @@ const pendingAttacks = new Set();
 async function processCaravanReturns(client, db) {
     try {
         await initCaravanTables(db);
+        await initMarketTables(db);
         const now = Date.now();
 
         const active = await safeQuery(db,
@@ -218,6 +220,11 @@ async function processCaravanReturns(client, db) {
                                 .setDescription(`**المكافآت:**\n${summary.map(s => `✶ ${s}`).join('\n')}`)
                                 .setTimestamp()]
                         }).catch(() => {});
+
+                        const listings = await getListingsByCaravan(db, caravanId);
+                        if (listings.length > 0 && casinoId) {
+                            await createMarketThread(client, db, caravan, casinoId);
+                        }
                     }
                 } catch {}
             }
