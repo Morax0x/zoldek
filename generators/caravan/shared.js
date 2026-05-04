@@ -1,0 +1,325 @@
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const path = require('path');
+const fs   = require('fs');
+
+try {
+    const d = path.join(process.cwd(), 'fonts');
+    const b = path.join(d, 'bein-ar-normal.ttf');
+    const e = path.join(d, 'NotoEmoj.ttf');
+    if (fs.existsSync(b)) GlobalFonts.registerFromPath(b, 'Bein');
+    if (fs.existsSync(e)) GlobalFonts.registerFromPath(e, 'Emoji');
+} catch {}
+
+let allGameItems = [];
+try {
+    const shopItems = require(path.join(process.cwd(), 'json', 'shop-items.json')) || [];
+    const wepItems = require(path.join(process.cwd(), 'json', 'weapons-config.json'));
+    allGameItems = [...shopItems];
+    if (wepItems && wepItems.weapons) {
+        Object.keys(wepItems.weapons).forEach(k => {
+            wepItems.weapons[k].forEach(w => allGameItems.push({ id: w.id, name: w.name, rarity: w.rarity }));
+        });
+    }
+} catch(e) {}
+
+const W  = 1600;
+const H  = 900;
+const FA = '"Bein","Arial",sans-serif';
+const FE = '"Emoji","Arial",sans-serif';
+const BASE_IMG_URL = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/caravan/';
+
+const C = {
+    bg:      '#04060F',
+    gold:    '#F5C518',
+    goldD:   '#C49A10',
+    copper:  '#C87533',
+    text:    '#EDE8D0',
+    textD:   '#8A9AAA',
+    green:   '#2ECC71',
+    blue:    '#00BFFF',
+    red:     '#E74C3C',
+    purple:  '#9B59FF',
+};
+
+function cleanText(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/[ً-ٰٟ]/g, '')
+        .replace(/[✦•]/g, '')
+        .trim();
+}
+
+function formatArabicTime(ms) {
+    if (ms <= 0) return 'وصلت الوجهة';
+    let t = Math.max(0, ms);
+    let h = Math.floor(t / 3600000);
+    let m = Math.floor((t % 3600000) / 60000);
+
+    if (h > 0 && m > 0) return `${h} ساعة و ${m} دقيقة`;
+    if (h > 0) return `${h} ساعة`;
+    if (m > 0) return `${m} دقيقة`;
+    return 'أقل من دقيقة';
+}
+
+function getItemNameSafe(id) {
+    const itm = allGameItems.find(x => x.id === id);
+    if (itm && itm.name) return cleanText(itm.name);
+    return cleanText(String(id).replace(/_/g, ' '));
+}
+
+function rr(ctx, x, y, w, h, r = 24) {
+    if (w < 0 || h < 0) return;
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x,     y + h, r);
+    ctx.arcTo(x,     y + h, x,     y,     r);
+    ctx.arcTo(x,     y,     x + w, y,     r);
+    ctx.closePath();
+}
+
+async function fetchImageSafe(imgName) {
+    if (!imgName) return null;
+    try { return await loadImage(`${BASE_IMG_URL}${imgName}.png`); } catch {}
+    const alt = imgName.replace(/_/g, '');
+    if (alt !== imgName) {
+        try { return await loadImage(`${BASE_IMG_URL}${alt}.png`); } catch {}
+    }
+    return null;
+}
+
+async function drawBg(ctx, bgImageName = 'hubbg', cw = W, ch = H) {
+    const img = await fetchImageSafe(bgImageName);
+    if (img) {
+        ctx.drawImage(img, 0, 0, cw, ch);
+        ctx.fillStyle = 'rgba(4,6,15,0.45)';
+        ctx.fillRect(0, 0, cw, ch);
+    } else {
+        const sky = ctx.createLinearGradient(0, 0, 0, ch);
+        sky.addColorStop(0,    '#020408');
+        sky.addColorStop(0.5,  '#06091A');
+        sky.addColorStop(1,    '#1A0A01');
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, cw, ch);
+
+        ctx.save();
+        for (let i = 0; i < 200; i++) {
+            const sx = Math.random() * cw;
+            const sy = Math.random() * ch * 0.7;
+            const sr = Math.random() * 1.5 + 0.2;
+            ctx.globalAlpha = Math.random() * 0.6 + 0.1;
+            ctx.fillStyle = Math.random() > 0.8 ? '#FFF9C4' : '#FFFFFF';
+            ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+
+        const dune = ctx.createLinearGradient(0, ch - 120, 0, ch);
+        dune.addColorStop(0, '#1E0E02'); dune.addColorStop(1, '#0D0600');
+        ctx.fillStyle = dune;
+        ctx.beginPath();
+        ctx.moveTo(0, ch);
+        ctx.bezierCurveTo(cw*.2, ch-150, cw*.5, ch-100, cw*.8, ch-140);
+        ctx.lineTo(cw, ch); ctx.closePath(); ctx.fill();
+    }
+}
+
+function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
+    const radius = opts.radius || 24;
+    ctx.shadowColor = accent + '11';
+    ctx.shadowBlur  = 15;
+
+    const bg = ctx.createLinearGradient(x, y, x, y + h);
+    bg.addColorStop(0, 'rgba(10,14,28,0.55)');
+    bg.addColorStop(1, 'rgba(4,6,12,0.70)');
+    rr(ctx, x, y, w, h, radius);
+    ctx.fillStyle = bg; ctx.fill();
+    ctx.shadowBlur = 0;
+
+    rr(ctx, x, y, w, h, radius);
+    ctx.strokeStyle = accent + '44';
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+}
+
+function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
+    if (isNaN(pct) || pct < 0) pct = 0;
+    if (pct > 1) pct = 1;
+
+    rr(ctx, x, y, w, h, h / 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fill();
+
+    const filled = Math.max(h, pct * w);
+    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+    grad.addColorStop(0, color + 'AA');
+    grad.addColorStop(1, color);
+    rr(ctx, x, y, filled, h, h / 2);
+    ctx.fillStyle   = grad;
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = 12;
+    ctx.fill();
+    ctx.shadowBlur  = 0;
+
+    if (showLabel && h >= 16) {
+        ctx.font         = `bold ${Math.max(16, h - 8)}px ${FA}`;
+        ctx.fillStyle    = '#FFFFFF';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${(pct * 100).toFixed(0)}%`, x + w / 2, y + h / 2 + 1);
+    }
+}
+
+function R(ctx, txt, x, y, size, color = C.text) {
+    ctx.font = `bold ${size}px ${FA}`; ctx.fillStyle = color;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(cleanText(txt), x, y);
+}
+function M(ctx, txt, x, y, size, color = C.text) {
+    ctx.font = `bold ${size}px ${FA}`; ctx.fillStyle = color;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(cleanText(txt), x, y);
+}
+function L(ctx, txt, x, y, size, color = C.text) {
+    ctx.font = `bold ${size}px ${FA}`; ctx.fillStyle = color;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(cleanText(txt), x, y);
+}
+
+function drawArcProgress(ctx, cx, cy, r, pct, color, labelSize = 26, subLabel = '') {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 12;
+    ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI * 0.75, Math.PI * 0.75); ctx.stroke();
+    const ag = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+    ag.addColorStop(0, color + '88'); ag.addColorStop(1, color);
+    ctx.strokeStyle = ag; ctx.lineWidth = 12;
+    ctx.shadowColor = color; ctx.shadowBlur = 20;
+    const end = -Math.PI * 0.75 + Math.max(0.01, Math.min(1, pct)) * Math.PI * 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI * 0.75, end); ctx.stroke();
+    ctx.restore();
+    M(ctx, `${(pct * 100).toFixed(1)}%`, cx, cy - 2, labelSize, color);
+    if (subLabel) M(ctx, subLabel, cx, cy + r + 16, Math.max(13, labelSize - 9), '#8A9AAA');
+}
+
+function drawCornerAccents(ctx, cw = W, ch = H, color = '#F5C51855', size = 55, r = 18) {
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+    [[0, 0, 1, 1], [cw, 0, -1, 1], [0, ch, 1, -1], [cw, ch, -1, -1]].forEach(([x, y, sx, sy]) => {
+        ctx.beginPath();
+        ctx.moveTo(x + sx * size, y);
+        ctx.lineTo(x + sx * r, y);
+        ctx.arcTo(x, y, x, y + sy * r, r);
+        ctx.lineTo(x, y + sy * size);
+        ctx.stroke();
+    });
+}
+
+function divLine(ctx, x, y, w, color = 'rgba(255,255,255,0.12)') {
+    const g = ctx.createLinearGradient(x, 0, x + w, 0);
+    g.addColorStop(0,   'transparent');
+    g.addColorStop(0.15, color);
+    g.addColorStop(0.85, color);
+    g.addColorStop(1,   'transparent');
+    ctx.strokeStyle = g; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.stroke();
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight, align = 'center') {
+    const words = cleanText(text).split(' ');
+    const fontSize = parseInt(ctx.font) || 20;
+    const fillColor = ctx.fillStyle;
+    let line = ''; let currentY = y;
+    for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && n > 0) {
+            if(align === 'center') M(ctx, line.trim(), x, currentY, fontSize, fillColor);
+            else if(align === 'right') R(ctx, line.trim(), x, currentY, fontSize, fillColor);
+            else L(ctx, line.trim(), x, currentY, fontSize, fillColor);
+            line = words[n] + ' ';
+            currentY += lineHeight;
+        } else { line = testLine; }
+    }
+    if(align === 'center') M(ctx, line.trim(), x, currentY, fontSize, fillColor);
+    else if(align === 'right') R(ctx, line.trim(), x, currentY, fontSize, fillColor);
+    else L(ctx, line.trim(), x, currentY, fontSize, fillColor);
+}
+
+async function drawHeader(ctx, title, subtitle = '') {
+    const hg = ctx.createLinearGradient(0, 0, 0, 130);
+    hg.addColorStop(0, 'rgba(0,0,0,0.85)');
+    hg.addColorStop(1, 'transparent');
+    ctx.fillStyle = hg; ctx.fillRect(0, 0, W, 130);
+
+    const lineG = ctx.createLinearGradient(0, 0, W, 0);
+    lineG.addColorStop(0,   'transparent');
+    lineG.addColorStop(0.3, C.gold);
+    lineG.addColorStop(0.7, C.gold);
+    lineG.addColorStop(1,   'transparent');
+    ctx.fillStyle = lineG; ctx.fillRect(0, 128, W, 2.5);
+
+    ctx.save();
+    ctx.fillStyle = C.gold; ctx.shadowColor = C.gold; ctx.shadowBlur = 14;
+    ctx.translate(W / 2, 129.5); ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-5, -5, 10, 10);
+    ctx.restore();
+
+    ctx.shadowColor = C.gold + '66'; ctx.shadowBlur = 20;
+    M(ctx, title, W / 2, 50, 48, C.text);
+    ctx.shadowBlur = 0;
+    if (subtitle) M(ctx, subtitle, W / 2, 100, 26, C.textD);
+}
+
+function drawStars(ctx, n, max, x, y, size, color = C.gold) {
+    ctx.font = `bold ${size}px ${FA}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 8;
+    ctx.fillText('★'.repeat(Math.min(n, max)) + '☆'.repeat(Math.max(0, max - n)), x, y);
+    ctx.shadowBlur = 0;
+}
+
+function caravanRank(trips) {
+    if (trips >= 51) return { name: 'اسطورة التجارة', color: '#FFD700' };
+    if (trips >= 21) return { name: 'سيد القوافل',    color: '#C49A10' };
+    if (trips >= 11) return { name: 'تاجر مشهور',    color: '#C87533' };
+    if (trips >=  6) return { name: 'تاجر ماهر',     color: '#8888FF' };
+    if (trips >=  3) return { name: 'تاجر محلي',     color: '#2ECC71' };
+    return               { name: 'تاجر مبتدئ',        color: '#8A9AAA' };
+}
+
+function getRepRankInfo(points) {
+    if (points >= 9999) return { name: 'الرتبة SSS', color: '#FFD700' };
+    if (points >= 1000) return { name: 'الرتبة SS',  color: '#FF00FF' };
+    if (points >= 500)  return { name: 'الرتبة S',   color: '#00FFFF' };
+    if (points >= 250)  return { name: 'الرتبة A',   color: '#FFD700' };
+    if (points >= 100)  return { name: 'الرتبة B',   color: '#C0C0C0' };
+    if (points >= 50)   return { name: 'الرتبة C',   color: '#CD7F32' };
+    if (points >= 25)   return { name: 'الرتبة D',   color: '#2E8B57' };
+    if (points >= 10)   return { name: 'الرتبة E',   color: '#8B4513' };
+    return                     { name: 'الرتبة F',   color: '#A0522D' };
+}
+
+function truncate(str, max) {
+    const s = cleanText(String(str || ''));
+    return s.length > max ? s.slice(0, max) + '…' : s;
+}
+
+async function toBuf(canvas) {
+    return await (canvas.encode ? canvas.encode('png') : canvas.toBuffer('image/png'));
+}
+
+function parseSafeArray(data) {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    try { return JSON.parse(data); } catch { return []; }
+}
+
+module.exports = {
+    createCanvas,
+    W, H, FA, FE, BASE_IMG_URL, C, allGameItems,
+    cleanText, formatArabicTime, getItemNameSafe,
+    rr, fetchImageSafe, drawBg, drawPanel, drawBar,
+    R, M, L,
+    drawArcProgress, drawCornerAccents, divLine, wrapText,
+    drawHeader, drawStars, caravanRank, getRepRankInfo,
+    truncate, toBuf, parseSafeArray,
+};

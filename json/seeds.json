@@ -1,0 +1,134 @@
+[
+  {
+    "id": "seed_wheat",
+    "name": "قمح",
+    "emoji": "🌾",
+    "stage_emoji": "🌿",
+    "price": 50,
+    "sell_price": 75,
+    "xp_reward": 2,
+    "growth_time_hours": 6,
+    "wither_time_hours": 12
+  },
+  {
+    "id": "seed_strawberry",
+    "name": "فراولة",
+    "emoji": "🍓",
+    "stage_emoji": "🌱",
+    "price": 80,
+    "sell_price": 120,
+    "xp_reward": 3,
+    "growth_time_hours": 8,
+    "wither_time_hours": 16
+  },
+  {
+    "id": "seed_carrot",
+    "name": "جزر",
+    "emoji": "🥕",
+    "stage_emoji": "🌿",
+    "price": 120,
+    "sell_price": 180,
+    "xp_reward": 5,
+    "growth_time_hours": 12,
+    "wither_time_hours": 24
+  },
+  {
+    "id": "seed_potato",
+    "name": "بطاطس",
+    "emoji": "🥔",
+    "stage_emoji": "🌿",
+    "price": 150,
+    "sell_price": 230,
+    "xp_reward": 8,
+    "growth_time_hours": 16,
+    "wither_time_hours": 32
+  },
+  {
+    "id": "seed_tomato",
+    "name": "طماطم",
+    "emoji": "🍅",
+    "stage_emoji": "🌱",
+    "price": 180,
+    "sell_price": 280,
+    "xp_reward": 10,
+    "growth_time_hours": 18,
+    "wither_time_hours": 36
+  },
+  {
+    "id": "seed_corn",
+    "name": "ذرة",
+    "emoji": "🌽",
+    "stage_emoji": "🌽",
+    "price": 250,
+    "sell_price": 350,
+    "xp_reward": 15,
+    "growth_time_hours": 24,
+    "wither_time_hours": 48
+  },
+  {
+    "id": "seed_eggplant",
+    "name": "باذنجان",
+    "emoji": "🍆",
+    "stage_emoji": "🌱",
+    "price": 300,
+    "sell_price": 400,
+    "xp_reward": 20,
+    "growth_time_hours": 30,
+    "wither_time_hours": 60
+  },
+  {
+    "id": "seed_rice",
+    "name": "أرز",
+    "emoji": "🍚",
+    "stage_emoji": "🌾",
+    "price": 350,
+    "sell_price": 600,
+    "xp_reward": 20,
+    "growth_time_hours": 36,
+    "wither_time_hours": 72
+  },
+  {
+    "id": "seed_pumpkin",
+    "name": "يقطين",
+    "emoji": "🎃",
+    "stage_emoji": "🌱",
+    "price": 500,
+    "sell_price": 700,
+    "xp_reward": 20,
+    "growth_time_hours": 48,
+    "wither_time_hours": 72
+  },
+  {
+    "id": "seed_watermelon",
+    "name": "بطيخ",
+    "emoji": "🍉",
+    "stage_emoji": "🌱",
+    "price": 600,
+    "sell_price": 900,
+    "xp_reward": 20,
+    "growth_time_hours": 50,
+    "wither_time_hours": 80
+  },
+  {
+    "id": "seed_pineapple",
+    "name": "أناناس",
+    "emoji": "🍍",
+    "stage_emoji": "🌴",
+    "price": 800,
+    "sell_price": 1200,
+    "xp_reward": 25,
+    "growth_time_hours": 60,
+    "wither_time_hours": 90
+  },
+  {
+    "id": "seed_dates",
+    "name": "نخل",
+    "emoji": "🌴",
+    "stage_emoji": "🌴",
+    "price": 1000,
+    "sell_price": 1500,
+    "xp_reward": 30,
+    "growth_time_hours": 72,
+    "wither_time_hours": 120
+  }
+]

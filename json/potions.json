@@ -1,0 +1,62 @@
+[
+  {
+    "id": "potion_heal",
+    "name": "جرعة الشفاء",
+    "price": 100,
+    "description": "🧪 تستعيد 50% من صحتك أثناء المعركة.",
+    "category": "potions",
+    "emoji": "🧪",
+    "effect": { "type": "heal", "percent": 50 },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_heal.png"
+  },
+  {
+    "id": "potion_stealth",
+    "name": "جرعة التخفي",
+    "price": 100,
+    "description": "👻 تجعل الوحش يتجاهلك تماماً للجولة القادمة.",
+    "category": "potions",
+    "emoji": "👻",
+    "effect": { "type": "stealth", "duration": 1 },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_stealth.png"
+  },
+  {
+    "id": "potion_reflect",
+    "name": "جرعة الانعكاس",
+    "price": 150,
+    "description": "🌵 تعكس 50% من الضرر المتلقى ليعود على الوحش.",
+    "category": "potions",
+    "emoji": "🌵",
+    "effect": { "type": "reflect", "percent": 50, "duration": 1 },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_reflect.png"
+  },
+  {
+    "id": "potion_time",
+    "name": "جرعة الزمن",
+    "price": 500,
+    "description": "⏳ تعيد شحن مهاراتك فوراً.",
+    "category": "potions",
+    "emoji": "⏳",
+    "effect": { "type": "cooldown_reset" },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_time.png"
+  },
+  {
+    "id": "potion_titan",
+    "name": "جرعة العملاق",
+    "price": 999,
+    "description": "🔥 تضاعف صحتك وتجبر الوحش على مهاجمتك (تستمر لـ 5 طوابق).",
+    "category": "potions",
+    "emoji": "🔥",
+    "effect": { "type": "titan", "floors": 5 },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_titan.png"
+  },
+  {
+    "id": "potion_sacrifice",
+    "name": "جرعة التضحية",
+    "price": 3000,
+    "description": "💀 تضحي بنفسك لإنعاش وشفاء كامل الفريق.",
+    "category": "potions",
+    "emoji": "💀",
+    "effect": { "type": "sacrifice" },
+    "image": "https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/potions/potion_sacrifice.png"
+  }
+]

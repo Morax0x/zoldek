@@ -1,0 +1,5 @@
+{
+    "token": "your-bot-token-here",
+    "ownerID": "your-discord-user-id",
+    "prefix": "-"
+}
