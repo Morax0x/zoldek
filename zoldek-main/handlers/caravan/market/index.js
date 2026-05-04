@@ -1,0 +1,59 @@
+const marketDb = require('./market-db');
+const marketSetup = require('./market-setup');
+const marketThread = require('./market-thread');
+const marketUi = require('./market-ui');
+const marketNpcAi = require('./market-npc-ai');
+
+module.exports = {
+    initMarketTables: marketDb.initMarketTables,
+    createListing: marketDb.createListing,
+    lockItemsFromInventory: marketDb.lockItemsFromInventory,
+    getListingsByCaravan: marketDb.getListingsByCaravan,
+    getListingsBySession: marketDb.getListingsBySession,
+    getSessionByThread: marketDb.getSessionByThread,
+    getSessionByCaravan: marketDb.getSessionByCaravan,
+    createMarketSession: marketDb.createMarketSession,
+    buyItem: marketDb.buyItem,
+    closeSession: marketDb.closeSession,
+    returnUnsoldItems: marketDb.returnUnsoldItems,
+    incrementNpcSpawn: marketDb.incrementNpcSpawn,
+    getNpcSpawnCount: marketDb.getNpcSpawnCount,
+    getActiveSessions: marketDb.getActiveSessions,
+    getExpiredSessions: marketDb.getExpiredSessions,
+    updateListingPrice: marketDb.updateListingPrice,
+    getListingById: marketDb.getListingById,
+
+    showMarketSetup: marketSetup.showMarketSetup,
+    handleAddItemSelect: marketSetup.handleAddItemSelect,
+    handlePriceModalSubmit: marketSetup.handlePriceModalSubmit,
+    handleRemoveItemSelect: marketSetup.handleRemoveItemSelect,
+    finalizeListings: marketSetup.finalizeListings,
+    clearMarketListingsCache: marketSetup.clearMarketListingsCache,
+    getMarketListingsCache: marketSetup.getMarketListingsCache,
+    getItemInfo: marketSetup.getItemInfo,
+
+    createMarketThread: marketThread.createMarketThread,
+    closeMarketThread: marketThread.closeMarketThread,
+    checkExpiredMarketSessions: marketThread.checkExpiredMarketSessions,
+    setupMarketChecker: marketThread.setupMarketChecker,
+    clearTimer: marketThread.clearTimer,
+    activeTimers: marketThread.activeTimers,
+
+    buildMarketEmbed: marketUi.buildMarketEmbed,
+    buildMarketComponents: marketUi.buildMarketComponents,
+    handleBuySelect: marketUi.handleBuySelect,
+    handleBuyModalSubmit: marketUi.handleBuyModalSubmit,
+    handleRefresh: marketUi.handleRefresh,
+    refreshMarketMessage: marketUi.refreshMarketMessage,
+    handleOwnerPriceChange: marketUi.handleOwnerPriceChange,
+    handlePriceChangeSelect: marketUi.handlePriceChangeSelect,
+    handleNewPriceModalSubmit: marketUi.handleNewPriceModalSubmit,
+
+    spawnNpc: marketNpcAi.spawnNpc,
+    scheduleNpcSpawn: marketNpcAi.scheduleNpcSpawn,
+    handleNpcHaggle: marketNpcAi.handleNpcHaggle,
+    getNpcPersona: marketNpcAi.getNpcPersona,
+    parseNpcAction: marketNpcAi.parseNpcAction,
+    NpcConversations: marketNpcAi.NpcConversations,
+    DESTINATION_PERSONAS: marketNpcAi.DESTINATION_PERSONAS,
+};

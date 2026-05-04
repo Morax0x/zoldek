@@ -1,0 +1,145 @@
+{
+  "rarity_colors": {
+    "Common": { "name": "عادي", "color": "Gray", "emoji": "⬜" },
+    "Uncommon": { "name": "شائع", "color": "Green", "emoji": "🟩" },
+    "Rare": { "name": "نادر", "color": "Blue", "emoji": "🟦" },
+    "Epic": { "name": "ملحمي", "color": "Purple", "emoji": "🟪" },
+    "Legendary": { "name": "أسطوري", "color": "Gold", "emoji": "🟨" }
+  },
+  "weapon_materials": [
+    {
+      "race": "Dragon",
+      "materials": [
+        { "id": "mat_dragon_1", "name": "رماد بركاني", "rarity": "Common", "emoji": "🌫️", "image": "dragon/dragon_ash.png" },
+        { "id": "mat_dragon_2", "name": "حراشف تنين", "rarity": "Uncommon", "emoji": "🦎", "image": "dragon/dragon_scale.png" },
+        { "id": "mat_dragon_3", "name": "مخلب تنين", "rarity": "Rare", "emoji": "🦷", "image": "dragon/dragon_claw.png" },
+        { "id": "mat_dragon_4", "name": "قلب تنين", "rarity": "Epic", "emoji": "❤️‍🔥", "image": "dragon/dragon_heart.png" },
+        { "id": "mat_dragon_5", "name": "جوهر التنين", "rarity": "Legendary", "emoji": "👁️‍🗨️", "image": "dragon/dragon_core.png" }
+      ]
+    },
+    {
+      "race": "Human",
+      "materials": [
+        { "id": "mat_human_1", "name": "شظية حديد", "rarity": "Common", "emoji": "🪨", "image": "human/human_iron.png" },
+        { "id": "mat_human_2", "name": "سبيكة صلب", "rarity": "Uncommon", "emoji": "🔗", "image": "human/human_steel.png" },
+        { "id": "mat_human_3", "name": "معدن نيزكي", "rarity": "Rare", "emoji": "☄️", "image": "human/human_meteor.png" },
+        { "id": "mat_human_4", "name": "ختم الفارس", "rarity": "Epic", "emoji": "🛡️", "image": "human/human_seal.png" },
+        { "id": "mat_human_5", "name": "تاج الإمبراطورية", "rarity": "Legendary", "emoji": "⚔️", "image": "human/human_crown.png" }
+      ]
+    },
+    {
+      "race": "Elf",
+      "materials": [
+        { "id": "mat_elf_1", "name": "غصن يابس", "rarity": "Common", "emoji": "🪵", "image": "elf/elf_branch.png" },
+        { "id": "mat_elf_2", "name": "لحاء الأطياف", "rarity": "Uncommon", "emoji": "🌿", "image": "elf/elf_bark.png" },
+        { "id": "mat_elf_3", "name": "زهرة الحياة", "rarity": "Rare", "emoji": "🌸", "image": "elf/elf_flower.png" },
+        { "id": "mat_elf_4", "name": "بلورة الرياح", "rarity": "Epic", "emoji": "🌪️", "image": "elf/elf_crystal.png" },
+        { "id": "mat_elf_5", "name": "دموع الغابة", "rarity": "Legendary", "emoji": "💧", "image": "elf/elf_tear.png" }
+      ]
+    },
+    {
+      "race": "Dark Elf",
+      "materials": [
+        { "id": "mat_darkelf_1", "name": "حجر السج", "rarity": "Common", "emoji": "🪨", "image": "dark_elf/darkelf_obsidian.png" },
+        { "id": "mat_darkelf_2", "name": "زجاج ملعون", "rarity": "Uncommon", "emoji": "🧪", "image": "dark_elf/darkelf_glass.png" },
+        { "id": "mat_darkelf_3", "name": "بلورة كابوس", "rarity": "Rare", "emoji": "🔮", "image": "dark_elf/darkelf_crystal.png" },
+        { "id": "mat_darkelf_4", "name": "جوهر الفراغ", "rarity": "Epic", "emoji": "🌌", "image": "dark_elf/darkelf_void.png" },
+        { "id": "mat_darkelf_5", "name": "رماد الهاوية", "rarity": "Legendary", "emoji": "🕳️", "image": "dark_elf/darkelf_ash.png" }
+      ]
+    },
+    {
+      "race": "Seraphim",
+      "materials": [
+        { "id": "mat_seraphim_1", "name": "ريشة مقدسة", "rarity": "Common", "emoji": "🪶", "image": "seraphim/seraphim_feathe.png" },
+        { "id": "mat_seraphim_2", "name": "هالة نور", "rarity": "Uncommon", "emoji": "💫", "image": "seraphim/seraphim_halo.png" },
+        { "id": "mat_seraphim_3", "name": "بلورة الفجر", "rarity": "Rare", "emoji": "💎", "image": "seraphim/seraphim_crystal.png" },
+        { "id": "mat_seraphim_4", "name": "جوهر النور", "rarity": "Epic", "emoji": "✨", "image": "seraphim/seraphim_core.png" },
+        { "id": "mat_seraphim_5", "name": "كأس الفردوس", "rarity": "Legendary", "emoji": "👼", "image": "seraphim/seraphim_chalice.png" }
+      ]
+    },
+    {
+      "race": "Demon",
+      "materials": [
+        { "id": "mat_demon_1", "name": "جمرة خامدة", "rarity": "Common", "emoji": "🪨", "image": "demon/demon_ember.png" },
+        { "id": "mat_demon_2", "name": "قرن شيطان", "rarity": "Uncommon", "emoji": "😈", "image": "demon/demon_horn.png" },
+        { "id": "mat_demon_3", "name": "بلورة فاسدة", "rarity": "Rare", "emoji": "🩸", "image": "demon/demon_crystal.png" },
+        { "id": "mat_demon_4", "name": "شعلة الجحيم", "rarity": "Epic", "emoji": "🔥", "image": "demon/demon_flame.png" },
+        { "id": "mat_demon_5", "name": "تاج العالم السفلي", "rarity": "Legendary", "emoji": "🌋", "image": "demon/demon_crown.png" }
+      ]
+    },
+    {
+      "race": "Vampire",
+      "materials": [
+        { "id": "mat_vampire_1", "name": "قطرة دم", "rarity": "Common", "emoji": "🩸", "image": "vampire/vampire_blood.png" },
+        { "id": "mat_vampire_2", "name": "قارورة دماء", "rarity": "Uncommon", "emoji": "🍷", "image": "vampire/vampire_vial.png" },
+        { "id": "mat_vampire_3", "name": "ناب مصاص دماء", "rarity": "Rare", "emoji": "🧛‍♂️", "image": "vampire/vampire_fang.png" },
+        { "id": "mat_vampire_4", "name": "قمر أحمر", "rarity": "Epic", "emoji": "♦️", "image": "vampire/vampire_moon.png" },
+        { "id": "mat_vampire_5", "name": "كأس السلالة", "rarity": "Legendary", "emoji": "🦇", "image": "vampire/vampire_chalice.png" }
+      ]
+    },
+    {
+      "race": "Spirit",
+      "materials": [
+        { "id": "mat_spirit_1", "name": "غبار أثيري", "rarity": "Common", "emoji": "💨", "image": "spirit/spirit_dust.png" },
+        { "id": "mat_spirit_2", "name": "بقايا طيف", "rarity": "Uncommon", "emoji": "👻", "image": "spirit/spirit_remnant.png" },
+        { "id": "mat_spirit_3", "name": "بلورة أرواح", "rarity": "Rare", "emoji": "🔮", "image": "spirit/spirit_crystal.png" },
+        { "id": "mat_spirit_4", "name": "جوهر الانتقام", "rarity": "Epic", "emoji": "👿", "image": "spirit/spirit_core.png" },
+        { "id": "mat_spirit_5", "name": "نبض الأبعاد", "rarity": "Legendary", "emoji": "🌀", "image": "spirit/spirit_pulse.png" }
+      ]
+    },
+    {
+      "race": "Hybrid",
+      "materials": [
+        { "id": "mat_hybrid_1", "name": "مخلب وحش", "rarity": "Common", "emoji": "🐾", "image": "hybrid/hybrid_claw.png" },
+        { "id": "mat_hybrid_2", "name": "فرو وحش", "rarity": "Uncommon", "emoji": "🦊", "image": "hybrid/hybrid_fur.png" },
+        { "id": "mat_hybrid_3", "name": "عظم أسطوري", "rarity": "Rare", "emoji": "🦴", "image": "hybrid/hybrid_bone.png" },
+        { "id": "mat_hybrid_4", "name": "بلورة الغريزة", "rarity": "Epic", "emoji": "🐺", "image": "hybrid/hybrid_crystal.png" },
+        { "id": "mat_hybrid_5", "name": "روح الوحش", "rarity": "Legendary", "emoji": "🦁", "image": "hybrid/hybrid_soul.png" }
+      ]
+    },
+    {
+      "race": "Dwarf",
+      "materials": [
+        { "id": "mat_dwarf_1", "name": "شظية نحاس", "rarity": "Common", "emoji": "🟤", "image": "dwarf/dwarf_copper.png" },
+        { "id": "mat_dwarf_2", "name": "سبيكة برونز", "rarity": "Uncommon", "emoji": "🟠", "image": "dwarf/dwarf_bronze.png" },
+        { "id": "mat_dwarf_3", "name": "معدن الميثريل", "rarity": "Rare", "emoji": "🥈", "image": "dwarf/dwarf_mithril.png" },
+        { "id": "mat_dwarf_4", "name": "قلب الأوريكالكم", "rarity": "Epic", "emoji": "🟣", "image": "dwarf/dwarf_heart.png" },
+        { "id": "mat_dwarf_5", "name": "مطرقة الجبال", "rarity": "Legendary", "emoji": "⛰️", "image": "dwarf/dwarf_hammer.png" }
+      ]
+    },
+    {
+      "race": "Ghoul",
+      "materials": [
+        { "id": "mat_ghoul_1", "name": "عظم متحلل", "rarity": "Common", "emoji": "🦴", "image": "ghoul/ghoul_bone.png" },
+        { "id": "mat_ghoul_2", "name": "بقايا ملعونة", "rarity": "Uncommon", "emoji": "🥩", "image": "ghoul/ghoul_remains.png" },
+        { "id": "mat_ghoul_3", "name": "جمجمة غول", "rarity": "Rare", "emoji": "💀", "image": "ghoul/ghoul_skull.png" },
+        { "id": "mat_ghoul_4", "name": "بلورة المجاعة", "rarity": "Epic", "emoji": "🦠", "image": "ghoul/ghoul_crystal.png" },
+        { "id": "mat_ghoul_5", "name": "جوهر الموت", "rarity": "Legendary", "emoji": "🧟‍♂️", "image": "ghoul/ghoul_core.png" }
+      ]
+    }
+  ],
+  "skill_books": [
+    {
+      "category": "General_Skills",
+      "description": "هذه الكتب تستخدم لترقية المهارات العامة (شفاء، درع، إضعاف... الخ)",
+      "books": [
+        { "id": "book_general_1", "name": "مسودة تكتيك", "rarity": "Common", "emoji": "📄", "image": "general/gen_book_tactic.png" },
+        { "id": "book_general_2", "name": "دليل قتالي", "rarity": "Uncommon", "emoji": "📘", "image": "general/gen_book_combat.png" },
+        { "id": "book_general_3", "name": "مخطوطة الفنون", "rarity": "Rare", "emoji": "📚", "image": "general/gen_book_arts.png" },
+        { "id": "book_general_4", "name": "موسوعة الحرب", "rarity": "Epic", "emoji": "📜", "image": "general/gen_book_war.png" },
+        { "id": "book_general_5", "name": "سر الحكمة", "rarity": "Legendary", "emoji": "🗄️", "image": "general/gen_book_wisdom.png" }
+      ]
+    },
+    {
+      "category": "Race_Skills",
+      "description": "هذه الكتب تستخدم لترقية المهارات العرقية (مهارات التنين، البشري... الخ)",
+      "books": [
+        { "id": "book_race_1", "name": "نقش حجري", "rarity": "Common", "emoji": "🪨", "image": "race/race_book_stone.png" },
+        { "id": "book_race_2", "name": "تعاليم الأسلاف", "rarity": "Uncommon", "emoji": "📖", "image": "race/race_book_ancestor.png" },
+        { "id": "book_race_3", "name": "سفر الأسرار", "rarity": "Rare", "emoji": "📕", "image": "race/race_book_secrets.png" },
+        { "id": "book_race_4", "name": "مخطوطة العهد", "rarity": "Epic", "emoji": "🗞️", "image": "race/race_book_covenant.png" },
+        { "id": "book_race_5", "name": "عهد الأعراق", "rarity": "Legendary", "emoji": "🔮", "image": "race/race_book_pact.png" }
+      ]
+    }
+  ]
+}
