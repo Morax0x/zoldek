@@ -67,7 +67,7 @@ const TURN_TIMEOUT_MS  = 45_000;
 const REST_TIMEOUT_MS  = 90_000;   // 90 s between waves; timeout = loss
 
 const WAVE_ENEMIES = [
-    { name: 'لصوص الطريق',       hp: 800,  atk: 30,  isBoss: false },
+    { name: 'لصوص الطريق',        hp: 800,  atk: 30,  isBoss: false },
     { name: 'سراق محترفون',       hp: 1200, atk: 50,  isBoss: false },
     { name: 'محاربون متمردون',    hp: 1800, atk: 75,  isBoss: false },
     { name: 'قائد الغزاة',        hp: 2800, atk: 100, isBoss: false },
@@ -434,18 +434,53 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         return { result: 'error', wavesCleared: 0 };
     }
 
+    // 👑 حساب قوة الفريق للموازنة الديناميكية (Dynamic Scaling) 👑
+    let totalPlayerHP = 0;
+    let totalPlayerATK = 0;
+    players.forEach(p => {
+        totalPlayerHP += (p.maxHp || 100);
+        totalPlayerATK += (p.atk || 10);
+    });
+    const averageHP = Math.floor(totalPlayerHP / players.length);
+    const averageATK = Math.floor(totalPlayerATK / players.length);
+
+    // 👑 رفع صحة القافلة لتتحمل ضربات الأعداء وتناسب قوة الفريق (تمنع التدمير الفوري)
+    const dynamicCaravanHP = Math.max(CARAVAN_HP_MAX, Math.floor(totalPlayerHP * 0.8));
+
     const caravan = {
-        hp: CARAVAN_HP_MAX, maxHp: CARAVAN_HP_MAX,
+        hp: dynamicCaravanHP, maxHp: dynamicCaravanHP,
         lootPenalty: 0, skipNextEnemyTurn: false, pendingLootDrop: false,
     };
+    
     let wavesCleared = 0;
 
     for (let w = 0; w < WAVE_ENEMIES.length; w++) {
         const def     = WAVE_ENEMIES[w];
         const waveNum = w + 1;
+        
+        // 👑 تطبيق الموازنة الذكية على الأعداء 👑
+        const waveDifficulty = 1 + (w * 0.25); // الصعوبة تزيد مع كل موجة
+        const roundsToSurvive = def.isBoss ? 10 : 5; // عدد الضربات الجماعية التقريبية المطلوبة لهزيمته
+        const hitsToKillPlayer = def.isBoss ? 4 : 7; // عدد ضربات الخصم المطلوبة لقتل لاعب متوسط
+
+        // حساب الدم والضرر بناءً على قوة الفريق
+        let dynamicHP = Math.floor(totalPlayerATK * roundsToSurvive * waveDifficulty);
+        let dynamicATK = Math.floor(averageHP / hitsToKillPlayer * waveDifficulty);
+
+        // إضافة عامل المفاجأة (RNG ±15%)
+        const rngHP = 0.85 + (Math.random() * 0.30);
+        const rngATK = 0.85 + (Math.random() * 0.30);
+
+        dynamicHP = Math.floor(dynamicHP * rngHP);
+        dynamicATK = Math.floor(dynamicATK * rngATK);
+
+        // ضمان أن الخصم لن يكون أضعف من القيمة الأساسية (لحماية اللعبة من اللاعبين الجدد جداً)
+        dynamicHP = Math.max(def.hp, dynamicHP);
+        dynamicATK = Math.max(def.atk, dynamicATK);
+
         const enemy   = {
-            name: def.name, hp: def.hp, maxHp: def.hp,
-            atk: def.atk, isBoss: def.isBoss,
+            name: def.name, hp: dynamicHP, maxHp: dynamicHP,
+            atk: dynamicATK, isBoss: def.isBoss,
             enraged: false, effects: [], frozen: false, targetFocusId: null,
         };
 
@@ -873,7 +908,7 @@ async function handleAmbushReady(data) {
                 .setDescription(`**${reason}**\nضاعت جميع البضائع. انتهت الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`)
             ]
         }).catch(() => {});
-        await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم حذف الرحلة.`).catch(() => {});
+        await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم الغاء الرحلة.`).catch(() => {});
     }
 
     setTimeout(() => thread.delete().catch(() => {}), 12000);
