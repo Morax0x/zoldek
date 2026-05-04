@@ -5,6 +5,8 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 
+const { createCanvas, loadImage } = require('@napi-rs/canvas'); // 👑 استدعاء أداة الرسم للوجهات
+
 const {
     caravanConfig, getUserCaravanStats,
     getActiveCaravan, sendCaravan, upgradeCaravan, setupCaravanChecker,
@@ -107,10 +109,53 @@ async function sendCanvas(fn, args, content = '') {
     try {
         if (typeof fn !== 'function') throw new Error('no fn');
         const buf = await fn(...args);
-        return { files: [new AttachmentBuilder(buf, { name: 'caravan.png' })], content };
+        return { files: [new AttachmentBuilder(buf, { name: 'caravan.png' })], content, embeds: [] };
     } catch (e) {
-        return { embeds: [new EmbedBuilder().setColor('#FF4444').setDescription('⚠️ تعذّر توليد الصورة.')], content };
+        return { content: `⚠️ تعذّر توليد الصورة إما لبطء الاتصال أو نقص في الموارد.`, embeds: [], files: [] };
     }
+}
+
+// 👑 دالة لرسم واجهة اختيار الوجهة بدون إمبيد 👑
+async function generateDestChoiceImage(dest, mora) {
+    const canvas = createCanvas(800, 400);
+    const ctx = canvas.getContext('2d');
+    
+    try {
+        const bg = await loadImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_caravan.jpg');
+        ctx.drawImage(bg, 0, 0, 800, 400);
+    } catch(e) {
+        ctx.fillStyle = '#1c1c1e';
+        ctx.fillRect(0, 0, 800, 400);
+    }
+    
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(0, 0, 800, 400);
+    
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = dest.color || '#FFD700';
+    ctx.font = 'bold 36px "sans-serif"';
+    ctx.fillText(`الانطلاق إلى ${dest.name}`, 750, 40);
+    
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 26px "sans-serif"';
+    ctx.fillText(`💰 التكلفة: ${dest.cost.toLocaleString()} مورا`, 750, 110);
+    
+    ctx.fillStyle = (mora >= dest.cost) ? '#2ECC71' : '#E74C3C';
+    ctx.fillText(`💳 رصيدك الحالي: ${mora.toLocaleString()} مورا`, 750, 150);
+    
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(`⏱️ المدة المتوقعة: ${dest.duration_hours} ساعة`, 750, 190);
+    ctx.fillText(`⚠️ نسبة الخطر والكمائن: ${(dest.risk_factor * 100).toFixed(0)}%`, 750, 230);
+    
+    ctx.fillStyle = '#3498DB';
+    ctx.font = '22px "sans-serif"';
+    ctx.fillText(`🛡️ [تأمين الطريق]: قاتل 5 موجات لحماية القافلة مسبقاً (مضمونة).`, 750, 290);
+    
+    ctx.fillStyle = '#E67E22';
+    ctx.fillText(`🐫 [إرسال بدون حماية]: قد تتعرض القافلة لكمين في أي وقت!`, 750, 330);
+    
+    return canvas.toBuffer('image/png');
 }
 
 const activeProcesses = new Set();
@@ -262,7 +307,7 @@ module.exports = {
             }
             activeProcesses.add(user.id);
             
-            if (i.customId !== 'cv_eq_sel') {
+            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item') {
                 await i.deferUpdate().catch(() => {});
             }
 
@@ -317,48 +362,69 @@ module.exports = {
                     const destId = i.values[0];
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
                     const mora   = await getMora(db, user.id, guild.id);
+                    
                     if (mora < dest.cost) {
                         await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA}. رصيدك: **${mora.toLocaleString()}**`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
 
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    if (!client.pendingCaravanDest) client.pendingCaravanDest = new Map();
-                    client.pendingCaravanDest.set(sessionKey, destId);
+                    // 👑 حفظ الوجهة المحددة للرحلة
+                    client.caravanTempDest = client.caravanTempDest || new Map();
+                    client.caravanTempDest.set(user.id, dest);
 
-                    const choiceEmbed = new EmbedBuilder()
-                        .setColor(dest.color || '#FFD700')
-                        .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
-                        .setDescription(
-                            `**التكلفة:** ${dest.cost.toLocaleString()} ${EMOJI_MORA}\n` +
-                            `**المدة:** ${dest.duration_hours} ساعة\n` +
-                            `**نسبة الخطر:** ${(dest.risk_factor*100).toFixed(0)}%\n\n` +
-                            `🛡️ **تأمين الطريق** — قاتل 5 موجات قبل الإرسال، القافلة لن تُهاجَم *(الحراس يدفعون تذكرة زنزانة)*\n` +
-                            `🐫 **إرسال بدون حماية** — قد يحدث كمين مفاجئ أثناء الرحلة!\n` +
-                            `🏪 **إضافة بضائع للسوق** — بع عناصرك للاعبين عند الوصول!`
-                        );
+                    // 👑 تنظيف سجلات السوق السابقة وفتح واجهة التجهيز!
+                    clearMarketListingsCache(client, user.id, guild.id);
+                    await showMarketSetup(i, client, db, user, guild, dest);
+                }
+
+                // ─── أوامر تجهيز السوق (Market Setup) ───
+                else if (id === 'mkt_add_item') {
+                    const dest = client.caravanTempDest?.get(user.id);
+                    await handleAddItemSelect(i, client, db, user, guild, dest);
+                    try {
+                        const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId.startsWith('mkt_price_modal_') && m.user.id === user.id, time: 60000 });
+                        await handlePriceModalSubmit(modalSubmit, client, db, user, guild, dest);
+                    } catch(e) {}
+                }
+
+                else if (id === 'mkt_remove_item') {
+                    const dest = client.caravanTempDest?.get(user.id);
+                    await handleRemoveItemSelect(i, client, db, user, guild, dest);
+                }
+
+                else if (id === 'mkt_back') {
+                    await i.deleteReply().catch(()=>{});
+                }
+
+                // ─── إطلاق القافلة بعد الانتهاء من تجهيز السوق ───
+                else if (id === 'mkt_launch' || id === 'mkt_skip') {
+                    const dest = client.caravanTempDest?.get(user.id);
+                    const mora = await getMora(db, user.id, guild.id);
+                    
+                    await i.deleteReply().catch(()=>{}); // إغلاق نافذة السوق
+
+                    // رسم صورة التأمين بدون إمبيد
+                    const buffer = await generateDestChoiceImage(dest, mora);
+                    const attachment = new AttachmentBuilder(buffer, { name: 'dest_choice.png' });
+
                     await hubMsg.edit({
-                        embeds: [choiceEmbed],
+                        content: `<@${user.id}>`,
+                        embeds: [],
+                        files: [attachment],
                         components: [
                             new ActionRowBuilder().addComponents(
                                 new ButtonBuilder()
-                                    .setCustomId(`cv_escort_${destId}`)
-                                    .setLabel('🛡️ تأمين الطريق (تذكرة زنزانة للحراس)')
+                                    .setCustomId(`cv_escort_${dest.id}`)
+                                    .setLabel('🛡️ تأمين الطريق (تذكرة حارس)')
                                     .setStyle(ButtonStyle.Primary),
                                 new ButtonBuilder()
-                                    .setCustomId(`cv_noprotect_${destId}`)
+                                    .setCustomId(`cv_noprotect_${dest.id}`)
                                     .setLabel('🐫 إرسال بدون حماية')
-                                    .setStyle(ButtonStyle.Secondary)
-                            ),
-                            new ActionRowBuilder().addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`cv_market_${destId}`)
-                                    .setLabel('🏪 إضافة بضائع للسوق')
-                                    .setStyle(ButtonStyle.Success),
+                                    .setStyle(ButtonStyle.Secondary),
                                 new ButtonBuilder()
                                     .setCustomId('cv_back')
-                                    .setLabel('↩️ إلغاء')
+                                    .setLabel('↩️ إلغاء الرحلة')
                                     .setStyle(ButtonStyle.Danger)
                             )
                         ]
@@ -379,6 +445,7 @@ module.exports = {
 
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
+                    const { sendCaravan } = require('./journey');
                     const result     = await sendCaravan(db, user.id, guild.id, destId, savedArts);
 
                     if (result.error) {
@@ -387,26 +454,20 @@ module.exports = {
                         return;
                     }
 
-                    const caravanRes = await safeQuery(db,
-                        `SELECT "id" FROM user_caravans WHERE "userID"=$1 AND "guildID"=$2`,
-                        [user.id, guild.id]);
-                    const caravanId = caravanRes.rows[0]?.id || caravanRes.rows[0]?.ID;
-
-                    if (caravanId) {
-                        await finalizeListings(client, db, caravanId, user.id, guild.id);
+                    // 👑 حفظ بضائع السوق في قاعدة البيانات وربطها بالقافلة!
+                    const activeCheck = await getActiveCaravan(db, user.id, guild.id);
+                    if (activeCheck) {
+                        await finalizeListings(client, db, activeCheck.id, user.id, guild.id);
                     }
 
                     if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
 
                     const eta = Math.floor(result.endTime / 1000);
                     await i.followUp({
-                        embeds: [new EmbedBuilder()
-                            .setColor(dest.color || '#00FF88')
-                            .setTitle(`🐪 انطلقت القافلة إلى ${dest.emoji} ${dest.name}!`)
-                            .setDescription(`📅 **وقت الوصول:** <t:${eta}:R>\n⚠️ **نسبة الخطر:** ${(result.riskFactor*100).toFixed(0)}%`)
-                        ],
+                        content: `✅ **انطلقت القافلة إلى ${dest.emoji} ${dest.name}!**\n📅 **وقت الوصول:** <t:${eta}:R>\n⚠️ **نسبة الخطر:** ${(result.riskFactor*100).toFixed(0)}%`,
                         flags: [MessageFlags.Ephemeral],
                     }).catch(() => {});
+                    
                     await showHub(hubMsg);
                 }
 
@@ -424,7 +485,7 @@ module.exports = {
 
                     await hubMsg.edit({
                         content: '🛡️ **لوبي التأمين قيد الإعداد...**',
-                        embeds: [], components: []
+                        embeds: [], files: [], components: []
                     }).catch(() => {});
 
                     startEscortLobby(i.channel, user, guild, db, dest)
@@ -443,16 +504,13 @@ module.exports = {
                                     db,
                                     getMora,
                                     showHub,
+                                    client, // تمرير الـ client مهم لحفظ بضائع السوق لاحقاً
                                 });
                                 return;
                             }
                             if (!lobbyResult.cancelled) {
                                 await i.channel.send({
-                                    embeds: [new EmbedBuilder()
-                                        .setColor('#FF4444')
-                                        .setTitle('💀 فشل التأمين!')
-                                        .setDescription(`<@${user.id}> لم تنجح الحراسة. القافلة لم تُرسَل ولم يُخصَم منك شيء.`)
-                                    ]
+                                    content: `💀 **فشل التأمين!**\n<@${user.id}> لم تنجح الحراسة. القافلة لم تُرسَل ولم يُخصَم منك شيء.`
                                 }).catch(() => {});
                             }
                             await showHub(hubMsg);
@@ -461,154 +519,6 @@ module.exports = {
                             console.error('[EscortLobby error]', err);
                             await showHub(hubMsg);
                         });
-                }
-
-                else if (id.startsWith('cv_market_')) {
-                    const destId = id.replace('cv_market_', '');
-                    const dest = caravanConfig.destinations.find(d => d.id === destId);
-                    if (!dest) { activeProcesses.delete(user.id); return; }
-
-                    await showMarketSetup(i, client, db, user, guild, dest);
-                }
-
-                else if (id === 'mkt_add_item') {
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    const destId = client.pendingCaravanDest?.get(sessionKey) || 'gold_city';
-                    const dest = caravanConfig.destinations.find(d => d.id === destId);
-                    await handleAddItemSelect(i, client, db, user, guild, dest);
-                }
-
-                else if (id === 'mkt_remove_item') {
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    const destId = client.pendingCaravanDest?.get(sessionKey) || 'gold_city';
-                    const dest = caravanConfig.destinations.find(d => d.id === destId);
-                    await handleRemoveItemSelect(i, client, db, user, guild, dest);
-                }
-
-                else if (id === 'mkt_launch') {
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    const destId = client.pendingCaravanDest?.get(sessionKey);
-                    if (!destId) {
-                        await i.followUp({ content: '❌ لم يتم تحديد وجهة!', flags: [MessageFlags.Ephemeral] });
-                        activeProcesses.delete(user.id);
-                        return;
-                    }
-                    const dest = caravanConfig.destinations.find(d => d.id === destId);
-                    const mora = await getMora(db, user.id, guild.id);
-                    if (mora < dest.cost) {
-                        await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA}.`, flags: [MessageFlags.Ephemeral] });
-                        activeProcesses.delete(user.id);
-                        return;
-                    }
-
-                    await i.deferUpdate().catch(() => {});
-                    await i.followUp({ content: '\u2705 تم حفظ بضائع السوق! الآن اختر طريقة الإرسال...', flags: [MessageFlags.Ephemeral] });
-
-                    const choiceEmbed = new EmbedBuilder()
-                        .setColor(dest.color || '#FFD700')
-                        .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
-                        .setDescription(
-                            `**التكلفة:** ${dest.cost.toLocaleString()} ${EMOJI_MORA}\n` +
-                            `**المدة:** ${dest.duration_hours} ساعة\n` +
-                            `**نسبة الخطر:** ${(dest.risk_factor*100).toFixed(0)}%\n\n` +
-                            `🛡️ **تأمين الطريق** — قاتل 5 موجات قبل الإرسال\n` +
-                            `🐫 **إرسال بدون حماية** — قد يحدث كمين مفاجئ!`
-                        );
-                    await hubMsg.edit({
-                        embeds: [choiceEmbed],
-                        components: [
-                            new ActionRowBuilder().addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`cv_escort_${destId}`)
-                                    .setLabel('🛡️ تأمين الطريق')
-                                    .setStyle(ButtonStyle.Primary),
-                                new ButtonBuilder()
-                                    .setCustomId(`cv_noprotect_${destId}`)
-                                    .setLabel('🐫 إرسال بدون حماية')
-                                    .setStyle(ButtonStyle.Secondary),
-                                new ButtonBuilder()
-                                    .setCustomId('cv_back')
-                                    .setLabel('↩️ إلغاء')
-                                    .setStyle(ButtonStyle.Danger)
-                            )
-                        ]
-                    }).catch(() => {});
-                }
-
-                else if (id === 'mkt_skip') {
-                    clearMarketListingsCache(client, user.id, guild.id);
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    const destId = client.pendingCaravanDest?.get(sessionKey) || 'gold_city';
-                    const dest = caravanConfig.destinations.find(d => d.id === destId);
-
-                    await i.deferUpdate().catch(() => {});
-                    await i.followUp({ content: '\u23ed\uFE0F تم تخطي السوق.', flags: [MessageFlags.Ephemeral] });
-
-                    const choiceEmbed = new EmbedBuilder()
-                        .setColor(dest.color || '#FFD700')
-                        .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
-                        .setDescription(
-                            `**التكلفة:** ${dest.cost.toLocaleString()} ${EMOJI_MORA}\n` +
-                            `**المدة:** ${dest.duration_hours} ساعة\n` +
-                            `**نسبة الخطر:** ${(dest.risk_factor*100).toFixed(0)}%\n\n` +
-                            `🛡️ **تأمين الطريق** — قاتل 5 موجات قبل الإرسال\n` +
-                            `🐫 **إرسال بدون حماية** — قد يحدث كمين مفاجئ!`
-                        );
-                    await hubMsg.edit({
-                        embeds: [choiceEmbed],
-                        components: [
-                            new ActionRowBuilder().addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`cv_escort_${destId}`)
-                                    .setLabel('🛡️ تأمين الطريق')
-                                    .setStyle(ButtonStyle.Primary),
-                                new ButtonBuilder()
-                                    .setCustomId(`cv_noprotect_${destId}`)
-                                    .setLabel('🐫 إرسال بدون حماية')
-                                    .setStyle(ButtonStyle.Secondary),
-                                new ButtonBuilder()
-                                    .setCustomId('cv_back')
-                                    .setLabel('↩️ إلغاء')
-                                    .setStyle(ButtonStyle.Danger)
-                            )
-                        ]
-                    }).catch(() => {});
-                }
-
-                else if (id === 'mkt_back') {
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    const destId = client.pendingCaravanDest?.get(sessionKey) || 'gold_city';
-                    const dest = caravanConfig.destinations.find(d => d.id === destId);
-
-                    await i.deferUpdate().catch(() => {});
-
-                    const choiceEmbed = new EmbedBuilder()
-                        .setColor(dest.color || '#FFD700')
-                        .setTitle(`${dest.emoji} الانطلاق إلى ${dest.name}`)
-                        .setDescription(
-                            `**التكلفة:** ${dest.cost.toLocaleString()} ${EMOJI_MORA}\n` +
-                            `**المدة:** ${dest.duration_hours} ساعة\n` +
-                            `**نسبة الخطر:** ${(dest.risk_factor*100).toFixed(0)}%`
-                        );
-                    await hubMsg.edit({
-                        embeds: [choiceEmbed],
-                        components: [
-                            new ActionRowBuilder().addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`cv_escort_${destId}`)
-                                    .setLabel('🛡️ تأمين الطريق')
-                                    .setStyle(ButtonStyle.Primary),
-                                new ButtonBuilder()
-                                    .setCustomId(`cv_noprotect_${destId}`)
-                                    .setLabel('🐫 إرسال بدون حماية')
-                                    .setStyle(ButtonStyle.Secondary),
-                                new ButtonBuilder()
-                                    .setCustomId('cv_back')
-                                    .setLabel('↩️ إلغاء')
-                                    .setStyle(ButtonStyle.Danger)
-                            )
-                        ]
-                    }).catch(() => {});
                 }
 
                 else if (id === 'cv_status' || id === 'cv_status_toggle') {
@@ -676,10 +586,7 @@ module.exports = {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
                     } else {
                         await i.followUp({
-                            embeds: [new EmbedBuilder()
-                                .setColor('#2ECC71')
-                                .setDescription(`✅ تمت ترقية ${result.upgCfg.emoji} **${result.upgCfg.name}** إلى مستوى **${result.newLevel}**\n💰 التكلفة: **${result.cost.toLocaleString()}** مورا`)
-                            ],
+                            content: `✅ تمت ترقية ${result.upgCfg.emoji} **${result.upgCfg.name}** إلى مستوى **${result.newLevel}**\n💰 التكلفة: **${result.cost.toLocaleString()}** مورا`,
                             flags: [MessageFlags.Ephemeral],
                         }).catch(() => {});
                     }
