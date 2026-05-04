@@ -138,26 +138,31 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         SELECT * FROM caravan_market_listings WHERE "id"=$1 AND "status"='active'
     `, [listingId]);
 
-    if (!listingRes.rows.length) return { error: 'Listing not found' };
+    if (!listingRes.rows.length) return { error: 'السلعة غير موجودة أو تم بيعها بالكامل.' };
 
     const listing = listingRes.rows[0];
     const available = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
 
-    if (quantity > available) return { error: 'Not enough stock' };
-    if (totalPrice <= 0) return { error: 'Invalid price' };
+    if (quantity > available) return { error: 'الكمية المطلوبة غير متوفرة حالياً في المتجر.' };
+    if (totalPrice <= 0) return { error: 'السعر المدخل غير صالح.' };
 
-    const buyerLevel = await safeQuery(db, `
-        SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2
-    `, [buyerId, guildId]);
+    // 👑 تجاوز فحص الرصيد إذا كان المشتري ذكاء اصطناعي (NPC) 👑
+    if (buyerType === 'player') {
+        const buyerLevel = await safeQuery(db, `
+            SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2
+        `, [buyerId, guildId]);
 
-    const buyerMora = Number(buyerLevel.rows[0]?.mora || 0);
-    if (buyerMora < totalPrice) return { error: 'Insufficient mora' };
+        const buyerMora = Number(buyerLevel.rows[0]?.mora || 0);
+        if (buyerMora < totalPrice) return { error: 'رصيدك من المورا غير كافٍ لإتمام الشراء.' };
 
-    await safeExecute(db, `
-        UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) - $1
-        WHERE "user"=$2 AND "guild"=$3
-    `, [totalPrice, buyerId, guildId]);
+        // خصم المورا من اللاعب الحقيقي فقط
+        await safeExecute(db, `
+            UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) - $1
+            WHERE "user"=$2 AND "guild"=$3
+        `, [totalPrice, buyerId, guildId]);
+    }
 
+    // إيداع الأموال لمالك القافلة في كل الحالات (سواء اشترى لاعب أو NPC)
     await safeExecute(db, `
         UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) + $1
         WHERE "user"=$2 AND "guild"=$3
@@ -187,12 +192,15 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         WHERE "caravanId" = (SELECT "caravanId" FROM caravan_market_listings WHERE "id"=$2)
     `, [totalPrice, listingId]);
 
-    await safeExecute(db, `
-        INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
-        VALUES ($1,$2,$3,$4)
-        ON CONFLICT ("guildID","userID","itemID")
-        DO UPDATE SET "quantity" = user_inventory.quantity + $4
-    `, [guildId, buyerId, itemId, quantity]);
+    // إضافة الأغراض للمخزون إذا كان المشتري لاعب حقيقي فقط
+    if (buyerType === 'player') {
+        await safeExecute(db, `
+            INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
+            VALUES ($1,$2,$3,$4)
+            ON CONFLICT ("guildID","userID","itemID")
+            DO UPDATE SET "quantity" = user_inventory.quantity + $4
+        `, [guildId, buyerId, itemId, quantity]);
+    }
 
     return { ok: true, totalPrice, remaining: available - quantity };
 }
