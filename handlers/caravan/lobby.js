@@ -1,10 +1,11 @@
 'use strict';
 
 const {
-    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
     ChannelType, ComponentType, MessageFlags, AttachmentBuilder
 } = require('discord.js');
+const { createCanvas, loadImage } = require('@napi-rs/canvas'); // 👑 استدعاء أداة الرسم
 
 const { safeQuery, safeExecute } = require('./db');
 const { caravanConfig } = require('./config');
@@ -13,9 +14,7 @@ const { manageTickets } = require('../dungeon/utils.js');
 let _generateLobbyImage = null;
 try {
     ({ generateLobbyImage: _generateLobbyImage } = require('../../generators/caravan/lobby-generator'));
-} catch(e) {
-    console.warn('[Lobby] Image generator not found, will fallback to embed.');
-}
+} catch(e) {}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LOBBY_TIMEOUT_MS = 5 * 60 * 1000;
@@ -40,7 +39,49 @@ async function consumeGuardTicket(db, userId, guildId, member = null) {
     return r.success === true;
 }
 
-// ─── Lobby Payload (Image or Embed) ──────────────────────────────────────────
+// ─── Image Generators ─────────────────────────────────────────────────────────
+
+// 👑 1. مولد صورة إشعار الكمين (طلب الفزعة) بديل الإمبيد
+async function generateAmbushAlertImage(dest) {
+    const canvas = createCanvas(800, 360);
+    const ctx = canvas.getContext('2d');
+    
+    try {
+        const bg = await loadImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_ambush.jpg');
+        ctx.drawImage(bg, 0, 0, 800, 360);
+    } catch(e) {
+        ctx.fillStyle = '#1c1c1e';
+        ctx.fillRect(0, 0, 800, 360);
+    }
+    
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(0, 0, 800, 360);
+    
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    
+    ctx.fillStyle = '#E74C3C';
+    ctx.font = 'bold 40px "sans-serif"';
+    ctx.fillText('⚔️ تحذير — قافلتك تتعرض لكمين!', 760, 30);
+    
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 28px "sans-serif"';
+    ctx.fillText(`🗺️ الوجهة: ${dest.name}`, 760, 100);
+    
+    ctx.fillStyle = '#BDC3C7';
+    ctx.font = '24px "sans-serif"';
+    ctx.fillText('قطاع الطرق يهاجمون قافلتك الآن! تحتاج إلى حراس للنجاة.', 760, 150);
+    
+    ctx.fillStyle = '#3498DB';
+    ctx.fillText('🛡️ [طلب فزعة] — قاتل 5 موجات لإنقاذ بضاعتك (تذكرة للحراس)', 760, 220);
+    
+    ctx.fillStyle = '#E67E22';
+    ctx.fillText('💰 [دفع رشوة] — استسلم وادفع للنجاة بـ 15% فقط من المكافآت', 760, 270);
+    
+    return canvas.toBuffer('image/png');
+}
+
+// 👑 2. محول اللوبي لصورة 
 async function buildLobbyPayload(hostId, party, partyClasses, destConfig, isAmbush, guild) {
     if (_generateLobbyImage) {
         try {
@@ -48,32 +89,9 @@ async function buildLobbyPayload(hostId, party, partyClasses, destConfig, isAmbu
             if (buffer) {
                 return { files: [new AttachmentBuilder(buffer, { name: 'caravan_lobby.png' })], embeds: [] };
             }
-        } catch (e) { console.error('Lobby Image Error:', e); }
+        } catch (e) {}
     }
-
-    const CLASS_MAP = {
-        Leader: '👑 قائد', Tank: '🛡️ طليعة',
-        Priest: '✨ كاهن', Mage: '🔮 ساحر', Summoner: '🐺 مستدعٍ',
-    };
-    const memberList = party.map((id, i) =>
-        `\`${i + 1}.\` <@${id}> — **${CLASS_MAP[partyClasses.get(id)] || '?'}**`
-    ).join('\n');
-
-    const title = isAmbush
-        ? '⚔️ لوبي الدفاع عن القافلة!'
-        : `🛡️ لوبي تأمين القافلة — ${destConfig?.emoji || ''} ${destConfig?.name || ''}`;
-
-    const embed = new EmbedBuilder()
-        .setColor(isAmbush ? '#FF6600' : '#FFD700')
-        .setTitle(title)
-        .setDescription(
-            `القائد: <@${hostId}>\n` +
-            `📜 قاتلوا **5 موجات** لحماية القافلة!\n\n` +
-            `🎟️ **كل حارس (غير المالك) يدفع تذكرة زنزانة واحدة عند الانضمام**\n\n` +
-            `👥 **الفريق (${party.length}/${MAX_PARTY}):**\n${memberList}`
-        );
-
-    return { embeds: [embed], files: [] };
+    return { content: `⚠️ جاري إعداد اللوبي... (تعذر رسم الصورة)`, embeds: [], files: [] };
 }
 
 // ─── Shared Lobby Runner ──────────────────────────────────────────────────────
@@ -180,11 +198,11 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
     });
 
     if (stopReason !== 'start') {
-        await msg.edit({ content: '❌ اللوبي انتهى أو أُلغي.', embeds: [], components: [], files: [] }).catch(() => {});
+        await msg.edit({ content: '❌ اللوبي انتهى أو أُلغي.', embeds: [], files: [], components: [] }).catch(() => {});
         return { ready: false, cancelled: stopReason === 'cancel', party, partyClasses };
     }
 
-    await msg.edit({ content: '✅ الفريق جاهز! جاري فتح ساحة المعركة...', embeds: [], components: [], files: [] }).catch(() => {});
+    await msg.edit({ content: '✅ الفريق جاهز! جاري فتح ساحة المعركة...', embeds: [], files: [], components: [] }).catch(() => {});
 
     let thread;
     try {
@@ -237,24 +255,14 @@ async function sendAmbushNotification(client, db, caravan) {
     const channel = guild?.channels.cache.get(casinoId);
     if (!channel) return;
 
-    const alertEmbed = new EmbedBuilder()
-        .setColor('#FF4444')
-        .setTitle('⚔️ تحذير — قافلتك تتعرض للكمين!')
-        .setDescription(
-            `<@${userId}>\n\n` +
-            `🗺️ **الوجهة:** ${dest.emoji} ${dest.name}\n\n` +
-            `قطاع الطرق يكمنون لقافلتك الآن!\n\n` +
-            `🛡️ **طلب فزعة** — قاتل 5 موجات وأنقذ البضاعة كاملةً\n` +
-            `*(كل حارس يدفع تذكرة زنزانة واحدة)*\n\n` +
-            `💰 **دفع رشوة** — احتفظ بـ**15%** فقط من المكافآت\n\n` +
-            `⏳ لديك **30 دقيقة** للرد — وإلا ستُدمَّر القافلة!`
-        )
-        .setTimestamp();
+    // 👑 توليد صورة طلب الفزعة (الكمين) بدون إمبيد 👑
+    const buffer = await generateAmbushAlertImage(dest);
+    const attachment = new AttachmentBuilder(buffer, { name: 'ambush_alert.png' });
 
     const initialRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(`cv_amb_guard_${caravanId}`)
-            .setLabel('🛡️ طلب فزعة')
+            .setLabel('🛡️حمايـة القافلـة')
             .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
             .setCustomId(`cv_amb_bribe_${caravanId}`)
@@ -264,7 +272,12 @@ async function sendAmbushNotification(client, db, caravan) {
 
     let attackMsg;
     try {
-        attackMsg = await channel.send({ content: `<@${userId}>`, embeds: [alertEmbed], components: [initialRow] });
+        attackMsg = await channel.send({ 
+            content: `🚨 <@${userId}> **القافلة تتعرض لكمين! لديك 30 دقيقة للرد!**`, 
+            files: [attachment], 
+            embeds: [],
+            components: [initialRow] 
+        });
     } catch { return; }
 
     await safeExecute(db,
@@ -291,7 +304,7 @@ async function sendAmbushNotification(client, db, caravan) {
                 [caravanId]);
             await attackMsg.edit({
                 content: `💰 <@${userId}> دفعت الرشوة! ستصل قافلتك بـ **15%** فقط من المكافآت.`,
-                embeds: [], components: [],
+                embeds: [], files: [], components: [],
             }).catch(() => {});
             collector.stop('bribed');
             return;
@@ -299,12 +312,8 @@ async function sendAmbushNotification(client, db, caravan) {
 
         await interaction.deferUpdate().catch(() => {});
         await attackMsg.edit({
-            embeds: [new EmbedBuilder()
-                .setColor('#FFA500')
-                .setTitle('🛡️ جاري تنظيم الحراسة...')
-                .setDescription(`<@${userId}> طلب الفزعة!\nاجتمع الحراس لصدّ القطاع — **التذكرة مطلوبة للانضمام**`)
-            ],
-            components: [],
+            content: `🛡️ <@${userId}> طلب الفزعة!\nجاري تنظيم الحراسة... `,
+            embeds: [], files: [], components: [],
         }).catch(() => {});
 
         const lobbyResult = await _runLobby(channel, userId, guild, db, dest, {
@@ -342,7 +351,7 @@ async function sendAmbushNotification(client, db, caravan) {
         await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1 AND "attackResolved"=0`, [caravanId]);
         await attackMsg.edit({
             content: `💀 <@${userId}> انتهت المهلة! قطاع الطرق دمروا قافلتك.`,
-            embeds: [], components: [],
+            embeds: [], files: [], components: [],
         }).catch(() => {});
     });
 }
