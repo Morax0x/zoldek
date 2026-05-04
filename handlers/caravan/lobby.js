@@ -3,12 +3,19 @@
 const {
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
-    ChannelType, ComponentType, MessageFlags,
+    ChannelType, ComponentType, MessageFlags, AttachmentBuilder
 } = require('discord.js');
 
 const { safeQuery, safeExecute } = require('./db');
 const { caravanConfig } = require('./config');
 const { manageTickets } = require('../dungeon/utils.js');
+
+let _generateLobbyImage = null;
+try {
+    ({ generateLobbyImage: _generateLobbyImage } = require('../../generators/caravan/lobby-generator'));
+} catch(e) {
+    console.warn('[Lobby] Image generator not found, will fallback to embed.');
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LOBBY_TIMEOUT_MS = 5 * 60 * 1000;
@@ -33,8 +40,17 @@ async function consumeGuardTicket(db, userId, guildId, member = null) {
     return r.success === true;
 }
 
-// ─── Lobby Embed ──────────────────────────────────────────────────────────────
-function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush = false) {
+// ─── Lobby Payload (Image or Embed) ──────────────────────────────────────────
+async function buildLobbyPayload(hostId, party, partyClasses, destConfig, isAmbush, guild) {
+    if (_generateLobbyImage) {
+        try {
+            const buffer = await _generateLobbyImage(hostId, party, partyClasses, destConfig, isAmbush, guild);
+            if (buffer) {
+                return { files: [new AttachmentBuilder(buffer, { name: 'caravan_lobby.png' })], embeds: [] };
+            }
+        } catch (e) { console.error('Lobby Image Error:', e); }
+    }
+
     const CLASS_MAP = {
         Leader: '👑 قائد', Tank: '🛡️ طليعة',
         Priest: '✨ كاهن', Mage: '🔮 ساحر', Summoner: '🐺 مستدعٍ',
@@ -47,7 +63,7 @@ function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush = fal
         ? '⚔️ لوبي الدفاع عن القافلة!'
         : `🛡️ لوبي تأمين القافلة — ${destConfig?.emoji || ''} ${destConfig?.name || ''}`;
 
-    return new EmbedBuilder()
+    const embed = new EmbedBuilder()
         .setColor(isAmbush ? '#FF6600' : '#FFD700')
         .setTitle(title)
         .setDescription(
@@ -56,6 +72,8 @@ function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush = fal
             `🎟️ **كل حارس (غير المالك) يدفع تذكرة زنزانة واحدة عند الانضمام**\n\n` +
             `👥 **الفريق (${party.length}/${MAX_PARTY}):**\n${memberList}`
         );
+
+    return { embeds: [embed], files: [] };
 }
 
 // ─── Shared Lobby Runner ──────────────────────────────────────────────────────
@@ -70,9 +88,11 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
         new ButtonBuilder().setCustomId(cancelId).setLabel('إلغاء').setStyle(ButtonStyle.Danger).setEmoji('✖️')
     );
 
+    const payload = await buildLobbyPayload(hostId, party, partyClasses, destConfig, isAmbush, guild);
+
     const msg = await channel.send({
         content: `<@${hostId}>`,
-        embeds: [buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush)],
+        ...payload,
         components: [lobbyButtons()],
     }).catch(() => null);
     if (!msg) return { ready: false, cancelled: true };
@@ -138,7 +158,9 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
                     partyClasses.set(i.user.id, chosen);
                     party.push(i.user.id);
                     await sel.editReply({ content: `✅ انضممت كـ **${chosen}** — خُصمت تذكرة زنزانة.`, components: [] }).catch(() => {});
-                    await msg.edit({ embeds: [buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush)] }).catch(() => {});
+                    
+                    const updatePayload = await buildLobbyPayload(hostId, party, partyClasses, destConfig, isAmbush, guild);
+                    await msg.edit({ ...updatePayload }).catch(() => {});
 
                 } else if (i.customId === startId) {
                     if (i.user.id !== hostId)
@@ -158,11 +180,11 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
     });
 
     if (stopReason !== 'start') {
-        await msg.edit({ content: '❌ اللوبي انتهى أو أُلغي.', embeds: [], components: [] }).catch(() => {});
+        await msg.edit({ content: '❌ اللوبي انتهى أو أُلغي.', embeds: [], components: [], files: [] }).catch(() => {});
         return { ready: false, cancelled: stopReason === 'cancel', party, partyClasses };
     }
 
-    await msg.edit({ content: '✅ الفريق جاهز! جاري فتح ساحة المعركة...', embeds: [], components: [] }).catch(() => {});
+    await msg.edit({ content: '✅ الفريق جاهز! جاري فتح ساحة المعركة...', embeds: [], components: [], files: [] }).catch(() => {});
 
     let thread;
     try {
@@ -328,7 +350,7 @@ async function sendAmbushNotification(client, db, caravan) {
 module.exports = {
     startEscortLobby,
     sendAmbushNotification,
-    buildLobbyEmbed,
+    buildLobbyPayload,
     CLASS_OPTIONS,
     LOBBY_TIMEOUT_MS,
     AMBUSH_WINDOW_MS,
