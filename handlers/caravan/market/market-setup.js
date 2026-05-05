@@ -14,11 +14,11 @@ const path = require('path');
 const shopItems = require(path.join(process.cwd(), 'json', 'shop-items.json'));
 
 const RARITY_AR = {
-    'Common': '\u0639\u0627\u062f\u064a',
-    'Uncommon': '\u0634\u0627\u0626\u0639',
-    'Rare': '\u0646\u0627\u062f\u0631',
-    'Epic': '\u0645\u0644\u062d\u0645\u064a',
-    'Legendary': '\u0623\u0633\u0637\u0648\u0631\u064a'
+    'Common': 'عادي',
+    'Uncommon': 'شائع',
+    'Rare': 'نادر',
+    'Epic': 'ملحمي',
+    'Legendary': 'أسطوري'
 };
 
 const ITEM_DICT = new Map();
@@ -48,7 +48,7 @@ function buildItemDict() {
 buildItemDict();
 
 function getItemInfo(id) {
-    return ITEM_DICT.get(id) || { name: id.replace(/_/g, ' '), emoji: '\ud83d\udce6', rarity: 'Common' };
+    return ITEM_DICT.get(id) || { name: id.replace(/_/g, ' '), emoji: '📦', rarity: 'Common' };
 }
 
 function getMarketListingsCache(client, userId, guildId) {
@@ -65,11 +65,11 @@ async function buildMarketSetupEmbed(user, listings, inventoryCount, dest) {
 
     const embed = new EmbedBuilder()
         .setColor(dest?.color || '#FFD700')
-        .setTitle('\ud83c\udfea \u0633\u0648\u0642 \u0627\u0644\u0642\u0627\u0641\u0644\u0629 \u2014 \u062a\u062d\u0636\u064a\u0631 \u0627\u0644\u0628\u0636\u0627\u0626\u0639')
+        .setTitle('🏪 سوق القافلة — تحضير البضائع')
         .setDescription(
-            `\u0623\u0636\u0641 \u0639\u0646\u0627\u0635\u0631 \u0645\u0646 \u0645\u062e\u0632\u0648\u0646\u0643 \u0644\u0628\u064a\u0639\u0647\u0627 \u0641\u064a \u0633\u0648\u0642 \u0627\u0644\u0642\u0627\u0641\u0644\u0629 \u0639\u0646\u062f \u0627\u0644\u0648\u0635\u0648\u0644.\n` +
-            `\ud83d\udce6 \u0639\u0646\u0627\u0635\u0631 \u0641\u064a \u0627\u0644\u0645\u062e\u0632\u0648\u0646: **${inventoryCount}**\n` +
-            `\ud83d\udcb0 \u0627\u0644\u0642\u064a\u0645\u0629 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a\u0629: **${totalValue.toLocaleString()}** ${EMOJI_MORA}`
+            `أضف عناصر من مخزونك لبيعها في سوق القافلة عند الوصول.\n` +
+            `📦 عناصر في المخزون: **${inventoryCount}**\n` +
+            `💰 القيمة الإجمالية: **${totalValue.toLocaleString()}** ${EMOJI_MORA}`
         );
 
     if (listings.length > 0) {
@@ -77,16 +77,16 @@ async function buildMarketSetupEmbed(user, listings, inventoryCount, dest) {
             const info = getItemInfo(l.itemId);
             const rarityTxt = info.rarity ? `[${RARITY_AR[info.rarity] || info.rarity}] ` : '';
             return {
-                name: `${i + 1}. ${info.emoji || '\ud83d\udce6'} ${info.name} ${rarityTxt}`,
-                value: `\u0627\u0644\u0643\u0645\u064a\u0629: **${l.quantity}** | \u0627\u0644\u0633\u0639\u0631: **${l.pricePerUnit.toLocaleString()}** ${EMOJI_MORA}/\u0648\u0627\u062d\u062f\u0629`,
+                name: `${i + 1}. ${info.emoji || '📦'} ${info.name} ${rarityTxt}`,
+                value: `الكمية: **${l.quantity}** | السعر: **${l.pricePerUnit.toLocaleString()}** ${EMOJI_MORA}/واحدة`,
                 inline: false,
             };
         });
         embed.addFields(fields);
     } else {
         embed.addFields({
-            name: '\u0644\u0627 \u062a\u0648\u062c\u062f \u0628\u0636\u0627\u0626\u0639 \u062d\u0627\u0644\u064a\u0627\u064b',
-            value: '\u0627\u062e\u062a\u0631 \u0639\u0646\u0627\u0635\u0631 \u0645\u0646 \u0627\u0644\u0642\u0627\u0626\u0645\u0629 \u0623\u062f\u0646\u0627\u0647 \u0644\u0625\u0636\u0627\u0641\u062a\u0647\u0627.',
+            name: 'لا توجد بضائع حالياً',
+            value: 'اختر عناصر من القائمة أدناه لإضافتها.',
             inline: false,
         });
     }
@@ -125,8 +125,8 @@ async function showMarketSetup(interaction, client, db, user, guild, dest) {
         return {
             label: `${info.name?.substring(0, 25) || item.itemId}`,
             value: item.itemId,
-            description: `${rarityTxt}\u0627\u0644\u0645\u062a\u0648\u0641\u0631: ${item.quantity}`,
-            emoji: info.emoji || '\ud83d\udce6',
+            description: `${rarityTxt}المتوفر: ${item.quantity}`,
+            emoji: info.emoji || '📦',
         };
     });
 
@@ -137,7 +137,7 @@ async function showMarketSetup(interaction, client, db, user, guild, dest) {
             new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
                     .setCustomId('mkt_add_item')
-                    .setPlaceholder('\u2795 \u0627\u062e\u062a\u0631 \u0639\u0646\u0635\u0631\u0627\u064b \u0644\u0625\u0636\u0627\u0641\u062a\u0647 \u0625\u0644\u0649 \u0627\u0644\u0633\u0648\u0642...')
+                    .setPlaceholder('➕ اختر عنصراً لإضافته إلى السوق...')
                     .addOptions(options)
             )
         );
@@ -149,15 +149,15 @@ async function showMarketSetup(interaction, client, db, user, guild, dest) {
             return {
                 label: `${info.name?.substring(0, 25) || l.itemId} (x${l.quantity})`,
                 value: String(i),
-                description: `${l.pricePerUnit.toLocaleString()} ${EMOJI_MORA}/\u0648\u0627\u062d\u062f\u0629`,
-                emoji: info.emoji || '\ud83d\udce6',
+                description: `${l.pricePerUnit.toLocaleString()} ${EMOJI_MORA}/واحدة`,
+                emoji: info.emoji || '📦',
             };
         });
         components.push(
             new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
                     .setCustomId('mkt_remove_item')
-                    .setPlaceholder('\u2796 \u0627\u062e\u062a\u0631 \u0639\u0646\u0635\u0631\u0627\u064b \u0644\u0625\u0632\u0627\u0644\u062a\u0647 \u0645\u0646 \u0627\u0644\u0633\u0648\u0642...')
+                    .setPlaceholder('➖ اختر عنصراً لإزالته من السوق...')
                     .addOptions(removeOptions)
             )
         );
@@ -167,16 +167,16 @@ async function showMarketSetup(interaction, client, db, user, guild, dest) {
         new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('mkt_launch')
-                .setLabel('\ud83d\ude80 \u0625\u0637\u0644\u0627\u0642 \u0627\u0644\u0642\u0627\u0641\u0644\u0629 (\u0645\u0639 \u0627\u0644\u0633\u0648\u0642)')
+                .setLabel('🚀 إطلاق القافلة (مع السوق)')
                 .setStyle(ButtonStyle.Success)
                 .setDisabled(listings.length === 0),
             new ButtonBuilder()
                 .setCustomId('mkt_skip')
-                .setLabel('\u23ed\uFE0F \u062a\u062e\u0637\u064a \u0627\u0644\u0633\u0648\u0642 (\u0625\u0631\u0633\u0627\u0644 \u0639\u0627\u062f\u064a)')
+                .setLabel('⏭️ تخطي السوق (إرسال عادي)')
                 .setStyle(ButtonStyle.Secondary),
             new ButtonBuilder()
                 .setCustomId('mkt_back')
-                .setLabel('\u21a9\uFE0F \u0631\u062c\u0648\u0639')
+                .setLabel('↩️ رجوع')
                 .setStyle(ButtonStyle.Danger)
         )
     );
@@ -186,40 +186,45 @@ async function showMarketSetup(interaction, client, db, user, guild, dest) {
 }
 
 async function handleAddItemSelect(interaction, client, db, user, guild, dest) {
-    const itemId = interaction.values[0];
-    const info = getItemInfo(itemId);
+    try {
+        const itemId = interaction.values[0];
+        const info = getItemInfo(itemId);
 
-    const inventory = await fetchUserInventory(db, user.id, guild.id);
-    const invItem = inventory.find(i => i.itemId === itemId);
+        const inventory = await fetchUserInventory(db, user.id, guild.id);
+        const invItem = inventory.find(i => i.itemId === itemId);
 
-    if (!invItem || invItem.quantity <= 0) {
-        return interaction.followUp({ content: '\u274c \u0644\u0627 \u062a\u0645\u0644\u0643 \u0647\u0630\u0627 \u0627\u0644\u0639\u0646\u0635\u0631.', flags: [MessageFlags.Ephemeral] });
+        if (!invItem || invItem.quantity <= 0) {
+            return await interaction.followUp({ content: '❌ لا تملك هذا العنصر.', flags: [MessageFlags.Ephemeral] });
+        }
+
+        const modal = new ModalBuilder()
+            .setCustomId(`mkt_price_modal_${itemId}`)
+            .setTitle(`تسعير: ${info.name}`.substring(0, 45)); // حماية الطول
+
+        // 👑 إزالة الإيموجيات المخصصة لمنع انهيار الديسكورد 👑
+        const qtyInput = new TextInputBuilder()
+            .setCustomId('mkt_qty')
+            .setLabel(`الكمية (لديك ${invItem.quantity})`.substring(0, 45)) 
+            .setPlaceholder('أدخل عدد الوحدات للبيع')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        const priceInput = new TextInputBuilder()
+            .setCustomId('mkt_price')
+            .setLabel(`السعر لكل واحدة (بالمورا)`) // نص نظيف بدون إيموجيات
+            .setPlaceholder('أدخل السعر بالمورا')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(qtyInput),
+            new ActionRowBuilder().addComponents(priceInput)
+        );
+
+        await interaction.showModal(modal);
+    } catch (err) {
+        console.error('[Market Setup Error]', err);
     }
-
-    const modal = new ModalBuilder()
-        .setCustomId(`mkt_price_modal_${itemId}`)
-        .setTitle(`\u062a\u0633\u0639\u064a\u0631: ${info.name}`);
-
-    const qtyInput = new TextInputBuilder()
-        .setCustomId('mkt_qty')
-        .setLabel(`\u0627\u0644\u0643\u0645\u064a\u0629 (\u0627\u0644\u0645\u062a\u0648\u0641\u0631: ${invItem.quantity})`)
-        .setPlaceholder('\u0623\u062f\u062e\u0644 \u0639\u062f\u062f \u0627\u0644\u0648\u062d\u062f\u0627\u062a \u0644\u0644\u0628\u064a\u0639')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-    const priceInput = new TextInputBuilder()
-        .setCustomId('mkt_price')
-        .setLabel(`\u0627\u0644\u0633\u0639\u0631 \u0644\u0643\u0644 \u0648\u0627\u062d\u062f\u0629 (${EMOJI_MORA})`)
-        .setPlaceholder('\u0623\u062f\u062e\u0644 \u0627\u0644\u0633\u0639\u0631 \u0628\u0627\u0644\u0645\u0648\u0631\u0627')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-    modal.addComponents(
-        new ActionRowBuilder().addComponents(qtyInput),
-        new ActionRowBuilder().addComponents(priceInput)
-    );
-
-    await interaction.showModal(modal);
 }
 
 async function handlePriceModalSubmit(modalSubmit, client, db, user, guild, dest) {
@@ -231,40 +236,40 @@ async function handlePriceModalSubmit(modalSubmit, client, db, user, guild, dest
     const price = parseInt(priceStr);
 
     if (isNaN(qty) || qty < 1) {
-        return modalSubmit.followUp({ content: '\u274c \u0643\u0645\u064a\u0629 \u063a\u064a\u0631 \u0635\u0627\u0644\u062d\u0629.', flags: [MessageFlags.Ephemeral] });
+        return modalSubmit.followUp({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
     }
 
     if (isNaN(price) || price < 1) {
-        return modalSubmit.followUp({ content: '\u274c \u0633\u0639\u0631 \u063a\u064a\u0631 \u0635\u0627\u0644\u062d. \u064a\u062c\u0628 \u0623\u0646 \u064a\u0643\u0648\u0646 \u0623\u0639\u0644\u0649 \u0645\u0646 0.', flags: [MessageFlags.Ephemeral] });
+        return modalSubmit.followUp({ content: '❌ سعر غير صالح. يجب أن يكون أعلى من 0.', flags: [MessageFlags.Ephemeral] });
     }
 
     if (price > 999999999) {
-        return modalSubmit.followUp({ content: '\u274c \u0627\u0644\u0633\u0639\u0631 \u0627\u0644\u0642\u0635\u0648\u0649 \u0647\u0648 999,999,999 \u0645\u0648\u0631\u0627.', flags: [MessageFlags.Ephemeral] });
+        return modalSubmit.followUp({ content: '❌ السعر الأقصى هو 999,999,999 مورا.', flags: [MessageFlags.Ephemeral] });
     }
 
     const inventory = await fetchUserInventory(db, user.id, guild.id);
     const invItem = inventory.find(i => i.itemId === itemId);
 
     if (!invItem || qty > invItem.quantity) {
-        return modalSubmit.followUp({ content: `\u274c \u0643\u0645\u064a\u0629 \u063a\u064a\u0631 \u0645\u062a\u0648\u0641\u0631\u0629. \u0644\u062f\u064a\u0643 **${invItem?.quantity || 0}** \u0641\u0642\u0637.`, flags: [MessageFlags.Ephemeral] });
+        return modalSubmit.followUp({ content: `❌ كمية غير متوفرة. لديك **${invItem?.quantity || 0}** فقط.`, flags: [MessageFlags.Ephemeral] });
     }
 
     const listings = getMarketListingsCache(client, user.id, guild.id);
 
     const existing = listings.find(l => l.itemId === itemId);
     if (existing) {
-        return modalSubmit.followUp({ content: '\u274c \u0647\u0630\u0627 \u0627\u0644\u0639\u0646\u0635\u0631 \u0645\u0636\u0627\u0641 \u0628\u0627\u0644\u0641\u0639\u0644. \u0623\u0632\u0644\u0647 \u0623\u0648\u0644\u0627\u064b.', flags: [MessageFlags.Ephemeral] });
+        return modalSubmit.followUp({ content: '❌ هذا العنصر مضاف بالفعل. أزله أولاً.', flags: [MessageFlags.Ephemeral] });
     }
 
     if (listings.length >= 10) {
-        return modalSubmit.followUp({ content: '\u274c \u0627\u0644\u062d\u062f \u0627\u0644\u0623\u0642\u0635\u0649 10 \u0639\u0646\u0627\u0635\u0631 \u0641\u064a \u0627\u0644\u0633\u0648\u0642.', flags: [MessageFlags.Ephemeral] });
+        return modalSubmit.followUp({ content: '❌ الحد الأقصى 10 عناصر في السوق.', flags: [MessageFlags.Ephemeral] });
     }
 
     const info = getItemInfo(itemId);
     listings.push({
         itemId,
         itemName: info.name,
-        itemEmoji: info.emoji || '\ud83d\udce6',
+        itemEmoji: info.emoji || '📦',
         quantity: qty,
         pricePerUnit: price,
     });
@@ -296,8 +301,8 @@ async function handleRemoveItemSelect(interaction, client, db, user, guild, dest
         return {
             label: `${info.name?.substring(0, 25) || item.itemId}`,
             value: item.itemId,
-            description: `${rarityTxt}\u0627\u0644\u0645\u062a\u0648\u0641\u0631: ${item.quantity}`,
-            emoji: info.emoji || '\ud83d\udce6',
+            description: `${rarityTxt}المتوفر: ${item.quantity}`,
+            emoji: info.emoji || '📦',
         };
     });
 
@@ -308,7 +313,7 @@ async function handleRemoveItemSelect(interaction, client, db, user, guild, dest
             new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
                     .setCustomId('mkt_add_item')
-                    .setPlaceholder('\u2795 \u0627\u062e\u062a\u0631 \u0639\u0646\u0635\u0631\u0627\u064b \u0644\u0625\u0636\u0627\u0641\u062a\u0647 \u0625\u0644\u0649 \u0627\u0644\u0633\u0648\u0642...')
+                    .setPlaceholder('➕ اختر عنصراً لإضافته إلى السوق...')
                     .addOptions(options)
             )
         );
@@ -320,15 +325,15 @@ async function handleRemoveItemSelect(interaction, client, db, user, guild, dest
             return {
                 label: `${info.name?.substring(0, 25) || l.itemId} (x${l.quantity})`,
                 value: String(i),
-                description: `${l.pricePerUnit.toLocaleString()} ${EMOJI_MORA}/\u0648\u0627\u062d\u062f\u0629`,
-                emoji: info.emoji || '\ud83d\udce6',
+                description: `${l.pricePerUnit.toLocaleString()} ${EMOJI_MORA}/واحدة`,
+                emoji: info.emoji || '📦',
             };
         });
         components.push(
             new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
                     .setCustomId('mkt_remove_item')
-                    .setPlaceholder('\u2796 \u0627\u062e\u062a\u0631 \u0639\u0646\u0635\u0631\u0627\u064b \u0644\u0625\u0632\u0627\u0644\u062a\u0647 \u0645\u0646 \u0627\u0644\u0633\u0648\u0642...')
+                    .setPlaceholder('➖ اختر عنصراً لإزالته من السوق...')
                     .addOptions(removeOptions)
             )
         );
@@ -338,16 +343,16 @@ async function handleRemoveItemSelect(interaction, client, db, user, guild, dest
         new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('mkt_launch')
-                .setLabel('\ud83d\ude80 \u0625\u0637\u0644\u0627\u0642 \u0627\u0644\u0642\u0627\u0641\u0644\u0629 (\u0645\u0639 \u0627\u0644\u0633\u0648\u0642)')
+                .setLabel('🚀 إطلاق القافلة (مع السوق)')
                 .setStyle(ButtonStyle.Success)
                 .setDisabled(listings.length === 0),
             new ButtonBuilder()
                 .setCustomId('mkt_skip')
-                .setLabel('\u23ed\uFE0F \u062a\u062e\u0637\u064a \u0627\u0644\u0633\u0648\u0642 (\u0625\u0631\u0633\u0627\u0644 \u0639\u0627\u062f\u064a)')
+                .setLabel('⏭️ تخطي السوق (إرسال عادي)')
                 .setStyle(ButtonStyle.Secondary),
             new ButtonBuilder()
                 .setCustomId('mkt_back')
-                .setLabel('\u21a9\uFE0F \u0631\u062c\u0648\u0639')
+                .setLabel('↩️ رجوع')
                 .setStyle(ButtonStyle.Danger)
         )
     );
