@@ -12,7 +12,9 @@ const {
     getNpcSpawnCount,
 } = require('./market-db');
 const { getItemInfo } = require('./market-setup');
-const { buildMarketEmbed, buildMarketComponents } = require('./market-ui');
+
+// 👑 استدعاء نظام التحديث بالصور بدال القديم 👑
+const { updateMarketMessage } = require('./market-ui');
 
 const NpcConversations = new Map();
 
@@ -124,7 +126,6 @@ ${listingsContext}
     if (!response) return null;
 
     try {
-        // حماية من الهلوسة لو الـ AI رجع نص قبل الـ JSON
         const jsonMatch = response.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             return JSON.parse(jsonMatch[0]);
@@ -151,7 +152,6 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
         return `- ${info.name} (رقم السلعة: ${l.id}): متوفر ${avail} حبة | السعر المعروض: ${price} مورا`;
     }).join('\n');
 
-    // تذكر آخر 4 رسائل عشان يفهم السياق
     const lastExchange = conv.history.slice(-4).map(e => `${e.role === 'assistant' ? conv.name : 'البائع'}: ${e.content}`).join('\n');
 
     const systemPrompt = `
@@ -181,12 +181,11 @@ ${listingsContext}
     const action = parseNpcAction(response);
     const cleanMessage = response.replace(/\[BUY_ITEM:.*?\]/g, '').replace(/\[LEAVE\]/g, '').trim();
 
-    // 👑 تنفيذ عملية الشراء 👑
     if (action?.action === 'buy') {
         const listing = availableListings.find(l => l.id === action.listingId);
         if (!listing) return { message: cleanMessage || 'أردت الشراء لكن السلعة اختفت!', action: null };
 
-        const npcMoraBudget = 20000 + Math.floor(Math.random() * 300000); // ميزانية عشوائية ذكية
+        const npcMoraBudget = 20000 + Math.floor(Math.random() * 300000); 
         const totalPrice = action.quantity * action.offeredPrice;
 
         if (totalPrice > npcMoraBudget) {
@@ -214,11 +213,11 @@ ${listingsContext}
     return { message: cleanMessage, action };
 }
 
-// 👑 إطلاق الـ NPC في السوق 👑
+// 👑 إطلاق الـ NPC في السوق مع المنشن 👑
 async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
     try {
         const npcSpawnCount = await getNpcSpawnCount(db, thread.id);
-        if (npcSpawnCount >= 3) return; // حد أقصى 3 زوار في الرحلة الواحدة
+        if (npcSpawnCount >= 3) return; 
 
         const listings = await getListingsBySession(db, thread.id);
         const availableListings = listings.filter(l => {
@@ -237,7 +236,6 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             return `- ${info.name} (رقم السلعة: ${l.id}): متوفر ${avail} حبة | السعر المعروض: ${price} مورا`;
         }).join('\n');
 
-        // إنشاء الشخصية بذكاء
         const npcData = await generateDynamicNPC(destName, listingsContext);
         if (!npcData || !npcData.name) return;
 
@@ -258,12 +256,14 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             active: true,
         });
 
+        // 👑 وضع المنشن مع الإشعار 👑
         const npcMsg = await thread.send({
+            content: `يا <@${ownerId}>، هنالك مشترٍ يريد التحدث معك! 🔔`,
             embeds: [new EmbedBuilder()
                 .setColor('#9B59B6')
                 .setTitle(`${npcData.emoji} زائر يقترب من بضاعتك: ${npcData.name}`)
                 .setDescription(`**${npcData.name}:** "${npcData.message}"`)
-                .setFooter({ text: 'استخدم زر المفاوضة للرد عليه أو الموافقة على عرضه' })]
+                .setFooter({ text: 'استخدم زر المفاوضة للرد عليه أو طرده' })]
         }).catch(() => null);
 
         if (!npcMsg) return;
@@ -302,7 +302,6 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
                     return i.reply({ content: '❌ لقد غادر هذا المشتري.', flags: [MessageFlags.Ephemeral] });
                 }
 
-                // 👑 المودل الاحترافي للمحادثة 👑
                 const modal = new ModalBuilder()
                     .setCustomId(`mkt_npc_modal_${convId}`)
                     .setTitle(`التحدث مع: ${npcData.name}`.substring(0, 45));
@@ -325,8 +324,6 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
 }
 
 // 👑 التقاط ردود المودل من ملف التفاعل الرئيسي 👑
-// يجب دمج هذه الدالة في Interaction Create إذا كان ممكناً، أو يمكننا التقاطها هنا عبر awaitModalSubmit
-// وبما أننا داخل بيئة Discord.js، يمكننا الاستماع لها عبر Client، ولكن الأفضل توفير دالة تصدير
 async function handleNpcModalSubmit(interaction, client, db) {
     if (!interaction.customId.startsWith('mkt_npc_modal_')) return false;
 
@@ -345,7 +342,6 @@ async function handleNpcModalSubmit(interaction, client, db) {
 
     const thread = interaction.channel;
     
-    // رسالة تفكير البوت
     const thinkingMsg = await thread.send({
         embeds: [new EmbedBuilder().setColor('#3498DB').setDescription(`💭 **${conv.name}** يقرأ كلامك ويفكر...`)]
     }).catch(()=>{});
@@ -371,13 +367,11 @@ async function handleNpcModalSubmit(interaction, client, db) {
             .setDescription(`**${conv.name}:** "${result.message}"`)]
     }).catch(() => {});
 
-    // إذا قرر يرحل
     if (result.action?.action === 'leave') {
         await thread.send(`🏃 غادر **${conv.name}** السوق.`).catch(()=>{});
         conv.active = false;
     }
 
-    // إذا تمت الصفقة
     else if (result.action?.type === 'purchase') {
         const a = result.action;
         const purchaseResult = await buyItem(
@@ -402,10 +396,8 @@ async function handleNpcModalSubmit(interaction, client, db) {
             const session = await getSessionByThread(db, thread.id);
             const dest = caravanConfig.destinations.find(d => d.id === (session?.destinationid || session?.destinationId));
 
-            await thread.send({
-                embeds: [await buildMarketEmbed(freshListings, dest)],
-                components: buildMarketComponents(freshListings),
-            }).catch(() => {});
+            // 👑 استخدام الدالة الجديدة لتحديث صورة السوق 👑
+            await updateMarketMessage(thread, freshListings, dest);
         }
         conv.active = false;
     }
@@ -436,7 +428,7 @@ module.exports = {
     spawnNpc,
     scheduleNpcSpawn,
     handleNpcHaggle,
-    handleNpcModalSubmit, // 👑 مهم جداً تصدير هذه الدالة 👑
+    handleNpcModalSubmit,
     NpcConversations,
     cleanupNpcConversations,
 };
