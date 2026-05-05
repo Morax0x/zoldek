@@ -9,7 +9,7 @@ async function initMarketTables(db) {
             "guildID"         TEXT NOT NULL,
             "itemID"          TEXT NOT NULL,
             "itemName"        TEXT NOT NULL,
-            "itemEmoji"       TEXT DEFAULT '\ud83d\udce6',
+            "itemEmoji"       TEXT DEFAULT '📦',
             "quantity"        BIGINT NOT NULL,
             "pricePerUnit"    BIGINT NOT NULL,
             "quantitySold"    BIGINT DEFAULT 0,
@@ -62,7 +62,7 @@ async function createListing(db, caravanId, ownerId, guildId, item) {
              "quantity","pricePerUnit","quantitySold","status","createdAt")
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)
         RETURNING "id"
-    `, [caravanId, ownerId, guildId, item.itemId, item.itemName, item.itemEmoji || '\ud83d\udce6',
+    `, [caravanId, ownerId, guildId, item.itemId, item.itemName, item.itemEmoji || '📦',
         item.quantity, item.pricePerUnit, now]);
 
     return result.rows[0]?.id || null;
@@ -130,7 +130,8 @@ async function createMarketSession(db, caravanId, ownerId, guildId, destId, thre
     return result.rows[0]?.id || null;
 }
 
-async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quantity, pricePerUnit, buyerType = 'player') {
+// 👑 أضفت المتغير client هنا كخيار إضافي عشان لو تبي تحدث الكاش وتحمي الفلوس من الضياع 👑
+async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quantity, pricePerUnit, buyerType = 'player', client = null) {
     const totalPrice = quantity * pricePerUnit;
     const now = Date.now();
 
@@ -146,7 +147,6 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
     if (quantity > available) return { error: 'الكمية المطلوبة غير متوفرة حالياً في المتجر.' };
     if (totalPrice <= 0) return { error: 'السعر المدخل غير صالح.' };
 
-    // 👑 تجاوز فحص الرصيد إذا كان المشتري ذكاء اصطناعي (NPC) 👑
     if (buyerType === 'player') {
         const buyerLevel = await safeQuery(db, `
             SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2
@@ -155,21 +155,36 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         const buyerMora = Number(buyerLevel.rows[0]?.mora || 0);
         if (buyerMora < totalPrice) return { error: 'رصيدك من المورا غير كافٍ لإتمام الشراء.' };
 
-        // خصم المورا من اللاعب الحقيقي فقط
         await safeExecute(db, `
             UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) - $1
             WHERE "user"=$2 AND "guild"=$3
         `, [totalPrice, buyerId, guildId]);
+        
+        // 👑 تحديث كاش المشتري إذا كان متوفر 👑
+        if (client && typeof client.getLevel === 'function') {
+            try {
+                let u = await client.getLevel(buyerId, guildId);
+                if (u) { u.mora = String(Number(u.mora || 0) - totalPrice); await client.setLevel(u); }
+            } catch(e) {}
+        }
     }
 
-    // إيداع الأموال لمالك القافلة في كل الحالات (سواء اشترى لاعب أو NPC)
     await safeExecute(db, `
         UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) + $1
         WHERE "user"=$2 AND "guild"=$3
     `, [totalPrice, sellerId, guildId]);
 
+    // 👑 تحديث كاش البائع إذا كان متوفر (حماية لأموال البائعين من الضياع) 👑
+    if (client && typeof client.getLevel === 'function') {
+        try {
+            let s = await client.getLevel(sellerId, guildId);
+            if (s) { s.mora = String(Number(s.mora || 0) + totalPrice); await client.setLevel(s); }
+        } catch(e) {}
+    }
+
+    // 👑 استخدام COALESCE لتجنب خطأ الـ NULL في حال كانت القيمة فارغة 👑
     await safeExecute(db, `
-        UPDATE caravan_market_listings SET "quantitySold" = "quantitySold" + $1
+        UPDATE caravan_market_listings SET "quantitySold" = COALESCE("quantitySold", 0) + $1
         WHERE "id"=$2
     `, [quantity, listingId]);
 
@@ -186,19 +201,20 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
     `, [listingId, buyerId, sellerId, guildId, itemId, quantity, pricePerUnit, totalPrice, buyerType, now]);
 
+    // 👑 استخدام COALESCE لحماية الأرباح من الانكسار 👑
     await safeExecute(db, `
         UPDATE caravan_market_sessions
-        SET "totalSales" = "totalSales" + 1, "totalRevenue" = "totalRevenue" + $1
+        SET "totalSales" = COALESCE("totalSales", 0) + 1, 
+            "totalRevenue" = COALESCE("totalRevenue", 0) + $1
         WHERE "caravanId" = (SELECT "caravanId" FROM caravan_market_listings WHERE "id"=$2)
     `, [totalPrice, listingId]);
 
-    // إضافة الأغراض للمخزون إذا كان المشتري لاعب حقيقي فقط
     if (buyerType === 'player') {
         await safeExecute(db, `
             INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
             VALUES ($1,$2,$3,$4)
             ON CONFLICT ("guildID","userID","itemID")
-            DO UPDATE SET "quantity" = user_inventory.quantity + $4
+            DO UPDATE SET "quantity" = COALESCE(user_inventory.quantity, 0) + $4
         `, [guildId, buyerId, itemId, quantity]);
     }
 
@@ -216,7 +232,7 @@ async function returnUnsoldItems(db, ownerId, guildId) {
     const listings = await safeQuery(db, `
         SELECT * FROM caravan_market_listings
         WHERE "ownerID"=$1 AND "guildID"=$2 AND "status" IN ('active','sold_out')
-          AND CAST("quantity" AS BIGINT) > CAST("quantitySold" AS BIGINT)
+          AND CAST("quantity" AS BIGINT) > CAST(COALESCE("quantitySold", '0') AS BIGINT)
     `, [ownerId, guildId]);
 
     const returned = [];
@@ -227,7 +243,7 @@ async function returnUnsoldItems(db, ownerId, guildId) {
                 INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
                 VALUES ($1,$2,$3,$4)
                 ON CONFLICT ("guildID","userID","itemID")
-                DO UPDATE SET "quantity" = user_inventory.quantity + $4
+                DO UPDATE SET "quantity" = COALESCE(user_inventory.quantity, 0) + $4
             `, [guildId, ownerId, listing.itemid || listing.itemID, qty]);
             returned.push({ itemId: listing.itemid || listing.itemID, quantity: qty, name: listing.itemname || listing.itemName });
         }
@@ -243,7 +259,7 @@ async function returnUnsoldItems(db, ownerId, guildId) {
 
 async function incrementNpcSpawn(db, threadId) {
     await safeExecute(db, `
-        UPDATE caravan_market_sessions SET "npcSpawnCount" = "npcSpawnCount" + 1
+        UPDATE caravan_market_sessions SET "npcSpawnCount" = COALESCE("npcSpawnCount", 0) + 1
         WHERE "threadId"=$1
     `, [threadId]);
 }
