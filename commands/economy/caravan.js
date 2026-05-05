@@ -316,7 +316,8 @@ module.exports = {
             }
             activeProcesses.add(user.id);
             
-            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item') {
+            // 👑 إصلاح الـ InteractionAlreadyReplied (استثناء cv_dest_sel من التأجيل التلقائي) 👑
+            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item' && i.customId !== 'cv_dest_sel') {
                 await i.deferUpdate().catch(() => {});
             }
 
