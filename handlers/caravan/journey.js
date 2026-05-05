@@ -189,21 +189,18 @@ async function processCaravanReturns(client, db) {
             const userId         = caravan.userid                    || caravan.userID;
             const guildId        = caravan.guildid                   || caravan.guildID;
 
-            if (attackAt > 0 && now >= attackAt && attackResolved === 0 && !guardMsgId) {
-                if (!pendingAttacks.has(caravanId)) {
-                    pendingAttacks.add(caravanId);
-                    sendAttackNotification(client, db, caravan)
-                        .finally(() => pendingAttacks.delete(caravanId));
+            // 👑 الحل الجذري للرحلات المعلقة: إذا انتهى الوقت ننهيها فوراً 👑
+            if (now >= endTime) {
+                
+                // إذا تم تسريع الرحلة أو رستت البوت وكان فيه هجوم معلق ما انحل، نعاقبه بنصف الجوائز ونمشيه
+                if (attackAt > 0 && attackResolved === 0) {
+                    caravan.rewardmultiplier = 0.5;
+                    caravan.rewardMultiplier = 0.5;
                 }
-                continue;
-            }
 
-            if (now >= endTime && attackResolved !== 0 || (now >= endTime && attackAt === 0)) {
-                // نوزع الجوائز ونمسح الرحلة من جدول النشطين
                 const summary = await distributeRewards(client, db, caravan);
                 
                 try {
-                    // 👑 البحث عن روم الكازينو/السوق بدقة عالية (لحل مشكلة عدم فتح السوق) 👑
                     const settingsRes = await safeQuery(db,
                         `SELECT "casinoChannelID", "caravanChannelID" FROM settings WHERE "guild"=$1`, [guildId]);
                     
@@ -227,13 +224,24 @@ async function processCaravanReturns(client, db) {
                                 .setTimestamp()]
                         }).catch(() => {});
 
-                        // 👑 استدعاء بضائع السوق وفتح الثريد (السوق) 👑
                         const listings = await getListingsByCaravan(db, caravanId);
                         if (listings.length > 0 && casinoId) {
                             await createMarketThread(client, db, caravan, casinoId);
                         }
                     }
                 } catch (e) { console.error('[Open Market Error]', e); }
+                
+                // تخطي إلى القافلة التالية عشان ما يكمل لباقي الأكواد تحت
+                continue; 
+            }
+
+            // معالجة الهجوم إذا كانت الرحلة لسا تمشي في وقتها الطبيعي
+            if (attackAt > 0 && now >= attackAt && attackResolved === 0 && !guardMsgId) {
+                if (!pendingAttacks.has(caravanId)) {
+                    pendingAttacks.add(caravanId);
+                    sendAttackNotification(client, db, caravan)
+                        .finally(() => pendingAttacks.delete(caravanId));
+                }
             }
         }
     } catch (e) {
