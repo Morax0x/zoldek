@@ -1,7 +1,7 @@
 const {
-    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
-    MessageFlags,
+    MessageFlags, AttachmentBuilder, EmbedBuilder
 } = require('discord.js');
 const { safeQuery } = require('../db');
 const { EMOJI_MORA } = require('../config');
@@ -13,59 +13,95 @@ const {
     updateListingPrice,
 } = require('./market-db');
 
-// استدعاء getItemInfo من ملف market-setup عشان يقرأ المعلومات صح
 const { getItemInfo } = require('./market-setup');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 
-const RARITY_AR = {
-    'Common': 'عادي',
-    'Uncommon': 'شائع',
-    'Rare': 'نادر',
-    'Epic': 'ملحمي',
-    'Legendary': 'أسطوري'
-};
+// 👑 دالة توليد صورة السوق الفخمة (Canvas) 👑
+async function buildMarketImage(listings, dest) {
+    const canvas = createCanvas(800, 500);
+    const ctx = canvas.getContext('2d');
 
-async function buildMarketEmbed(listings, dest = null) {
-    const embed = new EmbedBuilder()
-        .setColor(dest?.color || '#FFD700')
-        .setTitle('🛒 المعروضات المتاحة في السوق')
-        .setTimestamp();
-
-    if (listings.length === 0) {
-        embed.setDescription('لا توجد معروضات حالياً.');
-        return embed;
+    // 1. رسم الخلفية
+    try {
+        const bg = await loadImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_caravan.jpg');
+        ctx.drawImage(bg, 0, 0, 800, 500);
+    } catch (e) {
+        ctx.fillStyle = '#1c1c1e';
+        ctx.fillRect(0, 0, 800, 500);
     }
 
-    const fields = [];
-    for (const listing of listings) {
+    // تظليل الخلفية لإبراز النصوص
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(0, 0, 800, 500);
+
+    // 2. رسم العنوان
+    ctx.textAlign = 'center';
+    ctx.fillStyle = dest?.color || '#FFD700';
+    ctx.font = 'bold 38px "sans-serif"';
+    ctx.fillText(`🛒 سوق القافلة — ${dest?.name || 'المدينة المجهولة'}`, 400, 55);
+
+    // تصفية البضائع المتاحة فقط
+    const activeListings = listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
+
+    // 3. حالة السوق فارغ
+    if (activeListings.length === 0) {
+        ctx.fillStyle = '#E74C3C';
+        ctx.font = 'bold 45px "sans-serif"';
+        ctx.fillText('نفذت جميع البضائع من السوق!', 400, 250);
+        return canvas.toBuffer('image/png');
+    }
+
+    // 4. رسم البضائع في شبكة (Grid)
+    const startX = 40;
+    const startY = 110;
+    const boxW = 340;
+    const boxH = 70;
+    const gapX = 40;
+    const gapY = 15;
+
+    let row = 0; let col = 1; // للرسم من اليمين لليسار (عربي)
+
+    for (let i = 0; i < activeListings.length; i++) {
+        const listing = activeListings[i];
         const info = getItemInfo(listing.itemid || listing.itemID);
-        const qty = Number(listing.quantity);
-        const sold = Number(listing.quantitysold || listing.quantitySold || 0);
-        const available = qty - sold;
+        const qty = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
+        const price = Number(listing.priceperunit || listing.pricePerUnit);
 
-        if (available <= 0) continue;
+        const x = startX + col * (boxW + gapX);
+        const y = startY + row * (boxH + gapY);
 
-        const pricePerUnit = Number(listing.priceperunit || listing.pricePerUnit);
-        const rarityTxt = info.rarity ? `[${RARITY_AR[info.rarity] || info.rarity}] ` : '';
+        // صندوق البضاعة
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.strokeStyle = dest?.color || '#FFD700';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(x, y, boxW, boxH, 8);
+        ctx.fill();
+        ctx.stroke();
 
-        fields.push({
-            name: `${info.emoji || '📦'} ${info.name} ${rarityTxt}`,
-            value: (
-                `المتاح: **${available}** وحدة\n` +
-                `السعر: **${pricePerUnit.toLocaleString()}** ${EMOJI_MORA}/واحدة\n` +
-                `الإجمالي: **${(pricePerUnit * available).toLocaleString()}** ${EMOJI_MORA}`
-            ),
-            inline: true,
-        });
+        // اسم الأداة
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 20px "sans-serif"';
+        ctx.fillText(info.name.substring(0, 20), x + boxW - 15, y + 30);
+
+        // السعر
+        ctx.fillStyle = '#2ECC71';
+        ctx.font = '16px "sans-serif"';
+        ctx.fillText(`السعر: ${price.toLocaleString()} مورا`, x + boxW - 15, y + 55);
+
+        // الكمية المتاحة
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#3498DB';
+        ctx.font = 'bold 16px "sans-serif"';
+        ctx.fillText(`المتاح: ${qty}`, x + 15, y + 55);
+
+        col--;
+        if (col < 0) { col = 1; row++; }
+        if (row > 4) break; // أقصى حد 10 عناصر في الصورة عشان ما تنحاس
     }
 
-    if (fields.length === 0) {
-        embed.setDescription('تم بيع جميع المعروضات بالكامل!');
-    } else {
-        embed.setDescription('اختر عنصراً من القائمة أدناه لشرائه.');
-        embed.addFields(fields);
-    }
-
-    return embed;
+    return canvas.toBuffer('image/png');
 }
 
 function buildMarketComponents(listings) {
@@ -86,7 +122,7 @@ function buildMarketComponents(listings) {
         return {
             label: `${info.name?.substring(0, 25) || l.itemid} (x${available})`,
             value: `buy_${l.id}`,
-            description: `${price.toLocaleString()} ${EMOJI_MORA}/واحدة`,
+            description: `${price.toLocaleString()} مورا / واحدة`,
             emoji: info.emoji || '📦',
         };
     });
@@ -110,6 +146,41 @@ function buildMarketComponents(listings) {
     );
 
     return components;
+}
+
+// 👑 الدالة السحرية لتحديث رسالة السوق الحالية بدل التكرار 👑
+async function updateMarketMessage(channel, listings, dest, interaction = null) {
+    try {
+        const buffer = await buildMarketImage(listings, dest);
+        const attachment = new AttachmentBuilder(buffer, { name: 'market.png' });
+        const components = buildMarketComponents(listings);
+
+        // 1. إذا كان التحديث ناتج عن تفاعل زر مباشر (Refresh)
+        if (interaction && interaction.message) {
+            await interaction.message.edit({ embeds: [], files: [attachment], components }).catch(() => {});
+            return;
+        }
+
+        // 2. إذا كان التحديث ناتج عن شراء ذكاء اصطناعي أو نافذة شراء، نبحث عن الرسالة الأصلية في الشات
+        const msgs = await channel.messages.fetch({ limit: 20 }).catch(() => null);
+        if (!msgs) return;
+
+        const marketMsg = msgs.find(m => 
+            m.author.id === channel.client.user.id && 
+            m.components.length > 0 && 
+            m.components[0].components[0].customId === 'mkt_buy_select'
+        );
+
+        if (marketMsg) {
+            // تحديث الرسالة القديمة بدون إرسال جديدة
+            await marketMsg.edit({ embeds: [], files: [attachment], components }).catch(() => {});
+        } else {
+            // لو ما لقى الرسالة (مثلاً انحذفت)، يرسلها من جديد
+            await channel.send({ content: '', embeds: [], files: [attachment], components }).catch(() => {});
+        }
+    } catch (e) {
+        console.error('[Update Market Error]', e);
+    }
 }
 
 async function handleBuySelect(interaction, client, db, user, guild) {
@@ -192,7 +263,8 @@ async function handleBuyModalSubmit(modalSubmit, client, db, user, guild) {
     const ownerId = listing.ownerid || listing.ownerID;
     const guildId = listing.guildid || listing.guildID;
 
-    const result = await buyItem(db, listingId, user.id, ownerId, guildId, listing.itemid || listing.itemID, qty, pricePerUnit, 'player');
+    // تمرير الـ client للحماية من ضياع الفلوس
+    const result = await buyItem(db, listingId, user.id, ownerId, guildId, listing.itemid || listing.itemID, qty, pricePerUnit, 'player', client);
 
     if (result.error) {
         return modalSubmit.reply({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
@@ -218,10 +290,8 @@ async function handleBuyModalSubmit(modalSubmit, client, db, user, guild) {
         const updatedListings = await getListingsBySession(db, modalSubmit.channel.id);
         const dest = require('../config').caravanConfig.destinations.find(d => d.id === (session.destinationid || session.destinationId));
 
-        await modalSubmit.channel.send({
-            embeds: [await buildMarketEmbed(updatedListings, dest)],
-            components: buildMarketComponents(updatedListings),
-        }).catch(() => {});
+        // 👑 تحديث الصورة بدون إرسال رسالة جديدة 👑
+        await updateMarketMessage(modalSubmit.channel, updatedListings, dest, modalSubmit);
     }
 }
 
@@ -234,11 +304,9 @@ async function handleRefresh(interaction, client, db) {
     );
 
     await interaction.deferUpdate().catch(() => {});
-
-    await interaction.editReply({
-        embeds: [await buildMarketEmbed(listings, dest)],
-        components: buildMarketComponents(listings),
-    }).catch(() => {});
+    
+    // 👑 التحديث مباشرة على رسالة التفاعل 👑
+    await updateMarketMessage(interaction.channel, listings, dest, interaction);
 }
 
 async function refreshMarketMessage(channel, db) {
@@ -249,10 +317,8 @@ async function refreshMarketMessage(channel, db) {
         d.id === (session?.destinationid || session?.destinationId)
     );
 
-    await channel.send({
-        embeds: [await buildMarketEmbed(listings, dest)],
-        components: buildMarketComponents(listings),
-    }).catch(() => {});
+    // 👑 التحديث الذكي للسوق 👑
+    await updateMarketMessage(channel, listings, dest);
 }
 
 async function handleOwnerPriceChange(interaction, client, db, user) {
@@ -318,10 +384,9 @@ async function handlePriceChangeSelect(interaction, client, db, user) {
         .setCustomId(`mkt_new_price_modal_${listingId}`)
         .setTitle(`تغيير السعر: ${info.name}`.substring(0, 45));
 
-    // 👑 إزالة الإيموجيات المخصصة لمنع انهيار الديسكورد 👑
     const priceInput = new TextInputBuilder()
         .setCustomId('mkt_new_price')
-        .setLabel(`السعر الجديد (بالمورا) - الحالي: ${currentPrice}`.substring(0, 45))
+        .setLabel(`السعر الجديد (الحالي: ${currentPrice})`.substring(0, 45))
         .setPlaceholder('أدخل السعر الجديد بالمورا')
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
@@ -350,7 +415,7 @@ async function handleNewPriceModalSubmit(modalSubmit, client, db, user) {
     const itemInfo = getItemInfo(info?.itemid || info?.itemID || 'unknown');
 
     await modalSubmit.reply({
-        content: `✅ تم تعديل سعر **${itemInfo.name}** إلى **${newPrice.toLocaleString()}** ${EMOJI_MORA}`,
+        content: `✅ تم تعديل سعر **${itemInfo.name}** إلى **${newPrice.toLocaleString()}** مورا`,
         flags: [MessageFlags.Ephemeral],
     });
 
@@ -361,15 +426,14 @@ async function handleNewPriceModalSubmit(modalSubmit, client, db, user) {
         d.id === (session?.destinationid || session?.destinationId)
     );
 
-    await modalSubmit.channel.send({
-        embeds: [await buildMarketEmbed(listings, dest)],
-        components: buildMarketComponents(listings),
-    }).catch(() => {});
+    // 👑 التحديث الذكي للصورة بدل إرسال رسالة جديدة 👑
+    await updateMarketMessage(modalSubmit.channel, listings, dest);
 }
 
 module.exports = {
-    buildMarketEmbed,
+    buildMarketImage, // تم تغيير التصدير من الإمبيد إلى الصورة
     buildMarketComponents,
+    updateMarketMessage,
     handleBuySelect,
     handleBuyModalSubmit,
     handleRefresh,
