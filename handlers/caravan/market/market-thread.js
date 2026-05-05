@@ -32,36 +32,44 @@ async function createMarketThread(client, db, caravan, channelId) {
         const channel = guild.channels.cache.get(channelId);
         if (!channel) return null;
 
+        // 👑 إنشاء الثريد (السوق)
         const thread = await channel.threads.create({
-            name: `\ud83c\udfea \u0633\u0648\u0642-${dest.name.replace(/ /g, '-')}`,
+            name: `🏪 سوق-${dest.name.replace(/ /g, '-')}`,
             autoArchiveDuration: 1440,
             type: ChannelType.PublicThread,
-            reason: `\u0633\u0648\u0642 \u0627\u0644\u0642\u0627\u0641\u0644\u0629 - ${dest.name}`,
+            reason: `سوق القافلة - ${dest.name}`,
+        }).catch(err => {
+            console.error('[CreateThread Error]', err);
+            return null;
         });
 
+        if (!thread) return null;
+
+        // 👑 حساب مدة بقاء السوق مفتوح (مربوطة بمدة الرحلة الأساسية)
         const durationMs = Number(caravan.endtime || caravan.endTime) - Number(caravan.starttime || caravan.startTime);
         const marketDurationMs = Math.max(
-            10 * 60 * 1000,
-            Math.min(durationMs, 24 * 60 * 60 * 1000)
+            10 * 60 * 1000, // أقل مدة 10 دقائق
+            Math.min(durationMs, 24 * 60 * 60 * 1000) // أقصى مدة 24 ساعة
         );
 
         await createMarketSession(db, caravanId, ownerId, guildId, destId, thread.id, channel.id, marketDurationMs);
 
         const listings = await getListingsBySession(db, thread.id);
 
+        // 👑 إعلان وصول القافلة وافتتاح السوق
         const embed = new EmbedBuilder()
             .setColor(dest.color || '#FFD700')
-            .setTitle(`${dest.emoji} \u0633\u0648\u0642 \u0627\u0644\u0642\u0627\u0641\u0644\u0629 \u2014 ${dest.name}`)
+            .setTitle(`${dest.emoji} سوق القافلة — ${dest.name}`)
             .setDescription(
-                `<@${ownerId}> \u0648\u0635\u0644\u062a \u0642\u0627\u0641\u0644\u062a\u0647 \u0625\u0644\u0649 **${dest.name}**!\n` +
-                `\u064a\u0645\u0643\u0646\u0643 \u0627\u0644\u0622\u0646 \u0639\u0631\u0636 \u0628\u0636\u0627\u0626\u0639\u0643 \u0644\u0644\u0628\u064a\u0639 \u0644\u0644\u0627\u0639\u0628\u064a\u0646 \u0627\u0644\u0622\u062e\u0631\u064a\u0646.\n\n` +
-                `\u23f3 \u064a\u0628\u0642\u0649 \u0627\u0644\u0633\u0648\u0642 \u0645\u0641\u062a\u0648\u062d\u0627\u064b \u0644\u0640 **${Math.floor(marketDurationMs / 60000)} \u062f\u0642\u064a\u0642\u0629**.\n` +
-                `\ud83d\udce6 \u0639\u062f\u062f \u0627\u0644\u0639\u0646\u0627\u0635\u0631: **${listings.length}**`
+                `<@${ownerId}> وصلت قافلته إلى **${dest.name}**!\n` +
+                `يمكنك الآن عرض بضائعك للبيع للاعبين الآخرين.\n\n` +
+                `⏳ يبقى السوق مفتوحاً لـ **${Math.floor(marketDurationMs / 60000)} دقيقة**.\n` +
+                `📦 عدد العناصر: **${listings.length}**`
             )
             .setTimestamp();
 
         const announcement = await thread.send({
-            content: `\ud83c\udf89 \u0633\u0648\u0642 \u062c\u062f\u064a\u062f \u0645\u0641\u062a\u0648\u062d! <@${ownerId}> \u064a\u0639\u0631\u0636 \u0628\u0636\u0627\u0626\u0639\u0647 \u0644\u0644\u0628\u064a\u0639!`,
+            content: `🎉 سوق جديد مفتوح! <@${ownerId}> يعرض بضائعه للبيع!`,
             embeds: [embed],
         }).catch(() => null);
 
@@ -72,8 +80,10 @@ async function createMarketThread(client, db, caravan, channelId) {
             }).catch(() => {});
         }
 
+        // تشغيل الذكاء الاصطناعي (البوتات تشتري)
         scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDurationMs);
 
+        // إعداد مؤقت لإغلاق السوق عند انتهاء الوقت
         const timer = setTimeout(async () => {
             await closeMarketThread(client, db, thread.id, guildId);
             activeTimers.delete(thread.id);
@@ -99,26 +109,42 @@ async function closeMarketThread(client, db, threadId, guildId) {
         if (guild) {
             const thread = guild.channels.cache.get(threadId);
             if (thread) {
+                // إرجاع البضائع غير المباعة للمخزون
                 const returned = await returnUnsoldItems(db, session.ownerid || session.ownerID, guildId);
 
+                // إرسال رسالة ملخص المبيعات
                 if (returned.length > 0) {
                     const summary = returned.map(r => `${r.quantity}x ${r.name}`).join('\n');
                     await thread.send({
                         embeds: [new EmbedBuilder()
                             .setColor('#FF9900')
-                            .setTitle('\u23f3 \u0627\u0646\u062a\u0647\u0649 \u0648\u0642\u062a \u0627\u0644\u0633\u0648\u0642!')
+                            .setTitle('⏳ انتهى وقت السوق!')
                             .setDescription(
-                                `\u062a\u0645 \u0625\u0639\u0627\u062f\u0629 \u0627\u0644\u0628\u0636\u0627\u0626\u0639 \u063a\u064a\u0631 \u0627\u0644\u0645\u0628\u0627\u0639\u0629 \u0625\u0644\u0649 \u0627\u0644\u0645\u062e\u0632\u0648\u0646:\n${summary}\n\n` +
-                                `\ud83d\udcca \u0645\u0644\u062e\u0635 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a:\n` +
-                                `\u2022 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u0628\u064a\u0639: **${session.totalsales || session.totalSales || 0}**\n` +
-                                `\u2022 \u0627\u0644\u0625\u064a\u0631\u0627\u062f\u0627\u062a: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`
+                                `تم إعادة البضائع غير المباعة إلى المخزون:\n${summary}\n\n` +
+                                `📊 ملخص المبيعات:\n` +
+                                `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
+                                `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`
+                            )
+                            .setTimestamp()]
+                    }).catch(() => {});
+                } else {
+                    await thread.send({
+                        embeds: [new EmbedBuilder()
+                            .setColor('#2ECC71')
+                            .setTitle('⏳ انتهى وقت السوق!')
+                            .setDescription(
+                                `🎉 تم بيع جميع البضائع بالكامل!\n\n` +
+                                `📊 ملخص المبيعات:\n` +
+                                `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
+                                `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`
                             )
                             .setTimestamp()]
                     }).catch(() => {});
                 }
 
-                await thread.setArchived(true).catch(() => {});
+                // قفل الشات وأرشفته
                 await thread.setLocked(true).catch(() => {});
+                await thread.setArchived(true).catch(() => {});
             }
         }
     } catch (err) {
@@ -140,6 +166,7 @@ async function checkExpiredMarketSessions(client, db) {
 }
 
 function setupMarketChecker(client, db) {
+    // تشغيل الفاحص كل دقيقة للتأكد من إغلاق الأسواق المنتهية
     setInterval(() => checkExpiredMarketSessions(client, db), 60 * 1000);
 }
 
