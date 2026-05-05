@@ -10,10 +10,8 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) 
     const dest = caravanConfig.destinations.find(d => d.id === destId);
     if (!dest) return { error: 'وجهة غير موجودة.' };
 
-    // 👑 التعديل الجديد: حرق الارتيفاكتات وخصمها من المخزن نهائياً 👑
     if (equippedArtifacts && equippedArtifacts.length > 0) {
         for (const art of equippedArtifacts) {
-            // خصم الكمية المحددة (count) من الحقيبة
             await safeExecute(db, 
                 `UPDATE user_inventory 
                  SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1) 
@@ -201,14 +199,22 @@ async function processCaravanReturns(client, db) {
             }
 
             if (now >= endTime && attackResolved !== 0 || (now >= endTime && attackAt === 0)) {
+                // نوزع الجوائز ونمسح الرحلة من جدول النشطين
                 const summary = await distributeRewards(client, db, caravan);
+                
                 try {
+                    // 👑 البحث عن روم الكازينو/السوق بدقة عالية (لحل مشكلة عدم فتح السوق) 👑
                     const settingsRes = await safeQuery(db,
-                        `SELECT "casinoChannelID" FROM settings WHERE "guild"=$1`, [guildId]);
-                    const casinoId = settingsRes.rows[0]?.casinochannelid
+                        `SELECT "casinoChannelID", "caravanChannelID" FROM settings WHERE "guild"=$1`, [guildId]);
+                    
+                    const casinoId = settingsRes.rows[0]?.caravanchannelid 
+                                  || settingsRes.rows[0]?.caravanChannelID
+                                  || settingsRes.rows[0]?.casinochannelid 
                                   || settingsRes.rows[0]?.casinoChannelID;
+
                     const guild   = client.guilds.cache.get(guildId);
                     const channel = guild?.channels.cache.get(casinoId);
+
                     if (channel && summary?.length) {
                         const destId = caravan.destinationid || caravan.destinationId;
                         const dest   = caravanConfig.destinations.find(d => d.id === destId);
@@ -221,12 +227,13 @@ async function processCaravanReturns(client, db) {
                                 .setTimestamp()]
                         }).catch(() => {});
 
+                        // 👑 استدعاء بضائع السوق وفتح الثريد (السوق) 👑
                         const listings = await getListingsByCaravan(db, caravanId);
                         if (listings.length > 0 && casinoId) {
                             await createMarketThread(client, db, caravan, casinoId);
                         }
                     }
-                } catch {}
+                } catch (e) { console.error('[Open Market Error]', e); }
             }
         }
     } catch (e) {
@@ -238,7 +245,9 @@ let _checkerStarted = false;
 function setupCaravanChecker(client, db) {
     if (_checkerStarted) return;
     _checkerStarted = true;
-    setInterval(() => processCaravanReturns(client, db), 5 * 60 * 1000);
+    
+    // 👑 تم تسريع الفاحص ليصبح كل 30 ثانية بدل 5 دقائق 👑
+    setInterval(() => processCaravanReturns(client, db), 30 * 1000); 
     processCaravanReturns(client, db);
 }
 
