@@ -12,8 +12,6 @@ const {
     getNpcSpawnCount,
 } = require('./market-db');
 const { getItemInfo } = require('./market-setup');
-
-// 👑 استدعاء نظام التحديث بالصور بدال القديم 👑
 const { updateMarketMessage } = require('./market-ui');
 
 const NpcConversations = new Map();
@@ -86,7 +84,7 @@ async function callAI(systemPrompt, userMessage, jsonMode = false) {
     return null;
 }
 
-// 👑 دالة التقاط الأوامر السرية من الذكاء الاصطناعي 👑
+// 👑 التقاط الأوامر السرية من الذكاء الاصطناعي 👑
 function parseNpcAction(text) {
     const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/);
     if (buyMatch) {
@@ -101,7 +99,7 @@ function parseNpcAction(text) {
     return null;
 }
 
-// 👑 توليد شخصية عشوائية وتفاعلية بالكامل 👑
+// 👑 توليد شخصية التاجر الآلي 👑
 async function generateDynamicNPC(destName, listingsContext) {
     const systemPrompt = `
 أنت تلعب دور زائر خيالي (NPC) في لعبة RPG، وتزور سوق قوافل يقع في منطقة تسمى "${destName}".
@@ -127,9 +125,7 @@ ${listingsContext}
 
     try {
         const jsonMatch = response.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            return JSON.parse(jsonMatch[0]);
-        }
+        if (jsonMatch) return JSON.parse(jsonMatch[0]);
         return JSON.parse(response);
     } catch (e) {
         return null;
@@ -138,10 +134,7 @@ ${listingsContext}
 
 // 👑 معالجة مفاوضات الـ AI 👑
 async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId) {
-    const availableListings = conv.listings.filter(l => {
-        const avail = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
-        return avail > 0;
-    });
+    const availableListings = conv.listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
 
     if (availableListings.length === 0) return { message: 'لقد نفذت جميع البضائع التي أردتها!', action: { action: 'leave' } };
 
@@ -161,12 +154,11 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
 المنطقة: ${conv.destName}
 
 قواعد صارمة:
-- ممنوع منعاً باتاً أن تذكر أنك ذكاء اصطناعي أو AI، تصرف كشخصية حقيقية تتنفس.
-- تفاوض بذكاء وواقعية بناءً على شخصيتك. إذا كنت بخيلاً، كاسر بشراسة. إذا كنت نبيلاً، ادفع لكن بتكبر.
-- البائع الآن أرسل لك رسالة، رد عليه برد مناسب (جملتين كحد أقصى).
-- إذا اقتنعت بالسعر وقررت الشراء، يجب أن تنهي رسالتك بهذا الكود بالضبط (استبدل القيم بالأرقام):
+- ممنوع ذكر أنك ذكاء اصطناعي أو AI، تصرف كشخصية حقيقية تتنفس.
+- تفاوض بذكاء. البائع أرسل لك رسالة، رد عليه برد مناسب (جملتين كحد أقصى).
+- إذا وافق البائع على سعرك أو اقتنعت أنت وقررت الشراء، يجب أن تنهي رسالتك بهذا الكود بالضبط لإنهاء الصفقة برمجياً:
 [BUY_ITEM:رقم_السلعة:الكمية:السعر_للوحدة]
-- إذا أغضبك البائع أو رفضت إكمال التفاوض وقررت الرحيل، أنهِ رسالتك بهذا الكود:
+- إذا أغضبك البائع وقررت الرحيل وعدم الشراء، أنهِ رسالتك بهذا الكود:
 [LEAVE]
 
 البضائع المتاحة للبيع الآن:
@@ -176,7 +168,7 @@ ${listingsContext}
     const aiMessage = `الرسائل السابقة:\n${lastExchange}\n\nرد البائع الآن:\n${userMessageStr}\n\nما هو ردك؟`;
 
     const response = await callAI(systemPrompt, aiMessage, false);
-    if (!response) return { message: 'يبدو أن التاجر يفكر بعمق ولم ينطق بحرف...', action: null };
+    if (!response) return { message: '...', action: null };
 
     const action = parseNpcAction(response);
     const cleanMessage = response.replace(/\[BUY_ITEM:.*?\]/g, '').replace(/\[LEAVE\]/g, '').trim();
@@ -190,7 +182,7 @@ ${listingsContext}
 
         if (totalPrice > npcMoraBudget) {
             return {
-                message: cleanMessage || `اللعنة، لقد تحمست، لا أملك سوى **${npcMoraBudget.toLocaleString()}** مورا! سأنسحب.`,
+                message: cleanMessage || `اللعنة، لا أملك سوى **${npcMoraBudget.toLocaleString()}** مورا! سأنسحب.`,
                 action: { action: 'leave' },
             };
         }
@@ -213,27 +205,96 @@ ${listingsContext}
     return { message: cleanMessage, action };
 }
 
-// 👑 إطلاق الـ NPC في السوق مع المنشن 👑
+// 👑 معالجة التفاعل الحي وتحديث نفس الإمبيد 👑
+async function processNpcTurn(conv, userMessage, interaction, client, db) {
+    conv.history.push({ role: 'user', content: userMessage });
+
+    // 1. تحديث الإمبيد ليظهر رسالة اللاعب وحالة تفكير البوت
+    const embed = new EmbedBuilder()
+        .setColor('#3498DB')
+        .setTitle(`${conv.emoji} مفاوضة مع: ${conv.name}`)
+        .setDescription(`🗣️ **أنت:** "${userMessage}"\n\n💭 **${conv.name}** يقرأ كلامك ويفكر...`);
+        
+    await conv.message.edit({ embeds: [embed] }).catch(()=>{});
+
+    const thread = interaction.channel;
+    conv.listings = await getListingsBySession(db, thread.id);
+
+    // 2. إرسال المحادثة للذكاء الاصطناعي
+    const result = await handleNpcHaggle(client, db, thread, conv, userMessage, conv.ownerId);
+
+    if (!result) {
+        embed.setColor('#E74C3C').setDescription(`🗣️ **أنت:** "${userMessage}"\n\n⚠️ غادر **${conv.name}** بسبب صمت مفاجئ!`).setFooter({text:'انتهت المحادثة'});
+        await conv.message.edit({ embeds: [embed], components: [] }).catch(()=>{});
+        conv.active = false;
+        return;
+    }
+
+    conv.history.push({ role: 'assistant', content: result.message });
+
+    // 3. تحديث الإمبيد برد الذكاء الاصطناعي النهائي
+    embed.setColor('#9B59B6').setDescription(`🗣️ **أنت:** "${userMessage}"\n\n**${conv.name}:** "${result.message}"`);
+
+    if (result.action?.action === 'leave') {
+        embed.setColor('#E74C3C').setFooter({ text: '🏃 غادر المشتري السوق ولم تكتمل الصفقة.' });
+        await conv.message.edit({ embeds: [embed], components: [] }).catch(()=>{});
+        conv.active = false;
+    }
+    else if (result.action?.type === 'purchase') {
+        const a = result.action;
+        const purchaseResult = await buyItem(
+            db, a.listingId, a.buyerId, a.sellerId, a.guildId,
+            a.itemId, a.quantity, a.pricePerUnit, 'npc', client
+        );
+
+        if (purchaseResult.ok) {
+            const itemInfo = getItemInfo(a.itemId);
+            embed.setColor('#2ECC71')
+                 .setTitle(`🤝 اتفقنا! صفقة ناجحة!`)
+                 .setFooter({ text: `💰 تم بيع ${a.quantity} من ${itemInfo.name} بـ ${(a.quantity * a.pricePerUnit).toLocaleString()} مورا`});
+            
+            await conv.message.edit({ embeds: [embed], components: [] }).catch(()=>{});
+
+            // تحديث واجهة السوق الفخمة بصورة Canvas
+            const freshListings = await getListingsBySession(db, thread.id);
+            const session = await getSessionByThread(db, thread.id);
+            const dest = caravanConfig.destinations.find(d => d.id === (session?.destinationid || session?.destinationId));
+            
+            await updateMarketMessage(thread, freshListings, dest);
+            
+            // إرسال رد مخفي للاعب لتأكيد استلام الأموال
+            if (interaction.isModalSubmit && interaction.isModalSubmit()) {
+                await interaction.followUp({ content: `✅ كفو! كسبت **${(a.quantity * a.pricePerUnit).toLocaleString()}** مورا من التاجر!`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            }
+        } else {
+             embed.setColor('#E74C3C').setFooter({ text: `❌ فشلت الصفقة: ${purchaseResult.error}` });
+             await conv.message.edit({ embeds: [embed], components: [] }).catch(()=>{});
+        }
+        conv.active = false;
+    }
+    else {
+        // إذا كان تفاوض عادي، نترك الأزرار
+        embed.setFooter({ text: 'استخدم الأزرار بالأسفل لإكمال التفاوض أو الرد.' });
+        await conv.message.edit({ embeds: [embed] }).catch(()=>{});
+    }
+}
+
+// 👑 إطلاق الـ NPC في السوق مع رسالة المنشن 👑
 async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
     try {
         const npcSpawnCount = await getNpcSpawnCount(db, thread.id);
         if (npcSpawnCount >= 3) return; 
 
         const listings = await getListingsBySession(db, thread.id);
-        const availableListings = listings.filter(l => {
-            const avail = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
-            return avail > 0;
-        });
+        const availableListings = listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
 
         if (availableListings.length === 0) return;
 
         const destName = caravanConfig.destinations.find(d => d.id === destId)?.name || 'سوق القوافل';
-
         const listingsContext = availableListings.map(l => {
             const info = getItemInfo(l.itemid || l.itemID);
-            const avail = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
             const price = Number(l.priceperunit || l.pricePerUnit);
-            return `- ${info.name} (رقم السلعة: ${l.id}): متوفر ${avail} حبة | السعر المعروض: ${price} مورا`;
+            return `- ${info.name} (رقم السلعة: ${l.id}): السعر المعروض: ${price} مورا`;
         }).join('\n');
 
         const npcData = await generateDynamicNPC(destName, listingsContext);
@@ -242,45 +303,34 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         await incrementNpcSpawn(db, thread.id);
 
         const convId = `conv_${thread.id}_${Date.now()}`;
-        NpcConversations.set(convId, {
-            id: convId,
-            name: npcData.name,
-            emoji: npcData.emoji || '👤',
-            persona: npcData.persona,
-            destId,
-            destName,
-            ownerId,
-            guildId,
-            listings,
-            history: [{ role: 'assistant', content: npcData.message }],
-            active: true,
-        });
+        
+        // الرسالة الافتتاحية للمحادثة
+        const embed = new EmbedBuilder()
+            .setColor('#9B59B6')
+            .setTitle(`${npcData.emoji} زائر يقترب من بضاعتك: ${npcData.name}`)
+            .setDescription(`**${npcData.name}:** "${npcData.message}"`)
+            .setFooter({ text: 'استخدم الأزرار للرد عليه أو طرده' });
 
-        // 👑 وضع المنشن مع الإشعار 👑
         const npcMsg = await thread.send({
             content: `يا <@${ownerId}>، هنالك مشترٍ يريد التحدث معك! 🔔`,
-            embeds: [new EmbedBuilder()
-                .setColor('#9B59B6')
-                .setTitle(`${npcData.emoji} زائر يقترب من بضاعتك: ${npcData.name}`)
-                .setDescription(`**${npcData.name}:** "${npcData.message}"`)
-                .setFooter({ text: 'استخدم زر المفاوضة للرد عليه أو طرده' })]
+            embeds: [embed]
         }).catch(() => null);
 
         if (!npcMsg) return;
 
-        const negotiateBtn = new ButtonBuilder()
-            .setCustomId(`mkt_npc_talk_${convId}`)
-            .setLabel('💬 فاوض / رد عليه')
-            .setStyle(ButtonStyle.Primary);
+        NpcConversations.set(convId, {
+            id: convId, name: npcData.name, emoji: npcData.emoji || '👤',
+            persona: npcData.persona, destId, destName, ownerId, guildId, listings,
+            message: npcMsg, // 👑 حفظ الرسالة الأصلية للتعديل عليها لاحقاً
+            history: [{ role: 'assistant', content: npcData.message }],
+            active: true,
+        });
 
-        const declineBtn = new ButtonBuilder()
-            .setCustomId(`mkt_npc_reject_${convId}`)
-            .setLabel('❌ طرد المشتري')
-            .setStyle(ButtonStyle.Danger);
+        const negotiateBtn = new ButtonBuilder().setCustomId(`mkt_npc_talk_${convId}`).setLabel('💬 فاوض / تحدث').setStyle(ButtonStyle.Primary);
+        const acceptBtn = new ButtonBuilder().setCustomId(`mkt_npc_accept_${convId}`).setLabel('✅ موافق، اشترِ').setStyle(ButtonStyle.Success);
+        const declineBtn = new ButtonBuilder().setCustomId(`mkt_npc_reject_${convId}`).setLabel('❌ طرد المشتري').setStyle(ButtonStyle.Danger);
 
-        await npcMsg.edit({
-            components: [new ActionRowBuilder().addComponents(negotiateBtn, declineBtn)]
-        }).catch(() => {});
+        await npcMsg.edit({ components: [new ActionRowBuilder().addComponents(negotiateBtn, acceptBtn, declineBtn)] }).catch(() => {});
 
         const collector = npcMsg.createMessageComponentCollector({
             filter: i => i.user.id === ownerId,
@@ -290,29 +340,25 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         collector.on('collect', async i => {
             if (i.customId === `mkt_npc_reject_${convId}`) {
                 await i.deferUpdate().catch(() => {});
-                await thread.send(`🏃 غادر **${npcData.name}** السوق مستاءً.`).catch(()=>{});
+                const rejectEmbed = new EmbedBuilder().setColor('#E74C3C').setDescription(`🏃 قمت بطرد **${npcData.name}** من السوق.`);
+                await npcMsg.edit({ embeds: [rejectEmbed], components: [] }).catch(()=>{});
                 NpcConversations.delete(convId);
                 collector.stop();
                 return;
             }
 
+            const conv = NpcConversations.get(convId);
+            if (!conv || !conv.active) return i.reply({ content: '❌ لقد غادر هذا المشتري.', flags: [MessageFlags.Ephemeral] });
+
+            if (i.customId === `mkt_npc_accept_${convId}`) {
+                await i.deferUpdate().catch(() => {});
+                // إرسال رسالة خفية للذكاء الاصطناعي للموافقة وإتمام البيع تلقائياً
+                await processNpcTurn(conv, "أنا موافق على سعرك، تفضل البضاعة وأتمم الشراء.", i, client, db);
+            }
+
             if (i.customId === `mkt_npc_talk_${convId}`) {
-                const conv = NpcConversations.get(convId);
-                if (!conv || !conv.active) {
-                    return i.reply({ content: '❌ لقد غادر هذا المشتري.', flags: [MessageFlags.Ephemeral] });
-                }
-
-                const modal = new ModalBuilder()
-                    .setCustomId(`mkt_npc_modal_${convId}`)
-                    .setTitle(`التحدث مع: ${npcData.name}`.substring(0, 45));
-
-                const replyInput = new TextInputBuilder()
-                    .setCustomId('user_reply')
-                    .setLabel('ماذا تريد أن تقول له؟')
-                    .setPlaceholder('اكتب ردك ومفاوضتك هنا...')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setRequired(true);
-
+                const modal = new ModalBuilder().setCustomId(`mkt_npc_modal_${convId}`).setTitle(`التحدث مع: ${npcData.name}`.substring(0, 45));
+                const replyInput = new TextInputBuilder().setCustomId('user_reply').setLabel('ماذا تريد أن تقول له؟').setPlaceholder('اكتب ردك ومفاوضتك هنا...').setStyle(TextInputStyle.Paragraph).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(replyInput));
                 await i.showModal(modal);
             }
@@ -336,71 +382,10 @@ async function handleNpcModalSubmit(interaction, client, db) {
     }
 
     await interaction.deferUpdate().catch(() => {});
-
     const userMessage = interaction.fields.getTextInputValue('user_reply');
-    conv.history.push({ role: 'user', content: userMessage });
-
-    const thread = interaction.channel;
     
-    const thinkingMsg = await thread.send({
-        embeds: [new EmbedBuilder().setColor('#3498DB').setDescription(`💭 **${conv.name}** يقرأ كلامك ويفكر...`)]
-    }).catch(()=>{});
-
-    const updatedListings = await getListingsBySession(db, thread.id);
-    conv.listings = updatedListings;
-
-    const result = await handleNpcHaggle(client, db, thread, conv, userMessage, conv.ownerId);
-
-    if (thinkingMsg) await thinkingMsg.delete().catch(()=>{});
-
-    if (!result) {
-        await thread.send(`⚠️ غادر **${conv.name}** بسبب صمت مفاجئ!`);
-        conv.active = false;
-        return true;
-    }
-
-    conv.history.push({ role: 'assistant', content: result.message });
-
-    await thread.send({
-        embeds: [new EmbedBuilder()
-            .setColor('#9B59B6')
-            .setDescription(`**${conv.name}:** "${result.message}"`)]
-    }).catch(() => {});
-
-    if (result.action?.action === 'leave') {
-        await thread.send(`🏃 غادر **${conv.name}** السوق.`).catch(()=>{});
-        conv.active = false;
-    }
-
-    else if (result.action?.type === 'purchase') {
-        const a = result.action;
-        const purchaseResult = await buyItem(
-            db, a.listingId, a.buyerId, a.sellerId, a.guildId,
-            a.itemId, a.quantity, a.pricePerUnit, 'npc', client
-        );
-
-        if (purchaseResult.ok) {
-            const itemInfo = getItemInfo(a.itemId);
-            await thread.send({
-                embeds: [new EmbedBuilder()
-                    .setColor('#00FF88')
-                    .setTitle(`🤝 اتفقنا! صفقة ناجحة!`)
-                    .setDescription(
-                        `${conv.emoji} **${conv.name}** اشترى **${a.quantity}x ${itemInfo.name}**\n` +
-                        `بمبلغ إجمالي: **${(a.quantity * a.pricePerUnit).toLocaleString()}** ${EMOJI_MORA}\n` +
-                        `تم تحويل المبلغ لـ <@${conv.ownerId}>`
-                    )]
-            }).catch(() => {});
-
-            const freshListings = await getListingsBySession(db, thread.id);
-            const session = await getSessionByThread(db, thread.id);
-            const dest = caravanConfig.destinations.find(d => d.id === (session?.destinationid || session?.destinationId));
-
-            // 👑 استخدام الدالة الجديدة لتحديث صورة السوق 👑
-            await updateMarketMessage(thread, freshListings, dest);
-        }
-        conv.active = false;
-    }
+    // تشغيل نظام التحديث الحي على الإمبيد
+    await processNpcTurn(conv, userMessage, interaction, client, db);
 
     return true;
 }
@@ -428,7 +413,7 @@ module.exports = {
     spawnNpc,
     scheduleNpcSpawn,
     handleNpcHaggle,
-    handleNpcModalSubmit,
+    handleNpcModalSubmit, 
     NpcConversations,
     cleanupNpcConversations,
 };
