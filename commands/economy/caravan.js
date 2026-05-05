@@ -189,7 +189,6 @@ module.exports = {
 
         const db = client.sql;
 
-        // 👑 إصلاح الـ Memory Leak: تشغيل العدادات مرة واحدة فقط عند إقلاع البوت مو مع كل ضغطة زر 👑
         if (!client.caravanSystemsInitialized) {
             setupCaravanChecker(client, db);
             registerCombatListeners(client);
@@ -315,9 +314,19 @@ module.exports = {
                 return i.reply({ content: '⏳ الرجاء الانتظار، جاري المعالجة...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             }
             activeProcesses.add(user.id);
+
+            // 👑 الدالة السحرية لإجبار ملفات السوق الخارجية على تحديث الرسالة الحالية بدل إرسال رسائل جديدة 👑
+            const forceUpdateResponse = (intObj) => {
+                intObj.reply = async (payload) => {
+                    try {
+                        if (intObj.deferred || intObj.replied) return await intObj.editReply(payload);
+                        return await intObj.update(payload);
+                    } catch (err) {}
+                };
+            };
             
-            // 👑 إصلاح الـ InteractionAlreadyReplied (استثناء cv_dest_sel من التأجيل التلقائي) 👑
-            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item' && i.customId !== 'cv_dest_sel') {
+            // نؤجل التحديث لكل شيء باستثناء القوائم اللي محتاجة تفتح مودال (عشان المودال ما يعلق)
+            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item') {
                 await i.deferUpdate().catch(() => {});
             }
 
@@ -383,32 +392,37 @@ module.exports = {
                     client.caravanTempDest.set(user.id, dest);
 
                     clearMarketListingsCache(client, user.id, guild.id);
+                    
+                    forceUpdateResponse(i); // إجبار تحديث الرسالة
                     await showMarketSetup(i, client, db, user, guild, dest);
                 }
 
                 else if (id === 'mkt_add_item') {
                     const dest = client.caravanTempDest?.get(user.id);
+                    forceUpdateResponse(i); // لحماية السوق
                     await handleAddItemSelect(i, client, db, user, guild, dest);
                     try {
                         const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId.startsWith('mkt_price_modal_') && m.user.id === user.id, time: 60000 });
+                        forceUpdateResponse(modalSubmit); // لحماية السوق بعد تقديم المودال
                         await handlePriceModalSubmit(modalSubmit, client, db, user, guild, dest);
                     } catch(e) {}
                 }
 
                 else if (id === 'mkt_remove_item') {
                     const dest = client.caravanTempDest?.get(user.id);
+                    forceUpdateResponse(i);
                     await handleRemoveItemSelect(i, client, db, user, guild, dest);
                 }
 
                 else if (id === 'mkt_back') {
-                    await i.deleteReply().catch(()=>{});
+                    // مسح الرسالة فقط إذا كانت منفصلة، وإلا نرجع للرئيسية
+                    if (i.message.id !== hubMsg.id) await i.message.delete().catch(()=>{});
+                    else await showHub(hubMsg);
                 }
 
                 else if (id === 'mkt_launch' || id === 'mkt_skip') {
                     const dest = client.caravanTempDest?.get(user.id);
                     const mora = await getMora(db, user.id, guild.id);
-                    
-                    await i.deleteReply().catch(()=>{}); 
 
                     const buffer = await generateDestChoiceImage(dest, mora);
                     const attachment = new AttachmentBuilder(buffer, { name: 'dest_choice.png' });
@@ -451,7 +465,6 @@ module.exports = {
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     
-                    // 👑 تصليح خطأ التكرار (Crash Fix) 👑
                     const result = await sendCaravan(db, user.id, guild.id, destId, savedArts);
 
                     if (result.error) {
