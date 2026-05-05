@@ -15,69 +15,69 @@ const { getItemInfo } = require('./market-setup');
 const { buildMarketEmbed, buildMarketComponents } = require('./market-ui');
 
 const NPC_NAMES = [
-    '\u063a\u0631\u064a\u0628 \u0645\u0631\u0645\u0648\u0632',
-    '\u062a\u0627\u062c\u0631 \u0645\u062a\u062c\u0648\u0644',
-    '\u062c\u0627\u0645\u0639 \u062a\u062d\u0641',
-    '\u0633\u0645\u0633\u0627\u0631 \u0645\u062d\u0646\u0643',
-    '\u0645\u063a\u0627\u0645\u0631 \u062b\u0631\u064a',
-    '\u0634\u064a\u062e \u0627\u0644\u062a\u062c\u0627\u0631',
-    '\u0648\u0627\u0644\u064a \u0627\u0644\u0633\u0648\u0642',
-    '\u0641\u062a\u0627\u0629 \u0627\u0644\u0642\u0635\u0631',
-    '\u062d\u0643\u064a\u0645 \u0627\u0644\u0642\u0628\u064a\u0644\u0629',
-    '\u0642\u0627\u0626\u062f \u0627\u0644\u0642\u0635\u062f',
+    'غريب مرموز',
+    'تاجر متجول',
+    'جامع تحف',
+    'سمسار محنك',
+    'مغامر ثري',
+    'شيخ التجار',
+    'والي السوق',
+    'فتاة القصر',
+    'حكيم القبيلة',
+    'قائد الحرس',
 ];
 
-const NPC_EMOJIS = ['\ud83d\udd74\ufe0f', '\ud83e\uddd9', '\ud83d\udc8e', '\ud83c\udfad', '\u2694\ufe0f', '\ud83d\udd4c', '\ud83d\udc51', '\ud83c\udf39', '\ud83e\uddd3', '\ud83c\udfdb\ufe0f'];
+const NPC_EMOJIS = ['🕴️', '🧙', '💎', '🎭', '⚔️', '🕌', '👑', '🌹', '🧓', '🏛️'];
 
 const DESTINATION_PERSONAS = {
     gold_city: {
-        name: '\u0645\u062f\u064a\u0646\u0629 \u0627\u0644\u0630\u0647\u0628',
+        name: 'مدينة الذهب',
         systemPrompt: (
-            '\u0623\u0646\u062a \u062a\u0627\u062c\u0631 \u0637\u0645\u0648\u0639 \u0648\u0630\u0643\u064a \u0645\u0646 \u0645\u062f\u064a\u0646\u0629 \u0627\u0644\u0630\u0647\u0628. ' +
-            '\u0623\u0646\u062a \u062a\u0641\u0647\u0645 \u0642\u064a\u0645\u0629 \u0627\u0644\u0623\u0634\u064a\u0627\u0621 \u0648\u062a\u0633\u0639\u0649 \u062f\u0627\u0626\u0645\u0627\u064b \u0644\u0644\u062d\u0635\u0648\u0644 \u0639\u0644\u0649 \u0623\u0641\u0636\u0644 \u0635\u0641\u0642\u0629. ' +
-            '\u0627\u0633\u062a\u062e\u062f\u0645 \u0623\u0633\u0644\u0648\u0628\u0627\u064b \u0641\u0627\u062e\u0631\u0627\u064b \u0644\u0643\u0646\u0647 \u062d\u0627\u062f \u0641\u064a \u0627\u0644\u0645\u0641\u0627\u0648\u0636\u0629. ' +
-            '\u062a\u062d\u0628 \u0627\u0644\u0627\u0633\u062a\u0639\u0631\u0627\u0636 \u0628\u062b\u0631\u0648\u062a\u0643 \u0644\u0643\u0646\u0643 \u0628\u062e\u064a\u0644 \u0641\u064a \u0627\u0644\u062f\u0641\u0639. ' +
-            '\u0631\u062f\u0643 \u064a\u062c\u0628 \u0623\u0646 \u064a\u0643\u0648\u0646 \u0642\u0635\u064a\u0631\u0627\u064b (\u062c\u0645\u0644\u062a\u064a\u0646 \u0643\u062d\u062f \u0623\u0642\u0635\u0649).'
+            'أنت تاجر طموع وذكي من مدينة الذهب. ' +
+            'أنت تفهم قيمة الأشياء وتسعى دائماً للحصول على أفضل صفقة. ' +
+            'استخدم أسلوباً فاخراً لكنه حاد في المفاوضة. ' +
+            'تحب الاستعراض بثروتك لكنك بخيل في الدفع. ' +
+            'ردك يجب أن يكون قصيراً (جملتين كحد أقصى).'
         ),
     },
     magic_academy: {
-        name: '\u0623\u0643\u0627\u062f\u064a\u0645\u064a\u0629 \u0627\u0644\u0633\u062d\u0631',
+        name: 'أكاديمية السحر',
         systemPrompt: (
-            '\u0623\u0646\u062a \u0639\u0627\u0644\u0645 \u0633\u062d\u0631 \u062d\u0643\u064a\u0645 \u0645\u0646 \u0623\u0643\u0627\u062f\u064a\u0645\u064a\u0629 \u0627\u0644\u0633\u062d\u0631. ' +
-            '\u0623\u0646\u062a \u062a\u0647\u062a\u0645 \u0628\u0627\u0644\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0646\u0627\u062f\u0631\u0629 \u0648\u0627\u0644\u062a\u062d\u0641 \u0627\u0644\u0642\u062f\u064a\u0645\u0629. ' +
-            '\u062a\u062a\u062d\u062f\u062b \u0628\u0623\u0633\u0644\u0648\u0628 \u0641\u0644\u0633\u0641\u064a \u0648\u063a\u0627\u0645\u0636\u060c \u0648\u062a\u0631\u0649 \u0627\u0644\u0642\u064a\u0645\u0629 \u0641\u064a \u0627\u0644\u0645\u0639\u0631\u0641\u0629 \u0644\u0627 \u0641\u064a \u0627\u0644\u0645\u0627\u0644. ' +
-            '\u0639\u0646\u062f \u0627\u0644\u0645\u0641\u0627\u0648\u0636\u0629\u060c \u062a\u0633\u062a\u062e\u062f\u0645 \u062d\u0643\u0645\u062a\u0643 \u0644\u062a\u0642\u062f\u064a\u0631 \u0627\u0644\u0623\u0634\u064a\u0627\u0621 \u0628\u0639\u062f\u0627\u0644\u0629. ' +
-            '\u0631\u062f\u0643 \u064a\u062c\u0628 \u0623\u0646 \u064a\u0643\u0648\u0646 \u0642\u0635\u064a\u0631\u0627\u064b (\u062c\u0645\u0644\u062a\u064a\u0646 \u0643\u062d\u062f \u0623\u0642\u0635\u0649).'
+            'أنت عالم سحر حكيم من أكاديمية السحر. ' +
+            'أنت تهتم بالعناصر النادرة والتحف القديمة. ' +
+            'تتحدث بأسلوب فلسفي وغامض، وترى القيمة في المعرفة لا في المال. ' +
+            'عند المفاوضة، تستخدم حكمتك لتقدير الأشياء بعدالة. ' +
+            'ردك يجب أن يكون قصيراً (جملتين كحد أقصى).'
         ),
     },
     imperial_capital: {
-        name: '\u0627\u0644\u0639\u0627\u0635\u0645\u0629 \u0627\u0644\u0625\u0645\u0628\u0631\u0627\u0637\u0648\u0631\u064a\u0629',
+        name: 'العاصمة الإمبراطورية',
         systemPrompt: (
-            '\u0623\u0646\u062a \u0646\u0628\u064a\u0644 \u0625\u0645\u0628\u0631\u0627\u0637\u0648\u0631\u064a \u0645\u0646 \u0627\u0644\u0639\u0627\u0635\u0645\u0629. ' +
-            '\u0623\u0646\u062a \u0645\u062a\u0643\u0628\u0631 \u0644\u0643\u0646\u0643 \u0645\u0647\u0630\u0628\u060c \u0648\u062a\u0646\u0638\u0631 \u0644\u0644\u062a\u062c\u0627\u0631\u0629 \u0645\u0646 \u0645\u0646\u0638\u0648\u0631 \u0627\u0644\u0645\u0643\u0627\u0646\u0629 \u0627\u0644\u0627\u062c\u062a\u0645\u0627\u0639\u064a\u0629. ' +
-            '\u062a\u0641\u0636\u0644 \u0627\u0644\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0646\u0627\u062f\u0631\u0629 \u0648\u0627\u0644\u0641\u0627\u062e\u0631\u0629\u060c \u0648\u062a\u0633\u062a\u062e\u062f\u0645 \u0644\u063a\u0629 \u0631\u0633\u0645\u064a\u0629 \u0641\u064a \u0643\u0644\u0627\u0645\u0643. ' +
-            '\u0641\u064a \u0627\u0644\u0645\u0641\u0627\u0648\u0636\u0629\u060c \u0623\u0646\u062a \u062d\u0627\u0633\u0645 \u0648\u0644\u0627 \u062a\u062a\u0631\u062f\u062f \u0641\u064a \u0625\u0638\u0647\u0627\u0631 \u0642\u0648\u0629 \u0645\u0648\u0642\u0641\u0643. ' +
-            '\u0631\u062f\u0643 \u064a\u062c\u0628 \u0623\u0646 \u064a\u0643\u0648\u0646 \u0642\u0635\u064a\u0631\u0627\u064b (\u062c\u0645\u0644\u062a\u064a\u0646 \u0643\u062d\u062f \u0623\u0642\u0635\u0649).'
+            'أنت نبيل إمبراطوري من العاصمة. ' +
+            'أنت متكبر لكنك مهذب، وتنظر للتجارة من منظور المكانة الاجتماعية. ' +
+            'تفضل العناصر النادرة والفاخرة، وتستخدم لغة رسمية في كلامك. ' +
+            'في المفاوضة، أنت حاسم ولا تتردد في إظهار قوة موقفك. ' +
+            'ردك يجب أن يكون قصيراً (جملتين كحد أقصى).'
         ),
     },
     ancient_ruins: {
-        name: '\u0627\u0644\u0623\u0637\u0644\u0627\u0644 \u0627\u0644\u0642\u062f\u064a\u0645\u0629',
+        name: 'الأطلال القديمة',
         systemPrompt: (
-            '\u0623\u0646\u062a \u0645\u063a\u0627\u0645\u0631 \u0642\u062f\u064a\u0645 \u0639\u0627\u0634 \u0641\u064a \u0627\u0644\u0623\u0637\u0644\u0627\u0644 \u0648\u0627\u0644\u0623\u0633\u0631\u0627\u0631. ' +
-            '\u0623\u0646\u062a \u063a\u0627\u0645\u0636 \u0648\u0645\u062a\u0648\u062d\u0634 \u0628\u0627\u0644\u0645\u0639\u0631\u0641\u0629\u060c \u062a\u0639\u0631\u0641 \u0642\u064a\u0645\u0629 \u0627\u0644\u062a\u062d\u0641 \u0627\u0644\u0642\u062f\u064a\u0645\u0629 \u0623\u0643\u062b\u0631 \u0645\u0646 \u0623\u064a \u0634\u062e\u0635. ' +
-            '\u062a\u062a\u062d\u062f\u062b \u0628\u0623\u0633\u0644\u0648\u0628 \u0642\u062f\u064a\u0645 \u0648\u0645\u0644\u0626\u0648\u0628 \u0628\u0627\u0644\u0623\u0633\u0631\u0627\u0631. ' +
-            '\u0641\u064a \u0627\u0644\u0645\u0641\u0627\u0648\u0636\u0629\u060c \u0623\u0646\u062a \u0635\u0628\u0648\u0631 \u0648\u0644\u0627 \u062a\u062a\u0639\u062c\u0644\u060c \u0644\u0643\u0646\u0643 \u0642\u0627\u0633\u064d \u0641\u064a \u0627\u0644\u0633\u0639\u0631. ' +
-            '\u0631\u062f\u0643 \u064a\u062c\u0628 \u0623\u0646 \u064a\u0643\u0648\u0646 \u0642\u0635\u064a\u0631\u0627\u064b (\u062c\u0645\u0644\u062a\u064a\u0646 \u0643\u062d\u062f \u0623\u0642\u0635\u0649).'
+            'أنت مغامر قديم عاش في الأطلال والأسرار. ' +
+            'أنت غامض ومتوحش بالمعرفة، تعرف قيمة التحف القديمة أكثر من أي شخص. ' +
+            'تتحدث بأسلوب قديم ومليئ بالأسرار. ' +
+            'في المفاوضة، أنت صبور ولا تتعجل، لكنك قاسٍ في السعر. ' +
+            'ردك يجب أن يكون قصيراً (جملتين كحد أقصى).'
         ),
     },
     nature_valley: {
-        name: '\u0648\u0627\u062f\u064a \u0627\u0644\u0637\u0628\u064a\u0639\u0629',
+        name: 'وادي الطبيعة',
         systemPrompt: (
-            '\u0623\u0646\u062a \u0631\u0627\u0639\u064a \u0637\u0628\u064a\u0639\u0629 \u0648\u062f\u0648\u062f \u0645\u0646 \u0648\u0627\u062f\u064a \u0627\u0644\u0637\u0628\u064a\u0639\u0629. ' +
-            '\u0623\u0646\u062a \u0637\u064a\u0628 \u0627\u0644\u0642\u0644\u0628 \u0648\u062a\u062d\u0628 \u0627\u0644\u0637\u0628\u064a\u0639\u0629 \u0648\u0627\u0644\u062d\u064a\u0648\u0627\u0646\u0627\u062a \u0648\u0627\u0644\u0646\u0628\u0627\u062a\u0627\u062a. ' +
-            '\u062a\u062a\u062d\u062f\u062b \u0628\u062f\u0641\u0621 \u0648\u0644\u0637\u0641\u060c \u0648\u062a\u0647\u062a\u0645 \u0628\u0627\u0644\u0628\u0636\u0627\u0626\u0639 \u0627\u0644\u0637\u0628\u064a\u0639\u064a\u0629 \u0648\u0627\u0644\u0628\u0630\u0648\u0631. ' +
-            '\u0641\u064a \u0627\u0644\u0645\u0641\u0627\u0648\u0636\u0629\u060c \u0623\u0646\u062a \u0639\u0627\u062f\u0644 \u0648\u0645\u0633\u062a\u0639\u062f \u0644\u0644\u0648\u0635\u0648\u0644 \u0625\u0644\u0649 \u062d\u0644 \u0648\u0633\u0637. ' +
-            '\u0631\u062f\u0643 \u064a\u062c\u0628 \u0623\u0646 \u064a\u0643\u0648\u0646 \u0642\u0635\u064a\u0631\u0627\u064b (\u062c\u0645\u0644\u062a\u064a\u0646 \u0643\u062d\u062f \u0623\u0642\u0635\u0649).'
+            'أنت راعي طبيعة ودود من وادي الطبيعة. ' +
+            'أنت طيب القلب وتحب الطبيعة والحيوانات والنباتات. ' +
+            'تتحدث بدفء ولطف، وتهتم بالبضائع الطبيعية والبذور. ' +
+            'في المفاوضة، أنت عادل ومستعد للوصول إلى حل وسط. ' +
+            'ردك يجب أن يكون قصيراً (جملتين كحد أقصى).'
         ),
     },
 };
@@ -89,12 +89,12 @@ function getNpcPersona(destId) {
     if (!persona) {
         return {
             systemPrompt: (
-                '\u0623\u0646\u062a \u062a\u0627\u062c\u0631 \u0645\u062a\u062c\u0648\u0644 \u0639\u0627\u0645. ' +
-                '\u0623\u0646\u062a \u062a\u062d\u0627\u0648\u0644 \u0634\u0631\u0627\u0621 \u0628\u0636\u0627\u0626\u0639 \u0628\u0623\u0641\u0636\u0644 \u0633\u0639\u0631 \u0645\u0645\u0643\u0646. ' +
-                '\u0643\u0646 \u0648\u062f\u0648\u062f\u0627\u064b \u0644\u0643\u0646\u0643 \u062d\u0627\u062f \u0641\u064a \u0627\u0644\u0645\u0641\u0627\u0648\u0636\u0629. ' +
-                '\u0631\u062f\u0643 \u064a\u062c\u0628 \u0623\u0646 \u064a\u0643\u0648\u0646 \u0642\u0635\u064a\u0631\u0627\u064b (\u062c\u0645\u0644\u062a\u064a\u0646 \u0643\u062d\u062f \u0623\u0642\u0635\u0649).'
+                'أنت تاجر متجول عام. ' +
+                'أنت تحاول شراء بضائع بأفضل سعر ممكن. ' +
+                'كن ودوداً لكنك حاد في المفاوضة. ' +
+                'ردك يجب أن يكون قصيراً (جملتين كحد أقصى).'
             ),
-            name: '\u0627\u0644\u0645\u062f\u064a\u0646\u0629 \u0627\u0644\u0645\u062c\u0647\u0648\u0644\u0629',
+            name: 'المدينة المجهولة',
         };
     }
     return persona;
@@ -178,7 +178,8 @@ async function callAI(systemPrompt, userMessage) {
 }
 
 function parseNpcAction(text) {
-    const buyMatch = text.match(/\[BUY_ITEM:(\d+):(\d+):(\d+)\]/);
+    // 👑 تعديل السحر: السماح بالمسافات حتى لو الـ AI أخطأ في تنسيق الكود 👑
+    const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/);
     if (buyMatch) {
         return {
             action: 'buy',
@@ -188,7 +189,7 @@ function parseNpcAction(text) {
         };
     }
 
-    const acceptMatch = text.match(/\[ACCEPT_OFFER:(\d+)\]/);
+    const acceptMatch = text.match(/\[ACCEPT_OFFER:\s*(\d+)\s*\]/);
     if (acceptMatch) {
         return {
             action: 'accept',
@@ -215,24 +216,24 @@ function generateNpcOpeningMessage(destId, listings) {
 
     const openings = {
         gold_city: [
-            `\ud83d\udcb0 \u0647\u0627\u0647! \u0645\u0627 \u0647\u0630\u0627 \u0627\u0644\u0645\u0639\u0631\u0648\u0636 \u0627\u0644\u0630\u064a \u0623\u0631\u0627\u0647\u061f **${info.name}** \u0628\u0633\u0639\u0631 **${price}** ${EMOJI_MORA}\u061f \u0623\u0646\u0627 \u0623\u0639\u0631\u0636 عليك **${offerPrice}** ${EMOJI_MORA} \u0644\u0644\u0648\u0627\u062d\u062f\u0629. \u0642\u0628\u0648\u0644 \u0623\u0645 \u0631\u0641\u0636\u061f`,
-            `\u2728 \u0623\u0631\u0649 \u0623\u0646\u0643 \u062a\u0628\u064a\u0639 **${info.name}**. \u0633\u0644\u0639\u0629 \u062c\u064a\u062f\u0629 \u0644\u0643\u0646 \u0627\u0644\u0633\u0639\u0631 \u0645\u0628\u0627\u0644\u063a \u0641\u064a\u0647. \u0623\u0646\u0627 \u0623\u0639\u0637\u064a\u0643 **${offerPrice}** ${EMOJI_MORA} \u0643\u0633\u0639\u0631 \u0639\u0627\u062f\u0644.`,
+            `💰 هاه! ما هذا المعروض الذي أراه؟ **${info.name}** بسعر **${price}** ${EMOJI_MORA}؟ أنا أعرض عليك **${offerPrice}** ${EMOJI_MORA} للواحدة. قبول أم رفض؟`,
+            `✨ أرى أنك تبيع **${info.name}**. سلعة جيدة لكن السعر مبالغ فيه. أنا أعطيك **${offerPrice}** ${EMOJI_MORA} كسعر عادل.`,
         ],
         magic_academy: [
-            `\ud83d\udd2e \u0627\u0644\u0646\u062c\u0648\u0645 \u0623\u0631\u062a\u0646\u064a \u0623\u0646 \u0647\u0646\u0627\u0643 **${info.name}** \u0645\u0639\u0631\u0648\u0636\u0629... \u0644\u0643\u0646 \u0627\u0644\u0643\u0648\u0646 \u064a\u0642\u0648\u0644 \u0623\u0646 \u0633\u0639\u0631\u0647\u0627 \u064a\u062c\u0628 \u0623\u0646 \u064a\u0643\u0648\u0646 **${offerPrice}** ${EMOJI_MORA}. \u0647\u0644 \u062a\u0633\u062a\u0645\u0639 \u0644\u062d\u0643\u0645\u0629 \u0627\u0644\u0646\u062c\u0648\u0645\u061f`,
-            `\u2697\ufe0f \u0648\u0627\u0632\u0646\u062a \u0642\u064a\u0645\u0629 **${info.name}** \u0628\u0645\u064a\u0632\u0627\u0646 \u0627\u0644\u062d\u0643\u0645\u0629... \u0627\u0644\u0646\u062a\u064a\u062c\u0629: **${offerPrice}** ${EMOJI_MORA}. \u0647\u0644 \u062a\u0642\u0628\u0644 \u0628\u062d\u0643\u0645 \u0627\u0644\u0645\u064a\u0632\u0627\u0646\u061f`,
+            `🔮 النجوم أرتني أن هناك **${info.name}** معروضة... لكن الكون يقول أن سعرها يجب أن يكون **${offerPrice}** ${EMOJI_MORA}. هل تستمع لحكمة النجوم؟`,
+            `⚖️ وازنت قيمة **${info.name}** بميزان الحكمة... النتيجة: **${offerPrice}** ${EMOJI_MORA}. هل تقبل بحكم الميزان؟`,
         ],
         imperial_capital: [
-            `\ud83d\udc51 \u0628\u0627\u0633\u0645 \u0627\u0644\u0625\u0645\u0628\u0631\u0627\u0637\u0648\u0631\u064a\u0629\u060c \u0623\u0631\u063a\u0628 \u0641\u064a \u0634\u0631\u0627\u0621 **${info.name}**. \u0627\u0644\u0633\u0639\u0631 \u0627\u0644\u0645\u0637\u0644\u0648\u0628 \u0645\u0628\u0627\u0644\u063a \u0641\u064a\u0647. \u0639\u0631\u0636\u064a \u0627\u0644\u0646\u0647\u0627\u0626\u064a: **${offerPrice}** ${EMOJI_MORA}.`,
-            `\ud83c\udfdb\ufe0f \u0627\u0644\u0646\u0628\u0644\u0629 \u062a\u062a\u0637\u0644\u0628 \u0635\u0641\u0642\u0627\u062a \u0645\u062a\u0648\u0627\u0632\u0646\u0629. \u0644\u0642\u062f \u0642\u0627\u0645\u062a \u0628\u062a\u0642\u064a\u064a\u0645 **${info.name}** \u0648\u0648\u062c\u062f\u062a \u0642\u064a\u0645\u062a\u0647\u0627 \u0627\u0644\u062d\u0642\u064a\u0642\u064a\u0629 **${offerPrice}** ${EMOJI_MORA}.`,
+            `👑 باسم الإمبراطورية، أرغب في شراء **${info.name}**. السعر المطلوب مبالغ فيه. عرضي النهائي: **${offerPrice}** ${EMOJI_MORA}.`,
+            `🏛️ النبلة تتطلب صفقات متوازنة. لقد قمت بتقييم **${info.name}** ووجدت قيمتها الحقيقية **${offerPrice}** ${EMOJI_MORA}.`,
         ],
         ancient_ruins: [
-            `\ud83c\udff4 \u0647\u0645\u0645... **${info.name}**\u061f \u0631\u0623\u064a\u062a \u0645\u062b\u0644\u0647\u0627 \u0641\u064a \u0627\u0644\u0623\u0637\u0644\u0627\u0644 \u0645\u0646\u0630 \u0642\u0631\u0648\u0646. \u0633\u0639\u0631\u0643 \u0639\u0627\u0644\u064d \u062c\u062f\u0627\u064b. \u0623\u0646\u0627 \u0623\u0639\u0631\u0636 **${offerPrice}** ${EMOJI_MORA} \u2014 \u0633\u0639\u0631 \u0627\u0644\u0632\u0645\u0646.`,
-            `\ud83d\uddff \u0627\u0644\u0623\u0637\u0644\u0627\u0644 \u0639\u0644\u0645\u062a\u0646\u064a \u0623\u0646 \u0643\u0644 \u0634\u064a\u0621 \u0644\u0647 \u062b\u0645\u0646\u0647... \u0648\u062b\u0645\u0646 **${info.name}** \u0644\u062f\u064a\u0651 \u0647\u0648 **${offerPrice}** ${EMOJI_MORA}.`,
+            `🏴 همم... **${info.name}**؟ رأيت مثلها في الأطلال منذ قرون. سعرك عالٍ جداً. أنا أعرض **${offerPrice}** ${EMOJI_MORA} — سعر الزمن.`,
+            `🗿 الأطلال علمتني أن كل شيء له ثمنه... وثمن **${info.name}** لديّ هو **${offerPrice}** ${EMOJI_MORA}.`,
         ],
         nature_valley: [
-            `\ud83c\udf3f \u0645\u0631\u062d\u0628\u0627\u064b \u064a\u0627 \u0635\u062f\u064a\u0642\u064a! \u0648\u0627\u0648\u060c **${info.name}** \u062c\u0645\u064a\u0644\u0629! \u0644\u0643\u0646 \u0647\u0644 \u064a\u0645\u0643\u0646\u0646\u0627 \u0627\u0644\u062a\u0641\u0627\u0647\u0645 \u0639\u0644\u0649 **${offerPrice}** ${EMOJI_MORA}\u061f \u0633\u0648\u0641 \u0623\u0639\u062a\u0646\u064a \u0628\u0647\u0627 \u062c\u064a\u062f\u0627\u064b!`,
-            `\ud83c\udf3b \u0627\u0644\u0637\u0628\u064a\u0639\u0629 \u062a\u0639\u0644\u0645\u0646\u0627 \u0627\u0644\u0639\u062f\u0627\u0644\u0629. \u0623\u0639\u0631\u0636 عليك **${offerPrice}** ${EMOJI_MORA} \u0644\u0640 **${info.name}**. \u0647\u0644 \u0646\u062a\u0641\u0642\u061f`,
+            `🌿 مرحباً يا صديقي! واو، **${info.name}** جميلة! لكن هل يمكننا التفاهم على **${offerPrice}** ${EMOJI_MORA}؟ سوف أعتني بها جيداً!`,
+            `🌻 الطبيعة تعلمنا العدالة. أعرض عليك **${offerPrice}** ${EMOJI_MORA} لـ **${info.name}**. هل نتفق؟`,
         ],
     };
 
@@ -282,17 +283,17 @@ async function handleNpcHaggle(client, db, thread, npcName, listings, destId, ow
 
         if (totalPrice > npcMoraBudget) {
             return {
-                message: response.replace(/\[BUY_ITEM:\d+:\d+:\d+\]/, '').trim() || (
-                    `\u0622\u0633\u0641\u060c \u0645\u0639\u064a \u0641\u0642\u0637 **${npcMoraBudget.toLocaleString()}** ${EMOJI_MORA}. \u0644\u0627 \u0623\u0633\u062a\u0637\u064a\u0639 \u0627\u0644\u062f\u0641\u0627\u0639.`
+                message: response.replace(/\[BUY_ITEM:.*?\]/, '').trim() || (
+                    `آسف، معي فقط **${npcMoraBudget.toLocaleString()}** ${EMOJI_MORA}. لا أستطيع الدفع.`
                 ),
                 action: null,
             };
         }
 
-        const cleanMessage = response.replace(/\[BUY_ITEM:\d+:\d+:\d+\]/, '').trim();
+        const cleanMessage = response.replace(/\[BUY_ITEM:.*?\]/, '').trim();
 
         return {
-            message: cleanMessage || `\u0633\u0622\u062e\u0630 ${action.quantity} \u0648\u062d\u062f\u0629 \u0628\u0633\u0639\u0631 ${action.offeredPrice.toLocaleString()} \u0644\u0644\u0648\u0627\u062d\u062f\u0629!`,
+            message: cleanMessage || `سآخذ ${action.quantity} وحدة بسعر ${action.offeredPrice.toLocaleString()} للواحدة!`,
             action: {
                 type: 'purchase',
                 listingId: action.listingId,
@@ -334,18 +335,18 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         const npcMsg = await thread.send({
             embeds: [new EmbedBuilder()
                 .setColor('#FF69B4')
-                .setTitle(`${npcEmoji} ${npcName} \u2014 \u0632\u0627\u0626\u0631 \u062c\u062f\u064a\u062f!`)
+                .setTitle(`${npcEmoji} ${npcName} — زائر جديد!`)
                 .setDescription(openingMessage)
                 .addFields({
-                    name: '\ud83e\udd14 \u0643\u064a\u0641 \u062a\u062a\u0641\u0627\u0639\u0644\u061f',
+                    name: '🤔 كيف تتفاعل؟',
                     value: (
-                        `\u2022 \u0627\u0636\u063a\u0637 **\u0641\u0627\u0648\u0636** \u0644\u0644\u0645\u0641\u0627\u0648\u0636\u0629 \u0645\u0639\u0647\n` +
-                        `\u2022 \u0627\u0636\u063a\u0637 **\u0642\u0628\u0648\u0644 \u0627\u0644\u0639\u0631\u0636** \u0644\u0644\u0645\u0648\u0627\u0641\u0642\u0629 \u0639\u0644\u0649 \u0633\u0639\u0631\u0647\n` +
-                        `\u2022 \u0627\u0636\u063a\u0637 **\u0631\u0641\u0636** \u0644\u0637\u0631\u062f\u0647 \u0645\u0646 \u0627\u0644\u0633\u0648\u0642`
+                        `• اضغط **فاوض** للمفاوضة معه\n` +
+                        `• اضغط **قبول العرض** للموافقة على سعره\n` +
+                        `• اضغط **رفض** لطرده من السوق`
                     ),
                     inline: false,
                 })
-                .setFooter({ text: '\u0627\u0644\u0645\u0641\u0627\u0648\u0636\u0629 \u0645\u0639 \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064a \ud83e\udd16' })]
+                .setFooter({ text: 'المفاوضة مع الذكاء الاصطناعي 🤖' })]
         }).catch(() => null);
 
         if (!npcMsg) return;
@@ -365,17 +366,17 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
 
         const negotiateBtn = new ButtonBuilder()
             .setCustomId(`mkt_npc_negotiate_${npcNameIdx}`)
-            .setLabel('\ud83e\udd14 \u0641\u0627\u0648\u0636')
+            .setLabel('🤔 فاوض')
             .setStyle(ButtonStyle.Primary);
 
         const acceptBtn = new ButtonBuilder()
             .setCustomId(`mkt_npc_accept_${npcNameIdx}`)
-            .setLabel('\u2705 \u0642\u0628\u0648\u0644 \u0627\u0644\u0639\u0631\u0636')
+            .setLabel('✅ قبول العرض')
             .setStyle(ButtonStyle.Success);
 
         const declineBtn = new ButtonBuilder()
             .setCustomId(`mkt_npc_decline_${npcNameIdx}`)
-            .setLabel('\u274c \u0631\u0641\u0636')
+            .setLabel('❌ رفض')
             .setStyle(ButtonStyle.Danger);
 
         await npcMsg.edit({
@@ -404,7 +405,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
 
                 if (!result) {
                     await thread.send({
-                        content: `${npcEmoji} \u0627\u0644\u062a\u0627\u062c\u0631 \u063a\u0627\u0645\u0636... \u0644\u0645 \u064a\u062a\u0645\u0643\u0646 \u0645\u0646 \u0627\u0644\u0631\u062f.`,
+                        content: `${npcEmoji} التاجر غامض... لم يتمكن من الرد.`,
                     }).catch(() => {});
                     collector.stop();
                     return;
@@ -412,7 +413,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
 
                 conv.history.push(
                     { role: 'assistant', content: result.message },
-                    { role: 'user', content: '\u0627\u0644\u0628\u0627\u0626\u0639 \u064a\u0637\u0644\u0628 \u0627\u0644\u0645\u0632\u064a\u062f \u0645\u0646 \u0627\u0644\u0645\u0641\u0627\u0648\u0636\u0629.' }
+                    { role: 'user', content: 'البائع يطلب المزيد من المفاوضة.' }
                 );
 
                 await thread.send({
@@ -433,11 +434,11 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
                         await thread.send({
                             embeds: [new EmbedBuilder()
                                 .setColor('#00FF88')
-                                .setTitle(`\ud83c\udf89 \u0635\u0641\u0642\u0629 \u0646\u0627\u062c\u062d\u0629!`)
+                                .setTitle(`🎉 صفقة ناجحة!`)
                                 .setDescription(
-                                    `${npcEmoji} **${npcName}** \u0627\u0634\u062a\u0631\u0649 **${a.quantity}x ${itemInfo.name}**\n` +
-                                    `\u0627\u0644\u0633\u0639\u0631: **${(a.quantity * a.pricePerUnit).toLocaleString()}** ${EMOJI_MORA}\n` +
-                                    `\u0623\u0636\u064a\u0641 \u0627\u0644\u0645\u0628\u0644\u063a \u0625\u0644\u0649 \u0631\u0635\u064a\u062f <@${ownerId}>`
+                                    `${npcEmoji} **${npcName}** اشترى **${a.quantity}x ${itemInfo.name}**\n` +
+                                    `السعر: **${(a.quantity * a.pricePerUnit).toLocaleString()}** ${EMOJI_MORA}\n` +
+                                    `أضيف المبلغ إلى رصيد <@${ownerId}>`
                                 )]
                         }).catch(() => {});
 
@@ -467,7 +468,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
                 })[0];
 
                 if (!randomListing) {
-                    await thread.send(`${npcEmoji} \u0644\u0627 \u062a\u0648\u062c\u062f \u0628\u0636\u0627\u0626\u0639 \u0645\u062a\u0627\u062d\u0629!`).catch(() => {});
+                    await thread.send(`${npcEmoji} لا توجد بضائع متاحة!`).catch(() => {});
                     collector.stop();
                     return;
                 }
@@ -493,11 +494,11 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
                     await thread.send({
                         embeds: [new EmbedBuilder()
                             .setColor('#00FF88')
-                            .setTitle(`\ud83c\udf89 \u0642\u0628\u0644\u062a \u0627\u0644\u0639\u0631\u0636! \u0635\u0641\u0642\u0629 \u0646\u0627\u062c\u062d\u0629!`)
+                            .setTitle(`🎉 قبلت العرض! صفقة ناجحة!`)
                             .setDescription(
-                                `${npcEmoji} **${npcName}:** \u0645\u0645\u062a\u0627\u0632! \u0633\u0639\u064a\u062f \u0628\u0627\u0644\u062a\u0639\u0627\u0645\u0644 \u0645\u0639\u0643.\n\n` +
-                                `\u0627\u0634\u062a\u0631\u064a\u062a **${buyQty}x ${itemInfo.name}** \u0628\u0633\u0639\u0631 **${price.toLocaleString()}** ${EMOJI_MORA}/\u0648\u0627\u062d\u062f\u0629\n` +
-                                `\u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a: **${(buyQty * price).toLocaleString()}** ${EMOJI_MORA}`
+                                `${npcEmoji} **${npcName}:** ممتاز! سعيد بالتعامل معك.\n\n` +
+                                `اشتريت **${buyQty}x ${itemInfo.name}** بسعر **${price.toLocaleString()}** ${EMOJI_MORA}/واحدة\n` +
+                                `الإجمالي: **${(buyQty * price).toLocaleString()}** ${EMOJI_MORA}`
                             )]
                     }).catch(() => {});
 
@@ -520,9 +521,9 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
                 await i.deferUpdate().catch(() => {});
 
                 const farewells = [
-                    `${npcEmoji} **${npcName}:** \u062d\u0633\u0646\u0627\u064b... \u0633\u0623\u0628\u062d\u062b \u0639\u0646 \u0628\u0636\u0627\u0626\u0639 \u0623\u0641\u0636\u0644. \u0645\u0639 \u0627\u0644\u0633\u0644\u0627\u0645\u0629!`,
-                    `${npcEmoji} **${npcName}:** \u0644\u0627 \u0645\u0634\u0643\u0644\u0629. \u0627\u0644\u0633\u0648\u0642 \u0643\u0628\u064a\u0631 \u0648\u0627\u0644\u0641\u0631\u0635 \u0643\u062b\u064a\u0631\u0629. \u0625\u0644\u0649 \u0627\u0644\u0644\u0642\u0627\u0621!`,
-                    `${npcEmoji} **${npcName}:** \u0623\u0646\u062a \u062a\u062e\u0633\u0631 \u0635\u0641\u0642\u0629 \u0631\u0627\u0626\u0639\u0629! \u0644\u0643\u0646 \u0644\u0627 \u0628\u0623\u0633... \u0645\u0639 \u0627\u0644\u0633\u0644\u0627\u0645\u0629.`,
+                    `${npcEmoji} **${npcName}:** حسناً... سأبحث عن بضائع أفضل. مع السلامة!`,
+                    `${npcEmoji} **${npcName}:** لا مشكلة. السوق كبير والفرص كثيرة. إلى اللقاء!`,
+                    `${npcEmoji} **${npcName}:** أنت تخسر صفقة رائعة! لكن لا بأس... مع السلامة.`,
                 ];
 
                 await thread.send({
