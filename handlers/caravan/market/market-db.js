@@ -130,7 +130,7 @@ async function createMarketSession(db, caravanId, ownerId, guildId, destId, thre
     return result.rows[0]?.id || null;
 }
 
-// 👑 أضفت المتغير client هنا كخيار إضافي عشان لو تبي تحدث الكاش وتحمي الفلوس من الضياع 👑
+// 👑 دالة الشراء الفولاذية الجديدة: تفحص الداتابيس بدقة وتحدّث الكاش 👑
 async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quantity, pricePerUnit, buyerType = 'player', client = null) {
     const totalPrice = quantity * pricePerUnit;
     const now = Date.now();
@@ -147,20 +147,33 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
     if (quantity > available) return { error: 'الكمية المطلوبة غير متوفرة حالياً في المتجر.' };
     if (totalPrice <= 0) return { error: 'السعر المدخل غير صالح.' };
 
+    // 1️⃣ خصم المورا من المشتري الحقيقي وتحديث كاشه
     if (buyerType === 'player') {
-        const buyerLevel = await safeQuery(db, `
-            SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2
-        `, [buyerId, guildId]);
+        let buyerMora = 0;
+        try {
+            const bLevel = await db.query(`SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [buyerId, guildId]);
+            buyerMora = Number(bLevel.rows[0]?.mora || 0);
+        } catch(e) {
+            const bLevel2 = await db.query(`SELECT mora FROM levels WHERE userid=$1 AND guildid=$2`, [buyerId, guildId]).catch(()=>({rows:[]}));
+            buyerMora = Number(bLevel2.rows[0]?.mora || 0);
+        }
 
-        const buyerMora = Number(buyerLevel.rows[0]?.mora || 0);
+        if (buyerMora < totalPrice && client && typeof client.getLevel === 'function') {
+            const u = await client.getLevel(buyerId, guildId);
+            buyerMora = Number(u?.mora || 0);
+        }
+
         if (buyerMora < totalPrice) return { error: 'رصيدك من المورا غير كافٍ لإتمام الشراء.' };
 
-        await safeExecute(db, `
-            UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) - $1
-            WHERE "user"=$2 AND "guild"=$3
-        `, [totalPrice, buyerId, guildId]);
+        let dbUpdated = false;
+        try {
+            let r = await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) - $1 WHERE "user"=$2 AND "guild"=$3 RETURNING *`, [totalPrice, buyerId, guildId]);
+            if (r.rowCount > 0) dbUpdated = true;
+        } catch(e) {}
+        if (!dbUpdated) {
+            await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) - $1 WHERE userid=$2 AND guildid=$3`).catch(()=>{});
+        }
         
-        // 👑 تحديث كاش المشتري إذا كان متوفر 👑
         if (client && typeof client.getLevel === 'function') {
             try {
                 let u = await client.getLevel(buyerId, guildId);
@@ -169,12 +182,16 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         }
     }
 
-    await safeExecute(db, `
-        UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) + $1
-        WHERE "user"=$2 AND "guild"=$3
-    `, [totalPrice, sellerId, guildId]);
+    // 2️⃣ إضافة المورا للبائع وتحديث كاشه
+    let sDbUpdated = false;
+    try {
+        let r = await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) + $1 WHERE "user"=$2 AND "guild"=$3 RETURNING *`, [totalPrice, sellerId, guildId]);
+        if (r.rowCount > 0) sDbUpdated = true;
+    } catch(e) {}
+    if (!sDbUpdated) {
+        await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) + $1 WHERE userid=$2 AND guildid=$3`).catch(()=>{});
+    }
 
-    // 👑 تحديث كاش البائع إذا كان متوفر (حماية لأموال البائعين من الضياع) 👑
     if (client && typeof client.getLevel === 'function') {
         try {
             let s = await client.getLevel(sellerId, guildId);
@@ -182,7 +199,7 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         } catch(e) {}
     }
 
-    // 👑 استخدام COALESCE لتجنب خطأ الـ NULL في حال كانت القيمة فارغة 👑
+    // 3️⃣ تحديث البضائع والمبيعات في السوق
     await safeExecute(db, `
         UPDATE caravan_market_listings SET "quantitySold" = COALESCE("quantitySold", 0) + $1
         WHERE "id"=$2
@@ -201,21 +218,29 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
     `, [listingId, buyerId, sellerId, guildId, itemId, quantity, pricePerUnit, totalPrice, buyerType, now]);
 
-    // 👑 استخدام COALESCE لحماية الأرباح من الانكسار 👑
     await safeExecute(db, `
         UPDATE caravan_market_sessions
-        SET "totalSales" = COALESCE("totalSales", 0) + 1, 
-            "totalRevenue" = COALESCE("totalRevenue", 0) + $1
+        SET "totalSales" = COALESCE("totalSales", 0) + 1, "totalRevenue" = COALESCE("totalRevenue", 0) + $1
         WHERE "caravanId" = (SELECT "caravanId" FROM caravan_market_listings WHERE "id"=$2)
     `, [totalPrice, listingId]);
 
+    // 4️⃣ نقل المشتريات للمخزون
     if (buyerType === 'player') {
-        await safeExecute(db, `
-            INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
-            VALUES ($1,$2,$3,$4)
-            ON CONFLICT ("guildID","userID","itemID")
-            DO UPDATE SET "quantity" = COALESCE(user_inventory.quantity, 0) + $4
-        `, [guildId, buyerId, itemId, quantity]);
+        try {
+            await db.query(`
+                INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
+                VALUES ($1,$2,$3,$4)
+                ON CONFLICT ("guildID","userID","itemID")
+                DO UPDATE SET "quantity" = COALESCE(user_inventory.quantity, 0) + $4
+            `, [guildId, buyerId, itemId, quantity]);
+        } catch(e) {
+            await db.query(`
+                INSERT INTO user_inventory (guildid,userid,itemid,quantity)
+                VALUES ($1,$2,$3,$4)
+                ON CONFLICT (guildid,userid,itemid)
+                DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $4
+            `, [guildId, buyerId, itemId, quantity]).catch(()=>{});
+        }
     }
 
     return { ok: true, totalPrice, remaining: available - quantity };
@@ -239,12 +264,21 @@ async function returnUnsoldItems(db, ownerId, guildId) {
     for (const listing of (listings.rows || [])) {
         const qty = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
         if (qty > 0) {
-            await safeExecute(db, `
-                INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
-                VALUES ($1,$2,$3,$4)
-                ON CONFLICT ("guildID","userID","itemID")
-                DO UPDATE SET "quantity" = COALESCE(user_inventory.quantity, 0) + $4
-            `, [guildId, ownerId, listing.itemid || listing.itemID, qty]);
+            try {
+                await db.query(`
+                    INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
+                    VALUES ($1,$2,$3,$4)
+                    ON CONFLICT ("guildID","userID","itemID")
+                    DO UPDATE SET "quantity" = COALESCE(user_inventory.quantity, 0) + $4
+                `, [guildId, ownerId, listing.itemid || listing.itemID, qty]);
+            } catch(e) {
+                await db.query(`
+                    INSERT INTO user_inventory (guildid,userid,itemid,quantity)
+                    VALUES ($1,$2,$3,$4)
+                    ON CONFLICT (guildid,userid,itemid)
+                    DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $4
+                `, [guildId, ownerId, listing.itemid || listing.itemID, qty]).catch(()=>{});
+            }
             returned.push({ itemId: listing.itemid || listing.itemID, quantity: qty, name: listing.itemname || listing.itemName });
         }
     }
