@@ -1,6 +1,5 @@
 const {
-    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-    ChannelType, MessageFlags,
+    EmbedBuilder, ChannelType
 } = require('discord.js');
 const { safeQuery } = require('../db');
 const { caravanConfig, EMOJI_MORA } = require('../config');
@@ -11,7 +10,9 @@ const {
     getSessionByThread,
     getListingsBySession,
 } = require('./market-db');
-const { buildMarketEmbed, buildMarketComponents } = require('./market-ui');
+
+// 👑 تحديث: استدعاء الدالة السحرية للصور 👑
+const { updateMarketMessage } = require('./market-ui');
 const { scheduleNpcSpawn } = require('./market-npc-ai');
 
 const activeTimers = new Map();
@@ -74,10 +75,8 @@ async function createMarketThread(client, db, caravan, channelId) {
         }).catch(() => null);
 
         if (announcement) {
-            await thread.send({
-                embeds: [await buildMarketEmbed(listings, dest)],
-                components: buildMarketComponents(listings),
-            }).catch(() => {});
+            // 👑 استخدام نظام الصور الجديد اللي صممناه 👑
+            await updateMarketMessage(thread, listings, dest);
         }
 
         // تشغيل الذكاء الاصطناعي (البوتات تشتري)
