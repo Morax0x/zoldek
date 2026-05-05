@@ -5,7 +5,7 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 
-const { createCanvas, loadImage } = require('@napi-rs/canvas'); // 👑 استدعاء أداة الرسم للوجهات
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 
 const {
     caravanConfig, getUserCaravanStats,
@@ -115,14 +115,18 @@ async function sendCanvas(fn, args, content = '') {
     }
 }
 
-// 👑 دالة لرسم واجهة اختيار الوجهة بدون إمبيد 👑
+// 👑 تسريع تحميل الصورة (حفظها في الرام بدل التحميل كل مرة) 👑
+let cachedDestBg = null;
+
 async function generateDestChoiceImage(dest, mora) {
     const canvas = createCanvas(800, 400);
     const ctx = canvas.getContext('2d');
     
     try {
-        const bg = await loadImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_caravan.jpg');
-        ctx.drawImage(bg, 0, 0, 800, 400);
+        if (!cachedDestBg) {
+            cachedDestBg = await loadImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_caravan.jpg');
+        }
+        ctx.drawImage(cachedDestBg, 0, 0, 800, 400);
     } catch(e) {
         ctx.fillStyle = '#1c1c1e';
         ctx.fillRect(0, 0, 800, 400);
@@ -184,9 +188,14 @@ module.exports = {
         }
 
         const db = client.sql;
-        setupCaravanChecker(client, db);
-        registerCombatListeners(client);
-        setupMarketChecker(client, db);
+
+        // 👑 إصلاح الـ Memory Leak: تشغيل العدادات مرة واحدة فقط عند إقلاع البوت مو مع كل ضغطة زر 👑
+        if (!client.caravanSystemsInitialized) {
+            setupCaravanChecker(client, db);
+            registerCombatListeners(client);
+            setupMarketChecker(client, db);
+            client.caravanSystemsInitialized = true;
+        }
 
         const reply = async (payload) => {
             try {
@@ -369,16 +378,13 @@ module.exports = {
                         return;
                     }
 
-                    // 👑 حفظ الوجهة المحددة للرحلة
                     client.caravanTempDest = client.caravanTempDest || new Map();
                     client.caravanTempDest.set(user.id, dest);
 
-                    // 👑 تنظيف سجلات السوق السابقة وفتح واجهة التجهيز!
                     clearMarketListingsCache(client, user.id, guild.id);
                     await showMarketSetup(i, client, db, user, guild, dest);
                 }
 
-                // ─── أوامر تجهيز السوق (Market Setup) ───
                 else if (id === 'mkt_add_item') {
                     const dest = client.caravanTempDest?.get(user.id);
                     await handleAddItemSelect(i, client, db, user, guild, dest);
@@ -397,14 +403,12 @@ module.exports = {
                     await i.deleteReply().catch(()=>{});
                 }
 
-                // ─── إطلاق القافلة بعد الانتهاء من تجهيز السوق ───
                 else if (id === 'mkt_launch' || id === 'mkt_skip') {
                     const dest = client.caravanTempDest?.get(user.id);
                     const mora = await getMora(db, user.id, guild.id);
                     
-                    await i.deleteReply().catch(()=>{}); // إغلاق نافذة السوق
+                    await i.deleteReply().catch(()=>{}); 
 
-                    // رسم صورة التأمين بدون إمبيد
                     const buffer = await generateDestChoiceImage(dest, mora);
                     const attachment = new AttachmentBuilder(buffer, { name: 'dest_choice.png' });
 
@@ -445,8 +449,9 @@ module.exports = {
 
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
-                    const { sendCaravan } = require('./journey');
-                    const result     = await sendCaravan(db, user.id, guild.id, destId, savedArts);
+                    
+                    // 👑 تصليح خطأ التكرار (Crash Fix) 👑
+                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts);
 
                     if (result.error) {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
@@ -454,7 +459,6 @@ module.exports = {
                         return;
                     }
 
-                    // 👑 حفظ بضائع السوق في قاعدة البيانات وربطها بالقافلة!
                     const activeCheck = await getActiveCaravan(db, user.id, guild.id);
                     if (activeCheck) {
                         await finalizeListings(client, db, activeCheck.id, user.id, guild.id);
@@ -504,7 +508,7 @@ module.exports = {
                                     db,
                                     getMora,
                                     showHub,
-                                    client, // تمرير الـ client مهم لحفظ بضائع السوق لاحقاً
+                                    client,
                                 });
                                 return;
                             }
