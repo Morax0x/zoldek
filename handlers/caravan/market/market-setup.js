@@ -111,13 +111,10 @@ async function fetchUserInventory(db, userId, guildId) {
     }));
 }
 
-async function showMarketSetup(interaction, client, db, user, guild, dest) {
-    const inventory = await fetchUserInventory(db, user.id, guild.id);
-    const listings = getMarketListingsCache(client, user.id, guild.id);
+// 👑 دالة جديدة لبناء الأزرار والقوائم وتحديث حالتها بذكاء 👑
+function buildMarketComponents(inventory, listings) {
     const listedItemIds = new Set(listings.map(l => l.itemId));
     const availableItems = inventory.filter(i => !listedItemIds.has(i.itemId));
-
-    const embed = await buildMarketSetupEmbed(user, listings, inventory.length, dest);
 
     const options = availableItems.slice(0, 25).map(item => {
         const info = getItemInfo(item.itemId);
@@ -169,7 +166,7 @@ async function showMarketSetup(interaction, client, db, user, guild, dest) {
                 .setCustomId('mkt_launch')
                 .setLabel('🚀 إطلاق القافلة (مع السوق)')
                 .setStyle(ButtonStyle.Success)
-                .setDisabled(listings.length === 0),
+                .setDisabled(listings.length === 0), // يفتح الزر فوراً إذا كان فيه عنصر 1 على الأقل
             new ButtonBuilder()
                 .setCustomId('mkt_skip')
                 .setLabel('⏭️ تخطي السوق (إرسال عادي)')
@@ -180,6 +177,16 @@ async function showMarketSetup(interaction, client, db, user, guild, dest) {
                 .setStyle(ButtonStyle.Danger)
         )
     );
+
+    return components;
+}
+
+async function showMarketSetup(interaction, client, db, user, guild, dest) {
+    const inventory = await fetchUserInventory(db, user.id, guild.id);
+    const listings = getMarketListingsCache(client, user.id, guild.id);
+    
+    const embed = await buildMarketSetupEmbed(user, listings, inventory.length, dest);
+    const components = buildMarketComponents(inventory, listings);
 
     const reply = await interaction.reply({ embeds: [embed], components, flags: [MessageFlags.Ephemeral], fetchReply: true });
     return reply;
@@ -199,9 +206,8 @@ async function handleAddItemSelect(interaction, client, db, user, guild, dest) {
 
         const modal = new ModalBuilder()
             .setCustomId(`mkt_price_modal_${itemId}`)
-            .setTitle(`تسعير: ${info.name}`.substring(0, 45)); // حماية الطول
+            .setTitle(`تسعير: ${info.name}`.substring(0, 45));
 
-        // 👑 إزالة الإيموجيات المخصصة لمنع انهيار الديسكورد 👑
         const qtyInput = new TextInputBuilder()
             .setCustomId('mkt_qty')
             .setLabel(`الكمية (لديك ${invItem.quantity})`.substring(0, 45)) 
@@ -211,7 +217,7 @@ async function handleAddItemSelect(interaction, client, db, user, guild, dest) {
 
         const priceInput = new TextInputBuilder()
             .setCustomId('mkt_price')
-            .setLabel(`السعر لكل واحدة (بالمورا)`) // نص نظيف بدون إيموجيات
+            .setLabel(`السعر لكل واحدة (بالمورا)`)
             .setPlaceholder('أدخل السعر بالمورا')
             .setStyle(TextInputStyle.Short)
             .setRequired(true);
@@ -275,8 +281,12 @@ async function handlePriceModalSubmit(modalSubmit, client, db, user, guild, dest
     });
 
     await modalSubmit.deferUpdate().catch(() => {});
+    
     const embed = await buildMarketSetupEmbed(user, listings, inventory.length, dest);
-    await modalSubmit.editReply({ embeds: [embed] }).catch(() => {});
+    // 👑 التعديل السحري: تحديث الأزرار عشان يفتح زر الإطلاق 👑
+    const components = buildMarketComponents(inventory, listings);
+    
+    await modalSubmit.editReply({ embeds: [embed], components }).catch(() => {});
 }
 
 async function handleRemoveItemSelect(interaction, client, db, user, guild, dest) {
@@ -291,71 +301,7 @@ async function handleRemoveItemSelect(interaction, client, db, user, guild, dest
 
     const inventory = await fetchUserInventory(db, user.id, guild.id);
     const embed = await buildMarketSetupEmbed(user, listings, inventory.length, dest);
-
-    const listedItemIds = new Set(listings.map(l => l.itemId));
-    const availableItems = inventory.filter(i => !listedItemIds.has(i.itemId));
-
-    const options = availableItems.slice(0, 25).map(item => {
-        const info = getItemInfo(item.itemId);
-        const rarityTxt = info.rarity ? `[${RARITY_AR[info.rarity] || info.rarity}] ` : '';
-        return {
-            label: `${info.name?.substring(0, 25) || item.itemId}`,
-            value: item.itemId,
-            description: `${rarityTxt}المتوفر: ${item.quantity}`,
-            emoji: info.emoji || '📦',
-        };
-    });
-
-    const components = [];
-
-    if (options.length > 0) {
-        components.push(
-            new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('mkt_add_item')
-                    .setPlaceholder('➕ اختر عنصراً لإضافته إلى السوق...')
-                    .addOptions(options)
-            )
-        );
-    }
-
-    if (listings.length > 0) {
-        const removeOptions = listings.slice(0, 25).map((l, i) => {
-            const info = getItemInfo(l.itemId);
-            return {
-                label: `${info.name?.substring(0, 25) || l.itemId} (x${l.quantity})`,
-                value: String(i),
-                description: `${l.pricePerUnit.toLocaleString()} ${EMOJI_MORA}/واحدة`,
-                emoji: info.emoji || '📦',
-            };
-        });
-        components.push(
-            new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('mkt_remove_item')
-                    .setPlaceholder('➖ اختر عنصراً لإزالته من السوق...')
-                    .addOptions(removeOptions)
-            )
-        );
-    }
-
-    components.push(
-        new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('mkt_launch')
-                .setLabel('🚀 إطلاق القافلة (مع السوق)')
-                .setStyle(ButtonStyle.Success)
-                .setDisabled(listings.length === 0),
-            new ButtonBuilder()
-                .setCustomId('mkt_skip')
-                .setLabel('⏭️ تخطي السوق (إرسال عادي)')
-                .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-                .setCustomId('mkt_back')
-                .setLabel('↩️ رجوع')
-                .setStyle(ButtonStyle.Danger)
-        )
-    );
+    const components = buildMarketComponents(inventory, listings); // 👑 تحديث الأزرار
 
     await interaction.editReply({ embeds: [embed], components }).catch(() => {});
 }
