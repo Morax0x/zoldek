@@ -222,7 +222,6 @@ module.exports = (client, db, antiRolesCache) => {
                 if (id.startsWith('bid_')) { 
                     await handleAuctionSystem(i); 
                 } 
-                // 🔥 توجيه أزرار القيفاواي بكل دقة إلى الهندلر المخصص 🔥
                 else if (id === 'g_enter' || id === 'g_enter_drop' || id.startsWith('giveaway_')) {
                     if (handleGiveawayInteraction) await handleGiveawayInteraction(client, i);
                 } else if (id.startsWith('customrole_')) {
@@ -275,6 +274,19 @@ module.exports = (client, db, antiRolesCache) => {
 
             if (i.isModalSubmit()) {
                 
+                // 👑 اللاقط السحري: التقاط محادثات الذكاء الاصطناعي في سوق القوافل 👑
+                if (i.customId.startsWith('mkt_npc_modal_')) {
+                    try {
+                        const npcAi = require('./handlers/caravan/market/market-npc-ai.js');
+                        if (npcAi.handleNpcModalSubmit) {
+                            await npcAi.handleNpcModalSubmit(i, client, db);
+                        }
+                    } catch (err) {
+                        console.error('[NPC AI Modal Error]:', err);
+                    }
+                    return;
+                }
+
                 if (i.customId.startsWith('modal_pvp_bet_')) {
                     if (handlePvpBetModal) await handlePvpBetModal(i, client, db);
                     return;
