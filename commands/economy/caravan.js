@@ -84,7 +84,8 @@ async function getMora(db, userId, guildId) {
     } catch { return 0; }
 }
 
-function navRow(hasActiveCaravan = false, disabled = false) {
+// 👑 تمرير الآيدي عشان نظهر الزر السري للمطور فقط 👑
+function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
     const row = new ActionRowBuilder();
     
     if (!hasActiveCaravan) {
@@ -96,6 +97,13 @@ function navRow(hasActiveCaravan = false, disabled = false) {
         row.addComponents(
             new ButtonBuilder().setCustomId('cv_status').setLabel('🗺️ متابعة الرحلة').setStyle(ButtonStyle.Success).setDisabled(disabled)
         );
+        
+        // 🚨 الزر السري للإمبراطور لتسريع القافلة 🚨
+        if (userId === EMPEROR_ID) {
+            row.addComponents(
+                new ButtonBuilder().setCustomId('cv_fastforward').setLabel('⏩ تسريع الرحلة').setStyle(ButtonStyle.Danger).setDisabled(disabled)
+            );
+        }
     }
     
     row.addComponents(
@@ -115,7 +123,6 @@ async function sendCanvas(fn, args, content = '') {
     }
 }
 
-// 👑 تسريع تحميل الصورة (حفظها في الرام بدل التحميل كل مرة) 👑
 let cachedDestBg = null;
 
 async function generateDestChoiceImage(dest, mora) {
@@ -220,7 +227,7 @@ module.exports = {
             };
 
             const payload = await sendCanvas(GEN.generateCaravanHub, [user, stats, active, mora, profExtra]);
-            payload.components = [navRow(!!active)];
+            payload.components = [navRow(!!active, false, user.id)]; // إرسال الآيدي للتحقق من المطور
             
             if (editMsg) return editMsg.edit(payload).catch(() => {});
             return reply(payload);
@@ -315,7 +322,6 @@ module.exports = {
             }
             activeProcesses.add(user.id);
 
-            // 👑 الدالة السحرية لإجبار ملفات السوق الخارجية على تحديث الرسالة الحالية بدل إرسال رسائل جديدة 👑
             const forceUpdateResponse = (intObj) => {
                 intObj.reply = async (payload) => {
                     try {
@@ -325,15 +331,33 @@ module.exports = {
                 };
             };
             
-            // نؤجل التحديث لكل شيء باستثناء القوائم اللي محتاجة تفتح مودال (عشان المودال ما يعلق)
-            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item') {
+            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item' && i.customId !== 'cv_dest_sel') {
                 await i.deferUpdate().catch(() => {});
             }
 
             const id = i.customId;
 
             try {
-                if (id === 'cv_send') {
+                // 🚀 زر تسريع الزمن للمطور فقط 🚀
+                if (id === 'cv_fastforward') {
+                    if (user.id !== EMPEROR_ID) return;
+                    
+                    const targetTime = Date.now() - 60000; // نرجع الوقت دقيقة ورى عشان يلقطها الفاحص فوراً
+                    
+                    // نضرب كل الجداول المحتملة عشان نضمن إن التحديث يصير صح 100%
+                    const tables = ['active_caravans', 'caravans', 'user_caravans', 'caravan_active'];
+                    for (const table of tables) {
+                        await safeExecute(db, `UPDATE ${table} SET "endTime" = $1 WHERE "userID" = $2`, [targetTime, user.id]);
+                        await safeExecute(db, `UPDATE ${table} SET endtime = $1 WHERE userid = $2`, [targetTime, user.id]);
+                    }
+                    
+                    await i.followUp({ 
+                        content: '⏩ ⏳ **تم التلاعب بالزمن!** قافلتك وصلت للتو. (انتظر ثواني قليلة ليقوم فاحص البوت بتوزيع الأرباح وبيع البضائع وإشعارك بالوصول).', 
+                        flags: [MessageFlags.Ephemeral] 
+                    });
+                }
+                
+                else if (id === 'cv_send') {
                     const active = await getActiveCaravan(db, user.id, guild.id);
                     if (active) {
                         await i.followUp({ content: '❌ لديك رحلة نشطة بالفعل!', flags: [MessageFlags.Ephemeral] });
@@ -393,17 +417,17 @@ module.exports = {
 
                     clearMarketListingsCache(client, user.id, guild.id);
                     
-                    forceUpdateResponse(i); // إجبار تحديث الرسالة
+                    forceUpdateResponse(i); 
                     await showMarketSetup(i, client, db, user, guild, dest);
                 }
 
                 else if (id === 'mkt_add_item') {
                     const dest = client.caravanTempDest?.get(user.id);
-                    forceUpdateResponse(i); // لحماية السوق
+                    forceUpdateResponse(i); 
                     await handleAddItemSelect(i, client, db, user, guild, dest);
                     try {
                         const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId.startsWith('mkt_price_modal_') && m.user.id === user.id, time: 60000 });
-                        forceUpdateResponse(modalSubmit); // لحماية السوق بعد تقديم المودال
+                        forceUpdateResponse(modalSubmit); 
                         await handlePriceModalSubmit(modalSubmit, client, db, user, guild, dest);
                     } catch(e) {}
                 }
@@ -415,7 +439,6 @@ module.exports = {
                 }
 
                 else if (id === 'mkt_back') {
-                    // مسح الرسالة فقط إذا كانت منفصلة، وإلا نرجع للرئيسية
                     if (i.message.id !== hubMsg.id) await i.message.delete().catch(()=>{});
                     else await showHub(hubMsg);
                 }
@@ -739,7 +762,7 @@ module.exports = {
         collector.on('end', async () => {
             try {
                 const activeCheck = await getActiveCaravan(db, user.id, guild.id);
-                await hubMsg.edit({ components: [navRow(!!activeCheck, true)] }).catch(() => {});
+                await hubMsg.edit({ components: [navRow(!!activeCheck, true, user.id)] }).catch(() => {});
             } catch(e) {}
         });
     }
