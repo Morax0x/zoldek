@@ -84,9 +84,9 @@ async function callAI(systemPrompt, userMessage, jsonMode = false) {
     return null;
 }
 
-// 👑 التقاط الأوامر السرية من الذكاء الاصطناعي 👑
+// 👑 التقاط الأوامر السرية من الذكاء الاصطناعي بدقة تامة 👑
 function parseNpcAction(text) {
-    const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/);
+    const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/i);
     if (buyMatch) {
         return {
             action: 'buy',
@@ -95,7 +95,7 @@ function parseNpcAction(text) {
             offeredPrice: parseInt(buyMatch[3]),
         };
     }
-    if (text.includes('[LEAVE]')) return { action: 'leave' };
+    if (text.toUpperCase().includes('[LEAVE]')) return { action: 'leave' };
     return null;
 }
 
@@ -147,6 +147,7 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
 
     const lastExchange = conv.history.slice(-4).map(e => `${e.role === 'assistant' ? conv.name : 'البائع'}: ${e.content}`).join('\n');
 
+    // 👑 تعديل السستم برومبت عشان يجبر الذكاء الاصطناعي يعطي كود صحيح 👑
     const systemPrompt = `
 أنت تلعب دور شخصية في سوق قوافل. 
 اسمك: ${conv.name}
@@ -156,7 +157,7 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
 قواعد صارمة:
 - ممنوع ذكر أنك ذكاء اصطناعي أو AI، تصرف كشخصية حقيقية تتنفس.
 - تفاوض بذكاء. البائع أرسل لك رسالة، رد عليه برد مناسب (جملتين كحد أقصى).
-- إذا وافق البائع على سعرك أو اقتنعت أنت وقررت الشراء، يجب أن تنهي رسالتك بهذا الكود بالضبط لإنهاء الصفقة برمجياً:
+- إذا وافق البائع على سعرك أو اقتنعت أنت وقررت الشراء، يجب أن تنهي رسالتك بهذا الكود بالضبط لإنهاء الصفقة برمجياً (مثال: [BUY_ITEM:15:2:500]):
 [BUY_ITEM:رقم_السلعة:الكمية:السعر_للوحدة]
 - إذا أغضبك البائع وقررت الرحيل وعدم الشراء، أنهِ رسالتك بهذا الكود:
 [LEAVE]
@@ -171,11 +172,15 @@ ${listingsContext}
     if (!response) return { message: '...', action: null };
 
     const action = parseNpcAction(response);
-    const cleanMessage = response.replace(/\[BUY_ITEM:.*?\]/g, '').replace(/\[LEAVE\]/g, '').trim();
+    const cleanMessage = response.replace(/\[BUY_ITEM:.*?\]/gi, '').replace(/\[LEAVE\]/gi, '').trim();
 
     if (action?.action === 'buy') {
-        const listing = availableListings.find(l => l.id === action.listingId);
-        if (!listing) return { message: cleanMessage || 'أردت الشراء لكن السلعة اختفت!', action: null };
+        // 👑 هنا كان الخلل! تم التعديل لتحويل المتغيرات إلى أرقام صريحة لمطابقتها 👑
+        const listing = availableListings.find(l => Number(l.id) === Number(action.listingId));
+        
+        if (!listing) {
+            return { message: cleanMessage || 'أردت الشراء لكنني أخطأت برقم السلعة، يبدو أنها بيعت!', action: null };
+        }
 
         const npcMoraBudget = 20000 + Math.floor(Math.random() * 300000); 
         const totalPrice = action.quantity * action.offeredPrice;
@@ -209,7 +214,6 @@ ${listingsContext}
 async function processNpcTurn(conv, userMessage, interaction, client, db) {
     conv.history.push({ role: 'user', content: userMessage });
 
-    // 1. تحديث الإمبيد ليظهر رسالة اللاعب وحالة تفكير البوت
     const embed = new EmbedBuilder()
         .setColor('#3498DB')
         .setTitle(`${conv.emoji} مفاوضة مع: ${conv.name}`)
@@ -220,7 +224,6 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
     const thread = interaction.channel;
     conv.listings = await getListingsBySession(db, thread.id);
 
-    // 2. إرسال المحادثة للذكاء الاصطناعي
     const result = await handleNpcHaggle(client, db, thread, conv, userMessage, conv.ownerId);
 
     if (!result) {
@@ -232,7 +235,6 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
 
     conv.history.push({ role: 'assistant', content: result.message });
 
-    // 3. تحديث الإمبيد برد الذكاء الاصطناعي النهائي
     embed.setColor('#9B59B6').setDescription(`🗣️ **أنت:** "${userMessage}"\n\n**${conv.name}:** "${result.message}"`);
 
     if (result.action?.action === 'leave') {
@@ -255,16 +257,16 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
             
             await conv.message.edit({ embeds: [embed], components: [] }).catch(()=>{});
 
-            // تحديث واجهة السوق الفخمة بصورة Canvas
             const freshListings = await getListingsBySession(db, thread.id);
             const session = await getSessionByThread(db, thread.id);
             const dest = caravanConfig.destinations.find(d => d.id === (session?.destinationid || session?.destinationId));
             
             await updateMarketMessage(thread, freshListings, dest);
             
-            // إرسال رد مخفي للاعب لتأكيد استلام الأموال
             if (interaction.isModalSubmit && interaction.isModalSubmit()) {
                 await interaction.followUp({ content: `✅ كفو! كسبت **${(a.quantity * a.pricePerUnit).toLocaleString()}** مورا من التاجر!`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            } else {
+                await thread.send({ content: `✅ <@${conv.ownerId}> كسبت **${(a.quantity * a.pricePerUnit).toLocaleString()}** مورا من التاجر!`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             }
         } else {
              embed.setColor('#E74C3C').setFooter({ text: `❌ فشلت الصفقة: ${purchaseResult.error}` });
@@ -273,7 +275,6 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
         conv.active = false;
     }
     else {
-        // إذا كان تفاوض عادي، نترك الأزرار
         embed.setFooter({ text: 'استخدم الأزرار بالأسفل لإكمال التفاوض أو الرد.' });
         await conv.message.edit({ embeds: [embed] }).catch(()=>{});
     }
@@ -304,7 +305,6 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
 
         const convId = `conv_${thread.id}_${Date.now()}`;
         
-        // الرسالة الافتتاحية للمحادثة
         const embed = new EmbedBuilder()
             .setColor('#9B59B6')
             .setTitle(`${npcData.emoji} زائر يقترب من بضاعتك: ${npcData.name}`)
@@ -321,7 +321,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         NpcConversations.set(convId, {
             id: convId, name: npcData.name, emoji: npcData.emoji || '👤',
             persona: npcData.persona, destId, destName, ownerId, guildId, listings,
-            message: npcMsg, // 👑 حفظ الرسالة الأصلية للتعديل عليها لاحقاً
+            message: npcMsg, 
             history: [{ role: 'assistant', content: npcData.message }],
             active: true,
         });
@@ -352,8 +352,8 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
 
             if (i.customId === `mkt_npc_accept_${convId}`) {
                 await i.deferUpdate().catch(() => {});
-                // إرسال رسالة خفية للذكاء الاصطناعي للموافقة وإتمام البيع تلقائياً
-                await processNpcTurn(conv, "أنا موافق على سعرك، تفضل البضاعة وأتمم الشراء.", i, client, db);
+                // 👑 إجبار الذكاء الاصطناعي على وضع كود الشراء عند الضغط على موافق 👑
+                await processNpcTurn(conv, "أنا موافق على سعرك. أرجوك أتمم الشراء الآن وضع كود [BUY_ITEM] لإنهاء الصفقة.", i, client, db);
             }
 
             if (i.customId === `mkt_npc_talk_${convId}`) {
@@ -369,7 +369,6 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
     }
 }
 
-// 👑 التقاط ردود المودل من ملف التفاعل الرئيسي 👑
 async function handleNpcModalSubmit(interaction, client, db) {
     if (!interaction.customId.startsWith('mkt_npc_modal_')) return false;
 
@@ -384,7 +383,6 @@ async function handleNpcModalSubmit(interaction, client, db) {
     await interaction.deferUpdate().catch(() => {});
     const userMessage = interaction.fields.getTextInputValue('user_reply');
     
-    // تشغيل نظام التحديث الحي على الإمبيد
     await processNpcTurn(conv, userMessage, interaction, client, db);
 
     return true;
