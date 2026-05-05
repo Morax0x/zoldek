@@ -16,6 +16,52 @@ const { updateMarketMessage } = require('./market-ui');
 
 const NpcConversations = new Map();
 
+// 👑 دالة معرفة الأسعار الحقيقية لمنع النصب 👑
+function getBasePrice(itemId, info) {
+    if (info.price) return info.price;
+    if (info.sell_price) return info.sell_price;
+
+    const prices = {
+        // البذور
+        'seed_wheat': 50, 'seed_strawberry': 80, 'seed_carrot': 120, 'seed_potato': 150,
+        'seed_tomato': 180, 'seed_corn': 250, 'seed_eggplant': 300, 'seed_rice': 350,
+        'seed_pumpkin': 500, 'seed_watermelon': 600, 'seed_pineapple': 800, 'seed_dates': 1000,
+        // الجرعات
+        'potion_heal': 100, 'potion_stealth': 100, 'potion_reflect': 150,
+        'potion_time': 500, 'potion_titan': 999, 'potion_sacrifice': 3000,
+        // الأسماك ومعدات الصيد
+        'fish_trash': 5, 'fish_boot': 10, 'fish_seaweed': 20, 'fish_branch': 20, 'fish_sock': 30,
+        'fish_sardine': 100, 'fish_shrimp': 115, 'fish_goldfish': 150, 'fish_tuna': 170,
+        'fish_squid': 180, 'fish_mackerel': 70, 'fish_salmon': 200, 'fish_lobster': 220,
+        'fish_clown': 250, 'fish_octopus': 300, 'fish_puffer': 400, 'fish_turtle': 700,
+        'fish_ray': 750, 'fish_shark': 777, 'fish_dolphin': 790, 'fish_whale': 800,
+        'fish_treasure': 900, 'fish_kraken': 900, 'fish_golden_whale': 1000,
+        // الطعوم
+        'worm': 50, 'cricket': 150, 'shrimp': 500, 'squid': 1200, 'magic': 3000,
+        // السنارات
+        'rod_1': 100, 'rod_2': 2000, 'rod_3': 5000, 'rod_4': 10000, 'rod_5': 25000, 
+        'rod_6': 50000, 'rod_7': 120000, 'rod_8': 200000, 'rod_9': 350000, 'rod_10': 500000,
+        // القوارب
+        'boat_1': 500, 'boat_2': 5000, 'boat_3': 10000, 'boat_4': 50000, 'boat_5': 100000,
+        'boat_6': 150000, 'boat_7': 300000
+    };
+
+    if (prices[itemId]) return prices[itemId];
+
+    // الارتيفاكت والمواد الأخرى بناءً على الندرة
+    if (info.rarity) {
+        switch (info.rarity.toLowerCase()) {
+            case 'common': return 250;
+            case 'uncommon': return 550;
+            case 'rare': return 800;
+            case 'epic': return 950;
+            case 'legendary': return 50000;
+        }
+    }
+
+    return 500; // سعر افتراضي للأشياء المجهولة
+}
+
 // 👑 دالة الاتصال المباشر بـ Gemini 👑
 async function callGeminiDirect(apiKey, systemPrompt, userMessage, jsonMode = false) {
     try {
@@ -68,7 +114,6 @@ async function callOpenAIDirect(apiKey, systemPrompt, userMessage, jsonMode = fa
     }
 }
 
-// 👑 المحرك الرئيسي للذكاء الاصطناعي 👑
 async function callAI(systemPrompt, userMessage, jsonMode = false) {
     const openaiKey = process.env.OPENAI_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
@@ -84,7 +129,6 @@ async function callAI(systemPrompt, userMessage, jsonMode = false) {
     return null;
 }
 
-// 👑 التقاط الأوامر السرية من الذكاء الاصطناعي بدقة تامة 👑
 function parseNpcAction(text) {
     const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/i);
     if (buyMatch) {
@@ -99,7 +143,6 @@ function parseNpcAction(text) {
     return null;
 }
 
-// 👑 توليد شخصية التاجر الآلي 👑
 async function generateDynamicNPC(destName, listingsContext) {
     const systemPrompt = `
 أنت تلعب دور زائر خيالي (NPC) في لعبة RPG، وتزور سوق قوافل يقع في منطقة تسمى "${destName}".
@@ -107,9 +150,9 @@ async function generateDynamicNPC(destName, listingsContext) {
 1. اختراع اسم خيالي مناسب لك كشخصية.
 2. اختيار إيموجي واحد فقط يمثل مظهرك.
 3. اختراع شخصية وأسلوب كلام فريد (مثلاً: عجوز بخيل، نبيل مغرور، محارب أحمق، ساحر غامض).
-4. كتابة رسالة افتتاحية قصيرة باللغة العربية للبائع (اللاعب)، اذكر فيها عنصراً لفت انتباهك من القائمة، وقدم له عرضاً بسعر أقل من المعروض للمفاوضة.
+4. كتابة رسالة افتتاحية قصيرة باللغة العربية للبائع (اللاعب)، اذكر فيها عنصراً لفت انتباهك من القائمة، وقدم له عرضاً بسعر مقارب للسعر الأساسي الحقيقي.
 
-البضائع المتاحة أمامي الآن:
+البضائع المتاحة أمامي الآن (يوجد السعر الحقيقي والسعر الذي يطلبه اللاعب):
 ${listingsContext}
 
 يجب أن يكون ردك حصراً بصيغة JSON متوافقة، كالتالي:
@@ -132,37 +175,39 @@ ${listingsContext}
     }
 }
 
-// 👑 معالجة مفاوضات الـ AI 👑
 async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId) {
     const availableListings = conv.listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
 
     if (availableListings.length === 0) return { message: 'لقد نفذت جميع البضائع التي أردتها!', action: { action: 'leave' } };
 
+    // 👑 تمرير الأسعار الحقيقية للذكاء الاصطناعي 👑
     const listingsContext = availableListings.map(l => {
         const info = getItemInfo(l.itemid || l.itemID);
         const avail = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
         const price = Number(l.priceperunit || l.pricePerUnit);
-        return `- ${info.name} (رقم السلعة: ${l.id}): متوفر ${avail} حبة | السعر المعروض: ${price} مورا`;
+        const basePrice = getBasePrice(l.itemid || l.itemID, info);
+        return `- ${info.name} (رقم السلعة: ${l.id}): متوفر ${avail} حبة | السعر الذي يطلبه اللاعب: ${price} مورا | السعر الأساسي الحقيقي: ${basePrice} مورا`;
     }).join('\n');
 
     const lastExchange = conv.history.slice(-4).map(e => `${e.role === 'assistant' ? conv.name : 'البائع'}: ${e.content}`).join('\n');
 
-    // 👑 تعديل السستم برومبت عشان يجبر الذكاء الاصطناعي يعطي كود صحيح 👑
+    // 👑 نظام حماية الاقتصاد الصارم 👑
     const systemPrompt = `
 أنت تلعب دور شخصية في سوق قوافل. 
 اسمك: ${conv.name}
 شخصيتك وأسلوبك: ${conv.persona}
 المنطقة: ${conv.destName}
 
-قواعد صارمة:
-- ممنوع ذكر أنك ذكاء اصطناعي أو AI، تصرف كشخصية حقيقية تتنفس.
-- تفاوض بذكاء. البائع أرسل لك رسالة، رد عليه برد مناسب (جملتين كحد أقصى).
-- إذا وافق البائع على سعرك أو اقتنعت أنت وقررت الشراء، يجب أن تنهي رسالتك بهذا الكود بالضبط لإنهاء الصفقة برمجياً (مثال: [BUY_ITEM:15:2:500]):
+قواعد صارمة جداً:
+1. البائع قد يحاول النصب عليك بأسعار خيالية. السعر الأساسي الحقيقي مكتوب بجانب كل سلعة.
+2. لا تشتري أبداً إذا كان السعر المعروض أعلى من السعر الحقيقي بكثير (مثلاً ضعفين فأكثر). قم برفضه واطلب تخفيض السعر.
+3. ممنوع ذكر أنك ذكاء اصطناعي، تصرف كشخصية حقيقية، ورد بجملتين كحد أقصى.
+4. إذا وافق البائع على سعرك أو كان السعر معقولاً وقررت الشراء، يجب أن تنهي رسالتك بهذا الكود بالضبط لإنهاء الصفقة برمجياً:
 [BUY_ITEM:رقم_السلعة:الكمية:السعر_للوحدة]
-- إذا أغضبك البائع وقررت الرحيل وعدم الشراء، أنهِ رسالتك بهذا الكود:
+5. إذا أغضبك البائع أو كان السعر مستحيلاً وقررت الرحيل، أنهِ رسالتك بهذا الكود:
 [LEAVE]
 
-البضائع المتاحة للبيع الآن:
+البضائع المتاحة للبيع الآن ومقارنة أسعارها:
 ${listingsContext}
 `;
 
@@ -175,19 +220,18 @@ ${listingsContext}
     const cleanMessage = response.replace(/\[BUY_ITEM:.*?\]/gi, '').replace(/\[LEAVE\]/gi, '').trim();
 
     if (action?.action === 'buy') {
-        // 👑 هنا كان الخلل! تم التعديل لتحويل المتغيرات إلى أرقام صريحة لمطابقتها 👑
         const listing = availableListings.find(l => Number(l.id) === Number(action.listingId));
         
         if (!listing) {
-            return { message: cleanMessage || 'أردت الشراء لكنني أخطأت برقم السلعة، يبدو أنها بيعت!', action: null };
+            return { message: cleanMessage || 'أردت الشراء لكنني أخطأت برقم السلعة!', action: null };
         }
 
-        const npcMoraBudget = 20000 + Math.floor(Math.random() * 300000); 
+        const npcMoraBudget = 50000 + Math.floor(Math.random() * 500000); 
         const totalPrice = action.quantity * action.offeredPrice;
 
         if (totalPrice > npcMoraBudget) {
             return {
-                message: cleanMessage || `اللعنة، لا أملك سوى **${npcMoraBudget.toLocaleString()}** مورا! سأنسحب.`,
+                message: cleanMessage || `لا أملك هذا المبلغ الضخم! سأنسحب.`,
                 action: { action: 'leave' },
             };
         }
@@ -210,7 +254,6 @@ ${listingsContext}
     return { message: cleanMessage, action };
 }
 
-// 👑 معالجة التفاعل الحي وتحديث نفس الإمبيد 👑
 async function processNpcTurn(conv, userMessage, interaction, client, db) {
     conv.history.push({ role: 'user', content: userMessage });
 
@@ -280,7 +323,6 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
     }
 }
 
-// 👑 إطلاق الـ NPC في السوق مع رسالة المنشن 👑
 async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
     try {
         const npcSpawnCount = await getNpcSpawnCount(db, thread.id);
@@ -295,7 +337,8 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         const listingsContext = availableListings.map(l => {
             const info = getItemInfo(l.itemid || l.itemID);
             const price = Number(l.priceperunit || l.pricePerUnit);
-            return `- ${info.name} (رقم السلعة: ${l.id}): السعر المعروض: ${price} مورا`;
+            const basePrice = getBasePrice(l.itemid || l.itemID, info);
+            return `- ${info.name} (رقم السلعة: ${l.id}): السعر المعروض: ${price} مورا | السعر الأساسي: ${basePrice}`;
         }).join('\n');
 
         const npcData = await generateDynamicNPC(destName, listingsContext);
@@ -352,7 +395,6 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
 
             if (i.customId === `mkt_npc_accept_${convId}`) {
                 await i.deferUpdate().catch(() => {});
-                // 👑 إجبار الذكاء الاصطناعي على وضع كود الشراء عند الضغط على موافق 👑
                 await processNpcTurn(conv, "أنا موافق على سعرك. أرجوك أتمم الشراء الآن وضع كود [BUY_ITEM] لإنهاء الصفقة.", i, client, db);
             }
 
