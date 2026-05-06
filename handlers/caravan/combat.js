@@ -825,6 +825,16 @@ async function handleEscortReady(data) {
             await safeExecute(db,
                 `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "userID"=$1 AND "guildID"=$2`,
                 [hostId, guild.id]);
+
+            // Finalize staged market items into caravan listings
+            try {
+                const { finalizeStagedItems, getStagedItems } = require('./market/market-db');
+                const staged = await getStagedItems(db, hostId, guild.id);
+                if (staged && staged.length > 0) {
+                    await finalizeStagedItems(db, cvResult.id, hostId, guild.id);
+                }
+            } catch(e) { console.error('[FinalizeStagedEscort]', e); }
+
             const eta = Math.floor((cvResult.endTime || 0) / 1000);
 
             await thread.send({

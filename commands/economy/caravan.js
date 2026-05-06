@@ -12,13 +12,10 @@ const {
     getActiveCaravan, sendCaravan, upgradeCaravan, setupCaravanChecker,
     checkCaravanCooldown, safeQuery, safeExecute, EMOJI_MORA,
     startEscortLobby, registerCombatListeners,
-    showMarketSetup, handleAddItemSelect, handlePriceModalSubmit,
-    handleRemoveItemSelect, finalizeListings, clearMarketListingsCache,
-    getMarketListingsCache, handleBuySelect, handleBuyModalSubmit,
-    handleRefresh, handleOwnerPriceChange, handlePriceChangeSelect,
-    handleNewPriceModalSubmit, setupMarketChecker, showStagingUI, finalizeStagedItems,
-    handleStageAddItemSelect, handleStagePriceModalSubmit, handleStageRemoveItemSelect,
+    finalizeListings, finalizeStagedItems,
     } = require('../../handlers/caravan/index.js');
+
+const market = require('../../handlers/caravan/market/index.js');
 
 const EMPEROR_ID = '1145327691772481577';
 
@@ -28,6 +25,10 @@ const path = require('path');
 let GEN;
 try { GEN = require('../../generators/caravan-generator.js'); }
 catch { GEN = {}; }
+
+let STAGING_GEN;
+try { STAGING_GEN = require('../../generators/staging-market-generator.js'); }
+catch { STAGING_GEN = {}; }
 
 let allGameItems = [];
 try {
@@ -413,8 +414,8 @@ module.exports = {
                 else if (id === 'cv_dest_sel') {
                     const destId = i.values[0];
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
-                    const [mora] = await Promise.all([getMora(db, user.id, guild.id)]);
-                    
+                    const mora   = await getMora(db, user.id, guild.id);
+
                     if (mora < dest.cost) {
                         await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA}. رصيدك: **${mora.toLocaleString()}**`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
@@ -423,55 +424,6 @@ module.exports = {
 
                     client.caravanTempDest = client.caravanTempDest || new Map();
                     client.caravanTempDest.set(user.id, dest);
-
-                    clearMarketListingsCache(client, user.id, guild.id);
-                    
-                    forceUpdateResponse(i); 
-                    await showMarketSetup(i, client, db, user, guild, dest);
-                }
-
-                else if (id === 'mkt_add_item') {
-                    const dest = client.caravanTempDest?.get(user.id);
-                    forceUpdateResponse(i); 
-                    await handleAddItemSelect(i, client, db, user, guild, dest);
-                    try {
-                        const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId.startsWith('mkt_price_modal_') && m.user.id === user.id, time: 60000 });
-                        forceUpdateResponse(modalSubmit); 
-                        await handlePriceModalSubmit(modalSubmit, client, db, user, guild, dest);
-                    } catch(e) {}
-                }
-
-                else if (id === 'mkt_remove_item') {
-                    const dest = client.caravanTempDest?.get(user.id);
-                    forceUpdateResponse(i);
-                    await handleRemoveItemSelect(i, client, db, user, guild, dest);
-                }
-
-                else if (id === 'mkt_back') {
-                    if (i.message.id !== hubMsg.id) await i.message.delete().catch(()=>{});
-                    else await showHub(hubMsg);
-                }
-
-                else if (id === 'cv_market_staging') {
-                    await i.deferUpdate().catch(() => {});
-                    await showStagingUI(i, db, user, guild);
-                }
-                else if (id === 'mkt_stage_add_item') {
-                    forceUpdateResponse(i);
-                    await handleStageAddItemSelect(i, db, user, guild);
-                    try {
-                        const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId.startsWith('mkt_stage_price_modal_') && m.user.id === user.id, time: 60000 });
-                        forceUpdateResponse(modalSubmit);
-                        await handleStagePriceModalSubmit(modalSubmit, db, user, guild);
-                    } catch(e) {}
-                }
-                else if (id === 'mkt_stage_remove_item') {
-                    forceUpdateResponse(i);
-                    await handleStageRemoveItemSelect(i, db, user, guild);
-                }
-                else if (id === 'mkt_launch' || id === 'mkt_skip') {
-                    const dest = client.caravanTempDest?.get(user.id);
-                    const mora = await getMora(db, user.id, guild.id);
 
                     const buffer = await generateDestChoiceImage(dest, mora);
                     const attachment = new AttachmentBuilder(buffer, { name: 'dest_choice.png' });
@@ -497,6 +449,99 @@ module.exports = {
                             )
                         ]
                     }).catch(() => {});
+                }
+
+                else if (id === 'mkt_back') {
+                    if (i.message.id !== hubMsg.id) await i.message.delete().catch(()=>{});
+                    else await showHub(hubMsg);
+                }
+
+                else if (id === 'cv_market_staging') {
+                    const [mora, staged] = await Promise.all([
+                        getMora(db, user.id, guild.id),
+                        market.getStagedItems(db, user.id, guild.id),
+                    ]);
+                    const invRes = await safeQuery(db,
+                        `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`,
+                        [user.id, guild.id]);
+                    let invRows = invRes?.rows || [];
+                    if (invRows.length === 0) {
+                        const invRes2 = await safeQuery(db,
+                            `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`,
+                            [user.id, guild.id]);
+                        invRows = invRes2?.rows || [];
+                    }
+
+                    const stagedIds = new Set(staged.map(s => s.itemID || s.itemid));
+                    const allItems = invRows.map(row => {
+                        const itemId = row.itemid || row.itemID || row.ITEMID;
+                        const quantity = Number(row.quantity || row.QUANTITY || 0);
+                        const info = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(itemId) : { name: itemId.replace(/_/g, ' '), emoji: '📦', rarity: 'Common', imgPath: null };
+                        return { id: itemId, name: info.name, emoji: info.emoji, rarity: info.rarity, imgPath: info.imgPath, quantity };
+                    }).filter(it => it.quantity > 0);
+
+                    const stagingPageKey = `staging_page_${user.id}_${guild.id}`;
+                    let page = client[stagingPageKey] || 1;
+                    const perPage = 15;
+                    const totalPages = Math.max(1, Math.ceil(allItems.length / perPage));
+                    if (page > totalPages) page = totalPages;
+                    client[stagingPageKey] = page;
+
+                    const pageItems = allItems.slice((page - 1) * perPage, page * perPage);
+                    const buffer = await sendCanvas(STAGING_GEN.generateStagingCanvas, [user.displayName || user.username, pageItems, page, totalPages, mora, staged.length]);
+                    const attachment = new AttachmentBuilder(buffer, { name: 'staging_market.png' });
+
+                    const components = [];
+                    const navRow = new ActionRowBuilder();
+                    if (page > 1) navRow.addComponents(new ButtonBuilder().setCustomId('cv_stage_prev').setLabel('◀️ السابق').setStyle(ButtonStyle.Secondary));
+                    if (page < totalPages) navRow.addComponents(new ButtonBuilder().setCustomId('cv_stage_next').setLabel('التالي ▶️').setStyle(ButtonStyle.Secondary));
+                    navRow.addComponents(new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Danger));
+                    if (navRow.components.length > 0) components.push(navRow);
+
+                    await i.reply({ content: '🏪 **متجر القافلة** — اختر العناصر التي تريد عرضها في سوق القافلة:', files: [attachment], components, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                }
+                else if (id === 'cv_stage_prev' || id === 'cv_stage_next') {
+                    const stagingPageKey = `staging_page_${user.id}_${guild.id}`;
+                    let page = client[stagingPageKey] || 1;
+                    if (id === 'cv_stage_prev') page = Math.max(1, page - 1);
+                    else page = page + 1;
+                    client[stagingPageKey] = page;
+
+                    const [mora, staged] = await Promise.all([
+                        getMora(db, user.id, guild.id),
+                        market.getStagedItems(db, user.id, guild.id),
+                    ]);
+                    const invRes = await safeQuery(db,
+                        `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`,
+                        [user.id, guild.id]);
+                    let invRows = invRes?.rows || [];
+                    if (invRows.length === 0) {
+                        const invRes2 = await safeQuery(db,
+                            `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`,
+                            [user.id, guild.id]);
+                        invRows = invRes2?.rows || [];
+                    }
+                    const allItems = invRows.map(row => {
+                        const itemId = row.itemid || row.itemID || row.ITEMID;
+                        const quantity = Number(row.quantity || row.QUANTITY || 0);
+                        const info = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(itemId) : { name: itemId.replace(/_/g, ' '), emoji: '📦', rarity: 'Common', imgPath: null };
+                        return { id: itemId, name: info.name, emoji: info.emoji, rarity: info.rarity, imgPath: info.imgPath, quantity };
+                    }).filter(it => it.quantity > 0);
+                    const perPage = 15;
+                    const totalPages = Math.max(1, Math.ceil(allItems.length / perPage));
+                    if (page > totalPages) page = totalPages;
+                    const pageItems = allItems.slice((page - 1) * perPage, page * perPage);
+                    const buffer = await sendCanvas(STAGING_GEN.generateStagingCanvas, [user.displayName || user.username, pageItems, page, totalPages, mora, staged.length]);
+                    const attachment = new AttachmentBuilder(buffer, { name: 'staging_market.png' });
+
+                    const comp = [];
+                    const nr = new ActionRowBuilder();
+                    if (page > 1) nr.addComponents(new ButtonBuilder().setCustomId('cv_stage_prev').setLabel('◀️ السابق').setStyle(ButtonStyle.Secondary));
+                    if (page < totalPages) nr.addComponents(new ButtonBuilder().setCustomId('cv_stage_next').setLabel('التالي ▶️').setStyle(ButtonStyle.Secondary));
+                    nr.addComponents(new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Danger));
+                    if (nr.components.length > 0) comp.push(nr);
+
+                    await i.reply({ content: `📄 صفحة ${page} من ${totalPages}`, files: [attachment], components: comp, flags: [MessageFlags.Ephemeral] }).catch(() => {});
                 }
 
                 else if (id.startsWith('cv_noprotect_')) {
