@@ -16,7 +16,9 @@ const { updateMarketMessage } = require('./market-ui');
 
 const NpcConversations = new Map();
 
-// 👑 دالة معرفة الأسعار الحقيقية لمنع النصب 👑
+// ============================================================================
+// [1] نظام التسعير والحماية من النصب
+// ============================================================================
 function getBasePrice(itemId, info) {
     if (info.price) return info.price;
     if (info.sell_price) return info.sell_price;
@@ -48,7 +50,6 @@ function getBasePrice(itemId, info) {
 
     if (prices[itemId]) return prices[itemId];
 
-    // الارتيفاكت والمواد الأخرى بناءً على الندرة
     if (info.rarity) {
         switch (info.rarity.toLowerCase()) {
             case 'common': return 250;
@@ -59,16 +60,18 @@ function getBasePrice(itemId, info) {
         }
     }
 
-    return 500; // سعر افتراضي للأشياء المجهولة
+    return 500; // سعر افتراضي آمن
 }
 
-// 👑 دالة الاتصال المباشر بـ Gemini 👑
+// ============================================================================
+// [2] محركات الذكاء الاصطناعي (API Calls)
+// ============================================================================
 async function callGeminiDirect(apiKey, systemPrompt, userMessage, jsonMode = false) {
     try {
         const payload = {
             system_instruction: { parts: [{ text: systemPrompt }] },
             contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-            generationConfig: { temperature: 0.85 },
+            generationConfig: { temperature: 0.7 }, // تم تقليل الحرارة لردود أكثر منطقية
         };
         if (jsonMode) payload.generationConfig.responseMimeType = "application/json";
 
@@ -88,7 +91,6 @@ async function callGeminiDirect(apiKey, systemPrompt, userMessage, jsonMode = fa
     }
 }
 
-// 👑 دالة الاتصال المباشر بـ OpenAI 👑
 async function callOpenAIDirect(apiKey, systemPrompt, userMessage, jsonMode = false) {
     try {
         const payload = {
@@ -97,7 +99,7 @@ async function callOpenAIDirect(apiKey, systemPrompt, userMessage, jsonMode = fa
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userMessage },
             ],
-            temperature: 0.85,
+            temperature: 0.7,
         };
         if (jsonMode) payload.response_format = { type: "json_object" };
 
@@ -129,7 +131,11 @@ async function callAI(systemPrompt, userMessage, jsonMode = false) {
     return null;
 }
 
+// ============================================================================
+// [3] معالجة النصوص وردود الأفعال
+// ============================================================================
 function parseNpcAction(text) {
+    // التقاط كود الشراء حتى لو كان فيه مسافات بالغلط
     const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/i);
     if (buyMatch) {
         return {
@@ -145,25 +151,20 @@ function parseNpcAction(text) {
 
 async function generateDynamicNPC(destName, listingsContext) {
     const systemPrompt = `
-أنت تلعب دور زائر خيالي (NPC) في لعبة RPG، وتزور سوق قوافل يقع في منطقة تسمى "${destName}".
-المطلوب منك:
-1. اختراع اسم خيالي مناسب لك كشخصية.
-2. اختيار إيموجي واحد فقط يمثل مظهرك.
-3. اختراع شخصية وأسلوب كلام فريد (مثلاً: عجوز بخيل، نبيل مغرور، محارب أحمق، ساحر غامض).
-4. كتابة رسالة افتتاحية قصيرة باللغة العربية للبائع (اللاعب)، اذكر فيها عنصراً لفت انتباهك من القائمة، وقدم له عرضاً بسعر مقارب للسعر الأساسي الحقيقي.
-
-البضائع المتاحة أمامي الآن (يوجد السعر الحقيقي والسعر الذي يطلبه اللاعب):
-${listingsContext}
-
-يجب أن يكون ردك حصراً بصيغة JSON متوافقة، كالتالي:
+أنت زائر خيالي (NPC) في سوق قوافل يقع في "${destName}".
+المطلوب إرجاع JSON فقط:
 {
-  "name": "اسمك",
-  "emoji": "إيموجي",
-  "persona": "وصف دقيق لأسلوبك في التفاوض وطريقة كلامك",
-  "message": "رسالتك الافتتاحية للاعب"
-}`;
+  "name": "اسم خيالي لك",
+  "emoji": "إيموجي يمثلك",
+  "persona": "وصف لطبيعتك (كريم، بخيل، خبيث، الخ)",
+  "message": "جملة واحدة فقط (مختصرة جداً) تفتتح بها المفاوضة على أحد هذه العناصر."
+}
 
-    const response = await callAI(systemPrompt, "ابدأ بتوليد الشخصية.", true);
+السلع المتاحة:
+${listingsContext}
+`;
+
+    const response = await callAI(systemPrompt, "توليد", true);
     if (!response) return null;
 
     try {
@@ -178,40 +179,32 @@ ${listingsContext}
 async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId) {
     const availableListings = conv.listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
 
-    if (availableListings.length === 0) return { message: 'لقد نفذت جميع البضائع التي أردتها!', action: { action: 'leave' } };
+    if (availableListings.length === 0) return { message: 'نفذت بضائعك! لا يوجد ما يستحق الشراء.', action: { action: 'leave' } };
 
-    // 👑 تمرير الأسعار الحقيقية للذكاء الاصطناعي 👑
     const listingsContext = availableListings.map(l => {
         const info = getItemInfo(l.itemid || l.itemID);
         const avail = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
         const price = Number(l.priceperunit || l.pricePerUnit);
         const basePrice = getBasePrice(l.itemid || l.itemID, info);
-        return `- ${info.name} (رقم السلعة: ${l.id}): متوفر ${avail} حبة | السعر الذي يطلبه اللاعب: ${price} مورا | السعر الأساسي الحقيقي: ${basePrice} مورا`;
+        return `- ${info.name} (رقمها: ${l.id}) | متوفر: ${avail} | طلب اللاعب: ${price} مورا | السعر الأصلي: ${basePrice} مورا`;
     }).join('\n');
 
     const lastExchange = conv.history.slice(-4).map(e => `${e.role === 'assistant' ? conv.name : 'البائع'}: ${e.content}`).join('\n');
 
-    // 👑 نظام حماية الاقتصاد الصارم 👑
     const systemPrompt = `
-أنت تلعب دور شخصية في سوق قوافل. 
-اسمك: ${conv.name}
-شخصيتك وأسلوبك: ${conv.persona}
-المنطقة: ${conv.destName}
+أنت: ${conv.name} (${conv.persona}) في ${conv.destName}.
+قواعد عسكرية صارمة (الالتزام بها إجباري):
+1. أجب بجملة واحدة فقط! (أقل من 15 كلمة). ممنوع منعاً باتاً كتابة فقرات أو جرائد.
+2. لا تشتري إذا كان السعر المطلوب من اللاعب أعلى من (السعر الأصلي) بضعفين. افضحه أو كاسره.
+3. إذا وافقت على السعر وأردت الشراء، يجب أن تضع هذا الكود في نهاية رسالتك:
+[BUY_ITEM:رقم_السلعة:الكمية:السعر_النهائي]
+4. إذا غضبت وقررت الرحيل، ضع: [LEAVE]
 
-قواعد صارمة جداً:
-1. البائع قد يحاول النصب عليك بأسعار خيالية. السعر الأساسي الحقيقي مكتوب بجانب كل سلعة.
-2. لا تشتري أبداً إذا كان السعر المعروض أعلى من السعر الحقيقي بكثير (مثلاً ضعفين فأكثر). قم برفضه واطلب تخفيض السعر.
-3. ممنوع ذكر أنك ذكاء اصطناعي، تصرف كشخصية حقيقية، ورد بجملتين كحد أقصى.
-4. إذا وافق البائع على سعرك أو كان السعر معقولاً وقررت الشراء، يجب أن تنهي رسالتك بهذا الكود بالضبط لإنهاء الصفقة برمجياً:
-[BUY_ITEM:رقم_السلعة:الكمية:السعر_للوحدة]
-5. إذا أغضبك البائع أو كان السعر مستحيلاً وقررت الرحيل، أنهِ رسالتك بهذا الكود:
-[LEAVE]
-
-البضائع المتاحة للبيع الآن ومقارنة أسعارها:
+البضائع المتوفرة:
 ${listingsContext}
 `;
 
-    const aiMessage = `الرسائل السابقة:\n${lastExchange}\n\nرد البائع الآن:\n${userMessageStr}\n\nما هو ردك؟`;
+    const aiMessage = `سياق الحديث:\n${lastExchange}\n\nالبائع يقول:\n${userMessageStr}\n\nرد بجملة واحدة فقط:`;
 
     const response = await callAI(systemPrompt, aiMessage, false);
     if (!response) return { message: '...', action: null };
@@ -220,10 +213,12 @@ ${listingsContext}
     const cleanMessage = response.replace(/\[BUY_ITEM:.*?\]/gi, '').replace(/\[LEAVE\]/gi, '').trim();
 
     if (action?.action === 'buy') {
-        const listing = availableListings.find(l => Number(l.id) === Number(action.listingId));
-        
+        // حماية ذكية: إذا أخطأ الذكاء الاصطناعي برقم السلعة وهناك سلعة واحدة فقط، نختارها تلقائياً!
+        let listing = availableListings.find(l => Number(l.id) === Number(action.listingId));
+        if (!listing && availableListings.length === 1) listing = availableListings[0];
+
         if (!listing) {
-            return { message: cleanMessage || 'أردت الشراء لكنني أخطأت برقم السلعة!', action: null };
+            return { message: cleanMessage || 'يبدو أنني أخطأت في رقم السلعة، هل بعتها؟', action: null };
         }
 
         const npcMoraBudget = 50000 + Math.floor(Math.random() * 500000); 
@@ -231,16 +226,16 @@ ${listingsContext}
 
         if (totalPrice > npcMoraBudget) {
             return {
-                message: cleanMessage || `لا أملك هذا المبلغ الضخم! سأنسحب.`,
+                message: cleanMessage || `ميزانيتي لا تسمح بهذا المبلغ الخيالي! إلى اللقاء.`,
                 action: { action: 'leave' },
             };
         }
 
         return {
-            message: cleanMessage || `اتفقنا! سآخذ ${action.quantity} بسعر ${action.offeredPrice} للواحدة.`,
+            message: cleanMessage || `تم الاتفاق.`,
             action: {
                 type: 'purchase',
-                listingId: action.listingId,
+                listingId: listing.id,
                 quantity: Math.min(action.quantity, Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0)),
                 pricePerUnit: action.offeredPrice,
                 buyerId: 'npc_' + conv.destId,
@@ -254,13 +249,20 @@ ${listingsContext}
     return { message: cleanMessage, action };
 }
 
+// ============================================================================
+// [4] واجهة التفاعل (UI/UX)
+// ============================================================================
 async function processNpcTurn(conv, userMessage, interaction, client, db) {
     conv.history.push({ role: 'user', content: userMessage });
 
+    // تصميم التحديث الحي للمفاوضة
     const embed = new EmbedBuilder()
-        .setColor('#3498DB')
-        .setTitle(`${conv.emoji} مفاوضة مع: ${conv.name}`)
-        .setDescription(`🗣️ **أنت:** "${userMessage}"\n\n💭 **${conv.name}** يقرأ كلامك ويفكر...`);
+        .setColor('#E67E22') // لون برتقالي يميل للـ RPG
+        .setAuthor({ name: `مفاوضة نشطة مع ${conv.name}`, iconURL: 'https://cdn.discordapp.com/emojis/1150000000000000000.png' }) // اترك الأيقونة فارغة أو ضع رابط أيقونة مناسبة
+        .setDescription(
+            `🗣️ **أنت:**\n> ${userMessage}\n\n` +
+            `💭 **${conv.name}** يقرأ كلامك ويفكر...`
+        );
         
     await conv.message.edit({ embeds: [embed] }).catch(()=>{});
 
@@ -270,7 +272,7 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
     const result = await handleNpcHaggle(client, db, thread, conv, userMessage, conv.ownerId);
 
     if (!result) {
-        embed.setColor('#E74C3C').setDescription(`🗣️ **أنت:** "${userMessage}"\n\n⚠️ غادر **${conv.name}** بسبب صمت مفاجئ!`).setFooter({text:'انتهت المحادثة'});
+        embed.setColor('#E74C3C').setDescription(`🗣️ **أنت:**\n> ${userMessage}\n\n⚠️ غادر **${conv.name}** بسبب صمت مفاجئ!`).setFooter({text:'انتهت المحادثة'});
         await conv.message.edit({ embeds: [embed], components: [] }).catch(()=>{});
         conv.active = false;
         return;
@@ -278,7 +280,11 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
 
     conv.history.push({ role: 'assistant', content: result.message });
 
-    embed.setColor('#9B59B6').setDescription(`🗣️ **أنت:** "${userMessage}"\n\n**${conv.name}:** "${result.message}"`);
+    embed.setColor('#2980B9')
+         .setDescription(
+             `🗣️ **أنت:**\n> ${userMessage}\n\n` +
+             `${conv.emoji} **${conv.name}:**\n> ${result.message}`
+         );
 
     if (result.action?.action === 'leave') {
         embed.setColor('#E74C3C').setFooter({ text: '🏃 غادر المشتري السوق ولم تكتمل الصفقة.' });
@@ -295,11 +301,12 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
         if (purchaseResult.ok) {
             const itemInfo = getItemInfo(a.itemId);
             embed.setColor('#2ECC71')
-                 .setTitle(`🤝 اتفقنا! صفقة ناجحة!`)
-                 .setFooter({ text: `💰 تم بيع ${a.quantity} من ${itemInfo.name} بـ ${(a.quantity * a.pricePerUnit).toLocaleString()} مورا`});
+                 .setTitle(`🤝 صفقة ناجحة!`)
+                 .setFooter({ text: `💰 بعت ${a.quantity}x ${itemInfo.name} بـ ${(a.quantity * a.pricePerUnit).toLocaleString()} مورا` });
             
             await conv.message.edit({ embeds: [embed], components: [] }).catch(()=>{});
 
+            // تحديث لوحة السوق الرئيسية (Canvas)
             const freshListings = await getListingsBySession(db, thread.id);
             const session = await getSessionByThread(db, thread.id);
             const dest = caravanConfig.destinations.find(d => d.id === (session?.destinationid || session?.destinationId));
@@ -307,7 +314,7 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
             await updateMarketMessage(thread, freshListings, dest);
             
             if (interaction.isModalSubmit && interaction.isModalSubmit()) {
-                await interaction.followUp({ content: `✅ كفو! كسبت **${(a.quantity * a.pricePerUnit).toLocaleString()}** مورا من التاجر!`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                await interaction.followUp({ content: `✅ مبروك! كسبت **${(a.quantity * a.pricePerUnit).toLocaleString()}** مورا!`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             } else {
                 await thread.send({ content: `✅ <@${conv.ownerId}> كسبت **${(a.quantity * a.pricePerUnit).toLocaleString()}** مورا من التاجر!`, flags: [MessageFlags.Ephemeral] }).catch(()=>{});
             }
@@ -318,11 +325,14 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
         conv.active = false;
     }
     else {
-        embed.setFooter({ text: 'استخدم الأزرار بالأسفل لإكمال التفاوض أو الرد.' });
+        embed.setFooter({ text: 'استخدم الأزرار لإكمال التفاوض أو الموافقة.' });
         await conv.message.edit({ embeds: [embed] }).catch(()=>{});
     }
 }
 
+// ============================================================================
+// [5] نظام التشغيل والإدارة
+// ============================================================================
 async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
     try {
         const npcSpawnCount = await getNpcSpawnCount(db, thread.id);
@@ -338,7 +348,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             const info = getItemInfo(l.itemid || l.itemID);
             const price = Number(l.priceperunit || l.pricePerUnit);
             const basePrice = getBasePrice(l.itemid || l.itemID, info);
-            return `- ${info.name} (رقم السلعة: ${l.id}): السعر المعروض: ${price} مورا | السعر الأساسي: ${basePrice}`;
+            return `- ${info.name} (رقم السلعة: ${l.id}): السعر المعروض: ${price} | السعر الأساسي: ${basePrice}`;
         }).join('\n');
 
         const npcData = await generateDynamicNPC(destName, listingsContext);
@@ -349,10 +359,10 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         const convId = `conv_${thread.id}_${Date.now()}`;
         
         const embed = new EmbedBuilder()
-            .setColor('#9B59B6')
+            .setColor('#2980B9')
             .setTitle(`${npcData.emoji} زائر يقترب من بضاعتك: ${npcData.name}`)
-            .setDescription(`**${npcData.name}:** "${npcData.message}"`)
-            .setFooter({ text: 'استخدم الأزرار للرد عليه أو طرده' });
+            .setDescription(`> "${npcData.message}"\n\n— *${npcData.persona}*`)
+            .setFooter({ text: 'استخدم الأزرار للرد عليه أو الموافقة' });
 
         const npcMsg = await thread.send({
             content: `يا <@${ownerId}>، هنالك مشترٍ يريد التحدث معك! 🔔`,
@@ -369,7 +379,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             active: true,
         });
 
-        const negotiateBtn = new ButtonBuilder().setCustomId(`mkt_npc_talk_${convId}`).setLabel('💬 فاوض / تحدث').setStyle(ButtonStyle.Primary);
+        const negotiateBtn = new ButtonBuilder().setCustomId(`mkt_npc_talk_${convId}`).setLabel('💬 فاوض').setStyle(ButtonStyle.Primary);
         const acceptBtn = new ButtonBuilder().setCustomId(`mkt_npc_accept_${convId}`).setLabel('✅ موافق، اشترِ').setStyle(ButtonStyle.Success);
         const declineBtn = new ButtonBuilder().setCustomId(`mkt_npc_reject_${convId}`).setLabel('❌ طرد المشتري').setStyle(ButtonStyle.Danger);
 
@@ -395,12 +405,12 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
 
             if (i.customId === `mkt_npc_accept_${convId}`) {
                 await i.deferUpdate().catch(() => {});
-                await processNpcTurn(conv, "أنا موافق على سعرك. أرجوك أتمم الشراء الآن وضع كود [BUY_ITEM] لإنهاء الصفقة.", i, client, db);
+                await processNpcTurn(conv, "أنا موافق على سعرك! قم بإنهاء الصفقة حالاً باستخدام كود الشراء.", i, client, db);
             }
 
             if (i.customId === `mkt_npc_talk_${convId}`) {
                 const modal = new ModalBuilder().setCustomId(`mkt_npc_modal_${convId}`).setTitle(`التحدث مع: ${npcData.name}`.substring(0, 45));
-                const replyInput = new TextInputBuilder().setCustomId('user_reply').setLabel('ماذا تريد أن تقول له؟').setPlaceholder('اكتب ردك ومفاوضتك هنا...').setStyle(TextInputStyle.Paragraph).setRequired(true);
+                const replyInput = new TextInputBuilder().setCustomId('user_reply').setLabel('ردك (جملة قصيرة):').setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(replyInput));
                 await i.showModal(modal);
             }
