@@ -177,8 +177,7 @@ async function processCaravanReturns(client, db) {
         await initMarketTables(db);
         const now = Date.now();
 
-        const active = await safeQuery(db,
-            `SELECT * FROM user_caravans WHERE "status"='traveling'`, []);
+        const active = await safeQuery(db, `SELECT * FROM user_caravans WHERE "status"='traveling'`, []);
 
         for (const caravan of active.rows) {
             const caravanId      = caravan.id;
@@ -189,10 +188,8 @@ async function processCaravanReturns(client, db) {
             const userId         = caravan.userid                    || caravan.userID;
             const guildId        = caravan.guildid                   || caravan.guildID;
 
-            // 👑 الحل الجذري للرحلات المعلقة: إذا انتهى الوقت ننهيها فوراً 👑
             if (now >= endTime) {
-                
-                // إذا تم تسريع الرحلة أو رستت البوت وكان فيه هجوم معلق ما انحل، نعاقبه بنصف الجوائز ونمشيه
+                // 👑 معالجة المشاكل بعد تسريع الرحلة أو الريستارت
                 if (attackAt > 0 && attackResolved === 0) {
                     caravan.rewardmultiplier = 0.5;
                     caravan.rewardMultiplier = 0.5;
@@ -201,29 +198,48 @@ async function processCaravanReturns(client, db) {
                 const summary = await distributeRewards(client, db, caravan);
                 
                 try {
-                    const settingsRes = await safeQuery(db,
-                        `SELECT "casinoChannelID", "caravanChannelID" FROM settings WHERE "guild"=$1`, [guildId]);
+                    const settingsRes = await safeQuery(db, `SELECT "casinoChannelID", "caravanChannelID" FROM settings WHERE "guild"=$1`, [guildId]);
                     
                     const casinoId = settingsRes.rows[0]?.caravanchannelid 
                                   || settingsRes.rows[0]?.caravanChannelID
                                   || settingsRes.rows[0]?.casinochannelid 
                                   || settingsRes.rows[0]?.casinoChannelID;
 
-                    const guild   = client.guilds.cache.get(guildId);
-                    const channel = guild?.channels.cache.get(casinoId);
+                    // 👑 إجبار الديسكورد على إحضار السيرفر والروم حتى بعد الريستارت (Bypass Cache) 👑
+                    let guild = client.guilds.cache.get(guildId);
+                    if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
 
-                    if (channel && summary?.length) {
+                    let channel = guild?.channels.cache.get(casinoId);
+                    if (!channel && guild && casinoId) {
+                        channel = await guild.channels.fetch(casinoId).catch(() => null);
+                    }
+
+                    if (channel) {
                         const destId = caravan.destinationid || caravan.destinationId;
                         const dest   = caravanConfig.destinations.find(d => d.id === destId);
-                        await channel.send({
-                            content: `<@${userId}>`,
-                            embeds: [new EmbedBuilder()
-                                .setColor(dest?.color || '#00FF88')
-                                .setTitle(`✅ عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!`)
-                                .setDescription(`**المكافآت:**\n${summary.map(s => `✶ ${s}`).join('\n')}`)
-                                .setTimestamp()]
-                        }).catch(() => {});
+                        
+                        // 👑 فصل نظام السوق عن الجوائز (السوق يفتح حتى لو الجوائز صفر)
+                        if (summary && summary.length > 0) {
+                            await channel.send({
+                                content: `<@${userId}>`,
+                                embeds: [new EmbedBuilder()
+                                    .setColor(dest?.color || '#00FF88')
+                                    .setTitle(`✅ عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!`)
+                                    .setDescription(`**المكافآت:**\n${summary.map(s => `✶ ${s}`).join('\n')}`)
+                                    .setTimestamp()]
+                            }).catch(() => {});
+                        } else {
+                            await channel.send({
+                                content: `<@${userId}>`,
+                                embeds: [new EmbedBuilder()
+                                    .setColor(dest?.color || '#00FF88')
+                                    .setTitle(`✅ عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!`)
+                                    .setDescription(`عادت القافلة بسلام!`)
+                                    .setTimestamp()]
+                            }).catch(() => {});
+                        }
 
+                        // 👑 فتح السوق فوراً
                         const listings = await getListingsByCaravan(db, caravanId);
                         if (listings.length > 0 && casinoId) {
                             await createMarketThread(client, db, caravan, casinoId);
@@ -231,11 +247,9 @@ async function processCaravanReturns(client, db) {
                     }
                 } catch (e) { console.error('[Open Market Error]', e); }
                 
-                // تخطي إلى القافلة التالية عشان ما يكمل لباقي الأكواد تحت
                 continue; 
             }
 
-            // معالجة الهجوم إذا كانت الرحلة لسا تمشي في وقتها الطبيعي
             if (attackAt > 0 && now >= attackAt && attackResolved === 0 && !guardMsgId) {
                 if (!pendingAttacks.has(caravanId)) {
                     pendingAttacks.add(caravanId);
@@ -254,7 +268,6 @@ function setupCaravanChecker(client, db) {
     if (_checkerStarted) return;
     _checkerStarted = true;
     
-    // 👑 تم تسريع الفاحص ليصبح كل 30 ثانية بدل 5 دقائق 👑
     setInterval(() => processCaravanReturns(client, db), 30 * 1000); 
     processCaravanReturns(client, db);
 }
