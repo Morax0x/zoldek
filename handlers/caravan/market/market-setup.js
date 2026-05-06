@@ -111,47 +111,204 @@ async function fetchUserInventory(db, userId, guildId) {
     }));
 }
 
-// Show a basic staging view (for now, ephemeral embed with staged items)
+// Show staging UI: inventory page + staged items + add/remove buttons
 async function showStagingUI(interaction, db, user, guild) {
-    const staged = await getStagedItems(db, user.id, guild.id);
+    const [staged, inventoryRows] = await Promise.all([
+        getStagedItems(db, user.id, guild.id),
+        fetchUserInventory(db, user.id, guild.id),
+    ]);
+
+    const stagedIds = new Set(staged.map(s => s.itemID || s.itemid));
+    const availableForStaging = inventoryRows.filter(i => !stagedIds.has(i.itemId)).slice(0, 25);
+
     const embed = new EmbedBuilder()
-        .setTitle('🏪 استعراض بضائع السوق المرحل')
-        .setDescription(`العناصر المرحّلة لديك: ${staged.length}`);
+        .setColor('#FFD700')
+        .setTitle('🏪 متجر القافلة — تحضير البضائع')
+        .setDescription('أضف عناصر من مخزونك لتحضيرها لسوق القافلة قبل الإطلاق.');
+
     if (staged.length > 0) {
-        const fields = staged.map(s => {
-            const name = s.itemID || s.itemID;
+        const stagedFields = staged.map((s, idx) => {
+            const info = getItemInfo(s.itemID || s.itemid);
+            const total = s.quantity * s.pricePerUnit;
             return {
-                name: `- ${name}`,
-                value: `الكمية: ${s.quantity} | السعر: ${s.pricePerUnit}`
+                name: `${idx + 1}. ${info.emoji || '📦'} ${info.name}`,
+                value: `الكمية: **${s.quantity}** | السعر: **${s.pricePerUnit.toLocaleString()}** ${require('../config').EMOJI_MORA}\n💰 الإجمالي: **${total.toLocaleString()}**`,
+                inline: false,
             };
         });
-        embed.addFields(fields);
-    } else {
-        embed.addFields({ name: 'لا توجد بضائع مرحّلة', value: 'استخدم متجر القافلة لإضافة عناصرك إلى السوق المعلن عنه لاحقاً.', inline: false });
+        embed.addFields({ name: `📦 بضائعك المرحّلة (${staged.length})`, value: stagedFields.join('\n'), inline: false });
     }
 
-    // Basic page-like selection for adding to staging (first 25 items of personal inventory)
-    const inventory = await getStagedItems(db, user.id, guild.id); // placeholder: reusing staging for simplicity
-    const firstPageItems = inventory.slice(0, 25);
-    const options = firstPageItems.map(it => {
-        const id = it.itemID || it.itemID;
-        return {
-            label: id,
-            description: `المخزون: ${it.quantity || 0}`,
-            value: id,
-        };
-    });
-    if (options.length > 0) {
-        const row = new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId('mkt_stage_add_item')
-                .setPlaceholder('اختر عنصرًا لإضافته إلى القافلة...')
-                .addOptions(options)
+    const components = [];
+
+    // Select menu to add items from inventory
+    if (availableForStaging.length > 0) {
+        const addOptions = availableForStaging.map(item => {
+            const info = getItemInfo(item.itemId);
+            const rarityTxt = info.rarity ? `[${info.rarity}] ` : '';
+            return {
+                label: `${info.name?.substring(0, 100) || item.itemId}`,
+                value: `stage_${item.itemId}`,
+                description: `${rarityTxt}المتوفر: ${item.quantity}`,
+                emoji: info.emoji || '📦',
+            };
+        });
+        components.push(
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('mkt_stage_add_item')
+                    .setPlaceholder('➕ اختر عنصراً لإضافته إلى البضائع المرحّلة...')
+                    .addOptions(addOptions)
+            )
         );
-        await interaction.reply({ embeds: [embed], components: [row], ephemeral: true }).catch(() => {});
-        return;
     }
-    await interaction.reply({ embeds: [embed], ephemeral: true }).catch(() => {});
+
+    // Select menu to remove staged items
+    if (staged.length > 0) {
+        const removeOptions = staged.map((s, idx) => {
+            const info = getItemInfo(s.itemID || s.itemid);
+            return {
+                label: `${info.name?.substring(0, 100) || s.itemID} (x${s.quantity})`,
+                value: `unstage_${idx}`,
+                description: `${s.pricePerUnit.toLocaleString()} ${require('../config').EMOJI_MORA}/واحدة`,
+                emoji: info.emoji || '📦',
+            };
+        });
+        components.push(
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('mkt_stage_remove_item')
+                    .setPlaceholder('➖ اختر عنصراً لإزالته وإرجاعه لمخزونك...')
+                    .addOptions(removeOptions)
+            )
+        );
+    }
+
+    // Back button
+    components.push(
+        new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('mkt_back')
+                .setLabel('↩️ رجوع للقائمة الرئيسية')
+                .setStyle(ButtonStyle.Danger)
+        )
+    );
+
+    if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({ embeds: [embed], components, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+    } else {
+        await interaction.reply({ embeds: [embed], components, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+    }
+}
+
+// Handle adding item to staging (opens modal for qty/price)
+async function handleStageAddItemSelect(interaction, db, user, guild) {
+    const rawValue = interaction.values[0];
+    const itemId = rawValue.replace('stage_', '');
+    const info = getItemInfo(itemId);
+
+    const inventory = await fetchUserInventory(db, user.id, guild.id);
+    const invItem = inventory.find(i => i.itemId === itemId);
+
+    if (!invItem || invItem.quantity <= 0) {
+        return await interaction.reply({ content: '❌ لا تملك هذا العنصر.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId(`mkt_stage_price_modal_${itemId}`)
+        .setTitle(`تحضير: ${info.name}`.substring(0, 45));
+
+    const qtyInput = new TextInputBuilder()
+        .setCustomId('mkt_stage_qty')
+        .setLabel(`الكمية (لديك ${invItem.quantity})`.substring(0, 45))
+        .setPlaceholder('أدخل عدد الوحدات لتحضيرها')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const priceInput = new TextInputBuilder()
+        .setCustomId('mkt_stage_price')
+        .setLabel(`السعر لكل واحدة (بالمورا)`)
+        .setPlaceholder('أدخل السعر بالمورا')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(qtyInput),
+        new ActionRowBuilder().addComponents(priceInput)
+    );
+
+    await interaction.showModal(modal);
+}
+
+// Handle staging modal submission
+async function handleStagePriceModalSubmit(modalSubmit, db, user, guild) {
+    const itemId = modalSubmit.customId.replace('mkt_stage_price_modal_', '');
+    const qtyStr = modalSubmit.fields.getTextInputValue('mkt_stage_qty');
+    const priceStr = modalSubmit.fields.getTextInputValue('mkt_stage_price');
+
+    const qty = parseInt(qtyStr);
+    const price = parseInt(priceStr);
+
+    if (isNaN(qty) || qty < 1) {
+        return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (isNaN(price) || price < 1) {
+        return modalSubmit.reply({ content: '❌ سعر غير صالح. يجب أن يكون أعلى من 0.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (price > 999999999) {
+        return modalSubmit.reply({ content: '❌ السعر الأقصى هو 999,999,999 مورا.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const result = await stagingAddItem(db, user.id, guild.id, itemId, qty, price);
+    if (!result.ok) {
+        return modalSubmit.reply({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
+    }
+
+    const info = getItemInfo(itemId);
+    await modalSubmit.reply({
+        embeds: [new EmbedBuilder()
+            .setColor('#00FF88')
+            .setTitle('✅ تمت الإضافة للبضائع المرحّلة!')
+            .setDescription(`تم تحضير **${qty}x ${info.name}** بسعر **${price.toLocaleString()}** مورا/واحدة`)
+            .setTimestamp()],
+        flags: [MessageFlags.Ephemeral],
+    });
+
+    // Refresh staging UI
+    await showStagingUI(modalSubmit, db, user, guild);
+}
+
+// Handle removing item from staging (returns to inventory)
+async function handleStageRemoveItemSelect(interaction, db, user, guild) {
+    const rawValue = interaction.values[0];
+    const idx = parseInt(rawValue.replace('unstage_', ''));
+    const staged = await getStagedItems(db, user.id, guild.id);
+
+    if (idx < 0 || idx >= staged.length) {
+        return await interaction.reply({ content: '❌ عنصر غير صالح.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const item = staged[idx];
+    const itemId = item.itemID || item.itemid;
+    const quantity = Number(item.quantity);
+
+    const result = await stagingRemoveItem(db, user.id, guild.id, itemId, quantity);
+    if (!result.ok) {
+        return await interaction.reply({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
+    }
+
+    const info = getItemInfo(itemId);
+    await interaction.reply({
+        embeds: [new EmbedBuilder()
+            .setColor('#00FF88')
+            .setTitle('✅ تمت الإزالة!')
+            .setDescription(`تم إرجاع **${quantity}x ${info.name}** إلى مخزونك`)
+            .setTimestamp()],
+        flags: [MessageFlags.Ephemeral],
+    });
+
+    // Refresh staging UI
+    await showStagingUI(interaction, db, user, guild);
 }
 
 // 👑 دالة جديدة لبناء الأزرار والقوائم وتحديث حالتها بذكاء 👑
@@ -402,4 +559,7 @@ module.exports = {
     stagingRemoveItem,
     finalizeStagedItems,
     showStagingUI,
+    handleStageAddItemSelect,
+    handleStagePriceModalSubmit,
+    handleStageRemoveItemSelect,
 };

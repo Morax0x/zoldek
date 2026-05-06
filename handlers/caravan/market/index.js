@@ -30,6 +30,9 @@ module.exports = {
 
     showMarketSetup: marketSetup.showMarketSetup,
     showStagingUI: marketSetup.showStagingUI,
+    handleStageAddItemSelect: marketSetup.handleStageAddItemSelect,
+    handleStagePriceModalSubmit: marketSetup.handleStagePriceModalSubmit,
+    handleStageRemoveItemSelect: marketSetup.handleStageRemoveItemSelect,
     handleAddItemSelect: marketSetup.handleAddItemSelect,
     handlePriceModalSubmit: marketSetup.handlePriceModalSubmit,
     handleRemoveItemSelect: marketSetup.handleRemoveItemSelect,

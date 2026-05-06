@@ -17,6 +17,7 @@ const {
     getMarketListingsCache, handleBuySelect, handleBuyModalSubmit,
     handleRefresh, handleOwnerPriceChange, handlePriceChangeSelect,
     handleNewPriceModalSubmit, setupMarketChecker, showStagingUI, finalizeStagedItems,
+    handleStageAddItemSelect, handleStagePriceModalSubmit, handleStageRemoveItemSelect,
     } = require('../../handlers/caravan/index.js');
 
 const EMPEROR_ID = '1145327691772481577';
@@ -319,10 +320,14 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            if (activeProcesses.has(user.id)) {
-                return i.reply({ content: '⏳ الرجاء الانتظار، جاري المعالجة...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+            const fastButtons = new Set(['cv_market_staging', 'mkt_view_staged', 'mkt_back', 'cv_back', 'cv_status_toggle', 'cv_status']);
+
+            if (!fastButtons.has(i.customId)) {
+                if (activeProcesses.has(user.id)) {
+                    return i.reply({ content: '⏳ الرجاء الانتظار، جاري المعالجة...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
+                }
+                activeProcesses.add(user.id);
             }
-            activeProcesses.add(user.id);
 
             const forceUpdateResponse = (intObj) => {
                 intObj.reply = async (payload) => {
@@ -333,7 +338,7 @@ module.exports = {
                 };
             };
             
-            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item' && i.customId !== 'cv_dest_sel') {
+            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item' && i.customId !== 'cv_dest_sel' && i.customId !== 'cv_market_staging' && i.customId !== 'mkt_view_staged' && i.customId !== 'mkt_stage_add_item') {
                 await i.deferUpdate().catch(() => {});
             }
 
@@ -360,7 +365,11 @@ module.exports = {
                 }
                 
                 else if (id === 'cv_send') {
-                    const active = await getActiveCaravan(db, user.id, guild.id);
+                    const [active, mora, stats] = await Promise.all([
+                        getActiveCaravan(db, user.id, guild.id),
+                        getMora(db, user.id, guild.id),
+                        getUserCaravanStats(db, user.id, guild.id),
+                    ]);
                     if (active) {
                         await i.followUp({ content: '❌ لديك رحلة نشطة بالفعل!', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
@@ -379,8 +388,6 @@ module.exports = {
                             return;
                         }
                     }
-                    const mora = await getMora(db, user.id, guild.id);
-                    const stats = await getUserCaravanStats(db, user.id, guild.id);
                     const payload = await sendCanvas(GEN.generateSendMap, [user, stats, mora]);
 
                     const opts = caravanConfig.destinations.map(d => ({
@@ -406,7 +413,7 @@ module.exports = {
                 else if (id === 'cv_dest_sel') {
                     const destId = i.values[0];
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
-                    const mora   = await getMora(db, user.id, guild.id);
+                    const [mora] = await Promise.all([getMora(db, user.id, guild.id)]);
                     
                     if (mora < dest.cost) {
                         await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA}. رصيدك: **${mora.toLocaleString()}**`, flags: [MessageFlags.Ephemeral] });
@@ -446,8 +453,21 @@ module.exports = {
                 }
 
                 else if (id === 'cv_market_staging') {
-                    // Show staging UI for the user
+                    await i.deferUpdate().catch(() => {});
                     await showStagingUI(i, db, user, guild);
+                }
+                else if (id === 'mkt_stage_add_item') {
+                    forceUpdateResponse(i);
+                    await handleStageAddItemSelect(i, db, user, guild);
+                    try {
+                        const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId.startsWith('mkt_stage_price_modal_') && m.user.id === user.id, time: 60000 });
+                        forceUpdateResponse(modalSubmit);
+                        await handleStagePriceModalSubmit(modalSubmit, db, user, guild);
+                    } catch(e) {}
+                }
+                else if (id === 'mkt_stage_remove_item') {
+                    forceUpdateResponse(i);
+                    await handleStageRemoveItemSelect(i, db, user, guild);
                 }
                 else if (id === 'mkt_launch' || id === 'mkt_skip') {
                     const dest = client.caravanTempDest?.get(user.id);
