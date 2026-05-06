@@ -16,8 +16,8 @@ const {
     handleRemoveItemSelect, finalizeListings, clearMarketListingsCache,
     getMarketListingsCache, handleBuySelect, handleBuyModalSubmit,
     handleRefresh, handleOwnerPriceChange, handlePriceChangeSelect,
-    handleNewPriceModalSubmit, setupMarketChecker,
-} = require('../../handlers/caravan/index.js');
+    handleNewPriceModalSubmit, setupMarketChecker, showStagingUI, finalizeStagedItems,
+    } = require('../../handlers/caravan/index.js');
 
 const EMPEROR_ID = '1145327691772481577';
 
@@ -91,11 +91,13 @@ function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
     if (!hasActiveCaravan) {
         row.addComponents(
             new ButtonBuilder().setCustomId('cv_send').setLabel('📤 إرسال رحلة').setStyle(ButtonStyle.Primary).setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('متجر القافلة').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
             new ButtonBuilder().setCustomId('cv_equip').setLabel('🔮 التجهيز').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
         );
     } else {
         row.addComponents(
-            new ButtonBuilder().setCustomId('cv_status').setLabel('🗺️ متابعة الرحلة').setStyle(ButtonStyle.Success).setDisabled(disabled)
+            new ButtonBuilder().setCustomId('cv_status').setLabel('🗺️ متابعة الرحلة').setStyle(ButtonStyle.Success).setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('متجر القافلة').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
         );
         
         // 🚨 الزر السري للإمبراطور لتسريع القافلة 🚨
@@ -443,6 +445,10 @@ module.exports = {
                     else await showHub(hubMsg);
                 }
 
+                else if (id === 'cv_market_staging') {
+                    // Show staging UI for the user
+                    await showStagingUI(i, db, user, guild);
+                }
                 else if (id === 'mkt_launch' || id === 'mkt_skip') {
                     const dest = client.caravanTempDest?.get(user.id);
                     const mora = await getMora(db, user.id, guild.id);
@@ -499,6 +505,9 @@ module.exports = {
                     const activeCheck = await getActiveCaravan(db, user.id, guild.id);
                     if (activeCheck) {
                         await finalizeListings(client, db, activeCheck.id, user.id, guild.id);
+                        if (typeof finalizeStagedItems === 'function') {
+                            await finalizeStagedItems(db, activeCheck.id, user.id, guild.id);
+                        }
                     }
 
                     if (client.caravanEquip) client.caravanEquip.delete(sessionKey);

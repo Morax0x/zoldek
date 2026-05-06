@@ -22,8 +22,14 @@ module.exports = {
     getExpiredSessions: marketDb.getExpiredSessions,
     updateListingPrice: marketDb.updateListingPrice,
     getListingById: marketDb.getListingById,
+    // staging
+    stagingAddItem: marketDb.stagingAddItem,
+    stagingRemoveItem: marketDb.stagingRemoveItem,
+    getStagedItems: marketDb.getStagedItems,
+    finalizeStagedItems: marketDb.finalizeStagedItems,
 
     showMarketSetup: marketSetup.showMarketSetup,
+    showStagingUI: marketSetup.showStagingUI,
     handleAddItemSelect: marketSetup.handleAddItemSelect,
     handlePriceModalSubmit: marketSetup.handlePriceModalSubmit,
     handleRemoveItemSelect: marketSetup.handleRemoveItemSelect,

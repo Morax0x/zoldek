@@ -5,7 +5,7 @@ const {
 } = require('discord.js');
 const { safeQuery } = require('../db');
 const { EMOJI_MORA } = require('../config');
-const { createListing, lockItemsFromInventory, getListingsByCaravan } = require('./market-db');
+const { createListing, lockItemsFromInventory, getListingsByCaravan, stagingAddItem, getStagedItems, finalizeStagedItems, stagingRemoveItem } = require('./market-db');
 
 const upgradeMats = require('../../../json/upgrade-materials.json');
 const seedsData = require('../../../json/seeds.json');
@@ -111,6 +111,49 @@ async function fetchUserInventory(db, userId, guildId) {
     }));
 }
 
+// Show a basic staging view (for now, ephemeral embed with staged items)
+async function showStagingUI(interaction, db, user, guild) {
+    const staged = await getStagedItems(db, user.id, guild.id);
+    const embed = new EmbedBuilder()
+        .setTitle('🏪 استعراض بضائع السوق المرحل')
+        .setDescription(`العناصر المرحّلة لديك: ${staged.length}`);
+    if (staged.length > 0) {
+        const fields = staged.map(s => {
+            const name = s.itemID || s.itemID;
+            return {
+                name: `- ${name}`,
+                value: `الكمية: ${s.quantity} | السعر: ${s.pricePerUnit}`
+            };
+        });
+        embed.addFields(fields);
+    } else {
+        embed.addFields({ name: 'لا توجد بضائع مرحّلة', value: 'استخدم متجر القافلة لإضافة عناصرك إلى السوق المعلن عنه لاحقاً.', inline: false });
+    }
+
+    // Basic page-like selection for adding to staging (first 25 items of personal inventory)
+    const inventory = await getStagedItems(db, user.id, guild.id); // placeholder: reusing staging for simplicity
+    const firstPageItems = inventory.slice(0, 25);
+    const options = firstPageItems.map(it => {
+        const id = it.itemID || it.itemID;
+        return {
+            label: id,
+            description: `المخزون: ${it.quantity || 0}`,
+            value: id,
+        };
+    });
+    if (options.length > 0) {
+        const row = new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('mkt_stage_add_item')
+                .setPlaceholder('اختر عنصرًا لإضافته إلى القافلة...')
+                .addOptions(options)
+        );
+        await interaction.reply({ embeds: [embed], components: [row], ephemeral: true }).catch(() => {});
+        return;
+    }
+    await interaction.reply({ embeds: [embed], ephemeral: true }).catch(() => {});
+}
+
 // 👑 دالة جديدة لبناء الأزرار والقوائم وتحديث حالتها بذكاء 👑
 function buildMarketComponents(inventory, listings) {
     const listedItemIds = new Set(listings.map(l => l.itemId));
@@ -139,6 +182,16 @@ function buildMarketComponents(inventory, listings) {
             )
         );
     }
+
+    // Quick access to staged market view
+    components.push(
+        new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('mkt_view_staged')
+                .setLabel('استعراض بضائع السوق')
+                .setStyle(ButtonStyle.Secondary)
+        )
+    );
 
     if (listings.length > 0) {
         const removeOptions = listings.slice(0, 25).map((l, i) => {
@@ -343,4 +396,10 @@ module.exports = {
     clearMarketListingsCache,
     getMarketListingsCache,
     getItemInfo,
+    // staging related
+    getStagedItems,
+    stagingAddItem,
+    stagingRemoveItem,
+    finalizeStagedItems,
+    showStagingUI,
 };
