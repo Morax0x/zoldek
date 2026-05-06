@@ -793,12 +793,13 @@ module.exports = {
                 }
 
                 else if (id === 'mkt_stage_remove_item') {
+                    await i.deferUpdate().catch(() => {});
                     const rawValue = i.values[0];
                     const idx = parseInt(rawValue.replace('unstage_', ''));
                     const staged = await market.getStagedItems(db, user.id, guild.id);
 
                     if (idx < 0 || idx >= staged.length) {
-                        await i.reply({ content: '❌ عنصر غير صالح.', flags: [MessageFlags.Ephemeral] });
+                        await i.followUp({ content: '❌ عنصر غير صالح.', flags: [MessageFlags.Ephemeral] });
                         return;
                     }
 
@@ -809,11 +810,11 @@ module.exports = {
 
                     const result = await market.stagingRemoveItem(db, user.id, guild.id, itemId, quantity);
                     if (!result.ok) {
-                        await i.reply({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
+                        await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
                         return;
                     }
 
-                    await i.reply({
+                    await i.followUp({
                         content: `✅ تم إرجاع **${quantity}x ${info.name}** إلى مخزونك`,
                         flags: [MessageFlags.Ephemeral],
                     });
