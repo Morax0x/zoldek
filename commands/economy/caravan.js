@@ -12,7 +12,7 @@ const {
     getActiveCaravan, sendCaravan, upgradeCaravan, setupCaravanChecker,
     checkCaravanCooldown, safeQuery, safeExecute, EMOJI_MORA,
     startEscortLobby, registerCombatListeners,
-    finalizeListings, finalizeStagedItems,
+    finalizeListings,
     } = require('../../handlers/caravan/index.js');
 
 const market = require('../../handlers/caravan/market/index.js');
@@ -492,6 +492,51 @@ module.exports = {
                     const attachment = new AttachmentBuilder(buffer, { name: 'staging_market.png' });
 
                     const components = [];
+
+                    // Select menu to add items from inventory
+                    const availableForStaging = allItems.filter(it => {
+                        const stagedIdsSet = new Set(staged.map(s => s.itemID || s.itemid));
+                        return !stagedIdsSet.has(it.id);
+                    });
+                    if (availableForStaging.length > 0) {
+                        const addOptions = availableForStaging.slice(0, 25).map(item => ({
+                            label: `${item.name?.substring(0, 90) || item.id}`,
+                            value: `stage_${item.id}`,
+                            description: `[${item.rarity || 'Common'}] المتوفر: ${item.quantity}`,
+                            emoji: item.emoji || '📦',
+                        }));
+                        components.push(
+                            new ActionRowBuilder().addComponents(
+                                new StringSelectMenuBuilder()
+                                    .setCustomId('mkt_stage_add_item')
+                                    .setPlaceholder('➕ اختر عنصراً لإضافته إلى البضائع المرحّلة...')
+                                    .addOptions(addOptions)
+                            )
+                        );
+                    }
+
+                    // Select menu to remove staged items
+                    if (staged.length > 0) {
+                        const removeOptions = staged.map((s, idx) => {
+                            const info = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(s.itemID || s.itemid) : { name: s.itemID, emoji: '📦' };
+                            return {
+                                label: `${info.name?.substring(0, 90) || s.itemID} (x${s.quantity})`,
+                                value: `unstage_${idx}`,
+                                description: `${s.pricePerUnit.toLocaleString()} 🪙/واحدة`,
+                                emoji: info.emoji || '📦',
+                            };
+                        });
+                        components.push(
+                            new ActionRowBuilder().addComponents(
+                                new StringSelectMenuBuilder()
+                                    .setCustomId('mkt_stage_remove_item')
+                                    .setPlaceholder('➖ اختر عنصراً لإزالته وإرجاعه لمخزونك...')
+                                    .addOptions(removeOptions)
+                            )
+                        );
+                    }
+
+                    // Navigation row
                     const navRow = new ActionRowBuilder();
                     if (page > 1) navRow.addComponents(new ButtonBuilder().setCustomId('cv_stage_prev').setLabel('◀️ السابق').setStyle(ButtonStyle.Secondary));
                     if (page < totalPages) navRow.addComponents(new ButtonBuilder().setCustomId('cv_stage_next').setLabel('التالي ▶️').setStyle(ButtonStyle.Secondary));
@@ -535,13 +580,319 @@ module.exports = {
                     const attachment = new AttachmentBuilder(buffer, { name: 'staging_market.png' });
 
                     const comp = [];
+                    const availableForStaging = allItems.filter(it => {
+                        const stagedIdsSet = new Set(staged.map(s => s.itemID || s.itemid));
+                        return !stagedIdsSet.has(it.id);
+                    });
+                    if (availableForStaging.length > 0) {
+                        const addOptions = availableForStaging.slice(0, 25).map(item => ({
+                            label: `${item.name?.substring(0, 90) || item.id}`,
+                            value: `stage_${item.id}`,
+                            description: `[${item.rarity || 'Common'}] المتوفر: ${item.quantity}`,
+                            emoji: item.emoji || '📦',
+                        }));
+                        comp.push(
+                            new ActionRowBuilder().addComponents(
+                                new StringSelectMenuBuilder()
+                                    .setCustomId('mkt_stage_add_item')
+                                    .setPlaceholder('➕ اختر عنصراً لإضافته إلى البضائع المرحّلة...')
+                                    .addOptions(addOptions)
+                            )
+                        );
+                    }
+                    if (staged.length > 0) {
+                        const removeOptions = staged.map((s, idx) => {
+                            const infoR = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(s.itemID || s.itemid) : { name: s.itemID, emoji: '📦' };
+                            return {
+                                label: `${infoR.name?.substring(0, 90) || s.itemID} (x${s.quantity})`,
+                                value: `unstage_${idx}`,
+                                description: `${s.pricePerUnit.toLocaleString()} 🪙/واحدة`,
+                                emoji: infoR.emoji || '📦',
+                            };
+                        });
+                        comp.push(
+                            new ActionRowBuilder().addComponents(
+                                new StringSelectMenuBuilder()
+                                    .setCustomId('mkt_stage_remove_item')
+                                    .setPlaceholder('➖ اختر عنصراً لإزالته وإرجاعه لمخزونك...')
+                                    .addOptions(removeOptions)
+                            )
+                        );
+                    }
                     const nr = new ActionRowBuilder();
                     if (page > 1) nr.addComponents(new ButtonBuilder().setCustomId('cv_stage_prev').setLabel('◀️ السابق').setStyle(ButtonStyle.Secondary));
                     if (page < totalPages) nr.addComponents(new ButtonBuilder().setCustomId('cv_stage_next').setLabel('التالي ▶️').setStyle(ButtonStyle.Secondary));
                     nr.addComponents(new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Danger));
                     if (nr.components.length > 0) comp.push(nr);
 
-                    await i.reply({ content: `📄 صفحة ${page} من ${totalPages}`, files: [attachment], components: comp, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                    await i.reply({ content: '🏪 **متجر القافلة** — اختر العناصر التي تريد عرضها في سوق القافلة:', files: [attachment], components: comp, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                }
+
+                else if (id === 'mkt_stage_add_item') {
+                    const rawValue = i.values[0];
+                    const itemId = rawValue.replace('stage_', '');
+                    const info = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(itemId) : { name: itemId.replace(/_/g, ' '), emoji: '📦', rarity: 'Common' };
+
+                    const invRes = await safeQuery(db,
+                        `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3)`,
+                        [user.id, guild.id, itemId]);
+                    let invRow = invRes?.rows?.[0];
+                    if (!invRow) {
+                        const invRes2 = await safeQuery(db,
+                            `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND (itemid=$3 OR "itemID"=$3)`,
+                            [user.id, guild.id, itemId]);
+                        invRow = invRes2?.rows?.[0];
+                    }
+                    const availableQty = invRow ? Number(invRow.quantity || invRow.QUANTITY || 0) : 0;
+
+                    if (availableQty <= 0) {
+                        await i.reply({ content: '❌ لا تملك هذا العنصر.', flags: [MessageFlags.Ephemeral] });
+                        return;
+                    }
+
+                    const modalId = `mkt_stage_price_modal_${itemId}_${Date.now()}`;
+                    const modal = new ModalBuilder()
+                        .setCustomId(modalId)
+                        .setTitle(`تحضير: ${info.name}`.substring(0, 45));
+
+                    const qtyInput = new TextInputBuilder()
+                        .setCustomId('stage_qty')
+                        .setLabel(`الكمية (لديك ${availableQty})`.substring(0, 45))
+                        .setPlaceholder('أدخل عدد الوحدات لتحضيرها')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true);
+
+                    const priceInput = new TextInputBuilder()
+                        .setCustomId('stage_price')
+                        .setLabel(`السعر لكل واحدة (بالمورا)`)
+                        .setPlaceholder('أدخل السعر بالمورا')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true);
+
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(qtyInput),
+                        new ActionRowBuilder().addComponents(priceInput)
+                    );
+
+                    await i.showModal(modal);
+                    try {
+                        const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
+                        await modalSubmit.deferUpdate().catch(() => {});
+
+                        const qtyStr = modalSubmit.fields.getTextInputValue('stage_qty');
+                        const priceStr = modalSubmit.fields.getTextInputValue('stage_price');
+                        const qty = parseInt(qtyStr);
+                        const price = parseInt(priceStr);
+
+                        if (isNaN(qty) || qty < 1) {
+                            await modalSubmit.followUp({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
+                            return;
+                        }
+                        if (isNaN(price) || price < 1) {
+                            await modalSubmit.followUp({ content: '❌ سعر غير صالح.', flags: [MessageFlags.Ephemeral] });
+                            return;
+                        }
+                        if (price > 999999999) {
+                            await modalSubmit.followUp({ content: '❌ السعر الأقصى هو 999,999,999 مورا.', flags: [MessageFlags.Ephemeral] });
+                            return;
+                        }
+
+                        const result = await market.stagingAddItem(db, user.id, guild.id, itemId, qty, price);
+                        if (!result.ok) {
+                            await modalSubmit.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
+                            return;
+                        }
+
+                        await modalSubmit.followUp({
+                            content: `✅ تم تحضير **${qty}x ${info.name}** بسعر **${price.toLocaleString()}** 🪙/واحدة`,
+                            flags: [MessageFlags.Ephemeral],
+                        });
+
+                        // Refresh staging UI
+                        const [mora2, staged2] = await Promise.all([
+                            getMora(db, user.id, guild.id),
+                            market.getStagedItems(db, user.id, guild.id),
+                        ]);
+                        const invRes3 = await safeQuery(db,
+                            `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`,
+                            [user.id, guild.id]);
+                        let invRows3 = invRes3?.rows || [];
+                        if (invRows3.length === 0) {
+                            const invRes4 = await safeQuery(db,
+                                `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`,
+                                [user.id, guild.id]);
+                            invRows3 = invRes4?.rows || [];
+                        }
+                        const stagingPageKey2 = `staging_page_${user.id}_${guild.id}`;
+                        let page2 = client[stagingPageKey2] || 1;
+                        const allItems2 = invRows3.map(row => {
+                            const itemId2 = row.itemid || row.itemID || row.ITEMID;
+                            const quantity = Number(row.quantity || row.QUANTITY || 0);
+                            const info2 = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(itemId2) : { name: itemId2.replace(/_/g, ' '), emoji: '📦', rarity: 'Common', imgPath: null };
+                            return { id: itemId2, name: info2.name, emoji: info2.emoji, rarity: info2.rarity, imgPath: info2.imgPath, quantity };
+                        }).filter(it => it.quantity > 0);
+                        const totalPages2 = Math.max(1, Math.ceil(allItems2.length / 15));
+                        if (page2 > totalPages2) page2 = totalPages2;
+                        client[stagingPageKey2] = page2;
+                        const pageItems2 = allItems2.slice((page2 - 1) * 15, page2 * 15);
+                        const buffer2 = await sendCanvas(STAGING_GEN.generateStagingCanvas, [user.displayName || user.username, pageItems2, page2, totalPages2, mora2, staged2.length]);
+                        const attachment2 = new AttachmentBuilder(buffer2, { name: 'staging_market.png' });
+
+                        const comps2 = [];
+                        const availableForStaging2 = allItems2.filter(it => {
+                            const stagedIdsSet2 = new Set(staged2.map(s => s.itemID || s.itemid));
+                            return !stagedIdsSet2.has(it.id);
+                        });
+                        if (availableForStaging2.length > 0) {
+                            const addOptions2 = availableForStaging2.slice(0, 25).map(item => ({
+                                label: `${item.name?.substring(0, 90) || item.id}`,
+                                value: `stage_${item.id}`,
+                                description: `[${item.rarity || 'Common'}] المتوفر: ${item.quantity}`,
+                                emoji: item.emoji || '📦',
+                            }));
+                            comps2.push(
+                                new ActionRowBuilder().addComponents(
+                                    new StringSelectMenuBuilder()
+                                        .setCustomId('mkt_stage_add_item')
+                                        .setPlaceholder('➕ اختر عنصراً لإضافته إلى البضائع المرحّلة...')
+                                        .addOptions(addOptions2)
+                                )
+                            );
+                        }
+                        if (staged2.length > 0) {
+                            const removeOptions2 = staged2.map((s, idx) => {
+                                const infoR = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(s.itemID || s.itemid) : { name: s.itemID, emoji: '📦' };
+                                return {
+                                    label: `${infoR.name?.substring(0, 90) || s.itemID} (x${s.quantity})`,
+                                    value: `unstage_${idx}`,
+                                    description: `${s.pricePerUnit.toLocaleString()} 🪙/واحدة`,
+                                    emoji: infoR.emoji || '📦',
+                                };
+                            });
+                            comps2.push(
+                                new ActionRowBuilder().addComponents(
+                                    new StringSelectMenuBuilder()
+                                        .setCustomId('mkt_stage_remove_item')
+                                        .setPlaceholder('➖ اختر عنصراً لإزالته وإرجاعه لمخزونك...')
+                                        .addOptions(removeOptions2)
+                                )
+                            );
+                        }
+                        const navRow2 = new ActionRowBuilder();
+                        if (page2 > 1) navRow2.addComponents(new ButtonBuilder().setCustomId('cv_stage_prev').setLabel('◀️ السابق').setStyle(ButtonStyle.Secondary));
+                        if (page2 < totalPages2) navRow2.addComponents(new ButtonBuilder().setCustomId('cv_stage_next').setLabel('التالي ▶️').setStyle(ButtonStyle.Secondary));
+                        navRow2.addComponents(new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Danger));
+                        if (navRow2.components.length > 0) comps2.push(navRow2);
+
+                        await modalSubmit.editReply({ content: '🏪 **متجر القافلة** — اختر العناصر التي تريد عرضها في سوق القافلة:', files: [attachment2], components: comps2 }).catch(() => {});
+                    } catch (e) {
+                        // Modal timeout
+                    }
+                }
+
+                else if (id === 'mkt_stage_remove_item') {
+                    const rawValue = i.values[0];
+                    const idx = parseInt(rawValue.replace('unstage_', ''));
+                    const staged = await market.getStagedItems(db, user.id, guild.id);
+
+                    if (idx < 0 || idx >= staged.length) {
+                        await i.reply({ content: '❌ عنصر غير صالح.', flags: [MessageFlags.Ephemeral] });
+                        return;
+                    }
+
+                    const item = staged[idx];
+                    const itemId = item.itemID || item.itemid;
+                    const quantity = Number(item.quantity);
+                    const info = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(itemId) : { name: itemId.replace(/_/g, ' '), emoji: '📦' };
+
+                    const result = await market.stagingRemoveItem(db, user.id, guild.id, itemId, quantity);
+                    if (!result.ok) {
+                        await i.reply({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
+                        return;
+                    }
+
+                    await i.reply({
+                        content: `✅ تم إرجاع **${quantity}x ${info.name}** إلى مخزونك`,
+                        flags: [MessageFlags.Ephemeral],
+                    });
+
+                    // Refresh staging UI
+                    const [mora3, staged3] = await Promise.all([
+                        getMora(db, user.id, guild.id),
+                        market.getStagedItems(db, user.id, guild.id),
+                    ]);
+                    const invRes5 = await safeQuery(db,
+                        `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`,
+                        [user.id, guild.id]);
+                    let invRows5 = invRes5?.rows || [];
+                    if (invRows5.length === 0) {
+                        const invRes6 = await safeQuery(db,
+                            `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`,
+                            [user.id, guild.id]);
+                        invRows5 = invRes6?.rows || [];
+                    }
+                    const stagingPageKey3 = `staging_page_${user.id}_${guild.id}`;
+                    let page3 = client[stagingPageKey3] || 1;
+                    const allItems3 = invRows5.map(row => {
+                        const itemId3 = row.itemid || row.itemID || row.ITEMID;
+                        const quantity3 = Number(row.quantity || row.QUANTITY || 0);
+                        const info3 = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(itemId3) : { name: itemId3.replace(/_/g, ' '), emoji: '📦', rarity: 'Common', imgPath: null };
+                        return { id: itemId3, name: info3.name, emoji: info3.emoji, rarity: info3.rarity, imgPath: info3.imgPath, quantity: quantity3 };
+                    }).filter(it => it.quantity > 0);
+                    const totalPages3 = Math.max(1, Math.ceil(allItems3.length / 15));
+                    if (page3 > totalPages3) page3 = totalPages3;
+                    client[stagingPageKey3] = page3;
+                    const pageItems3 = allItems3.slice((page3 - 1) * 15, page3 * 15);
+                    const buffer3 = await sendCanvas(STAGING_GEN.generateStagingCanvas, [user.displayName || user.username, pageItems3, page3, totalPages3, mora3, staged3.length]);
+                    const attachment3 = new AttachmentBuilder(buffer3, { name: 'staging_market.png' });
+
+                    const comps3 = [];
+                    const availableForStaging3 = allItems3.filter(it => {
+                        const stagedIdsSet3 = new Set(staged3.map(s => s.itemID || s.itemid));
+                        return !stagedIdsSet3.has(it.id);
+                    });
+                    if (availableForStaging3.length > 0) {
+                        const addOptions3 = availableForStaging3.slice(0, 25).map(item => ({
+                            label: `${item.name?.substring(0, 90) || item.id}`,
+                            value: `stage_${item.id}`,
+                            description: `[${item.rarity || 'Common'}] المتوفر: ${item.quantity}`,
+                            emoji: item.emoji || '📦',
+                        }));
+                        comps3.push(
+                            new ActionRowBuilder().addComponents(
+                                new StringSelectMenuBuilder()
+                                    .setCustomId('mkt_stage_add_item')
+                                    .setPlaceholder('➕ اختر عنصراً لإضافته إلى البضائع المرحّلة...')
+                                    .addOptions(addOptions3)
+                            )
+                        );
+                    }
+                    if (staged3.length > 0) {
+                        const removeOptions3 = staged3.map((s, idx2) => {
+                            const infoR2 = STAGING_GEN.getItemInfo ? STAGING_GEN.getItemInfo(s.itemID || s.itemid) : { name: s.itemID, emoji: '📦' };
+                            return {
+                                label: `${infoR2.name?.substring(0, 90) || s.itemID} (x${s.quantity})`,
+                                value: `unstage_${idx2}`,
+                                description: `${s.pricePerUnit.toLocaleString()} 🪙/واحدة`,
+                                emoji: infoR2.emoji || '📦',
+                            };
+                        });
+                        comps3.push(
+                            new ActionRowBuilder().addComponents(
+                                new StringSelectMenuBuilder()
+                                    .setCustomId('mkt_stage_remove_item')
+                                    .setPlaceholder('➖ اختر عنصراً لإزالته وإرجاعه لمخزونك...')
+                                    .addOptions(removeOptions3)
+                            )
+                        );
+                    }
+                    const navRow3 = new ActionRowBuilder();
+                    if (page3 > 1) navRow3.addComponents(new ButtonBuilder().setCustomId('cv_stage_prev').setLabel('◀️ السابق').setStyle(ButtonStyle.Secondary));
+                    if (page3 < totalPages3) navRow3.addComponents(new ButtonBuilder().setCustomId('cv_stage_next').setLabel('التالي ▶️').setStyle(ButtonStyle.Secondary));
+                    navRow3.addComponents(new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Danger));
+                    if (navRow3.components.length > 0) comps3.push(navRow3);
+
+                    await i.editReply({ content: '🏪 **متجر القافلة** — اختر العناصر التي تريد عرضها في سوق القافلة:', files: [attachment3], components: comps3 }).catch(() => {});
                 }
 
                 else if (id.startsWith('cv_noprotect_')) {
@@ -570,8 +921,8 @@ module.exports = {
                     const activeCheck = await getActiveCaravan(db, user.id, guild.id);
                     if (activeCheck) {
                         await finalizeListings(client, db, activeCheck.id, user.id, guild.id);
-                        if (typeof finalizeStagedItems === 'function') {
-                            await finalizeStagedItems(db, activeCheck.id, user.id, guild.id);
+                        if (typeof market.finalizeStagedItems === 'function') {
+                            await market.finalizeStagedItems(db, activeCheck.id, user.id, guild.id);
                         }
                     }
 
