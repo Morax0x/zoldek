@@ -321,7 +321,7 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            const fastButtons = new Set(['cv_market_staging', 'mkt_view_staged', 'mkt_back', 'cv_back', 'cv_status_toggle', 'cv_status']);
+            const fastButtons = new Set(['cv_market_staging', 'mkt_view_staged', 'mkt_back', 'cv_back', 'cv_status_toggle', 'cv_status', 'mkt_stage_add_item', 'mkt_stage_remove_item', 'cv_stage_prev', 'cv_stage_next']);
 
             if (!fastButtons.has(i.customId)) {
                 if (activeProcesses.has(user.id)) {
@@ -489,7 +489,13 @@ module.exports = {
                     client[stagingPageKey] = page;
 
                     const pageItems = allItems.slice((page - 1) * perPage, page * perPage);
-                    const buffer = await sendCanvas(STAGING_GEN.generateStagingCanvas, [user.displayName || user.username, pageItems, page, totalPages, mora, staged.length]);
+                    let buffer;
+                    try {
+                        buffer = await STAGING_GEN.generateStagingCanvas(user.displayName || user.username, pageItems, page, totalPages, mora, staged.length);
+                    } catch (e) {
+                        await i.editReply({ content: '⚠️ تعذّر توليد الصورة.', components: [] }).catch(() => {});
+                        return;
+                    }
                     const attachment = new AttachmentBuilder(buffer, { name: 'staging_market.png' });
 
                     const components = [];
@@ -578,7 +584,13 @@ module.exports = {
                     const totalPages = Math.max(1, Math.ceil(allItems.length / perPage));
                     if (page > totalPages) page = totalPages;
                     const pageItems = allItems.slice((page - 1) * perPage, page * perPage);
-                    const buffer = await sendCanvas(STAGING_GEN.generateStagingCanvas, [user.displayName || user.username, pageItems, page, totalPages, mora, staged.length]);
+                    let buffer;
+                    try {
+                        buffer = await STAGING_GEN.generateStagingCanvas(user.displayName || user.username, pageItems, page, totalPages, mora, staged.length);
+                    } catch (e) {
+                        await i.editReply({ content: '⚠️ تعذّر توليد الصورة.', components: [] }).catch(() => {});
+                        return;
+                    }
                     const attachment = new AttachmentBuilder(buffer, { name: 'staging_market.png' });
 
                     const comp = [];
@@ -737,7 +749,9 @@ module.exports = {
                         if (page2 > totalPages2) page2 = totalPages2;
                         client[stagingPageKey2] = page2;
                         const pageItems2 = allItems2.slice((page2 - 1) * 15, page2 * 15);
-                        const buffer2 = await sendCanvas(STAGING_GEN.generateStagingCanvas, [user.displayName || user.username, pageItems2, page2, totalPages2, mora2, staged2.length]);
+                        let buffer2;
+                        try { buffer2 = await STAGING_GEN.generateStagingCanvas(user.displayName || user.username, pageItems2, page2, totalPages2, mora2, staged2.length); } catch (e) { buffer2 = null; }
+                        if (!buffer2) { await modalSubmit.followUp({ content: '⚠️ تعذّر توليد الصورة.', flags: [MessageFlags.Ephemeral] }); return; }
                         const attachment2 = new AttachmentBuilder(buffer2, { name: 'staging_market.png' });
 
                         const comps2 = [];
@@ -846,7 +860,9 @@ module.exports = {
                     if (page3 > totalPages3) page3 = totalPages3;
                     client[stagingPageKey3] = page3;
                     const pageItems3 = allItems3.slice((page3 - 1) * 15, page3 * 15);
-                    const buffer3 = await sendCanvas(STAGING_GEN.generateStagingCanvas, [user.displayName || user.username, pageItems3, page3, totalPages3, mora3, staged3.length]);
+                    let buffer3;
+                    try { buffer3 = await STAGING_GEN.generateStagingCanvas(user.displayName || user.username, pageItems3, page3, totalPages3, mora3, staged3.length); } catch (e) { buffer3 = null; }
+                    if (!buffer3) { await i.followUp({ content: '⚠️ تعذّر توليد الصورة.', flags: [MessageFlags.Ephemeral] }); return; }
                     const attachment3 = new AttachmentBuilder(buffer3, { name: 'staging_market.png' });
 
                     const comps3 = [];
