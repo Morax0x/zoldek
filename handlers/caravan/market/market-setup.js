@@ -79,8 +79,70 @@ function getMarketListingsCache(client, userId, guildId) {
     return client.marketListings.get(key);
 }
 
+// 👑 دوال التنظيف وترحيل البيانات القديمة (مهمة لمنع الكراشات) 👑
+function clearMarketListingsCache(client, userId, guildId) {
+    const key = `market_listings_${userId}_${guildId}`;
+    if (client.marketListings) client.marketListings.delete(key);
+}
+
+async function finalizeListings(client, db, caravanId, userId, guildId) {
+    const listings = getMarketListingsCache(client, userId, guildId);
+
+    if (!listings || listings.length === 0) return { ok: true, listings: [] };
+
+    const dbListings = [];
+    for (const listing of listings) {
+        const listingId = await createListing(db, caravanId, userId, guildId, listing);
+        if (listingId) {
+            dbListings.push({ ...listing, listingId });
+        }
+    }
+
+    if (dbListings.length > 0) {
+        await lockItemsFromInventory(db, guildId, userId, dbListings);
+    }
+
+    clearMarketListingsCache(client, userId, guildId);
+    return { ok: true, listings: dbListings };
+}
+
+
 // ============================================================================
-// [1] جلب المخزون والبيانات بأمان تام (SQL Injection & Dupe Protection)
+// [1] دوال حماية المتجر المدمجة (عشان ما يضرب كراش لو كلود نسي يضيفها)
+// ============================================================================
+async function getStagedItemsSafe(db, userId, guildId) {
+    if (typeof getStagedItems === 'function') return await getStagedItems(db, userId, guildId);
+    try {
+        await safeExecute(db, `CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`);
+        const res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+        return res?.rows || [];
+    } catch { return []; }
+}
+
+async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) {
+    if (typeof stagingAddItem === 'function') return await stagingAddItem(db, userId, guildId, itemId, quantity, price);
+    try {
+        // الخصم الآمن من المستودع يمنع التدبيل
+        const res = await safeQuery(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) AND CAST(COALESCE(quantity, '0') AS INTEGER) >= $1 RETURNING *`, [quantity, userId, guildId, itemId]);
+        if (!res || res.rows.length === 0) return { ok: false, error: 'لا تملك كمية كافية من هذا العنصر.' };
+        
+        await safeExecute(db, `INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
+        return { ok: true };
+    } catch { return { ok: false, error: 'حدث خطأ في قاعدة البيانات.' }; }
+}
+
+async function stagingRemoveItemSafe(db, userId, guildId, itemId, quantity) {
+    if (typeof stagingRemoveItem === 'function') return await stagingRemoveItem(db, userId, guildId, itemId, quantity);
+    try {
+        await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3) LIMIT 1`, [userId, guildId, itemId]);
+        await safeExecute(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4)`, [quantity, userId, guildId, itemId]);
+        return { ok: true };
+    } catch { return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' }; }
+}
+
+
+// ============================================================================
+// [2] جلب المخزون والبيانات بأمان تام
 // ============================================================================
 async function fetchUserInventory(db, userId, guildId) {
     let invRes = await safeQuery(db,
@@ -99,20 +161,19 @@ async function fetchUserInventory(db, userId, guildId) {
     }));
 }
 
+
 // ============================================================================
-// [2] الواجهة الرئيسية للمتجر (Staging UI) - تصميم فخم ومدروس
+// [3] الواجهة الرئيسية للمتجر (Staging UI)
 // ============================================================================
 async function showStagingUI(interaction, db, user, guild) {
     const [staged, inventoryRows] = await Promise.all([
-        getStagedItems(db, user.id, guild.id),
+        getStagedItemsSafe(db, user.id, guild.id),
         fetchUserInventory(db, user.id, guild.id),
     ]);
 
     const stagedIds = new Set(staged.map(s => s.itemID || s.itemid));
-    // نعرض فقط أول 25 عنصر غير مضاف للسوق لتجنب خطأ قائمة ديسكورد المنسدلة
     const availableForStaging = inventoryRows.filter(i => !stagedIds.has(i.itemId)).slice(0, 25);
 
-    // حساب الإجمالي المتوقع للأرباح
     const expectedProfit = staged.reduce((acc, curr) => acc + (Number(curr.quantity) * Number(curr.pricePerUnit || curr.priceperunit)), 0);
 
     const embed = new EmbedBuilder()
@@ -125,7 +186,6 @@ async function showStagingUI(interaction, db, user, guild) {
             `💰 **الأرباح المتوقعة:** \`${expectedProfit.toLocaleString()}\` ${EMOJI_MORA}`
         );
 
-    // حماية من كراش الديسكورد إذا زادت الأحرف عن 1024
     if (staged.length > 0) {
         let itemsText = '';
         staged.forEach((s, idx) => {
@@ -133,7 +193,6 @@ async function showStagingUI(interaction, db, user, guild) {
             const total = s.quantity * (s.pricePerUnit || s.priceperunit);
             const line = `\`${idx + 1}.\` ${info.emoji || '📦'} **${info.name}** (x${s.quantity}) — بسعر **${(s.pricePerUnit || s.priceperunit).toLocaleString()}** مورا للواحدة.\n`;
             
-            // حد الحماية للأحرف
             if ((itemsText.length + line.length) < 950) {
                 itemsText += line;
             } else if (!itemsText.endsWith('... والمزيد\n')) {
@@ -148,7 +207,6 @@ async function showStagingUI(interaction, db, user, guild) {
 
     const components = [];
 
-    // [القائمة 1] الإضافة من المخزون
     if (availableForStaging.length > 0) {
         const addOptions = availableForStaging.map(item => {
             const info = getItemInfo(item.itemId);
@@ -170,7 +228,6 @@ async function showStagingUI(interaction, db, user, guild) {
         );
     }
 
-    // [القائمة 2] الإزالة من العربة
     if (staged.length > 0) {
         const removeOptions = staged.slice(0, 25).map((s, idx) => {
             const info = getItemInfo(s.itemID || s.itemid);
@@ -191,7 +248,6 @@ async function showStagingUI(interaction, db, user, guild) {
         );
     }
 
-    // [زر الرجوع للرئيسية]
     components.push(
         new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -208,8 +264,9 @@ async function showStagingUI(interaction, db, user, guild) {
     }
 }
 
+
 // ============================================================================
-// [3] التعامل مع المودلات وتحديد السعر (منع الأخطاء البشرية)
+// [4] التعامل مع المودلات (التسعير والإضافة والإزالة)
 // ============================================================================
 async function handleStageAddItemSelect(interaction, db, user, guild) {
     const rawValue = interaction.values[0];
@@ -269,8 +326,7 @@ async function handleStagePriceModalSubmit(modalSubmit, db, user, guild) {
 
     await modalSubmit.deferUpdate().catch(() => {});
 
-    // إضافة للسوق المبدئي (Staging) مع الخصم الآمن
-    const result = await stagingAddItem(db, user.id, guild.id, itemId, qty, price);
+    const result = await stagingAddItemSafe(db, user.id, guild.id, itemId, qty, price);
     if (!result.ok) {
         return modalSubmit.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
     }
@@ -284,19 +340,15 @@ async function handleStagePriceModalSubmit(modalSubmit, db, user, guild) {
         flags: [MessageFlags.Ephemeral],
     }).catch(()=>{});
 
-    // تحديث الواجهة تلقائياً
     await showStagingUI(modalSubmit, db, user, guild);
 }
 
-// ============================================================================
-// [4] إزالة البضائع من العربة وإرجاعها للمخزون
-// ============================================================================
 async function handleStageRemoveItemSelect(interaction, db, user, guild) {
     await interaction.deferUpdate().catch(() => {});
     
     const rawValue = interaction.values[0];
     const idx = parseInt(rawValue.replace('unstage_', ''));
-    const staged = await getStagedItems(db, user.id, guild.id);
+    const staged = await getStagedItemsSafe(db, user.id, guild.id);
 
     if (idx < 0 || idx >= staged.length) {
         return await interaction.followUp({ content: '❌ خطأ: لم يتم العثور على العنصر.', flags: [MessageFlags.Ephemeral] });
@@ -306,8 +358,7 @@ async function handleStageRemoveItemSelect(interaction, db, user, guild) {
     const itemId = item.itemID || item.itemid;
     const quantity = Number(item.quantity);
 
-    // سحب من العربة وإرجاع للمخزن بأمان
-    const result = await stagingRemoveItem(db, user.id, guild.id, itemId, quantity);
+    const result = await stagingRemoveItemSafe(db, user.id, guild.id, itemId, quantity);
     if (!result.ok) {
         return await interaction.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
     }
@@ -321,13 +372,9 @@ async function handleStageRemoveItemSelect(interaction, db, user, guild) {
         flags: [MessageFlags.Ephemeral],
     }).catch(()=>{});
 
-    // تحديث الواجهة تلقائياً
     await showStagingUI(interaction, db, user, guild);
 }
 
-// ============================================================================
-// [5] تصدير الدوال الأساسية
-// ============================================================================
 module.exports = {
     getItemInfo,
     getMarketListingsCache,
@@ -338,6 +385,5 @@ module.exports = {
     handleStageAddItemSelect,
     handleStagePriceModalSubmit,
     handleStageRemoveItemSelect,
-    // (دوال الماركت القديمة إذا كانت مستخدمة في ملفات أخرى)
     finalizeListings,
 };
