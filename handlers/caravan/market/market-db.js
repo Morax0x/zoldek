@@ -52,6 +52,19 @@ async function initMarketTables(db) {
             "createdAt"       BIGINT DEFAULT 0
         )
     `);
+
+    // Staging area for caravan market items (before final dispatch)
+    await safeExecute(db, `
+        CREATE TABLE IF NOT EXISTS caravan_staging_market (
+            "userID" TEXT NOT NULL,
+            "guildID" TEXT NOT NULL,
+            "itemID" TEXT NOT NULL,
+            "quantity" BIGINT NOT NULL,
+            "pricePerUnit" BIGINT NOT NULL,
+            "createdAt" BIGINT DEFAULT 0,
+            PRIMARY KEY ("userID","guildID","itemID")
+        )
+    `);
 }
 
 async function createListing(db, caravanId, ownerId, guildId, item) {
@@ -66,6 +79,84 @@ async function createListing(db, caravanId, ownerId, guildId, item) {
         item.quantity, item.pricePerUnit, now]);
 
     return result.rows[0]?.id || null;
+}
+
+// Staging: add an item to caravan_staging_market atomically (deduct from user inventory)
+async function stagingAddItem(db, userId, guildId, itemId, quantity, pricePerUnit) {
+    const now = Date.now();
+    const sql = `
+        BEGIN;
+        WITH deducted AS (
+            UPDATE user_inventory
+            SET quantity = quantity - $4
+            WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3 AND CAST(COALESCE("quantity",'0') AS BIGINT) >= $4
+            RETURNING 1
+        )
+        INSERT INTO caravan_staging_market ("userID","guildID","itemID","quantity","pricePerUnit","createdAt")
+        SELECT $1,$2,$3,$4,$5,$6
+        WHERE EXISTS (SELECT 1 FROM deducted)
+        ON CONFLICT ("userID","guildID","itemID")
+        DO UPDATE SET "quantity" = caravan_staging_market.quantity + EXCLUDED.quantity, "pricePerUnit" = EXCLUDED.pricePerUnit;
+        COMMIT;
+    `;
+    const res = await safeQuery(db, sql, [userId, guildId, itemId, quantity, pricePerUnit, now]);
+    return res?.rows?.length >= 0 ? true : false;
+}
+
+// Staging: remove an item from caravan_staging_market atomically and refund to inventory
+async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
+    const sql = `
+        BEGIN;
+        WITH moved AS (
+            UPDATE caravan_staging_market
+            SET quantity = quantity - $4
+            WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3 AND quantity >= $4
+            RETURNING 1
+        )
+        UPDATE user_inventory
+        SET quantity = quantity + $4
+        WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3
+        AND EXISTS (SELECT 1 FROM moved)
+        RETURNING 1;
+        COMMIT;
+    `;
+    const res = await safeQuery(db, sql, [userId, guildId, itemId, quantity]);
+    return !!(res && res.rows && res.rows.length > 0);
+}
+
+// Get staged items for a user/guild
+async function getStagedItems(db, userId, guildId) {
+    const res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+    return res?.rows || [];
+}
+
+// Move all staged items for a caravan into official market listings (simplified per-item insert)
+async function finalizeStagedItems(db, caravanId, userId, guildId) {
+    const staged = await getStagedItems(db, userId, guildId);
+    if (!staged || staged.length === 0) return { ok: true, moved: 0 };
+
+    let moved = 0;
+    try {
+        await safeExecute(db, 'BEGIN;');
+        for (const s of staged) {
+            // Create a listing for each staged item
+            const listingId = await createListing(db, caravanId, userId, guildId, {
+                itemId: s.itemID,
+                itemName: s.itemID,
+                itemEmoji: '📦',
+                quantity: s.quantity,
+                pricePerUnit: s.pricePerUnit
+            });
+            if (listingId) moved++;
+        }
+        // Clear staging for this user
+        await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+        await safeExecute(db, 'COMMIT;');
+    } catch (e) {
+        try { await safeExecute(db, 'ROLLBACK;'); } catch(_){}
+        return { ok: false, error: e?.message };
+    }
+    return { ok: true, moved };
 }
 
 async function lockItemsFromInventory(db, guildId, userId, listings) {
@@ -353,4 +444,9 @@ module.exports = {
     getExpiredSessions,
     updateListingPrice,
     getListingById,
+    // new staging APIs
+    stagingAddItem,
+    stagingRemoveItem,
+    getStagedItems,
+    finalizeStagedItems,
 };
