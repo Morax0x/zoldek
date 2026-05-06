@@ -203,7 +203,7 @@ module.exports = {
         if (!client.caravanSystemsInitialized) {
             setupCaravanChecker(client, db);
             registerCombatListeners(client);
-            setupMarketChecker(client, db);
+            market.setupMarketChecker(client, db);
             client.caravanSystemsInitialized = true;
         }
 
