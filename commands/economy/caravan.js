@@ -457,6 +457,7 @@ module.exports = {
                 }
 
                 else if (id === 'cv_market_staging') {
+                    await i.deferUpdate().catch(() => {});
                     const [mora, staged] = await Promise.all([
                         getMora(db, user.id, guild.id),
                         market.getStagedItems(db, user.id, guild.id),
@@ -543,9 +544,10 @@ module.exports = {
                     navRow.addComponents(new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Danger));
                     if (navRow.components.length > 0) components.push(navRow);
 
-                    await i.reply({ content: '🏪 **متجر القافلة** — اختر العناصر التي تريد عرضها في سوق القافلة:', files: [attachment], components, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                    await i.editReply({ content: '🏪 **متجر القافلة** — اختر العناصر التي تريد عرضها في سوق القافلة:', files: [attachment], components, flags: [MessageFlags.Ephemeral] }).catch(() => {});
                 }
                 else if (id === 'cv_stage_prev' || id === 'cv_stage_next') {
+                    await i.deferUpdate().catch(() => {});
                     const stagingPageKey = `staging_page_${user.id}_${guild.id}`;
                     let page = client[stagingPageKey] || 1;
                     if (id === 'cv_stage_prev') page = Math.max(1, page - 1);
@@ -625,7 +627,7 @@ module.exports = {
                     nr.addComponents(new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Danger));
                     if (nr.components.length > 0) comp.push(nr);
 
-                    await i.reply({ content: '🏪 **متجر القافلة** — اختر العناصر التي تريد عرضها في سوق القافلة:', files: [attachment], components: comp, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                    await i.editReply({ content: '🏪 **متجر القافلة** — اختر العناصر التي تريد عرضها في سوق القافلة:', files: [attachment], components: comp, flags: [MessageFlags.Ephemeral] }).catch(() => {});
                 }
 
                 else if (id === 'mkt_stage_add_item') {
