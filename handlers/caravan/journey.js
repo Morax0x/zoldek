@@ -188,24 +188,31 @@ async function processCaravanReturns(client, db) {
             const userId         = caravan.userid                    || caravan.userID;
             const guildId        = caravan.guildid                   || caravan.guildID;
 
+            // 👑 معالجة الرحلة المنتهية (طبيعياً أو عبر التسريع) 👑
             if (now >= endTime) {
-                // 👑 معالجة المشاكل بعد تسريع الرحلة أو الريستارت
                 if (attackAt > 0 && attackResolved === 0) {
                     caravan.rewardmultiplier = 0.5;
                     caravan.rewardMultiplier = 0.5;
                 }
 
+                // نوزع الجوائز ونمسح الرحلة
                 const summary = await distributeRewards(client, db, caravan);
                 
                 try {
-                    const settingsRes = await safeQuery(db, `SELECT "casinoChannelID", "caravanChannelID" FROM settings WHERE "guild"=$1`, [guildId]);
+                    // 👑 قراءة الإعدادات بطريقة آمنة جداً تمنع أي كراش 👑
+                    let settingsRes;
+                    try {
+                        settingsRes = await db.query(`SELECT * FROM settings WHERE "guild"=$1`, [guildId]);
+                    } catch(e) {
+                        settingsRes = await db.query(`SELECT * FROM settings WHERE guild=$1`, [guildId]).catch(()=>({rows:[]}));
+                    }
                     
-                    const casinoId = settingsRes.rows[0]?.caravanchannelid 
-                                  || settingsRes.rows[0]?.caravanChannelID
-                                  || settingsRes.rows[0]?.casinochannelid 
-                                  || settingsRes.rows[0]?.casinoChannelID;
+                    const sRow = settingsRes?.rows?.[0] || {};
+                    const casinoId = sRow.caravanchannelid || sRow.caravanChannelID 
+                                  || sRow.casinochannelid || sRow.casinoChannelID 
+                                  || sRow.casinochannelid2 || sRow.casinoChannelID2;
 
-                    // 👑 إجبار الديسكورد على إحضار السيرفر والروم حتى بعد الريستارت (Bypass Cache) 👑
+                    // 👑 جلب السيرفر والروم بشكل مؤكد لتجنب فقدانها بسبب الريستارت 👑
                     let guild = client.guilds.cache.get(guildId);
                     if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
 
@@ -218,7 +225,7 @@ async function processCaravanReturns(client, db) {
                         const destId = caravan.destinationid || caravan.destinationId;
                         const dest   = caravanConfig.destinations.find(d => d.id === destId);
                         
-                        // 👑 فصل نظام السوق عن الجوائز (السوق يفتح حتى لو الجوائز صفر)
+                        // إرسال رسالة وصول القافلة 
                         if (summary && summary.length > 0) {
                             await channel.send({
                                 content: `<@${userId}>`,
@@ -234,12 +241,12 @@ async function processCaravanReturns(client, db) {
                                 embeds: [new EmbedBuilder()
                                     .setColor(dest?.color || '#00FF88')
                                     .setTitle(`✅ عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!`)
-                                    .setDescription(`عادت القافلة بسلام!`)
+                                    .setDescription(`عادت القافلة بسلام (بدون مكافآت إضافية).`)
                                     .setTimestamp()]
                             }).catch(() => {});
                         }
 
-                        // 👑 فتح السوق فوراً
+                        // 👑 فتح السوق فوراً (إذا كان اللاعب قد وضع بضائع للبيع) 👑
                         const listings = await getListingsByCaravan(db, caravanId);
                         if (listings.length > 0 && casinoId) {
                             await createMarketThread(client, db, caravan, casinoId);
@@ -268,6 +275,7 @@ function setupCaravanChecker(client, db) {
     if (_checkerStarted) return;
     _checkerStarted = true;
     
+    // 👑 الفاحص يراقب كل 30 ثانية 👑
     setInterval(() => processCaravanReturns(client, db), 30 * 1000); 
     processCaravanReturns(client, db);
 }
