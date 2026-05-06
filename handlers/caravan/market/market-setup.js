@@ -108,6 +108,18 @@ const CATEGORY_NAMES = {
 
 const RARITY_AR = { 'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
 
+// دالة جلب المخزون البسيطة (عشان نتجنب الكراش لو استدعاها ملف ثاني)
+async function fetchUserInventory(db, userId, guildId) {
+    let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
+    if (!invRes || !invRes.rows || invRes.rows.length === 0) {
+        invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
+    }
+    return (invRes?.rows || []).map(row => ({
+        itemId: row.itemid || row.itemID || row.ITEMID,
+        quantity: Number(row.quantity || row.QUANTITY || 0),
+    }));
+}
+
 async function getInventoryCategories(db, userId, guildId) {
     let inventory = [];
     try {
@@ -197,7 +209,7 @@ async function stagingRemoveItemSafe(db, userId, guildId, itemId, quantity) {
 }
 
 // ============================================================================
-// [الواجهة الرئيسية] متجر القافلة بنظام الانفنتوري (D-Pad)
+// [الواجهة الرئيسية] متجر القافلة بأسلوب الـ Inventory الجديد
 // ============================================================================
 let INVENTORY_GEN;
 try { INVENTORY_GEN = require('../../../generators/inventory-generator.js'); } catch (e) { INVENTORY_GEN = null; }
@@ -245,7 +257,7 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     let buffer = null;
     if (INVENTORY_GEN && INVENTORY_GEN.generateInventoryCard) {
         try {
-            // استخدام دالة الرسم الخاصة بالانفنتوري مباشرة إذا كانت متوفرة!
+            // استخدام دالة الرسم الخاصة بالانفنتوري مباشرة
             const catForDraw = isCart ? 'market' : state.category; 
             buffer = await INVENTORY_GEN.generateInventoryCard(user.displayName || user.username, catForDraw, pageItems, state.page, totalPages, state.selectedIndex);
         } catch (e) { buffer = null; }
@@ -311,7 +323,7 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     );
 
     const payload = { 
-        embeds: buffer ? [] : [embed], // إخفاء الإمبيد إذا كان الرسم شغال
+        embeds: buffer ? [] : [embed], 
         components: [row1, row2, row3, row4, row5], 
         files: buffer ? [new AttachmentBuilder(buffer, { name: 'market.png' })] : [], 
         content: buffer ? `**🏪 متجر القافلة لـ <@${user.id}>**` : '' 
@@ -439,13 +451,14 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
     }
 }
 
+// 👑 تصدير كل شيء بدون أي نقصان 👑
 module.exports = {
     resolveItemInfo,
     getItemInfo,
     getMarketListingsCache,
     clearMarketListingsCache,
     fetchUserInventory,
-    // الدوال الجديدة
+    getInventoryCategories,
     showStagingUI,
     handleStagingInteraction,
     handleStageModalSubmit,
