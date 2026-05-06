@@ -16,6 +16,7 @@ const {
     } = require('../../handlers/caravan/index.js');
 
 const market = require('../../handlers/caravan/market/index.js');
+const marketSetup = require('../../handlers/caravan/market/market-setup.js');
 
 const EMPEROR_ID = '1145327691772481577';
 
@@ -88,40 +89,6 @@ async function getMora(db, userId, guildId) {
         return Number(r.rows[0]?.mora || 0);
     } catch { return 0; }
 }
-
-// ============================================================================
-// 👑 دوال حماية المتجر المدمجة (عشان ما يضرب كراش لو كلود نسي يضيفها) 👑
-// ============================================================================
-async function getStagedItemsSafe(db, userId, guildId) {
-    if (typeof market.getStagedItems === 'function') return await market.getStagedItems(db, userId, guildId);
-    try {
-        await safeExecute(db, `CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`);
-        const res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
-        return res?.rows || [];
-    } catch { return []; }
-}
-
-async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) {
-    if (typeof market.stagingAddItem === 'function') return await market.stagingAddItem(db, userId, guildId, itemId, quantity, price);
-    try {
-        // الخصم الآمن من المستودع يمنع التدبيل
-        const res = await safeQuery(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) AND CAST(COALESCE(quantity, '0') AS INTEGER) >= $1 RETURNING *`, [quantity, userId, guildId, itemId]);
-        if (!res || res.rows.length === 0) return { ok: false, error: 'لا تملك كمية كافية من هذا العنصر.' };
-        
-        await safeExecute(db, `INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
-        return { ok: true };
-    } catch { return { ok: false, error: 'حدث خطأ في قاعدة البيانات.' }; }
-}
-
-async function stagingRemoveItemSafe(db, userId, guildId, itemId, quantity) {
-    if (typeof market.stagingRemoveItem === 'function') return await market.stagingRemoveItem(db, userId, guildId, itemId, quantity);
-    try {
-        await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3) LIMIT 1`, [userId, guildId, itemId]);
-        await safeExecute(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4)`, [quantity, userId, guildId, itemId]);
-        return { ok: true };
-    } catch { return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' }; }
-}
-// ============================================================================
 
 function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
     const row = new ActionRowBuilder();
@@ -354,16 +321,16 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            const fastButtons = new Set(['cv_market_staging', 'mkt_view_staged', 'mkt_back', 'cv_back', 'cv_status_toggle', 'cv_status', 'mkt_stage_add_item', 'mkt_stage_remove_item', 'cv_stage_prev', 'cv_stage_next']);
+            const fastButtons = new Set(['cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status']);
 
-            if (!fastButtons.has(i.customId)) {
+            if (!fastButtons.has(i.customId) && !i.customId.startsWith('stg_')) {
                 if (activeProcesses.has(user.id)) {
                     return i.reply({ content: '⏳ الرجاء الانتظار، جاري المعالجة...', flags: [MessageFlags.Ephemeral] }).catch(()=>{});
                 }
                 activeProcesses.add(user.id);
             }
             
-            if (i.customId !== 'cv_eq_sel' && i.customId !== 'mkt_add_item' && i.customId !== 'mkt_remove_item' && i.customId !== 'cv_dest_sel' && i.customId !== 'cv_market_staging' && i.customId !== 'mkt_view_staged' && i.customId !== 'mkt_stage_add_item') {
+            if (i.customId !== 'cv_eq_sel' && i.customId !== 'cv_dest_sel' && i.customId !== 'cv_market_staging' && !i.customId.startsWith('stg_')) {
                 await i.deferUpdate().catch(() => {});
             }
 
@@ -473,191 +440,66 @@ module.exports = {
                     }).catch(() => {});
                 }
 
-                else if (id === 'mkt_back') {
-                    if (i.message.id !== hubMsg.id) await i.message.delete().catch(()=>{});
-                    else await showHub(hubMsg);
-                }
-
                 // ============================================================================
-                // 👑 بداية متجر القافلة المضاد للانهيار 👑
+                // 👑 بداية متجر القافلة المضاد للانهيار (نظام D-Pad) 👑
                 // ============================================================================
-                else if (id === 'cv_market_staging' || id === 'cv_stage_prev' || id === 'cv_stage_next') {
-                    if (id === 'cv_market_staging') await i.deferUpdate().catch(() => {});
-                    
-                    try {
-                        const stagingPageKey = `staging_page_${user.id}_${guild.id}`;
-                        let page = client[stagingPageKey] || 1;
-                        if (id === 'cv_stage_prev') page = Math.max(1, page - 1);
-                        else if (id === 'cv_stage_next') page = page + 1;
-                        client[stagingPageKey] = page;
-
-                        const [mora, staged] = await Promise.all([
-                            getMora(db, user.id, guild.id),
-                            getStagedItemsSafe(db, user.id, guild.id),
-                        ]);
-
-                        const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [user.id, guild.id]);
-                        const invRows = invRes?.rows || [];
-
-                        const stagedIds = new Set(staged.map(s => s.itemID || s.itemid));
-                        const allItems = invRows.map(row => {
-                            const itemId = row.itemid || row.itemID || row.ITEMID;
-                            const quantity = Number(row.quantity || row.QUANTITY || 0);
-                            const info = getItemInfoSafe(itemId);
-                            return { id: itemId, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity };
-                        }).filter(it => it.quantity > 0);
-
-                        const perPage = 15;
-                        const totalPages = Math.max(1, Math.ceil(allItems.length / perPage));
-                        if (page > totalPages) page = totalPages;
-                        client[stagingPageKey] = page;
-
-                        const pageItems = allItems.slice((page - 1) * perPage, page * perPage);
-                        
-                        let buffer = null;
-                        if (typeof STAGING_GEN.generateStagingCanvas === 'function') {
-                            try { buffer = await STAGING_GEN.generateStagingCanvas(user.displayName || user.username, pageItems, page, totalPages, mora, staged.length); } catch (e) {}
-                        }
-
-                        const components = [];
-                        const availableForStaging = allItems.filter(it => !stagedIds.has(it.id));
-                        
-                        if (availableForStaging.length > 0) {
-                            const addOptions = availableForStaging.slice(0, 25).map(item => ({
-                                label: `${item.name?.substring(0, 90) || item.id}`,
-                                value: `stage_${item.id}`,
-                                description: `المتوفر: ${item.quantity}`,
-                                emoji: item.emoji || '📦',
-                            }));
-                            components.push(
-                                new ActionRowBuilder().addComponents(
-                                    new StringSelectMenuBuilder().setCustomId('mkt_stage_add_item').setPlaceholder('➕ اختر عنصراً لإضافته للمتجر...').addOptions(addOptions)
-                                )
-                            );
-                        }
-
-                        if (staged.length > 0) {
-                            const removeOptions = staged.map((s, idx) => {
-                                const itemId = s.itemID || s.itemid;
-                                const info = getItemInfoSafe(itemId);
-                                return {
-                                    label: `${info.name?.substring(0, 90) || itemId} (x${s.quantity})`,
-                                    value: `unstage_${idx}`,
-                                    description: `${Number(s.pricePerUnit || s.priceperunit).toLocaleString()} 🪙/واحدة`,
-                                    emoji: info.emoji || '📦',
-                                };
-                            }).slice(0, 25);
-                            
-                            components.push(
-                                new ActionRowBuilder().addComponents(
-                                    new StringSelectMenuBuilder().setCustomId('mkt_stage_remove_item').setPlaceholder('➖ اختر عنصراً لإزالته من المتجر...').addOptions(removeOptions)
-                                )
-                            );
-                        }
-
-                        const navRow = new ActionRowBuilder();
-                        if (page > 1) navRow.addComponents(new ButtonBuilder().setCustomId('cv_stage_prev').setLabel('◀️ السابق').setStyle(ButtonStyle.Secondary));
-                        if (page < totalPages) navRow.addComponents(new ButtonBuilder().setCustomId('cv_stage_next').setLabel('التالي ▶️').setStyle(ButtonStyle.Secondary));
-                        navRow.addComponents(new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع').setStyle(ButtonStyle.Danger));
-                        if (navRow.components.length > 0) components.push(navRow);
-
-                        const responsePayload = { components, flags: [MessageFlags.Ephemeral] };
-                        
-                        if (buffer) {
-                            responsePayload.content = '🏪 **متجر القافلة** — حدد بضاعتك قبل الانطلاق:';
-                            responsePayload.files = [new AttachmentBuilder(buffer, { name: 'staging_market.png' })];
-                            responsePayload.embeds = [];
-                        } else {
-                            const embedDesc = pageItems.map(it => `${it.emoji} **${it.name}**: متوفر ${it.quantity}`).join('\n') || 'لا يوجد بضائع.';
-                            const fbEmbed = new EmbedBuilder().setColor('#F1C40F').setTitle('🏪 متجر القافلة (التحضير)')
-                                .setDescription(`اختر العناصر من القائمة لإضافتها للسوق.\n\n**بضائع المخزون (صفحة ${page}/${totalPages}):**\n${embedDesc}\n\n**البضائع المجهزة للرحلة:** ${staged.length} أصناف.`);
-                            responsePayload.embeds = [fbEmbed];
-                            responsePayload.files = [];
-                        }
-
-                        await i.editReply(responsePayload).catch(() => {});
-                    } catch (e) {
-                        console.error("Market Staging Error: ", e);
-                        await i.editReply({ content: '⚠️ حدث خطأ غير متوقع أثناء فتح متجر القافلة.', components: [] }).catch(() => {});
-                    }
-                }
-
-                else if (id === 'mkt_stage_add_item') {
-                    const rawValue = i.values[0];
-                    const itemId = rawValue.replace('stage_', '');
-                    const info = getItemInfoSafe(itemId);
-
-                    const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3)`, [user.id, guild.id, itemId]);
-                    const invRow = invRes?.rows?.[0];
-                    const availableQty = invRow ? Number(invRow.quantity || invRow.QUANTITY || 0) : 0;
-
-                    if (availableQty <= 0) {
-                        await i.reply({ content: '❌ لا تملك هذا العنصر في المخزون.', flags: [MessageFlags.Ephemeral] });
-                        return;
-                    }
-
-                    const modalId = `mkt_stage_price_modal_${itemId}_${Date.now()}`;
-                    const modal = new ModalBuilder().setCustomId(modalId).setTitle(`تحضير: ${info.name}`.substring(0, 45));
-
-                    modal.addComponents(
-                        new ActionRowBuilder().addComponents(
-                            new TextInputBuilder().setCustomId('stage_qty').setLabel(`الكمية (الحد الأقصى ${availableQty})`).setPlaceholder('الكمية').setStyle(TextInputStyle.Short).setRequired(true)
-                        ),
-                        new ActionRowBuilder().addComponents(
-                            new TextInputBuilder().setCustomId('stage_price').setLabel(`السعر لكل واحدة (بالمورا)`).setPlaceholder('السعر').setStyle(TextInputStyle.Short).setRequired(true)
-                        )
-                    );
-
-                    await i.showModal(modal);
-                    try {
-                        const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
-                        await modalSubmit.deferUpdate().catch(() => {});
-
-                        const qty = parseInt(modalSubmit.fields.getTextInputValue('stage_qty'));
-                        const price = parseInt(modalSubmit.fields.getTextInputValue('stage_price'));
-
-                        if (isNaN(qty) || qty < 1 || qty > availableQty) return await modalSubmit.followUp({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
-                        if (isNaN(price) || price < 1 || price > 999999999) return await modalSubmit.followUp({ content: '❌ سعر غير صالح.', flags: [MessageFlags.Ephemeral] });
-
-                        const result = await stagingAddItemSafe(db, user.id, guild.id, itemId, qty, price);
-                        if (!result.ok) return await modalSubmit.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
-
-                        await modalSubmit.followUp({ content: `✅ تم حجز **${qty}x ${info.name}** لتباع بسعر **${price.toLocaleString()}** مورا للواحدة.`, flags: [MessageFlags.Ephemeral] });
-                        
-                        // زر لتحديث الواجهة يدوياً بدل تكرار كود التحديث
-                        await modalSubmit.followUp({ 
-                            content: 'الرجاء الضغط على **[متجر القافلة]** مجدداً لتحديث العرض.', 
-                            flags: [MessageFlags.Ephemeral],
-                            components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('cv_market_staging').setLabel('تحديث').setStyle(ButtonStyle.Success))]
-                        });
-                        
-                    } catch (e) {}
-                }
-
-                else if (id === 'mkt_stage_remove_item') {
+                else if (id === 'cv_market_staging') {
                     await i.deferUpdate().catch(() => {});
-                    const rawValue = i.values[0];
-                    const idx = parseInt(rawValue.replace('unstage_', ''));
-                    const staged = await getStagedItemsSafe(db, user.id, guild.id);
+                    await marketSetup.showStagingUI(i, db, user, guild, true);
+                }
+                
+                else if (id.startsWith('stg_')) {
+                    if (id.startsWith(`stg_ok_`)) {
+                        // جلب البيانات المخزنة محلياً لفتح المودل مباشرة بدون تأخير
+                        const stateKey = `mkt_state_${user.id}_${guild.id}`;
+                        const state = client[stateKey];
+                        const pageItems = state?.pageItems || [];
+                        const selectedItem = pageItems[state?.selectedIndex || 0];
 
-                    if (idx < 0 || idx >= staged.length) return await i.followUp({ content: '❌ عنصر غير صالح.', flags: [MessageFlags.Ephemeral] });
-
-                    const item = staged[idx];
-                    const itemId = item.itemID || item.itemid;
-                    const quantity = Number(item.quantity);
-                    const info = getItemInfoSafe(itemId);
-
-                    const result = await stagingRemoveItemSafe(db, user.id, guild.id, itemId, quantity);
-                    if (!result.ok) return await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
-
-                    await i.followUp({ content: `✅ تم سحب **${quantity}x ${info.name}** وإعادتها لمخزونك.`, flags: [MessageFlags.Ephemeral] });
-                    
-                    // زر التحديث
-                    await i.followUp({ 
-                        content: 'الرجاء الضغط على تحديث لمشاهدة التغييرات.', 
-                        flags: [MessageFlags.Ephemeral],
-                        components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('cv_market_staging').setLabel('تحديث').setStyle(ButtonStyle.Success))]
-                    });
+                        if (!selectedItem) {
+                             await i.deferUpdate().catch(()=>{});
+                             return i.followUp({ content: "❌ المربع المحدد فارغ.", flags: [MessageFlags.Ephemeral] });
+                        }
+                        
+                        if (state.category === 'staged') {
+                            const modalId = `stg_rmv_modal_${selectedItem.id || selectedItem.itemID}_${Date.now()}`;
+                            const modal = new ModalBuilder().setCustomId(modalId).setTitle(`إزالة البضاعة`);
+                            modal.addComponents(new ActionRowBuilder().addComponents(
+                                new TextInputBuilder().setCustomId('rmv_qty').setLabel(`الكمية (الحد الأقصى ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
+                            ));
+                            await i.showModal(modal);
+                            
+                            // التقاط استجابة المودل وتمريرها للمتجر
+                            try {
+                                const mSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
+                                mSubmit.customId = `stg_rmv_modal_${selectedItem.id || selectedItem.itemID}`;
+                                await marketSetup.handleStageModalSubmit(mSubmit, db, user, guild);
+                            } catch(e) { activeProcesses.delete(user.id); }
+                            
+                        } else {
+                            const modalId = `stg_add_modal_${selectedItem.id}_${Date.now()}`;
+                            const modal = new ModalBuilder().setCustomId(modalId).setTitle(`تسعير: ${selectedItem.name}`.substring(0, 45));
+                            modal.addComponents(
+                                new ActionRowBuilder().addComponents(
+                                    new TextInputBuilder().setCustomId('add_qty').setLabel(`الكمية (لديك: ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
+                                ),
+                                new ActionRowBuilder().addComponents(
+                                    new TextInputBuilder().setCustomId('add_price').setLabel(`سعر الحبة (مورا)`).setStyle(TextInputStyle.Short).setRequired(true)
+                                )
+                            );
+                            await i.showModal(modal);
+                            
+                            // التقاط استجابة المودل وتمريرها للمتجر
+                            try {
+                                const mSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
+                                mSubmit.customId = `stg_add_modal_${selectedItem.id}`;
+                                await marketSetup.handleStageModalSubmit(mSubmit, db, user, guild);
+                            } catch(e) { activeProcesses.delete(user.id); }
+                        }
+                    } else {
+                        // أي زر ثاني يخص الـ D-Pad (تنقل، تصفح، إلخ)
+                        await marketSetup.handleStagingInteraction(i, db, user, guild);
+                    }
                 }
                 // ============================================================================
                 // 👑 نهاية متجر القافلة 👑
@@ -689,11 +531,10 @@ module.exports = {
                     const activeCheck = await getActiveCaravan(db, user.id, guild.id);
                     if (activeCheck) {
                         await finalizeListings(client, db, activeCheck.id, user.id, guild.id);
-                        if (typeof market.finalizeStagedItems === 'function') {
-                            await market.finalizeStagedItems(db, activeCheck.id, user.id, guild.id);
+                        if (typeof marketSetup.finalizeStagedItems === 'function') {
+                            await marketSetup.finalizeStagedItems(db, activeCheck.id, user.id, guild.id);
                         } else {
-                            // ترحيل البضائع بشكل آمن حتى لو الدالة مفقودة
-                            const staged = await getStagedItemsSafe(db, user.id, guild.id);
+                            const staged = await marketSetup.getStagedItemsSafe ? await marketSetup.getStagedItemsSafe(db, user.id, guild.id) : [];
                             for (const st of staged) {
                                 await safeExecute(db, `INSERT INTO caravan_market_listings ("caravanID","guildID","itemID","quantity","quantitySold","pricePerUnit") VALUES ($1,$2,$3,$4,0,$5)`, [activeCheck.id, guild.id, st.itemID || st.itemid, st.quantity, st.pricePerUnit || st.priceperunit]);
                             }
