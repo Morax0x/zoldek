@@ -1,7 +1,7 @@
 const {
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
-    MessageFlags,
+    MessageFlags, AttachmentBuilder
 } = require('discord.js');
 const { safeQuery, safeExecute } = require('../db');
 const { EMOJI_MORA } = require('../config');
@@ -55,19 +55,16 @@ function buildDictionary() {
             }
         }
     }
-    
     if (fishData && Array.isArray(fishData)) {
         for (const fish of fishData) {
-            ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'materials', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
+            ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'fishing', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
         }
     }
-
     if (baitsData && Array.isArray(baitsData)) {
         for (const bait of baitsData) {
             ITEM_DICTIONARY.set(bait.id, { name: bait.name, emoji: bait.emoji || '🪱', category: 'fishing', rarity: 'Common', imgPath: bait.image || null });
         }
     }
-
     if (farmSeeds && Array.isArray(farmSeeds)) {
         for (const seed of farmSeeds) {
             ITEM_DICTIONARY.set(seed.id, { name: seed.name, emoji: seed.emoji || '🌾', category: 'farming', rarity: 'Common', imgPath: seed.image || `images/farm/seeds/${seed.id}.png` });
@@ -89,127 +86,61 @@ function buildDictionary() {
         }
     }
 }
-
 buildDictionary();
 
-// 👑 الدالة اللي نسيتها وسببت الكراش (تم إضافتها وتصحيحها) 👑
-function getItemInfo(itemId) {
+function resolveItemInfo(itemId) {
     if (!itemId) return { name: 'مجهول', emoji: '❓', category: 'others', rarity: 'Common', imgPath: null };
-    if (ITEM_DICTIONARY.has(itemId)) {
-        return ITEM_DICTIONARY.get(itemId);
-    }
-    if (itemId.startsWith('bait_')) {
-         return { name: `طعم ${itemId.split('_')[1]}`, emoji: '🪱', category: 'fishing', rarity: 'Common', imgPath: null };
-    }
+    if (ITEM_DICTIONARY.has(itemId)) return ITEM_DICTIONARY.get(itemId);
+    if (itemId.startsWith('bait_')) return { name: `طعم ${itemId.split('_')[1]}`, emoji: '🪱', category: 'fishing', rarity: 'Common', imgPath: null };
     return { name: itemId.replace(/_/g, ' '), emoji: '📦', category: 'others', rarity: 'Common', imgPath: null };
 }
-
-// دمج اسم الدالتين عشان أي ملف ثاني يستدعيها ما يضرب كراش
-const resolveItemInfo = getItemInfo;
+const getItemInfo = resolveItemInfo;
 
 const CATEGORY_NAMES = {
-    'materials': '💎 موارد وتطوير',
+    'materials': '💎 مواد التطوير',
     'fishing': '🎣 أدوات الصيد',
     'farming': '🌾 المزرعة',
     'potions': '🧪 الجرعات',
-    'market': '📈 أسهم وسوق',
-    'others': '📦 عناصر أخرى'
+    'market': '📈 سوق الأسهم',
+    'others': '📦 أخرى',
+    'staged': '🛒 سلة البضائع (محملة)'
 };
 
-const RARITY_AR = {
-    'Common': 'عادي',
-    'Uncommon': 'شائع',
-    'Rare': 'نادر',
-    'Epic': 'ملحمي',
-    'Legendary': 'أسطوري'
-};
+const RARITY_AR = { 'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
 
 async function getInventoryCategories(db, userId, guildId) {
     let inventory = [];
-    let portfolio = [];
-    let fishingStats = null;
-    
     try {
-        const [invRes, portRes, fishRes] = await Promise.all([
-            safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]),
-            safeQuery(db, `SELECT * FROM user_portfolio WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]),
-            safeQuery(db, `SELECT * FROM user_fishing WHERE "userID" = $1 AND "guildID" = $2 LIMIT 1`, [userId, guildId]).catch(()=>({rows:[]}))
-        ]);
+        const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
         inventory = invRes?.rows || [];
-        portfolio = portRes?.rows || [];
-        fishingStats = fishRes?.rows?.[0];
-    } catch(e) {
-        try {
-            const [invRes, portRes, fishRes] = await Promise.all([
-                safeQuery(db, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]),
-                safeQuery(db, `SELECT * FROM user_portfolio WHERE userid = $1 AND guildid = $2`, [userId, guildId]),
-                safeQuery(db, `SELECT * FROM user_fishing WHERE userid = $1 AND guildid = $2 LIMIT 1`, [userId, guildId]).catch(()=>({rows:[]}))
-            ]);
-            inventory = invRes?.rows || [];
-            portfolio = portRes?.rows || [];
-            fishingStats = fishRes?.rows?.[0];
-        } catch(err) {
-            return { materials: [], fishing: [], farming: [], potions: [], market: [], others: [] };
+        if (inventory.length === 0) {
+            const invRes2 = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+            inventory = invRes2?.rows || [];
         }
-    }
+    } catch(e) {}
 
     const categories = { materials: [], fishing: [], farming: [], potions: [], market: [], others: [] };
     
-    if (fishingStats) {
-        if (fishingStats.currentRod || fishingStats.currentrod) {
-            const rodName = fishingStats.currentRod || fishingStats.currentrod;
-            categories.fishing.push({
-                id: 'current_rod', name: `سنارة ${rodName}`, emoji: '🎣', category: 'fishing',
-                rarity: 'Rare', quantity: 1, imgPath: `images/fish/fishing/${rodName.toLowerCase().replace(' ', '_')}.png`
-            });
-        }
-        if (fishingStats.currentBoat || fishingStats.currentboat) {
-            const boatName = fishingStats.currentBoat || fishingStats.currentboat;
-            categories.fishing.push({
-                id: 'current_boat', name: `قارب ${boatName}`, emoji: '🛶', category: 'fishing',
-                rarity: 'Epic', quantity: 1, imgPath: `images/fish/ships/${boatName.toLowerCase().replace(' ', '_')}.png`
-            });
-        }
-    }
-
     for (const row of inventory) {
         const itemId = row.itemID || row.itemid;
-        const quantity = Number(row.quantity) || 0;
-        if (quantity <= 0) continue;
-        if (itemId === 'gacha_chest' || itemId === 'free_gacha_chest') continue;
+        const quantity = Number(row.quantity || row.QUANTITY) || 0;
+        if (quantity <= 0 || itemId === 'gacha_chest' || itemId === 'free_gacha_chest') continue;
         
-        const itemInfo = getItemInfo(itemId);
-        if (categories[itemInfo.category]) {
-            categories[itemInfo.category].push({ ...itemInfo, quantity, id: itemId });
-        } else {
-            categories.others.push({ ...itemInfo, quantity, id: itemId });
-        }
-    }
-
-    for (const row of portfolio) {
-        const itemId = row.itemID || row.itemid;
-        const quantity = Number(row.quantity) || 0;
-        const purchasePrice = Number(row.purchasePrice || row.purchaseprice) || 0;
-        if (quantity <= 0) continue;
-
-        const itemInfo = getItemInfo(itemId);
-        categories.market.push({ ...itemInfo, quantity, id: itemId, purchasePrice });
+        const itemInfo = resolveItemInfo(itemId);
+        if (categories[itemInfo.category]) categories[itemInfo.category].push({ ...itemInfo, quantity, id: itemId });
+        else categories.others.push({ ...itemInfo, quantity, id: itemId });
     }
     
     const rarityWeights = { 'Legendary': 5, 'Epic': 4, 'Rare': 3, 'Uncommon': 2, 'Common': 1 };
     Object.keys(categories).forEach(cat => {
-        categories[cat].sort((a, b) => {
-            const weightA = rarityWeights[a.rarity] || 1;
-            const weightB = rarityWeights[b.rarity] || 1;
-            return weightB - weightA;
-        });
+        categories[cat].sort((a, b) => (rarityWeights[b.rarity] || 1) - (rarityWeights[a.rarity] || 1));
     });
 
     return categories;
 }
 
 // ============================================================================
-// [دوال الترحيل والكاش للحماية]
+// [دوال الـ Staging للتعامل مع قاعدة البيانات أمنياً]
 // ============================================================================
 function getMarketListingsCache(client, userId, guildId) {
     const key = `market_listings_${userId}_${guildId}`;
@@ -232,23 +163,9 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
         const listingId = await createListing(db, caravanId, userId, guildId, listing);
         if (listingId) dbListings.push({ ...listing, listingId });
     }
-
-    if (dbListings.length > 0) {
-        await lockItemsFromInventory(db, guildId, userId, dbListings);
-    }
+    if (dbListings.length > 0) await lockItemsFromInventory(db, guildId, userId, dbListings);
     clearMarketListingsCache(client, userId, guildId);
     return { ok: true, listings: dbListings };
-}
-
-async function fetchUserInventory(db, userId, guildId) {
-    let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
-    if (!invRes || !invRes.rows || invRes.rows.length === 0) {
-        invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
-    }
-    return (invRes?.rows || []).map(row => ({
-        itemId: row.itemid || row.itemID || row.ITEMID,
-        quantity: Number(row.quantity || row.QUANTITY || 0),
-    }));
 }
 
 async function getStagedItemsSafe(db, userId, guildId) {
@@ -264,10 +181,10 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) 
     if (typeof stagingAddItem === 'function') return await stagingAddItem(db, userId, guildId, itemId, quantity, price);
     try {
         const res = await safeQuery(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) AND CAST(COALESCE(quantity, '0') AS INTEGER) >= $1 RETURNING *`, [quantity, userId, guildId, itemId]);
-        if (!res || res.rows.length === 0) return { ok: false, error: 'لا تملك كمية كافية من هذا العنصر.' };
+        if (!res || res.rows.length === 0) return { ok: false, error: 'لا تملك كمية كافية.' };
         await safeExecute(db, `INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
         return { ok: true };
-    } catch { return { ok: false, error: 'حدث خطأ في قاعدة البيانات.' }; }
+    } catch { return { ok: false, error: 'حدث خطأ.' }; }
 }
 
 async function stagingRemoveItemSafe(db, userId, guildId, itemId, quantity) {
@@ -276,16 +193,19 @@ async function stagingRemoveItemSafe(db, userId, guildId, itemId, quantity) {
         await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3) LIMIT 1`, [userId, guildId, itemId]);
         await safeExecute(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4)`, [quantity, userId, guildId, itemId]);
         return { ok: true };
-    } catch { return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' }; }
+    } catch { return { ok: false, error: 'حدث خطأ.' }; }
 }
 
 // ============================================================================
-// [الواجهة الرئيسية] متجر القافلة بأسلوب الـ Inventory الجديد
+// [الواجهة الرئيسية] متجر القافلة بنظام الانفنتوري (D-Pad)
 // ============================================================================
+let INVENTORY_GEN;
+try { INVENTORY_GEN = require('../../../generators/inventory-generator.js'); } catch (e) { INVENTORY_GEN = null; }
+
 async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     const stateKey = `mkt_state_${user.id}_${guild.id}`;
     if (!interaction.client[stateKey]) {
-        interaction.client[stateKey] = { category: 'materials', page: 1 };
+        interaction.client[stateKey] = { category: 'materials', page: 1, selectedIndex: 0 };
     }
     const state = interaction.client[stateKey];
 
@@ -294,191 +214,229 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
         getInventoryCategories(db, user.id, guild.id)
     ]);
 
-    const stagedIds = new Set(staged.map(s => s.itemID || s.itemid));
-    const currentCategoryItems = (categoriesData[state.category] || []).filter(i => !stagedIds.has(i.id));
+    const isCart = state.category === 'staged';
+    let currentItems = [];
 
-    const perPage = 10;
-    const totalPages = Math.max(1, Math.ceil(currentCategoryItems.length / perPage));
+    if (isCart) {
+        currentItems = staged.map(s => {
+            const info = resolveItemInfo(s.itemID || s.itemid);
+            return { id: s.itemID || s.itemid, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity: s.quantity, pricePerUnit: s.pricePerUnit || s.priceperunit, imgPath: info.imgPath };
+        });
+    } else {
+        const stagedIds = new Set(staged.map(s => s.itemID || s.itemid));
+        currentItems = (categoriesData[state.category] || []).filter(i => !stagedIds.has(i.id));
+    }
+
+    const ITEMS_PER_PAGE = 15;
+    const totalPages = Math.max(1, Math.ceil(currentItems.length / ITEMS_PER_PAGE));
     if (state.page > totalPages) state.page = totalPages;
 
-    const pageItems = currentCategoryItems.slice((state.page - 1) * perPage, state.page * perPage);
+    const pageItems = currentItems.slice((state.page - 1) * ITEMS_PER_PAGE, state.page * ITEMS_PER_PAGE);
+    
+    // ضبط التحديد ليكون داخل النطاق الصحيح
+    if (state.selectedIndex >= pageItems.length && pageItems.length > 0) state.selectedIndex = pageItems.length - 1;
+    else if (pageItems.length === 0) state.selectedIndex = 0;
+
+    // حفظ الأصناف المعروضة حالياً في الكاش عشان زر 💠
+    interaction.client[stateKey].pageItems = pageItems;
+
     const expectedProfit = staged.reduce((acc, curr) => acc + (Number(curr.quantity) * Number(curr.pricePerUnit || curr.priceperunit)), 0);
+
+    let buffer = null;
+    if (INVENTORY_GEN && INVENTORY_GEN.generateInventoryCard) {
+        try {
+            // استخدام دالة الرسم الخاصة بالانفنتوري مباشرة إذا كانت متوفرة!
+            const catForDraw = isCart ? 'market' : state.category; 
+            buffer = await INVENTORY_GEN.generateInventoryCard(user.displayName || user.username, catForDraw, pageItems, state.page, totalPages, state.selectedIndex);
+        } catch (e) { buffer = null; }
+    }
 
     const embed = new EmbedBuilder()
         .setColor('#F1C40F')
-        .setAuthor({ name: `عربة بضائع القافلة لـ ${user.displayName || user.username}`, iconURL: user.displayAvatarURL() })
+        .setAuthor({ name: `سوق القافلة لـ ${user.displayName || user.username}`, iconURL: user.displayAvatarURL() })
         .setDescription(
-            `🛒 **نظام التحضير المسبق للقافلة**\n` +
-            `اختر العناصر من القائمة بالأسفل، حدد الكمية والسعر، وستُعرض للبيع فور وصول القافلة.\n\n` +
-            `📦 **الأصناف المحملة:** \`${staged.length}\`\n` +
-            `💰 **الأرباح المتوقعة:** \`${expectedProfit.toLocaleString()}\` ${EMOJI_MORA}`
+            `🛒 **إعداد البضائع للرحلة**\nاستخدم أزرار التحكم لتحديد العنصر، ثم اضغط 💠 للتحضير أو الإزالة.\n\n` +
+            `📦 **البضائع المحملة:** \`${staged.length}\` | 💰 **الأرباح المتوقعة:** \`${expectedProfit.toLocaleString()}\` ${EMOJI_MORA}`
         );
 
-    let invText = '';
+    let itemsText = '';
     if (pageItems.length > 0) {
         pageItems.forEach((it, idx) => {
-            const rarityTxt = it.rarity ? `[${RARITY_AR[it.rarity] || it.rarity}]` : '';
-            invText += `\`${idx + 1}.\` ${it.emoji} **${it.name}** ${rarityTxt} — لديك: **${it.quantity}**\n`;
+            const marker = idx === state.selectedIndex ? '🔹' : '🔸';
+            if (isCart) {
+                itemsText += `\`${idx + 1}.\` ${marker} ${it.emoji} **${it.name}** (x${it.quantity}) — **${(it.pricePerUnit).toLocaleString()}** للواحدة\n`;
+            } else {
+                const rarityTxt = it.rarity ? `[${RARITY_AR[it.rarity] || it.rarity}]` : '';
+                itemsText += `\`${idx + 1}.\` ${marker} ${it.emoji} **${it.name}** ${rarityTxt} — تملك: **${it.quantity}**\n`;
+            }
         });
     } else {
-        invText = '*لا توجد بضائع إضافية في هذا القسم.*';
+        itemsText = isCart ? '*سلة البضائع فارغة حالياً.*' : '*لا يوجد شيء هنا في المخزون.*';
     }
-    embed.addFields({ name: `🎒 مخزونك: ${CATEGORY_NAMES[state.category]} (صفحة ${state.page}/${totalPages})`, value: invText, inline: false });
+    embed.addFields({ name: `📂 ${CATEGORY_NAMES[state.category]} (صفحة ${state.page}/${totalPages})`, value: itemsText.substring(0, 1024), inline: false });
 
-    if (staged.length > 0) {
-        let itemsText = '';
-        staged.forEach((s, idx) => {
-            const info = getItemInfo(s.itemID || s.itemid);
-            const line = `\`${idx + 1}.\` ${info.emoji} **${info.name}** (x${s.quantity}) — **${(s.pricePerUnit || s.priceperunit).toLocaleString()}** مورا/للواحدة\n`;
-            if ((itemsText.length + line.length) < 900) itemsText += line;
-            else if (!itemsText.endsWith('... والمزيد\n')) itemsText += '... والمزيد\n';
-        });
-        embed.addFields({ name: `🚚 البضائع المجهزة للرحلة`, value: itemsText, inline: false });
-    }
+    const aId = user.id;
+    // أزرار الحركة (D-Pad) + زر القائمة المنسدلة للأقسام
+    const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`stg_l2_${aId}`).setEmoji('⏪').setStyle(ButtonStyle.Secondary).setDisabled(pageItems.length === 0),
+        new ButtonBuilder().setCustomId(`stg_u1_${aId}`).setEmoji('⬆️').setStyle(ButtonStyle.Primary).setDisabled(pageItems.length === 0),
+        new ButtonBuilder().setCustomId(`stg_r2_${aId}`).setEmoji('⏩').setStyle(ButtonStyle.Secondary).setDisabled(pageItems.length === 0)
+    );
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`stg_l1_${aId}`).setEmoji('⬅️').setStyle(ButtonStyle.Primary).setDisabled(pageItems.length === 0),
+        new ButtonBuilder().setCustomId(`stg_ok_${aId}`).setEmoji('💠').setStyle(ButtonStyle.Success).setDisabled(pageItems.length === 0),
+        new ButtonBuilder().setCustomId(`stg_r1_${aId}`).setEmoji('➡️').setStyle(ButtonStyle.Primary).setDisabled(pageItems.length === 0)
+    );
+    const row3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`stg_u2_${aId}`).setEmoji('⏫').setStyle(ButtonStyle.Secondary).setDisabled(pageItems.length === 0),
+        new ButtonBuilder().setCustomId(`stg_d1_${aId}`).setEmoji('⬇️').setStyle(ButtonStyle.Primary).setDisabled(pageItems.length === 0),
+        new ButtonBuilder().setCustomId(`stg_d2_${aId}`).setEmoji('⏬').setStyle(ButtonStyle.Secondary).setDisabled(pageItems.length === 0)
+    );
 
-    const components = [];
+    const row4 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`stg_prev_${aId}`).setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(state.page <= 1),
+        new ButtonBuilder().setCustomId(`cv_back`).setLabel('إطلاق القافلة').setEmoji('🚀').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`stg_next_${aId}`).setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(state.page >= totalPages)
+    );
 
     const catOptions = Object.keys(CATEGORY_NAMES).map(cat => ({
         label: CATEGORY_NAMES[cat].replace(/[^a-zA-Zأ-ي\s]/g, '').trim(),
         value: `cat_${cat}`,
-        description: `تصفح ${CATEGORY_NAMES[cat]}`,
         emoji: CATEGORY_NAMES[cat].split(' ')[0],
         default: state.category === cat
     }));
-    components.push(new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId('mkt_stage_category').setPlaceholder('📁 تغيير القسم...').addOptions(catOptions)
-    ));
 
-    if (pageItems.length > 0) {
-        const addOptions = pageItems.map(item => ({
-            label: `${item.name?.substring(0, 90) || item.id}`,
-            value: `stage_${item.id}`,
-            description: `المتوفر: ${item.quantity}`,
-            emoji: item.emoji || '📦',
-        }));
-        components.push(new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder().setCustomId('mkt_stage_add_item').setPlaceholder('➕ إضافة بضاعة للعربة من هذه الصفحة...').addOptions(addOptions)
-        ));
-    }
+    const row5 = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder().setCustomId(`stg_cat_${aId}`).setPlaceholder('📁 تنقل بين الأقسام وسلة البضائع...').addOptions(catOptions)
+    );
 
-    if (staged.length > 0) {
-        const removeOptions = staged.slice(0, 25).map((s, idx) => {
-            const info = getItemInfo(s.itemID || s.itemid);
-            return {
-                label: `إزالة: ${info.name?.substring(0, 80) || s.itemID}`,
-                value: `unstage_${idx}`,
-                description: `الكمية: ${s.quantity}`,
-                emoji: '➖',
-            };
-        });
-        components.push(new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder().setCustomId('mkt_stage_remove_item').setPlaceholder('➖ تفريغ بضاعة وإرجاعها للمخزون...').addOptions(removeOptions)
-        ));
-    }
-
-    const navRow = new ActionRowBuilder();
-    navRow.addComponents(new ButtonBuilder().setCustomId('cv_stage_prev').setLabel('◀️').setStyle(ButtonStyle.Primary).setDisabled(state.page <= 1));
-    navRow.addComponents(new ButtonBuilder().setCustomId('cv_stage_page').setLabel(`${state.page} / ${totalPages}`).setStyle(ButtonStyle.Secondary).setDisabled(true));
-    navRow.addComponents(new ButtonBuilder().setCustomId('cv_stage_next').setLabel('▶️').setStyle(ButtonStyle.Primary).setDisabled(state.page >= totalPages));
-    navRow.addComponents(new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ الرئيسية').setStyle(ButtonStyle.Success));
-    components.push(navRow);
+    const payload = { 
+        embeds: buffer ? [] : [embed], // إخفاء الإمبيد إذا كان الرسم شغال
+        components: [row1, row2, row3, row4, row5], 
+        files: buffer ? [new AttachmentBuilder(buffer, { name: 'market.png' })] : [], 
+        content: buffer ? `**🏪 متجر القافلة لـ <@${user.id}>**` : '' 
+    };
 
     if (forceEdit || interaction.deferred || interaction.replied) {
-        await interaction.editReply({ embeds: [embed], components, files: [], content: '' }).catch(() => {});
+        await interaction.editReply(payload).catch(() => {});
     } else {
-        await interaction.reply({ embeds: [embed], components, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+        await interaction.reply(payload).catch(() => {});
     }
 }
 
 // ============================================================================
-// [التعامل مع الأحداث للـ Staging]
+// [الأحداث] الحركة واختيار البضائع باستخدام Modal
 // ============================================================================
-async function handleStageCategorySelect(interaction, db, user, guild) {
-    const rawValue = interaction.values[0];
-    const cat = rawValue.replace('cat_', '');
-    const stateKey = `mkt_state_${user.id}_${guild.id}`;
-    interaction.client[stateKey] = { category: cat, page: 1 };
-    await interaction.deferUpdate().catch(()=>{});
-    await showStagingUI(interaction, db, user, guild, true);
-}
+async function handleStagingInteraction(interaction, db, user, guild) {
+    const id = interaction.customId;
+    const authorId = user.id;
 
-async function handleStagePageChange(interaction, db, user, guild, direction) {
-    const stateKey = `mkt_state_${user.id}_${guild.id}`;
-    if (!interaction.client[stateKey]) interaction.client[stateKey] = { category: 'materials', page: 1 };
-    
-    if (direction === 'prev') interaction.client[stateKey].page = Math.max(1, interaction.client[stateKey].page - 1);
-    else interaction.client[stateKey].page += 1;
-
-    await interaction.deferUpdate().catch(()=>{});
-    await showStagingUI(interaction, db, user, guild, true);
-}
-
-async function handleStageAddItemSelect(interaction, db, user, guild) {
-    const rawValue = interaction.values[0];
-    const itemId = rawValue.replace('stage_', '');
-    const info = getItemInfo(itemId);
-
-    const cats = await getInventoryCategories(db, user.id, guild.id);
-    let invItem = null;
-    for (const key in cats) {
-        invItem = cats[key].find(i => i.id === itemId);
-        if (invItem) break;
+    if (!id.endsWith(`_${authorId}`) && id !== 'cv_back') {
+        if (id.includes('_') && !id.startsWith('cv_')) {
+           return interaction.reply({ content: '❌ هذا المتجر لا يخصك!', flags: [MessageFlags.Ephemeral] });
+        }
     }
 
-    if (!invItem || invItem.quantity <= 0) {
-        return await interaction.reply({ content: '❌ لا تملك هذا العنصر في مخزونك الحالي.', flags: [MessageFlags.Ephemeral] });
+    const stateKey = `mkt_state_${user.id}_${guild.id}`;
+    if (!interaction.client[stateKey]) {
+        interaction.client[stateKey] = { category: 'materials', page: 1, selectedIndex: 0 };
+    }
+    const state = interaction.client[stateKey];
+
+    // تغيير القسم
+    if (interaction.isStringSelectMenu() && id.startsWith('stg_cat_')) {
+        state.category = interaction.values[0].replace('cat_', '');
+        state.page = 1;
+        state.selectedIndex = 0;
+        await interaction.deferUpdate().catch(()=>{});
+        return await showStagingUI(interaction, db, user, guild, true);
     }
 
-    const modal = new ModalBuilder().setCustomId(`mkt_stage_price_modal_${itemId}`).setTitle(`تسعير: ${info.name}`.substring(0, 45));
+    // زر الموافقة (💠) يفتح مودال التسعير أو الحذف فوراً (بدون Defer لأن المودل ما يقبله)
+    if (id.startsWith('stg_ok_')) {
+        const pageItems = state.pageItems || [];
+        const selectedItem = pageItems[state.selectedIndex];
 
-    const qtyInput = new TextInputBuilder()
-        .setCustomId('mkt_stage_qty')
-        .setLabel(`الكمية (الحد الأقصى: ${invItem.quantity})`.substring(0, 45))
-        .setPlaceholder('أدخل عدد الوحدات للبيع')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
+        if (!selectedItem) {
+             await interaction.deferUpdate();
+             return interaction.followUp({ content: "❌ المربع المحدد فارغ.", flags: [MessageFlags.Ephemeral] });
+        }
+        
+        if (state.category === 'staged') {
+            const modal = new ModalBuilder().setCustomId(`stg_rmv_modal_${selectedItem.id || selectedItem.itemID}`).setTitle(`إزالة البضاعة`);
+            modal.addComponents(new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('rmv_qty').setLabel(`الكمية (الحد الأقصى ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
+            ));
+            return await interaction.showModal(modal).catch(()=>{});
+        } else {
+            const modal = new ModalBuilder().setCustomId(`stg_add_modal_${selectedItem.id}`).setTitle(`تسعير: ${selectedItem.name}`.substring(0, 45));
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('add_qty').setLabel(`الكمية (لديك: ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('add_price').setLabel(`سعر الحبة (مورا)`).setStyle(TextInputStyle.Short).setRequired(true)
+                )
+            );
+            return await interaction.showModal(modal).catch(()=>{});
+        }
+    }
 
-    const priceInput = new TextInputBuilder()
-        .setCustomId('mkt_stage_price')
-        .setLabel(`سعر البيع للحبة الواحدة (مورا)`)
-        .setPlaceholder('أدخل السعر (مثال: 500)')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
+    // أزرار الحركة والتنقل (D-Pad)
+    await interaction.deferUpdate().catch(()=>{});
 
-    modal.addComponents(new ActionRowBuilder().addComponents(qtyInput), new ActionRowBuilder().addComponents(priceInput));
+    if (id.startsWith('stg_prev_')) { state.page = Math.max(1, state.page - 1); state.selectedIndex = 0; }
+    else if (id.startsWith('stg_next_')) { state.page += 1; state.selectedIndex = 0; }
+    else {
+        const moveType = id.split('_')[1]; 
+        const col = state.selectedIndex % 5;
+        const row = Math.floor(state.selectedIndex / 5);
 
-    await interaction.showModal(modal);
-}
-
-async function handleStagePriceModalSubmit(modalSubmit, db, user, guild) {
-    const itemId = modalSubmit.customId.replace('mkt_stage_price_modal_', '');
-    const qty = parseInt(modalSubmit.fields.getTextInputValue('mkt_stage_qty'));
-    const price = parseInt(modalSubmit.fields.getTextInputValue('mkt_stage_price'));
-
-    if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
-    if (isNaN(price) || price < 1 || price > 999999999) return modalSubmit.reply({ content: '❌ سعر غير صالح.', flags: [MessageFlags.Ephemeral] });
-
-    await modalSubmit.deferUpdate().catch(() => {});
-
-    const result = await stagingAddItemSafe(db, user.id, guild.id, itemId, qty, price);
-    if (!result.ok) return modalSubmit.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
-
-    await showStagingUI(modalSubmit, db, user, guild, true);
-}
-
-async function handleStageRemoveItemSelect(interaction, db, user, guild) {
-    await interaction.deferUpdate().catch(() => {});
-    const idx = parseInt(interaction.values[0].replace('unstage_', ''));
-    const staged = await getStagedItemsSafe(db, user.id, guild.id);
-
-    if (idx < 0 || idx >= staged.length) return await interaction.followUp({ content: '❌ خطأ: لم يتم العثور على العنصر.', flags: [MessageFlags.Ephemeral] });
-
-    const item = staged[idx];
-    const result = await stagingRemoveItemSafe(db, user.id, guild.id, item.itemID || item.itemid, Number(item.quantity));
-    
-    if (!result.ok) return await interaction.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
+        if (moveType === 'r1') { state.selectedIndex = row * 5 + ((col + 1) % 5); } 
+        else if (moveType === 'l1') { state.selectedIndex = row * 5 + ((col - 1 + 5) % 5); }
+        else if (moveType === 'd1') { state.selectedIndex = ((row + 1) % 3) * 5 + col; }
+        else if (moveType === 'u1') { state.selectedIndex = ((row - 1 + 3) % 3) * 5 + col; }
+        else if (moveType === 'r2') { state.selectedIndex = row * 5 + ((col + 2) % 5); }
+        else if (moveType === 'l2') { state.selectedIndex = row * 5 + ((col - 2 + 5) % 5); }
+        else if (moveType === 'd2') { state.selectedIndex = ((row + 2) % 3) * 5 + col; }
+        else if (moveType === 'u2') { state.selectedIndex = ((row - 2 + 3) % 3) * 5 + col; }
+    }
 
     await showStagingUI(interaction, db, user, guild, true);
+}
+
+// ============================================================================
+// [التعامل مع استجابة المودل (Modal Submit)]
+// ============================================================================
+async function handleStageModalSubmit(modalSubmit, db, user, guild) {
+    const id = modalSubmit.customId;
+    
+    if (id.startsWith('stg_add_modal_')) {
+        const itemId = id.replace('stg_add_modal_', '');
+        const qty = parseInt(modalSubmit.fields.getTextInputValue('add_qty'));
+        const price = parseInt(modalSubmit.fields.getTextInputValue('add_price'));
+        
+        if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
+        if (isNaN(price) || price < 1 || price > 999999999) return modalSubmit.reply({ content: '❌ سعر غير صالح.', flags: [MessageFlags.Ephemeral] });
+
+        await modalSubmit.deferUpdate().catch(() => {});
+        const result = await stagingAddItemSafe(db, user.id, guild.id, itemId, qty, price);
+        if (!result.ok) return modalSubmit.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
+        
+        await showStagingUI(modalSubmit, db, user, guild, true);
+        
+    } else if (id.startsWith('stg_rmv_modal_')) {
+        const itemId = id.replace('stg_rmv_modal_', '');
+        const qty = parseInt(modalSubmit.fields.getTextInputValue('rmv_qty'));
+        
+        if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
+        
+        await modalSubmit.deferUpdate().catch(() => {});
+        const result = await stagingRemoveItemSafe(db, user.id, guild.id, itemId, qty);
+        if (!result.ok) return modalSubmit.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
+        
+        await showStagingUI(modalSubmit, db, user, guild, true);
+    }
 }
 
 module.exports = {
@@ -487,13 +445,9 @@ module.exports = {
     getMarketListingsCache,
     clearMarketListingsCache,
     fetchUserInventory,
-    getInventoryCategories,
     // الدوال الجديدة
     showStagingUI,
-    handleStageCategorySelect,
-    handleStagePageChange,
-    handleStageAddItemSelect,
-    handleStagePriceModalSubmit,
-    handleStageRemoveItemSelect,
+    handleStagingInteraction,
+    handleStageModalSubmit,
     finalizeListings,
 };
