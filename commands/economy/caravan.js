@@ -91,7 +91,7 @@ function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
     if (!hasActiveCaravan) {
         row.addComponents(
             new ButtonBuilder().setCustomId('cv_send').setLabel('📤 إرسال رحلة').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('متجر القافلة').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('متجر القافلة').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
             new ButtonBuilder().setCustomId('cv_equip').setLabel('🔮 التجهيز').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
         );
     } else {
