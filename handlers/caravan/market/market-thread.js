@@ -27,10 +27,12 @@ async function createMarketThread(client, db, caravan, channelId) {
         const dest = caravanConfig.destinations.find(d => d.id === destId);
         if (!dest) return null;
 
-        const guild = client.guilds.cache.get(guildId);
+        let guild = client.guilds.cache.get(guildId);
+        if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
         if (!guild) return null;
 
-        const channel = guild.channels.cache.get(channelId);
+        let channel = guild.channels.cache.get(channelId);
+        if (!channel) channel = await guild.channels.fetch(channelId).catch(() => null);
         if (!channel) return null;
 
         // 👑 إنشاء الثريد (السوق)

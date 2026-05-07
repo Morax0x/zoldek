@@ -44,14 +44,13 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = [], 
         ON CONFLICT ("userID","guildID") DO UPDATE SET
             "destinationId"=$3,"startTime"=$4,"endTime"=$5,"status"='traveling',
             "equippedArtifacts"=$6,"attackScheduledAt"=$7,"attackResolved"=0,
-            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0,
-            "marketChannelId"=$8
+            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0,"marketChannelId"=$8
         RETURNING "id"`,
         [userId, guildId, destId, startTime, endTime,
          JSON.stringify(equippedArtifacts), attackScheduledAt, marketChannelId]);
 
     const caravanId = cvRow?.rows?.[0]?.id || null;
-    return { ok: true, dest, durationMs, endTime, riskFactor, willBeAttacked, caravanId };
+    return { ok: true, caravanId, dest, durationMs, endTime, riskFactor, willBeAttacked };
 }
 
 async function distributeRewards(client, db, caravan) {

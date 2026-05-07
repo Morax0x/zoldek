@@ -520,6 +520,7 @@ module.exports = {
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     
+                    // Pass the channel ID so the arrival checker knows where to open the market thread
                     const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, i.channel.id);
 
                     if (result.error) {
@@ -528,6 +529,7 @@ module.exports = {
                         return;
                     }
 
+                    // Pre-finalize staged items into listings at dispatch time
                     if (result.caravanId) {
                         await finalizeListings(client, db, result.caravanId, user.id, guild.id);
                         if (typeof marketSetup.finalizeStagedItems === 'function') {

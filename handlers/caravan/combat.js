@@ -820,7 +820,8 @@ async function handleEscortReady(data) {
             await safeExecute(db,
                 `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`,
                 [dest.cost, hostId, guild.id]);
-            const cvResult = await sendCaravan(db, hostId, guild.id, destId, [], thread?.parentId || null);
+            // Pass channel.id so the arrival checker knows where to open the market thread
+            const cvResult = await sendCaravan(db, hostId, guild.id, destId, [], channel?.id || null);
             // Mark route as permanently secured — no ambush will fire
             await safeExecute(db,
                 `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "userID"=$1 AND "guildID"=$2`,
