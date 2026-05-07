@@ -206,12 +206,20 @@ async function getListingsByCaravan(db, caravanId) {
 }
 
 async function getListingsBySession(db, threadId) {
-    const result = await safeQuery(db, `
+    let result = await safeQuery(db, `
         SELECT l.* FROM caravan_market_listings l
-        INNER JOIN caravan_market_sessions s ON l."caravanId" = s."caravanId"
+        INNER JOIN caravan_market_sessions s ON (l."caravanId" = s."caravanId" OR l."caravanID" = s."caravanId")
         WHERE s."threadId"=$1 AND l."status"='active' AND s."status"='open'
         ORDER BY l."id" ASC
     `, [threadId]);
+    if (!result || !result.rows || result.rows.length === 0) {
+        result = await safeQuery(db, `
+            SELECT l.* FROM caravan_market_listings l
+            INNER JOIN caravan_market_sessions s ON (l.caravanid = s.caravanid)
+            WHERE s.threadid=$1 AND l.status='active' AND s.status='open'
+            ORDER BY l.id ASC
+        `, [threadId]);
+    }
     return result.rows || [];
 }
 

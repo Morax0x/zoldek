@@ -271,11 +271,14 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         const price = priceKey ? st[priceKey] : 0;
         
         if(!itemId) continue;
-
+        
+        const itemInfo = resolveItemInfo(itemId);
+        const now = Date.now();
+        
         try {
-            await db.query(`INSERT INTO caravan_market_listings ("caravanID","guildID","itemID","quantity","quantitySold","pricePerUnit") VALUES ($1,$2,$3,$4,0,$5)`, [caravanId, guildId, itemId, qty, price]);
+            await db.query(`INSERT INTO caravan_market_listings ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji","quantity","pricePerUnit","quantitySold","status","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`, [caravanId, userId, guildId, itemId, itemInfo.name || '', itemInfo.emoji || '📦', qty, price, now]);
         } catch(e) {
-            await db.query(`INSERT INTO caravan_market_listings (caravanid, guildid, itemid, quantity, quantitysold, priceperunit) VALUES ($1,$2,$3,$4,0,$5)`, [caravanId, guildId, itemId, qty, price]).catch(()=>{});
+            await safeExecute(db, `INSERT INTO caravan_market_listings ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji","quantity","pricePerUnit","quantitySold","status","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`, [caravanId, userId, guildId, itemId, itemInfo.name || '', itemInfo.emoji || '📦', qty, price, now]);
         }
     }
     // 👑 تم حذف دالة الإزالة من العربة لتظل البضائع في السلة طوال الرحلة 👑
@@ -522,16 +525,10 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         await showStagingUI(modalSubmit, db, user, guild, true);
         
     } else if (id.startsWith('stg_rmv_modal_')) {
-        // استخراج الـ itemId (الجزء بعد stg_rmv_modal_ وقبل الطابع الزمني)
-        const raw = id.replace('stg_rmv_modal_', '');
-        // الطابع الزمني في النهاية بعد آخر _
-        const lastUnderscore = raw.lastIndexOf('_');
-        let itemId;
-        if (lastUnderscore > 0 && /^\d{10,}$/.test(raw.substring(lastUnderscore + 1))) {
-            itemId = raw.substring(0, lastUnderscore);
-        } else {
-            itemId = raw;
-        }
+        // استخراج الـ itemId (باستخدام | كفاصل عن الطابع الزمني)
+        const prefixLen = 'stg_rmv_modal_'.length;
+        const pipeIdx = id.indexOf('|', prefixLen);
+        const itemId = pipeIdx > 0 ? id.substring(prefixLen, pipeIdx) : id.substring(prefixLen);
         const qty = parseInt(modalSubmit.fields.getTextInputValue('rmv_qty'));
         
         if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
