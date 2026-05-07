@@ -19,6 +19,13 @@ const CATEGORY_NAMES = {
     'staged': '🛒 سلة البضائع (جاهزة للبيع)'
 };
 
+const SHORT_CAT_NAMES = {
+    'موارد': 'الموارد',
+    'صيد': 'الصيد',
+    'مزرعة': 'المزرعة',
+    'staged': 'سلة العربة'
+};
+
 const RARITY_AR = { 'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
 
 // ============================================================================
@@ -39,7 +46,6 @@ async function getFilteredInventoryCategories(db, userId, guildId) {
     
     let aggregatedInv = new Map();
     for (const row of inventory) {
-        // فحص ذكي للأعمدة لتجنب الأخطاء
         const idKey = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
         const qtyKey = Object.keys(row).find(k => k.toLowerCase() === 'quantity' || k.toLowerCase() === 'qty');
         
@@ -128,7 +134,7 @@ async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDe
 }
 
 // ============================================================================
-// [3] دوال المتجر والعربة (الإزالة المصححة جذرياً 💯)
+// [3] دوال المتجر والعربة
 // ============================================================================
 async function getStagedItemsSafe(db, userId, guildId) {
     try {
@@ -168,71 +174,51 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) 
     return { ok: true };
 }
 
-// 👑 دالة الإزالة الفولاذية (تبحث في كل القيم وتستخرجها بذكاء) 👑
 async function stagingRemoveItemSafe(db, userId, guildId, itemId, removeQty) {
     try {
-        let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
-        if (!stagedRes || !stagedRes.rows) stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]);
+        let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3)`, [userId, guildId, itemId]);
+        if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) {
+            stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND (itemid=$3 OR "itemID"=$3)`, [userId, guildId, itemId]);
+        }
         
-        if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) return { ok: false, error: 'العربة فارغة.' };
-
-        const targetId = String(itemId).toLowerCase().trim();
-        
-        // التصفية الذكية
-        let targetRows = stagedRes.rows.filter(r => {
-            const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
-            return idKey && String(r[idKey]).toLowerCase().trim() === targetId;
-        });
-
-        if (targetRows.length === 0) return { ok: false, error: 'لم يتم العثور على البضاعة في العربة.' };
+        if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) {
+            return { ok: false, error: 'لم يتم العثور على البضاعة في العربة.' };
+        }
 
         let totalStaged = 0;
         let firstPrice = 0;
-        targetRows.forEach(r => {
-            const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
-            const priceKey = Object.keys(r).find(k => k.toLowerCase() === 'priceperunit');
-            totalStaged += (qtyKey ? Number(r[qtyKey]) : 0);
-            if (firstPrice === 0) firstPrice = (priceKey ? Number(r[priceKey]) : 0);
+        stagedRes.rows.forEach(r => {
+            totalStaged += Number(r.quantity || r.QUANTITY || 0);
+            if (firstPrice === 0) firstPrice = Number(r.pricePerUnit || r.priceperunit || 0);
         });
 
         if (removeQty > totalStaged) return { ok: false, error: 'الكمية المراد إزالتها أكبر من الموجودة.' };
 
-        // 1. مسح جميع السطور المتعلقة بالعنصر من العربة كلياً لضمان عدم وجود ملفات معلقة
-        for (const r of targetRows) {
-            const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
-            const rowId = rowIdKey ? r[rowIdKey] : null;
-            if (rowId) {
-                try { await db.query(`DELETE FROM caravan_staging_market WHERE "id" = $1`, [rowId]); } 
-                catch(e) { await db.query(`DELETE FROM caravan_staging_market WHERE id = $1`, [rowId]).catch(()=>{}); }
-            } else {
-                await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [userId, guildId, targetId]);
-            }
-        }
+        await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3)`, [userId, guildId, itemId]);
+        await safeExecute(db, `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND (itemid=$3 OR "itemID"=$3)`, [userId, guildId, itemId]);
         
-        // 2. إعادة ما تبقى من الكمية للعربة كسطر واحد جديد ونظيف
         const remainingToStage = totalStaged - removeQty;
         if (remainingToStage > 0) {
-            try { await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, targetId, remainingToStage, firstPrice]); } 
-            catch(e) { await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, targetId, remainingToStage, firstPrice]).catch(()=>{}); }
+            try { await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, remainingToStage, firstPrice]); } 
+            catch(e) { await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, remainingToStage, firstPrice]).catch(()=>{}); }
         }
 
-        // 3. الإرجاع الآمن للمخزون
         let updated = false;
         try {
-            const resUpd = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) RETURNING *`, [removeQty, userId, guildId, targetId]);
+            const resUpd = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) RETURNING *`, [removeQty, userId, guildId, itemId]);
             if (resUpd && resUpd.rowCount > 0) updated = true;
         } catch(e) {}
         
         if (!updated) {
             try {
-                const resUpd2 = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND (itemid = $4 OR "itemID"=$4) RETURNING *`, [removeQty, userId, guildId, targetId]);
+                const resUpd2 = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND (itemid = $4 OR "itemID"=$4) RETURNING *`, [removeQty, userId, guildId, itemId]);
                 if (resUpd2 && resUpd2.rowCount > 0) updated = true;
             } catch(e) {}
         }
         
         if (!updated) {
-            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, targetId, removeQty]); } 
-            catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, userId, targetId, removeQty]).catch(()=>{}); }
+            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, removeQty]); } 
+            catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, removeQty]).catch(()=>{}); }
         }
 
         return { ok: true };
@@ -268,7 +254,6 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
     const staged = await getStagedItemsSafe(db, userId, guildId);
     for (const st of staged) {
-        // حماية أسماء الأعمدة وقت الإرسال للمتجر
         const idKey = Object.keys(st).find(k => k.toLowerCase() === 'itemid');
         const qtyKey = Object.keys(st).find(k => k.toLowerCase() === 'quantity');
         const priceKey = Object.keys(st).find(k => k.toLowerCase() === 'priceperunit');
@@ -295,9 +280,12 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
 // ============================================================================
 async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     const stateKey = `mkt_state_${user.id}_${guild.id}`;
-    if (!interaction.client[stateKey]) {
+    
+    // 👑 إرجاع البوت للقسم الأول والصفحة الأولى إذا كان أول مرة يفتح أو ضغطت الزر الأساسي 👑
+    if (!interaction.client[stateKey] || interaction.customId === 'cv_market_staging') {
         interaction.client[stateKey] = { category: 'موارد', page: 1, selectedIndex: 0 };
     }
+    
     const state = interaction.client[stateKey];
 
     if (!CATEGORY_NAMES[state.category]) state.category = 'موارد';
@@ -378,26 +366,25 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
         new ButtonBuilder().setCustomId(`stg_d2_${aId}`).setEmoji('⏬').setStyle(ButtonStyle.Secondary).setDisabled(pageItems.length === 0)
     );
 
-    // 👑 تعديل الصف الرابع ليتناسب 100% مع طلبك 👑
     const cycleBtn = new ButtonBuilder()
-        .setCustomId(isCart ? 'cv_back' : `stg_cycle_${aId}`) // إذا كانت السلة، الزر يرسل أمر الإطلاق (cv_back)
-        .setEmoji(isCart ? '🚀' : '🔄') // يتغير لصاروخ لونه أحمر في النهاية
+        .setCustomId(isCart ? 'cv_back' : `stg_cycle_${aId}`)
+        .setEmoji(isCart ? '🚀' : '🔄')
         .setStyle(isCart ? ButtonStyle.Danger : ButtonStyle.Primary);
 
     const row4 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`stg_prev_${aId}`).setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(state.page <= 1),
-        cycleBtn, // زر التبديل اللي طلبته
+        cycleBtn, 
         new ButtonBuilder().setCustomId(`stg_next_${aId}`).setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(state.page >= totalPages)
     );
 
-    // 👑 وضع اسم القسم بخط عريض فوق الصورة بالنص كما طلبت 👑
-    const contentText = `# ${CATEGORY_NAMES[state.category]}`;
+    // 👑 تصغير النص اللي فوق الصورة وجعله بخط عريض بدل الـ Header 👑
+    const contentText = `**${CATEGORY_NAMES[state.category]}**`;
 
     const payload = { 
-        embeds: buffer ? [] : [embed], // إذا الرسم شغال نخفي الإمبيد
-        components: [row1, row2, row3, row4], // المنيو انشال
+        embeds: buffer ? [] : [embed], 
+        components: [row1, row2, row3, row4], 
         files: buffer ? [new AttachmentBuilder(buffer, { name: 'market.png' })] : [], 
-        content: contentText 
+        content: buffer ? contentText : contentText + '\n(تعذر تحميل الصورة)' 
     };
 
     if (forceEdit || interaction.deferred || interaction.replied) {
@@ -426,7 +413,6 @@ async function handleStagingInteraction(interaction, db, user, guild) {
     }
     const state = interaction.client[stateKey];
 
-    // 👑 منطق التبديل بالسهم الدوار 👑
     if (id.startsWith('stg_cycle_')) {
         const cats = ['موارد', 'صيد', 'مزرعة', 'staged'];
         let idx = cats.indexOf(state.category);
@@ -450,7 +436,6 @@ async function handleStagingInteraction(interaction, db, user, guild) {
         }
         
         if (state.category === 'staged') {
-            // 👑 تم تنظيف الآيدي هنا وتمريره للمودل صافي بدون أرقام داتابيس 👑
             const modal = new ModalBuilder().setCustomId(`stg_rmv_modal_${selectedItem.id}`).setTitle(`إزالة البضاعة`);
             modal.addComponents(new ActionRowBuilder().addComponents(
                 new TextInputBuilder().setCustomId('rmv_qty').setLabel(`الكمية (الحد الأقصى ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
@@ -510,8 +495,11 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         await showStagingUI(modalSubmit, db, user, guild, true);
         
     } else if (id.startsWith('stg_rmv_modal_')) {
-        const itemId = id.replace('stg_rmv_modal_', ''); // القراءة النظيفة للآيدي
-        
+        let itemId = id.replace('stg_rmv_modal_', '');
+        if (/^(\d+|undefined)_/.test(itemId)) {
+            itemId = itemId.replace(/^(\d+|undefined)_/, '');
+        }
+
         const qty = parseInt(modalSubmit.fields.getTextInputValue('rmv_qty'));
         
         if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
