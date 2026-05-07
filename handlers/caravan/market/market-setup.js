@@ -1,7 +1,6 @@
 const {
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-    StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
-    MessageFlags, AttachmentBuilder
+    ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags, AttachmentBuilder
 } = require('discord.js');
 const { safeQuery, safeExecute } = require('../db');
 const { EMOJI_MORA } = require('../config');
@@ -20,8 +19,18 @@ const CATEGORY_NAMES = {
     'staged': '🛒 سلة البضائع (محملة)'
 };
 
+const SHORT_CAT_NAMES = {
+    'موارد': 'الموارد',
+    'صيد': 'الصيد',
+    'مزرعة': 'المزرعة',
+    'staged': 'سلة العربة'
+};
+
 const RARITY_AR = { 'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
 
+// ============================================================================
+// [1] جلب المخزون وتجميعه
+// ============================================================================
 async function getFilteredInventoryCategories(db, userId, guildId) {
     let inventory = [];
     try {
@@ -66,6 +75,9 @@ async function getFilteredInventoryCategories(db, userId, guildId) {
     return filtered;
 }
 
+// ============================================================================
+// [2] الخصم الذكي الدقيق من المخزون
+// ============================================================================
 async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDeduct) {
     let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
     if (!res || !res.rows || res.rows.length === 0) {
@@ -119,32 +131,9 @@ async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDe
     return remaining === 0;
 }
 
-function getMarketListingsCache(client, userId, guildId) {
-    const key = `market_listings_${userId}_${guildId}`;
-    if (!client.marketListings) client.marketListings = new Map();
-    if (!client.marketListings.has(key)) client.marketListings.set(key, []);
-    return client.marketListings.get(key);
-}
-
-function clearMarketListingsCache(client, userId, guildId) {
-    const key = `market_listings_${userId}_${guildId}`;
-    if (client.marketListings) client.marketListings.delete(key);
-}
-
-async function finalizeListings(client, db, caravanId, userId, guildId) {
-    const listings = getMarketListingsCache(client, userId, guildId);
-    if (!listings || listings.length === 0) return { ok: true, listings: [] };
-
-    const dbListings = [];
-    for (const listing of listings) {
-        const listingId = await createListing(db, caravanId, userId, guildId, listing);
-        if (listingId) dbListings.push({ ...listing, listingId });
-    }
-    if (dbListings.length > 0) await lockItemsFromInventory(db, guildId, userId, dbListings);
-    clearMarketListingsCache(client, userId, guildId);
-    return { ok: true, listings: dbListings };
-}
-
+// ============================================================================
+// [3] دوال المتجر والعربة
+// ============================================================================
 async function getStagedItemsSafe(db, userId, guildId) {
     try {
         await db.query(`CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`).catch(()=>{});
@@ -232,6 +221,32 @@ async function stagingRemoveItemSafe(db, userId, guildId, itemId, removeQty) {
 
         return { ok: true };
     } catch(e) { return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' }; }
+}
+
+function getMarketListingsCache(client, userId, guildId) {
+    const key = `market_listings_${userId}_${guildId}`;
+    if (!client.marketListings) client.marketListings = new Map();
+    if (!client.marketListings.has(key)) client.marketListings.set(key, []);
+    return client.marketListings.get(key);
+}
+
+function clearMarketListingsCache(client, userId, guildId) {
+    const key = `market_listings_${userId}_${guildId}`;
+    if (client.marketListings) client.marketListings.delete(key);
+}
+
+async function finalizeListings(client, db, caravanId, userId, guildId) {
+    const listings = getMarketListingsCache(client, userId, guildId);
+    if (!listings || listings.length === 0) return { ok: true, listings: [] };
+
+    const dbListings = [];
+    for (const listing of listings) {
+        const listingId = await createListing(db, caravanId, userId, guildId, listing);
+        if (listingId) dbListings.push({ ...listing, listingId });
+    }
+    if (dbListings.length > 0) await lockItemsFromInventory(db, guildId, userId, dbListings);
+    clearMarketListingsCache(client, userId, guildId);
+    return { ok: true, listings: dbListings };
 }
 
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
@@ -343,26 +358,18 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
         new ButtonBuilder().setCustomId(`stg_d2_${aId}`).setEmoji('⏬').setStyle(ButtonStyle.Secondary).setDisabled(pageItems.length === 0)
     );
 
+    // 👑 تم التعديل هنا: إزالة زر إطلاق القافلة ووضع زر يقلب بين الأقسام، مع زر رجوع صغير 👑
     const row4 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`stg_prev_${aId}`).setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(state.page <= 1),
-        new ButtonBuilder().setCustomId(`cv_back`).setLabel('إطلاق القافلة').setEmoji('🚀').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`stg_cycle_${aId}`).setLabel(`القسم: ${SHORT_CAT_NAMES[state.category]}`).setEmoji('🔄').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`cv_back`).setEmoji('↩️').setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId(`stg_next_${aId}`).setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(state.page >= totalPages)
     );
 
-    const catOptions = Object.keys(CATEGORY_NAMES).map(cat => ({
-        label: CATEGORY_NAMES[cat].replace(/[^a-zA-Zأ-ي\s]/g, '').trim(),
-        value: `cat_${cat}`,
-        emoji: CATEGORY_NAMES[cat].split(' ')[0],
-        default: state.category === cat
-    }));
-
-    const row5 = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId(`stg_cat_${aId}`).setPlaceholder('📁 تنقل بين الأقسام وسلة البضائع...').addOptions(catOptions)
-    );
-
+    // المنيو المنسدل تم حذفه بالكامل حسب طلبك
     const payload = { 
         embeds: buffer ? [] : [embed], 
-        components: [row1, row2, row3, row4, row5], 
+        components: [row1, row2, row3, row4], // شلنا row5 المخصص للمنيو
         files: buffer ? [new AttachmentBuilder(buffer, { name: 'market.png' })] : [], 
         content: buffer ? `**🏪 متجر القافلة لـ <@${user.id}>**` : '' 
     };
@@ -375,7 +382,7 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
 }
 
 // ============================================================================
-// [الأحداث] الحركة واختيار البضائع باستخدام Modal
+// [الأحداث]
 // ============================================================================
 async function handleStagingInteraction(interaction, db, user, guild) {
     const id = interaction.customId;
@@ -393,10 +400,16 @@ async function handleStagingInteraction(interaction, db, user, guild) {
     }
     const state = interaction.client[stateKey];
 
-    if (interaction.isStringSelectMenu() && id.startsWith('stg_cat_')) {
-        state.category = interaction.values[0].replace('cat_', '');
+    // 👑 منطق الزر الجديد اللي يقلب بين الأقسام 👑
+    if (id.startsWith('stg_cycle_')) {
+        const cats = ['موارد', 'صيد', 'مزرعة', 'staged'];
+        let idx = cats.indexOf(state.category);
+        if (idx === -1) idx = 0;
+        
+        state.category = cats[(idx + 1) % cats.length];
         state.page = 1;
         state.selectedIndex = 0;
+        
         await interaction.deferUpdate().catch(()=>{});
         return await showStagingUI(interaction, db, user, guild, true);
     }
@@ -471,8 +484,6 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         
     } else if (id.startsWith('stg_rmv_modal_')) {
         let itemId = id.replace('stg_rmv_modal_', '');
-        
-        // 👑 الفلتر السحري: إزالة أي أرقام (dbId) مدموجة مع الآيدي قادمة من المودلات القديمة المعلقة 👑
         if (/^(\d+|undefined)_/.test(itemId)) {
             itemId = itemId.replace(/^(\d+|undefined)_/, '');
         }
