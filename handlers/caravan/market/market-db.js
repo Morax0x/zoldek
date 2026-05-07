@@ -53,7 +53,6 @@ async function initMarketTables(db) {
         )
     `);
 
-    // Staging area for caravan market items (before final dispatch)
     await safeExecute(db, `
         CREATE TABLE IF NOT EXISTS caravan_staging_market (
             "userID" TEXT NOT NULL,
@@ -81,10 +80,8 @@ async function createListing(db, caravanId, ownerId, guildId, item) {
     return result.rows[0]?.id || null;
 }
 
-// Staging: add an item to caravan_staging_market atomically (deduct from user inventory)
 async function stagingAddItem(db, userId, guildId, itemId, quantity, pricePerUnit) {
     const now = Date.now();
-    // Atomic: deduct from inventory only if enough quantity exists, then upsert staging
     const deductResult = await safeQuery(db, `
         UPDATE user_inventory
         SET "quantity" = CAST(COALESCE("quantity",'0') AS BIGINT) - $4
@@ -97,7 +94,6 @@ async function stagingAddItem(db, userId, guildId, itemId, quantity, pricePerUni
         return { ok: false, error: 'الكمية غير متوفرة في المخزون' };
     }
 
-    // Deduction succeeded — upsert into staging
     await safeExecute(db, `
         INSERT INTO caravan_staging_market ("userID","guildID","itemID","quantity","pricePerUnit","createdAt")
         VALUES ($1,$2,$3,$4,$5,$6)
@@ -109,9 +105,7 @@ async function stagingAddItem(db, userId, guildId, itemId, quantity, pricePerUni
     return { ok: true };
 }
 
-// Staging: remove an item from caravan_staging_market atomically and refund to inventory
 async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
-    // First check staging has enough quantity
     const stagedCheck = await safeQuery(db, `
         SELECT "quantity" FROM caravan_staging_market
         WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3
@@ -126,7 +120,6 @@ async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
         return { ok: false, error: 'الكمية المطلوبة أكبر من المرحّلة' };
     }
 
-    // Deduct from staging (or delete if qty becomes 0)
     if (quantity >= stagedQty) {
         await safeExecute(db, `
             DELETE FROM caravan_staging_market
@@ -139,7 +132,6 @@ async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
         `, [userId, guildId, itemId, quantity]);
     }
 
-    // Refund to inventory
     await safeExecute(db, `
         INSERT INTO user_inventory ("userID","guildID","itemID","quantity")
         VALUES ($1,$2,$3,$4)
@@ -147,7 +139,6 @@ async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
         DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $4
     `, [userId, guildId, itemId, quantity]);
 
-    // Also try lowercase column variant for compatibility
     await safeExecute(db, `
         INSERT INTO user_inventory (userid, guildid, itemid, quantity)
         VALUES ($1,$2,$3,$4)
@@ -158,19 +149,15 @@ async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
     return { ok: true };
 }
 
-// Get staged items for a user/guild
 async function getStagedItems(db, userId, guildId) {
     const res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
     return res?.rows || [];
 }
 
-// Copy staged items into official market listings (idempotent).
-// Staging is NEVER deleted — it is the persistent source of truth for the cart.
-// Sales deduct from both tables; market close just marks listings returned.
+// 👑 الدالة التي تنقل الأغراض للسوق بدون أن تحذفها من السلة الدائمة 👑
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
     if (!caravanId) return { ok: false, error: 'caravanId is null' };
 
-    // Idempotency: if listings already exist for this caravan, do nothing
     const existing = await getListingsByCaravan(db, caravanId);
     if (existing.length > 0) return { ok: true, moved: existing.length };
 
@@ -179,7 +166,6 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
 
     let moved = 0;
     for (const s of staged) {
-        // Case-insensitive key access handles both Postgres (camelCase) and SQLite (lowercase)
         const idKey    = Object.keys(s).find(k => k.toLowerCase() === 'itemid');
         const qtyKey   = Object.keys(s).find(k => k.toLowerCase() === 'quantity');
         const priceKey = Object.keys(s).find(k => k.toLowerCase() === 'priceperunit');
@@ -200,7 +186,6 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         if (listingId) moved++;
     }
 
-    // Staging intentionally NOT deleted — persistent cart model
     return { ok: true, moved };
 }
 
@@ -274,7 +259,6 @@ async function createMarketSession(db, caravanId, ownerId, guildId, destId, thre
     return result.rows[0]?.id || null;
 }
 
-// 👑 دالة الشراء الفولاذية الجديدة: تفحص الداتابيس بدقة وتحدّث الكاش 👑
 async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quantity, pricePerUnit, buyerType = 'player', client = null) {
     const totalPrice = quantity * pricePerUnit;
     const now = Date.now();
@@ -291,7 +275,6 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
     if (quantity > available) return { error: 'الكمية المطلوبة غير متوفرة حالياً في المتجر.' };
     if (totalPrice <= 0) return { error: 'السعر المدخل غير صالح.' };
 
-    // 1️⃣ خصم المورا من المشتري الحقيقي وتحديث كاشه
     if (buyerType === 'player') {
         let buyerMora = 0;
         try {
@@ -326,7 +309,6 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         }
     }
 
-    // 2️⃣ إضافة المورا للبائع وتحديث كاشه
     let sDbUpdated = false;
     try {
         let r = await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) + $1 WHERE "user"=$2 AND "guild"=$3 RETURNING *`, [totalPrice, sellerId, guildId]);
@@ -343,7 +325,6 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         } catch(e) {}
     }
 
-    // 3️⃣ تحديث البضائع والمبيعات في السوق
     await safeExecute(db, `
         UPDATE caravan_market_listings SET "quantitySold" = COALESCE("quantitySold", 0) + $1
         WHERE "id"=$2
@@ -355,7 +336,7 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         `, [listingId]);
     }
 
-    // 3b️⃣ خصم الكمية من عربة القافلة (staging) — الـ staging هو المصدر الدائم
+    // 👑 الخصم المباشر من السلة الدائمة (Staging) لكي ينعكس البيع على البضائع المعروضة 👑
     const stagingDeducted = await safeExecute(db, `
         UPDATE caravan_staging_market
         SET "quantity" = GREATEST(0, "quantity" - $1)
@@ -382,7 +363,6 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         WHERE "caravanId" = (SELECT "caravanId" FROM caravan_market_listings WHERE "id"=$2)
     `, [totalPrice, listingId]);
 
-    // 4️⃣ نقل المشتريات للمخزون
     if (buyerType === 'player') {
         try {
             await db.query(`
@@ -411,17 +391,13 @@ async function closeSession(db, threadId) {
     `, [threadId]);
 }
 
-// Closes the market for an owner: marks all active/sold_out listings as returned.
-// Staging is the persistent cart — items were never removed from it, so no upsert needed.
-// Returns the current staging contents so the caller can display what remains in the cart.
+// 👑 إرجاع البضائع للمخزن صار يُقرأ مباشرة من السلة بدون مسحها لأن السلة دائمية 👑
 async function returnUnsoldItems(db, ownerId, guildId) {
-    // Mark listings closed
     await safeExecute(db, `
         UPDATE caravan_market_listings SET "status"='returned'
         WHERE "ownerID"=$1 AND "guildID"=$2 AND "status" IN ('active','sold_out')
     `, [ownerId, guildId]);
 
-    // Read staging — it's the source of truth for what's still in the cart
     const stagingRes = await safeQuery(db, `
         SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2
     `, [ownerId, guildId]);
@@ -500,7 +476,6 @@ module.exports = {
     getExpiredSessions,
     updateListingPrice,
     getListingById,
-    // new staging APIs
     stagingAddItem,
     stagingRemoveItem,
     getStagedItems,
