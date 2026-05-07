@@ -176,61 +176,73 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) 
 
 async function stagingRemoveItemSafe(db, userId, guildId, itemId, removeQty) {
     try {
-        const targetId = String(itemId).toLowerCase().trim();
-        
-        let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE ("userID"=$1 OR userid=$1) AND ("guildID"=$2 OR guildid=$2)`, [userId, guildId]);
-        if (!stagedRes || !stagedRes.rows) return { ok: false, error: 'لم يتم العثور على البضاعة في العربة.' };
-
-        let matchingRows = stagedRes.rows.filter(r => {
-            const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
-            return idKey && String(r[idKey]).toLowerCase().trim() === targetId;
-        });
-
-        if (matchingRows.length === 0) {
+        // Fetch the exact row using composite PK (no id column exists on this table)
+        let stagedRes = await safeQuery(db,
+            `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
+            [userId, guildId, itemId]
+        );
+        if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) {
+            stagedRes = await safeQuery(db,
+                `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND itemid=$3`,
+                [userId, guildId, itemId]
+            );
+        }
+        if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) {
             return { ok: false, error: 'لم يتم العثور على البضاعة في العربة.' };
         }
 
-        let totalStaged = 0;
-        let firstPrice = 0;
-        matchingRows.forEach(r => {
-            const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
-            totalStaged += Number(r[qtyKey] || 0);
-            if (firstPrice === 0) {
-                const priceKey = Object.keys(r).find(k => k.toLowerCase() === 'priceperunit');
-                firstPrice = Number(r[priceKey] || 0);
-            }
-        });
+        const row = stagedRes.rows[0];
+        const qtyKey = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
+        const totalStaged = Number(row[qtyKey] || 0);
 
-        if (removeQty > totalStaged) return { ok: false, error: 'الكمية المراد إزالتها أكبر من الموجودة.' };
-
-        for (const r of matchingRows) {
-            const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
-            const rowId = rowIdKey ? r[rowIdKey] : null;
-            if (rowId) {
-                try { await db.query(`DELETE FROM caravan_staging_market WHERE "id" = $1`, [rowId]); } 
-                catch(e) { await db.query(`DELETE FROM caravan_staging_market WHERE id = $1`, [rowId]).catch(()=>{}); }
-            }
-        }
-        
-        const remainingToStage = totalStaged - removeQty;
-        if (remainingToStage > 0) {
-            try { await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, remainingToStage, firstPrice]); } 
-            catch(e) { await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, remainingToStage, firstPrice]).catch(()=>{}); }
+        if (removeQty > totalStaged) {
+            return { ok: false, error: `الكمية المراد إزالتها (${removeQty}) أكبر من الموجودة (${totalStaged}).` };
         }
 
-        let updated = false;
-        try {
-            const resUpd = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE ("userID"=$2 OR userid=$2) AND ("guildID"=$3 OR guildid=$3) AND ("itemID"=$4 OR itemid=$4) RETURNING *`, [removeQty, userId, guildId, itemId]);
-            if (resUpd && resUpd.rowCount > 0) updated = true;
-        } catch(e) {}
-        
-        if (!updated) {
-            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, removeQty]); } 
-            catch(e) { await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, removeQty]).catch(()=>{}); }
+        // Update or delete using composite PK
+        if (removeQty >= totalStaged) {
+            const deleted = await safeExecute(db,
+                `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
+                [userId, guildId, itemId]
+            );
+            if (!deleted) {
+                await safeExecute(db,
+                    `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND itemid=$3`,
+                    [userId, guildId, itemId]
+                );
+            }
+        } else {
+            const updated = await safeExecute(db,
+                `UPDATE caravan_staging_market SET "quantity" = "quantity" - $4 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
+                [userId, guildId, itemId, removeQty]
+            );
+            if (!updated) {
+                await safeExecute(db,
+                    `UPDATE caravan_staging_market SET quantity = quantity - $4 WHERE userid=$1 AND guildid=$2 AND itemid=$3`,
+                    [userId, guildId, itemId, removeQty]
+                );
+            }
+        }
+
+        // Refund to inventory using upsert (ON CONFLICT on composite PK)
+        const refunded = await safeExecute(db,
+            `INSERT INTO user_inventory ("userID","guildID","itemID","quantity") VALUES ($1,$2,$3,$4)
+             ON CONFLICT ("userID","guildID","itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity",0) + $4`,
+            [userId, guildId, itemId, removeQty]
+        );
+        if (!refunded) {
+            await safeExecute(db,
+                `INSERT INTO user_inventory (userid,guildid,itemid,quantity) VALUES ($1,$2,$3,$4)
+                 ON CONFLICT (userid,guildid,itemid) DO UPDATE SET quantity = COALESCE(user_inventory.quantity,0) + $4`,
+                [userId, guildId, itemId, removeQty]
+            );
         }
 
         return { ok: true };
-    } catch(e) { return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' }; }
+    } catch(e) {
+        console.error('[stagingRemoveItemSafe]', e);
+        return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' };
+    }
 }
 
 function getMarketListingsCache(client, userId, guildId) {
