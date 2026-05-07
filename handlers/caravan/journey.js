@@ -1,6 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
-const { safeQuery, safeExecute } = require('./db');
-const { caravanConfig, farmAnimals, seedsData, upgradeMats, EMOJI_MORA } = require('./config');
+const { safeQuery, safeExecute } = require('../db');
+const { caravanConfig, farmAnimals, seedsData, upgradeMats, EMOJI_MORA } = require('../config');
 const { getEquippedBuffs, calcDuration, calcRiskFactor, calcRewardMultiplier } = require('./calculations');
 const { getUserCaravanStats } = require('./stats');
 const { initCaravanTables } = require('./tables');
@@ -159,8 +159,9 @@ async function distributeRewards(client, db, caravan) {
          WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId, attackMulti >= 0.5 ? 1 : 0]);
 
+    // 👑 الحل الجذري لمنع دمار قاعدة البيانات: عدم حذف القافلة بل تغيير حالتها لتظل مربوطة بالسوق 👑
     await safeExecute(db,
-        `DELETE FROM user_caravans WHERE "userID"=$1 AND "guildID"=$2`,
+        `UPDATE user_caravans SET "status"='completed' WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId]);
 
     return summary;
@@ -197,11 +198,14 @@ async function processCaravanReturns(client, db) {
                     caravan.rewardMultiplier = 0.5;
                 }
 
-                // نوزع الجوائز ونمسح الرحلة
+                // 1. نقل البضائع من العربة إلى قائمة السوق (الآن لن يتم حذف العربة بل تبقى البضائع فيها لتكون Persistent)
+                await finalizeStagedItems(db, caravanId, userId, guildId);
+                const listings = await getListingsByCaravan(db, caravanId);
+
+                // 2. نوزع الجوائز (الدالة الحين تغيّر الحالة إلى completed ولا تحذف הקافلة)
                 const summary = await distributeRewards(client, db, caravan);
                 
                 try {
-                    // Prefer the channel stored at dispatch time; fall back to settings
                     let casinoId = caravan.marketchannelid || caravan.marketChannelId || null;
 
                     if (!casinoId) {
@@ -217,13 +221,12 @@ async function processCaravanReturns(client, db) {
                                 || sRow.casinochannelid2 || sRow.casinoChannelID2;
                     }
 
-                    // 👑 جلب السيرفر والروم بشكل مؤكد لتجنب فقدانها بسبب الريستارت 👑
-                    let guild = client.guilds.cache.get(guildId);
-                    if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
+                    let guildObj = client.guilds.cache.get(guildId);
+                    if (!guildObj) guildObj = await client.guilds.fetch(guildId).catch(() => null);
 
-                    let channel = guild?.channels.cache.get(casinoId);
-                    if (!channel && guild && casinoId) {
-                        channel = await guild.channels.fetch(casinoId).catch(() => null);
+                    let channel = guildObj?.channels.cache.get(casinoId);
+                    if (!channel && guildObj && casinoId) {
+                        channel = await guildObj.channels.fetch(casinoId).catch(() => null);
                     }
 
                     if (channel) {
@@ -251,9 +254,7 @@ async function processCaravanReturns(client, db) {
                             }).catch(() => {});
                         }
 
-                        // نقل البضائع من العربة إلى قائمة السوق ثم فتح الثريد
-                        await finalizeStagedItems(db, caravanId, userId, guildId);
-                        const listings = await getListingsByCaravan(db, caravanId);
+                        // 👑 فتح الثريد حق السوق إذا فيه بضائع محددة 👑
                         if (listings.length > 0 && casinoId) {
                             await createMarketThread(client, db, caravan, casinoId);
                         }
@@ -281,7 +282,6 @@ function setupCaravanChecker(client, db) {
     if (_checkerStarted) return;
     _checkerStarted = true;
     
-    // 👑 الفاحص يراقب كل 30 ثانية 👑
     setInterval(() => processCaravanReturns(client, db), 30 * 1000); 
     processCaravanReturns(client, db);
 }
