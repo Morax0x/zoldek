@@ -165,10 +165,24 @@ async function getStagedItems(db, userId, guildId) {
 }
 
 // Move all staged items for a caravan into official market listings.
-// Clears staging — items live in caravan_market_listings during the trip.
-// Unsold items are returned to staging (not inventory) when the market closes.
+// Idempotent: if listings already exist for this caravanId (created at dispatch),
+// skips re-insertion to avoid duplicates and just clears staging.
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
+    if (!caravanId) return { ok: false, error: 'caravanId is null' };
+
     const staged = await getStagedItems(db, userId, guildId);
+
+    // Check if listings were already created at dispatch time
+    const existing = await getListingsByCaravan(db, caravanId);
+    if (existing.length > 0) {
+        // Listings exist — only clear staging if it still has rows (avoids no-op DELETE)
+        if (staged.length > 0) {
+            const cleared = await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+            if (!cleared) await safeExecute(db, `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]);
+        }
+        return { ok: true, moved: existing.length };
+    }
+
     if (!staged || staged.length === 0) return { ok: true, moved: 0 };
 
     let moved = 0;

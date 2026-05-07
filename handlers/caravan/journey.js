@@ -6,16 +6,16 @@ const { getUserCaravanStats } = require('./stats');
 const { initCaravanTables } = require('./tables');
 const { initMarketTables, createMarketThread, getListingsByCaravan, finalizeStagedItems } = require('./market');
 
-async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) {
+async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = [], marketChannelId = null) {
     const dest = caravanConfig.destinations.find(d => d.id === destId);
     if (!dest) return { error: 'وجهة غير موجودة.' };
 
     if (equippedArtifacts && equippedArtifacts.length > 0) {
         for (const art of equippedArtifacts) {
-            await safeExecute(db, 
-                `UPDATE user_inventory 
-                 SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1) 
-                 WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR "itemid"=$4)`, 
+            await safeExecute(db,
+                `UPDATE user_inventory
+                 SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1)
+                 WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR "itemid"=$4)`,
                 [art.count, userId, guildId, art.id]
             );
         }
@@ -36,19 +36,23 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) 
         attackScheduledAt  = Math.floor(startTime + attackOffset);
     }
 
-    await safeExecute(db, `
+    // RETURNING "id" so callers can reference the caravan row for market listings
+    const cvRow = await safeQuery(db, `
         INSERT INTO user_caravans
             ("userID","guildID","destinationId","startTime","endTime","status",
-             "equippedArtifacts","attackScheduledAt","attackResolved","rewardMultiplier")
-        VALUES ($1,$2,$3,$4,$5,'traveling',$6,$7,0,1.0)
+             "equippedArtifacts","attackScheduledAt","attackResolved","rewardMultiplier","marketChannelId")
+        VALUES ($1,$2,$3,$4,$5,'traveling',$6,$7,0,1.0,$8)
         ON CONFLICT ("userID","guildID") DO UPDATE SET
             "destinationId"=$3,"startTime"=$4,"endTime"=$5,"status"='traveling',
             "equippedArtifacts"=$6,"attackScheduledAt"=$7,"attackResolved"=0,
-            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0`,
+            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0,"marketChannelId"=$8
+        RETURNING "id"`,
         [userId, guildId, destId, startTime, endTime,
-         JSON.stringify(equippedArtifacts), attackScheduledAt]);
+         JSON.stringify(equippedArtifacts), attackScheduledAt, marketChannelId]);
 
-    return { ok: true, dest, durationMs, endTime, riskFactor, willBeAttacked };
+    const caravanId = cvRow?.rows?.[0]?.id || null;
+
+    return { ok: true, caravanId, dest, durationMs, endTime, riskFactor, willBeAttacked };
 }
 
 async function distributeRewards(client, db, caravan) {
@@ -208,8 +212,10 @@ async function processCaravanReturns(client, db) {
                     }
                     
                     const sRow = settingsRes?.rows?.[0] || {};
-                    const casinoId = sRow.caravanchannelid || sRow.caravanChannelID 
-                                  || sRow.casinochannelid || sRow.casinoChannelID 
+                    // Stored channel ID (set at dispatch) is the primary source; settings is fallback
+                    const casinoId = caravan.marketchannelid || caravan.marketChannelId
+                                  || sRow.caravanchannelid || sRow.caravanChannelID
+                                  || sRow.casinochannelid  || sRow.casinoChannelID
                                   || sRow.casinochannelid2 || sRow.casinoChannelID2;
 
                     // 👑 جلب السيرفر والروم بشكل مؤكد لتجنب فقدانها بسبب الريستارت 👑
