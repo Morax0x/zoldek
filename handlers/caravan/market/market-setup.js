@@ -203,18 +203,15 @@ async function stagingRemoveItemSafe(db, userId, guildId, itemId, removeQty) {
 
         if (removeQty > totalStaged) return { ok: false, error: 'الكمية المراد إزالتها أكبر من الموجودة.' };
 
-        // مسح جميع السطور المتعلقة بالعنصر من العربة كلياً
         await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3)`, [userId, guildId, itemId]);
         await safeExecute(db, `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND (itemid=$3 OR "itemID"=$3)`, [userId, guildId, itemId]);
         
-        // إذا كان باقي كمية، نرجعها لسطر واحد نظيف في العربة
         const remainingToStage = totalStaged - removeQty;
         if (remainingToStage > 0) {
             try { await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, remainingToStage, firstPrice]); } 
             catch(e) { await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, remainingToStage, firstPrice]).catch(()=>{}); }
         }
 
-        // الإرجاع الآمن للمخزون (الإنفنتوري)
         let updated = false;
         try {
             const resUpd = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) RETURNING *`, [removeQty, userId, guildId, itemId]);
@@ -277,7 +274,7 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     if (isCart) {
         currentItems = staged.map(s => {
             const info = resolveItemInfo(s.itemID || s.itemid);
-            return { id: s.itemID || s.itemid, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity: s.quantity, pricePerUnit: s.pricePerUnit || s.priceperunit, imgPath: info.imgPath, fullImage: info.fullImage };
+            return { dbId: s.id, id: s.itemID || s.itemid, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity: s.quantity, pricePerUnit: s.pricePerUnit || s.priceperunit, imgPath: info.imgPath, fullImage: info.fullImage };
         });
     } else {
         currentItems = categoriesData[state.category] || [];
@@ -377,6 +374,9 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     }
 }
 
+// ============================================================================
+// [الأحداث] الحركة واختيار البضائع باستخدام Modal
+// ============================================================================
 async function handleStagingInteraction(interaction, db, user, guild) {
     const id = interaction.customId;
     const authorId = user.id;
@@ -411,7 +411,6 @@ async function handleStagingInteraction(interaction, db, user, guild) {
         }
         
         if (state.category === 'staged') {
-            // 👑 تم تصحيح بناء المودل هنا عشان يحمل اسم الغرض المباشر بدون أرقام الداتابيس الغريبة
             const modal = new ModalBuilder().setCustomId(`stg_rmv_modal_${selectedItem.id}`).setTitle(`إزالة البضاعة`);
             modal.addComponents(new ActionRowBuilder().addComponents(
                 new TextInputBuilder().setCustomId('rmv_qty').setLabel(`الكمية (الحد الأقصى ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
@@ -471,15 +470,18 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         await showStagingUI(modalSubmit, db, user, guild, true);
         
     } else if (id.startsWith('stg_rmv_modal_')) {
-        // 👑 تم تصحيح القراءة للآيدي عشان ترسل آيدي الغرض فقط، بدون تخبيص أرقام الداتابيس 👑
-        const itemId = id.replace('stg_rmv_modal_', '');
+        let itemId = id.replace('stg_rmv_modal_', '');
+        
+        // 👑 الفلتر السحري: إزالة أي أرقام (dbId) مدموجة مع الآيدي قادمة من المودلات القديمة المعلقة 👑
+        if (/^(\d+|undefined)_/.test(itemId)) {
+            itemId = itemId.replace(/^(\d+|undefined)_/, '');
+        }
+
         const qty = parseInt(modalSubmit.fields.getTextInputValue('rmv_qty'));
         
         if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
         
         await modalSubmit.deferUpdate().catch(() => {});
-        
-        // الآن الدالة تستقبل اسم الغرض المباشر وتسحبه بشكل مثالي
         const result = await stagingRemoveItemSafe(db, user.id, guild.id, itemId, qty);
         if (!result.ok) return modalSubmit.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
         
