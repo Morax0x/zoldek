@@ -17,7 +17,7 @@ const { scheduleNpcSpawn } = require('./market-npc-ai');
 
 const activeTimers = new Map();
 
-async function createMarketThread(client, db, caravan, channelId) {
+async function createMarketThread(client, db, caravan, channelId, sourceMessage = null) {
     try {
         const ownerId = caravan.userid || caravan.userID;
         const guildId = caravan.guildid || caravan.guildID;
@@ -35,16 +35,28 @@ async function createMarketThread(client, db, caravan, channelId) {
         if (!channel) channel = await guild.channels.fetch(channelId).catch(() => null);
         if (!channel) return null;
 
-        // 👑 إنشاء الثريد (السوق)
-        const thread = await channel.threads.create({
-            name: `🏪 سوق-${dest.name.replace(/ /g, '-')}`,
-            autoArchiveDuration: 1440,
-            type: ChannelType.PublicThread,
-            reason: `سوق القافلة - ${dest.name}`,
-        }).catch(err => {
-            console.error('[CreateThread Error]', err);
-            return null;
-        });
+        // إنشاء الثريد: إما على رسالة الوصول مباشرة أو كثريد مستقل
+        let thread;
+        if (sourceMessage) {
+            thread = await sourceMessage.startThread({
+                name: `🏪 سوق-${dest.name.replace(/ /g, '-')}`,
+                autoArchiveDuration: 1440,
+                reason: `سوق القافلة - ${dest.name}`,
+            }).catch(err => {
+                console.error('[CreateThread Error]', err);
+                return null;
+            });
+        } else {
+            thread = await channel.threads.create({
+                name: `🏪 سوق-${dest.name.replace(/ /g, '-')}`,
+                autoArchiveDuration: 1440,
+                type: ChannelType.PublicThread,
+                reason: `سوق القافلة - ${dest.name}`,
+            }).catch(err => {
+                console.error('[CreateThread Error]', err);
+                return null;
+            });
+        }
 
         if (!thread) return null;
 
