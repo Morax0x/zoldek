@@ -272,28 +272,37 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
 }
 
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
+    if (!caravanId) return;
+
+    // Idempotency: if listings already exist for this caravan, skip
+    const existCheck = await safeQuery(db,
+        `SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1`,
+        [caravanId]);
+    if (existCheck.rows.length > 0) return;
+
     const staged = await getStagedItemsSafe(db, userId, guildId);
     for (const st of staged) {
-        const idKey = Object.keys(st).find(k => k.toLowerCase() === 'itemid');
-        const qtyKey = Object.keys(st).find(k => k.toLowerCase() === 'quantity');
+        const idKey    = Object.keys(st).find(k => k.toLowerCase() === 'itemid');
+        const qtyKey   = Object.keys(st).find(k => k.toLowerCase() === 'quantity');
         const priceKey = Object.keys(st).find(k => k.toLowerCase() === 'priceperunit');
-        
-        const itemId = idKey ? st[idKey] : null;
-        const qty = qtyKey ? st[qtyKey] : 0;
-        const price = priceKey ? st[priceKey] : 0;
-        
-        if(!itemId) continue;
-        
+
+        const itemId = idKey    ? st[idKey]    : null;
+        const qty    = qtyKey   ? st[qtyKey]   : 0;
+        const price  = priceKey ? st[priceKey] : 0;
+
+        if (!itemId) continue;
+
         const itemInfo = resolveItemInfo(itemId);
         const now = Date.now();
-        
-        try {
-            await db.query(`INSERT INTO caravan_market_listings ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji","quantity","pricePerUnit","quantitySold","status","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`, [caravanId, userId, guildId, itemId, itemInfo.name || '', itemInfo.emoji || '📦', qty, price, now]);
-        } catch(e) {
-            await safeExecute(db, `INSERT INTO caravan_market_listings ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji","quantity","pricePerUnit","quantitySold","status","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`, [caravanId, userId, guildId, itemId, itemInfo.name || '', itemInfo.emoji || '📦', qty, price, now]);
-        }
+
+        await safeExecute(db,
+            `INSERT INTO caravan_market_listings
+                ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji",
+                 "quantity","pricePerUnit","quantitySold","status","createdAt")
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`,
+            [caravanId, userId, guildId, itemId, itemInfo.name || '', itemInfo.emoji || '📦', qty, price, now]);
     }
-    // 👑 تم حذف دالة الإزالة من العربة لتظل البضائع في السلة طوال الرحلة 👑
+    // Staging intentionally NOT deleted — persistent cart model
 }
 
 // ============================================================================
