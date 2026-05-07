@@ -462,7 +462,8 @@ module.exports = {
                         }
                         
                         if (state.category === 'staged') {
-                            const modalId = `stg_rmv_modal_${selectedItem.id || selectedItem.itemID}_${Date.now()}`;
+                            const itemIdToUse = selectedItem.id || selectedItem.itemID;
+                            const modalId = `stg_rmv_modal_${itemIdToUse}_${Date.now()}`;
                             const modal = new ModalBuilder().setCustomId(modalId).setTitle(`إزالة البضاعة`);
                             modal.addComponents(new ActionRowBuilder().addComponents(
                                 new TextInputBuilder().setCustomId('rmv_qty').setLabel(`الكمية (الحد الأقصى ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
@@ -472,7 +473,7 @@ module.exports = {
                             // التقاط استجابة المودل وتمريرها للمتجر
                             try {
                                 const mSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
-                                mSubmit.customId = `stg_rmv_modal_${selectedItem.id || selectedItem.itemID}`;
+                                mSubmit.customId = `stg_rmv_modal_${itemIdToUse}`;
                                 await marketSetup.handleStageModalSubmit(mSubmit, db, user, guild);
                             } catch(e) { activeProcesses.delete(user.id); }
                             

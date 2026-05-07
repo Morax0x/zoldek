@@ -522,7 +522,11 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         await showStagingUI(modalSubmit, db, user, guild, true);
         
     } else if (id.startsWith('stg_rmv_modal_')) {
-        const itemId = id.replace('stg_rmv_modal_', ''); // القراءة النظيفة للآيدي
+        // استخراج الـ itemId من نهاية الـ customId (قبل الطابع الزمني إن وجد)
+        const parts = id.replace('stg_rmv_modal_', '').split('_');
+        // إزالة الطابع الزمني إذا كان موجوداً (آخر جزء رقمي)
+        if (parts.length > 1 && /^\d+$/.test(parts[parts.length - 1])) parts.pop();
+        const itemId = parts.join('_');
         const qty = parseInt(modalSubmit.fields.getTextInputValue('rmv_qty'));
         
         if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
