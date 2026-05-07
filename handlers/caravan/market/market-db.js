@@ -164,24 +164,40 @@ async function getStagedItems(db, userId, guildId) {
     return res?.rows || [];
 }
 
-// Move all staged items for a caravan into official market listings
+// Move all staged items for a caravan into official market listings.
+// Clears staging — items live in caravan_market_listings during the trip.
+// Unsold items are returned to staging (not inventory) when the market closes.
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
     const staged = await getStagedItems(db, userId, guildId);
     if (!staged || staged.length === 0) return { ok: true, moved: 0 };
 
     let moved = 0;
     for (const s of staged) {
+        // Case-insensitive key access handles both Postgres (camelCase) and SQLite (lowercase)
+        const idKey    = Object.keys(s).find(k => k.toLowerCase() === 'itemid');
+        const qtyKey   = Object.keys(s).find(k => k.toLowerCase() === 'quantity');
+        const priceKey = Object.keys(s).find(k => k.toLowerCase() === 'priceperunit');
+
+        const itemId       = idKey    ? s[idKey]            : null;
+        const quantity     = qtyKey   ? Number(s[qtyKey])   : 0;
+        const pricePerUnit = priceKey ? Number(s[priceKey]) : 0;
+
+        if (!itemId || quantity <= 0) continue;
+
         const listingId = await createListing(db, caravanId, userId, guildId, {
-            itemId: s.itemID,
-            itemName: s.itemID,
+            itemId,
+            itemName: itemId,
             itemEmoji: '📦',
-            quantity: s.quantity,
-            pricePerUnit: s.pricePerUnit
+            quantity,
+            pricePerUnit,
         });
         if (listingId) moved++;
     }
-    // Clear staging for this user
-    await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+
+    // Clear staging: items are now in caravan_market_listings for the market phase
+    const cleared = await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+    if (!cleared) await safeExecute(db, `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]);
+
     return { ok: true, moved };
 }
 
@@ -378,6 +394,9 @@ async function closeSession(db, threadId) {
     `, [threadId]);
 }
 
+// Returns unsold items from caravan_market_listings back into caravan_staging_market
+// (the persistent cart), preserving the seller's price for the next trip.
+// Items only leave staging when the user explicitly hits "Remove" in the UI.
 async function returnUnsoldItems(db, ownerId, guildId) {
     const listings = await safeQuery(db, `
         SELECT * FROM caravan_market_listings
@@ -386,26 +405,40 @@ async function returnUnsoldItems(db, ownerId, guildId) {
     `, [ownerId, guildId]);
 
     const returned = [];
+    const now = Date.now();
+
     for (const listing of (listings.rows || [])) {
-        const qty = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
-        if (qty > 0) {
-            try {
-                await db.query(`
-                    INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
-                    VALUES ($1,$2,$3,$4)
-                    ON CONFLICT ("guildID","userID","itemID")
-                    DO UPDATE SET "quantity" = COALESCE(user_inventory.quantity, 0) + $4
-                `, [guildId, ownerId, listing.itemid || listing.itemID, qty]);
-            } catch(e) {
-                await db.query(`
-                    INSERT INTO user_inventory (guildid,userid,itemid,quantity)
-                    VALUES ($1,$2,$3,$4)
-                    ON CONFLICT (guildid,userid,itemid)
-                    DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $4
-                `, [guildId, ownerId, listing.itemid || listing.itemID, qty]).catch(()=>{});
-            }
-            returned.push({ itemId: listing.itemid || listing.itemID, quantity: qty, name: listing.itemname || listing.itemName });
+        const itemId = listing.itemid || listing.itemID;
+        const qty    = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
+        const price  = Number(listing.priceperunit || listing.pricePerUnit || 0);
+        const name   = listing.itemname || listing.itemName || itemId;
+
+        if (!itemId || qty <= 0) continue;
+
+        // Upsert back into the staging cart, accumulating qty and keeping price
+        const upserted = await safeExecute(db, `
+            INSERT INTO caravan_staging_market ("userID","guildID","itemID","quantity","pricePerUnit","createdAt")
+            VALUES ($1,$2,$3,$4,$5,$6)
+            ON CONFLICT ("userID","guildID","itemID")
+            DO UPDATE SET
+                "quantity"     = caravan_staging_market."quantity" + EXCLUDED."quantity",
+                "pricePerUnit" = EXCLUDED."pricePerUnit",
+                "createdAt"    = EXCLUDED."createdAt"
+        `, [ownerId, guildId, itemId, qty, price, now]);
+
+        if (!upserted) {
+            await safeExecute(db, `
+                INSERT INTO caravan_staging_market (userid,guildid,itemid,quantity,priceperunit,createdat)
+                VALUES ($1,$2,$3,$4,$5,$6)
+                ON CONFLICT (userid,guildid,itemid)
+                DO UPDATE SET
+                    quantity     = caravan_staging_market.quantity + EXCLUDED.quantity,
+                    priceperunit = EXCLUDED.priceperunit,
+                    createdat    = EXCLUDED.createdat
+            `, [ownerId, guildId, itemId, qty, price, now]);
         }
+
+        returned.push({ itemId, quantity: qty, name });
     }
 
     await safeExecute(db, `

@@ -108,7 +108,7 @@ async function closeMarketThread(client, db, threadId, guildId) {
         if (guild) {
             const thread = guild.channels.cache.get(threadId);
             if (thread) {
-                // إرجاع البضائع غير المباعة للمخزون
+                // إعادة البضائع غير المباعة إلى عربة القافلة (caravan_staging_market)
                 const returned = await returnUnsoldItems(db, session.ownerid || session.ownerID, guildId);
 
                 // إرسال رسالة ملخص المبيعات
@@ -119,7 +119,8 @@ async function closeMarketThread(client, db, threadId, guildId) {
                             .setColor('#FF9900')
                             .setTitle('⏳ انتهى وقت السوق!')
                             .setDescription(
-                                `تم إعادة البضائع غير المباعة إلى المخزون:\n${summary}\n\n` +
+                                `🛒 تمت إعادة البضائع غير المباعة إلى **عربة القافلة** تلقائياً:\n${summary}\n\n` +
+                                `*(ستكون جاهزة بأسعارها في رحلتك القادمة)*\n\n` +
                                 `📊 ملخص المبيعات:\n` +
                                 `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
                                 `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`
