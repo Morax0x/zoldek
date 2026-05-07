@@ -440,6 +440,9 @@ module.exports = {
                     }).catch(() => {});
                 }
 
+                // ============================================================================
+                // 👑 قسم المتجر الخاص بـ D-Pad 👑
+                // ============================================================================
                 else if (id === 'cv_market_staging') {
                     await i.deferUpdate().catch(() => {});
                     await marketSetup.showStagingUI(i, db, user, guild, true);
@@ -497,7 +500,7 @@ module.exports = {
                 }
 
                 // ============================================================================
-                // 👑 إصلاح إرسال القافلة: الآن يتم تمرير i.message.channelId بشكل مؤكد 👑
+                // 👑 إصلاح إطلاق القافلة: الآن ترسل آيدي القناة الصحيح ليفتح فيه السوق 👑
                 // ============================================================================
                 else if (id.startsWith('cv_noprotect_')) {
                     const destId = id.replace('cv_noprotect_', '');
@@ -514,10 +517,10 @@ module.exports = {
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     
-                    const currentChannelId = i.message ? i.message.channelId : i.channelId;
-
-                    // 👑 تمرير القناة بشكل دقيق 👑
-                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, currentChannelId);
+                    // استخدام آيدي القناة لتخزينه في الداتابيس للعودة إليه
+                    const channelId = i.message ? i.message.channelId : i.channelId;
+                    
+                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
 
                     if (result.error) {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
@@ -527,9 +530,7 @@ module.exports = {
 
                     if (result.caravanId) {
                         await finalizeListings(client, db, result.caravanId, user.id, guild.id);
-                        if (typeof marketSetup.finalizeStagedItems === 'function') {
-                            await marketSetup.finalizeStagedItems(db, result.caravanId, user.id, guild.id);
-                        }
+                        // لا نستدعي finalizeStagedItems هنا عشان البضائع تظل بالسلة
                     }
 
                     if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
