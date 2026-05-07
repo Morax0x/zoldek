@@ -9,7 +9,7 @@ const { createListing, lockItemsFromInventory, stagingAddItem, getStagedItems, s
 
 const path = require('path');
 const upgradeMats = require('../../../json/upgrade-materials.json');
-let fishData = [], farmSeeds = [], farmFeeds = [], potionsData = [], marketData = [], baitsData = [];
+let fishData = [], farmSeeds = [], farmFeeds = [], potionsData = [], baitsData = [];
 
 try { 
     const fishJson = require('../../../json/fishing-config.json') || require('../../../json/fish.json');
@@ -19,7 +19,6 @@ try { baitsData = require('../../../json/baits.json'); } catch(e) {}
 try { farmSeeds = require('../../../json/seeds.json'); } catch(e) {}
 try { farmFeeds = require('../../../json/feed-items.json'); } catch(e) {}
 try { potionsData = require('../../../json/potions.json'); } catch(e) {}
-try { marketData = require('../../../json/market-items.json'); } catch(e) {}
 
 const ITEM_DICTIONARY = new Map();
 
@@ -57,7 +56,8 @@ function buildDictionary() {
     }
     if (fishData && Array.isArray(fishData)) {
         for (const fish of fishData) {
-            ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'fishing', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
+            // تحويل الأسماك إلى قسم الموارد عشان تباع بشكل طبيعي
+            ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'materials', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
         }
     }
     if (baitsData && Array.isArray(baitsData)) {
@@ -80,11 +80,6 @@ function buildDictionary() {
             ITEM_DICTIONARY.set(potion.id, { name: potion.name, emoji: potion.emoji || '🧪', category: 'potions', rarity: 'Rare', imgPath: potion.image || `images/potions/${potion.id}.png` });
         }
     }
-    if (marketData && Array.isArray(marketData)) {
-        for (const market of marketData) {
-            ITEM_DICTIONARY.set(market.id, { name: market.name, emoji: '📈', category: 'market', rarity: 'Epic', imgPath: market.image || `images/market/${market.id.toLowerCase()}.png` });
-        }
-    }
 }
 buildDictionary();
 
@@ -96,19 +91,17 @@ function resolveItemInfo(itemId) {
 }
 const getItemInfo = resolveItemInfo;
 
+// 👑 إزالة قسم الأسهم وقسم "أخرى"، وتعديل الصيد ليكون طعوم فقط 👑
 const CATEGORY_NAMES = {
-    'materials': '💎 مواد التطوير',
-    'fishing': '🎣 أدوات الصيد',
+    'materials': '💎 موارد وتطوير',
+    'fishing': '🪱 طعوم الصيد',
     'farming': '🌾 المزرعة',
     'potions': '🧪 الجرعات',
-    'market': '📈 سوق الأسهم',
-    'others': '📦 أخرى',
     'staged': '🛒 سلة البضائع (محملة)'
 };
 
 const RARITY_AR = { 'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
 
-// دالة جلب المخزون البسيطة (عشان نتجنب الكراش لو استدعاها ملف ثاني)
 async function fetchUserInventory(db, userId, guildId) {
     let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
     if (!invRes || !invRes.rows || invRes.rows.length === 0) {
@@ -131,7 +124,8 @@ async function getInventoryCategories(db, userId, guildId) {
         }
     } catch(e) {}
 
-    const categories = { materials: [], fishing: [], farming: [], potions: [], market: [], others: [] };
+    // 👑 الأقسام المسموحة فقط 👑
+    const categories = { materials: [], fishing: [], farming: [], potions: [] };
     
     for (const row of inventory) {
         const itemId = row.itemID || row.itemid;
@@ -139,8 +133,11 @@ async function getInventoryCategories(db, userId, guildId) {
         if (quantity <= 0 || itemId === 'gacha_chest' || itemId === 'free_gacha_chest') continue;
         
         const itemInfo = resolveItemInfo(itemId);
-        if (categories[itemInfo.category]) categories[itemInfo.category].push({ ...itemInfo, quantity, id: itemId });
-        else categories.others.push({ ...itemInfo, quantity, id: itemId });
+        
+        // الفلترة: إذا كان القسم موجود يتم إضافته، وإذا كان 'others' أو 'market' يتم تجاهله تلقائياً
+        if (categories[itemInfo.category]) {
+            categories[itemInfo.category].push({ ...itemInfo, quantity, id: itemId });
+        }
     }
     
     const rarityWeights = { 'Legendary': 5, 'Epic': 4, 'Rare': 3, 'Uncommon': 2, 'Common': 1 };
@@ -245,11 +242,9 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
 
     const pageItems = currentItems.slice((state.page - 1) * ITEMS_PER_PAGE, state.page * ITEMS_PER_PAGE);
     
-    // ضبط التحديد ليكون داخل النطاق الصحيح
     if (state.selectedIndex >= pageItems.length && pageItems.length > 0) state.selectedIndex = pageItems.length - 1;
     else if (pageItems.length === 0) state.selectedIndex = 0;
 
-    // حفظ الأصناف المعروضة حالياً في الكاش عشان زر 💠
     interaction.client[stateKey].pageItems = pageItems;
 
     const expectedProfit = staged.reduce((acc, curr) => acc + (Number(curr.quantity) * Number(curr.pricePerUnit || curr.priceperunit)), 0);
@@ -257,8 +252,8 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     let buffer = null;
     if (INVENTORY_GEN && INVENTORY_GEN.generateInventoryCard) {
         try {
-            // استخدام دالة الرسم الخاصة بالانفنتوري مباشرة
-            const catForDraw = isCart ? 'market' : state.category; 
+            // 👑 تم تمرير الخلفية الصحيحة للوحة عند فتح العربة عشان ما يضرب كراش وتظهر الصور
+            const catForDraw = isCart ? 'materials' : state.category; 
             buffer = await INVENTORY_GEN.generateInventoryCard(user.displayName || user.username, catForDraw, pageItems, state.page, totalPages, state.selectedIndex);
         } catch (e) { buffer = null; }
     }
@@ -288,7 +283,6 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     embed.addFields({ name: `📂 ${CATEGORY_NAMES[state.category]} (صفحة ${state.page}/${totalPages})`, value: itemsText.substring(0, 1024), inline: false });
 
     const aId = user.id;
-    // أزرار الحركة (D-Pad) + زر القائمة المنسدلة للأقسام
     const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`stg_l2_${aId}`).setEmoji('⏪').setStyle(ButtonStyle.Secondary).setDisabled(pageItems.length === 0),
         new ButtonBuilder().setCustomId(`stg_u1_${aId}`).setEmoji('⬆️').setStyle(ButtonStyle.Primary).setDisabled(pageItems.length === 0),
@@ -355,7 +349,6 @@ async function handleStagingInteraction(interaction, db, user, guild) {
     }
     const state = interaction.client[stateKey];
 
-    // تغيير القسم
     if (interaction.isStringSelectMenu() && id.startsWith('stg_cat_')) {
         state.category = interaction.values[0].replace('cat_', '');
         state.page = 1;
@@ -364,7 +357,6 @@ async function handleStagingInteraction(interaction, db, user, guild) {
         return await showStagingUI(interaction, db, user, guild, true);
     }
 
-    // زر الموافقة (💠) يفتح مودال التسعير أو الحذف فوراً (بدون Defer لأن المودل ما يقبله)
     if (id.startsWith('stg_ok_')) {
         const pageItems = state.pageItems || [];
         const selectedItem = pageItems[state.selectedIndex];
@@ -394,7 +386,6 @@ async function handleStagingInteraction(interaction, db, user, guild) {
         }
     }
 
-    // أزرار الحركة والتنقل (D-Pad)
     await interaction.deferUpdate().catch(()=>{});
 
     if (id.startsWith('stg_prev_')) { state.page = Math.max(1, state.page - 1); state.selectedIndex = 0; }
@@ -451,7 +442,6 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
     }
 }
 
-// 👑 تصدير كل شيء بدون أي نقصان 👑
 module.exports = {
     resolveItemInfo,
     getItemInfo,
