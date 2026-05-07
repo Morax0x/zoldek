@@ -159,7 +159,7 @@ async function distributeRewards(client, db, caravan) {
          WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId, attackMulti >= 0.5 ? 1 : 0]);
 
-    // 👑 الحل الجذري لمنع إيقاف السوق: تغيير الحالة بدلاً من الحذف 👑
+    // 👑 تحديث الحالة إلى completed بدلاً من الحذف لكي يتصل السوق بالبيانات 👑
     await safeExecute(db,
         `UPDATE user_caravans SET "status"='completed' WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId]);
@@ -198,10 +198,12 @@ async function processCaravanReturns(client, db) {
                 }
 
                 // 1. نقل البضائع من العربة إلى قائمة السوق
-                await finalizeStagedItems(db, caravanId, userId, guildId);
+                if (typeof finalizeStagedItems === 'function') {
+                    await finalizeStagedItems(db, caravanId, userId, guildId);
+                }
                 const listings = await getListingsByCaravan(db, caravanId);
 
-                // 2. نوزع الجوائز وتتغير الحالة إلى completed بدال الحذف
+                // 2. توزيع الجوائز وتغيير حالة القافلة لتجنب الكراش
                 const summary = await distributeRewards(client, db, caravan);
                 
                 try {
@@ -228,6 +230,15 @@ async function processCaravanReturns(client, db) {
                         channel = await guildObj.channels.fetch(casinoId).catch(() => null);
                     }
 
+                    // 👑 نظام الطوارئ (الفولباك السحري): لو ما لقى الروم، بياخذ أي روم مفتوحة ويفتح فيها السوق عشان ما يفشل الكود! 👑
+                    if (!channel && guildObj) {
+                        channel = guildObj.channels.cache.find(c => 
+                            c.type === 0 && 
+                            c.permissionsFor(client.user).has(['SendMessages', 'ViewChannel', 'CreatePublicThreads', 'SendMessagesInThreads'])
+                        );
+                        if (channel) casinoId = channel.id;
+                    }
+
                     if (channel) {
                         const destId = caravan.destinationid || caravan.destinationId;
                         const dest   = caravanConfig.destinations.find(d => d.id === destId);
@@ -252,6 +263,7 @@ async function processCaravanReturns(client, db) {
                             }).catch(() => {});
                         }
 
+                        // 👑 فتح الثريد حق السوق إجبارياً دام فيه بضائع والروم موجودة 👑
                         if (listings.length > 0 && casinoId) {
                             await createMarketThread(client, db, caravan, casinoId);
                         }
