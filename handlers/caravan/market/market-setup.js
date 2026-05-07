@@ -56,7 +56,6 @@ function buildDictionary() {
     }
     if (fishData && Array.isArray(fishData)) {
         for (const fish of fishData) {
-            // تحويل الأسماك إلى قسم الموارد عشان تباع بشكل طبيعي
             ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'materials', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
         }
     }
@@ -91,7 +90,6 @@ function resolveItemInfo(itemId) {
 }
 const getItemInfo = resolveItemInfo;
 
-// 👑 إزالة قسم الأسهم وقسم "أخرى"، وتعديل الصيد ليكون طعوم فقط 👑
 const CATEGORY_NAMES = {
     'materials': '💎 موارد وتطوير',
     'fishing': '🪱 طعوم الصيد',
@@ -124,7 +122,6 @@ async function getInventoryCategories(db, userId, guildId) {
         }
     } catch(e) {}
 
-    // 👑 الأقسام المسموحة فقط 👑
     const categories = { materials: [], fishing: [], farming: [], potions: [] };
     
     for (const row of inventory) {
@@ -134,7 +131,6 @@ async function getInventoryCategories(db, userId, guildId) {
         
         const itemInfo = resolveItemInfo(itemId);
         
-        // الفلترة: إذا كان القسم موجود يتم إضافته، وإذا كان 'others' أو 'market' يتم تجاهله تلقائياً
         if (categories[itemInfo.category]) {
             categories[itemInfo.category].push({ ...itemInfo, quantity, id: itemId });
         }
@@ -211,6 +207,15 @@ async function stagingRemoveItemSafe(db, userId, guildId, itemId, quantity) {
 let INVENTORY_GEN;
 try { INVENTORY_GEN = require('../../../generators/inventory-generator.js'); } catch (e) { INVENTORY_GEN = null; }
 
+// خريطة تحويل الأسماء للعربي عشان الرسام (Canvas) ما يضرب كراش ويظهر الصور
+const CAT_TO_ARABIC = {
+    'materials': 'موارد',
+    'fishing': 'صيد',
+    'farming': 'مزرعة',
+    'potions': 'أخرى',
+    'staged': 'موارد' // العربة تستخدم خلفية الموارد مؤقتاً
+};
+
 async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     const stateKey = `mkt_state_${user.id}_${guild.id}`;
     if (!interaction.client[stateKey]) {
@@ -252,9 +257,15 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     let buffer = null;
     if (INVENTORY_GEN && INVENTORY_GEN.generateInventoryCard) {
         try {
-            // 👑 تم تمرير الخلفية الصحيحة للوحة عند فتح العربة عشان ما يضرب كراش وتظهر الصور
-            const catForDraw = isCart ? 'materials' : state.category; 
-            buffer = await INVENTORY_GEN.generateInventoryCard(user.displayName || user.username, catForDraw, pageItems, state.page, totalPages, state.selectedIndex);
+            // 👑 تجهيز المكونات للرسام مع تحويل القسم للعربي لكي يقبله
+            const drawCategory = CAT_TO_ARABIC[state.category] || 'موارد';
+            
+            const drawItems = pageItems.map(item => ({
+                ...item,
+                category: drawCategory // إجبار العنصر يكون له قسم عربي عشان الرسام
+            }));
+            
+            buffer = await INVENTORY_GEN.generateInventoryCard(user.displayName || user.username, drawCategory, drawItems, state.page, totalPages, state.selectedIndex);
         } catch (e) { buffer = null; }
     }
 
