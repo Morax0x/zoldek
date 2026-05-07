@@ -520,7 +520,7 @@ module.exports = {
                     // استخدام آيدي القناة لتخزينه في الداتابيس للعودة إليه
                     const channelId = i.message ? i.message.channelId : i.channelId;
                     
-                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
+                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, i.message ? i.message.channelId : i.channelId);
 
                     if (result.error) {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });

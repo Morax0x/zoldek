@@ -164,7 +164,7 @@ async function distributeRewards(client, db, caravan) {
 
     // Remove the completed caravan record
     await safeExecute(db,
-        `DELETE FROM user_caravans WHERE "userID"=$1 AND "guildID"=$2`,
+        `UPDATE user_caravans SET "status"='completed' WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId]);
 
     return summary;
@@ -241,7 +241,7 @@ async function processCaravanReturns(client, db) {
                         const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
                         channel = guild.channels.cache.find(c =>
                             c.type === 0 &&
-                            me?.permissionsIn(c).has(['SendMessages', 'CreatePublicThreads'])
+                            me && me.permissionsIn(c).has(['SendMessages', 'CreatePublicThreads'])
                         ) ?? null;
                     }
                 }
