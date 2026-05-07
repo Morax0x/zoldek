@@ -119,8 +119,7 @@ async function closeMarketThread(client, db, threadId, guildId) {
                             .setColor('#FF9900')
                             .setTitle('⏳ انتهى وقت السوق!')
                             .setDescription(
-                                `🛒 تمت إعادة البضائع غير المباعة إلى **عربة القافلة** تلقائياً:\n${summary}\n\n` +
-                                `*(ستكون جاهزة بأسعارها في رحلتك القادمة)*\n\n` +
+                                `🛒 البضائع التالية لا تزال في عربة قافلتك وستكون جاهزة في رحلتك القادمة:\n${summary}\n\n` +
                                 `📊 ملخص المبيعات:\n` +
                                 `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
                                 `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`

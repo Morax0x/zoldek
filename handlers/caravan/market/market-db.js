@@ -164,10 +164,16 @@ async function getStagedItems(db, userId, guildId) {
     return res?.rows || [];
 }
 
-// Move all staged items for a caravan into official market listings.
-// Clears staging — items live in caravan_market_listings during the trip.
-// Unsold items are returned to staging (not inventory) when the market closes.
+// Copy staged items into official market listings (idempotent).
+// Staging is NEVER deleted — it is the persistent source of truth for the cart.
+// Sales deduct from both tables; market close just marks listings returned.
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
+    if (!caravanId) return { ok: false, error: 'caravanId is null' };
+
+    // Idempotency: if listings already exist for this caravan, do nothing
+    const existing = await getListingsByCaravan(db, caravanId);
+    if (existing.length > 0) return { ok: true, moved: existing.length };
+
     const staged = await getStagedItems(db, userId, guildId);
     if (!staged || staged.length === 0) return { ok: true, moved: 0 };
 
@@ -194,10 +200,7 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         if (listingId) moved++;
     }
 
-    // Clear staging: items are now in caravan_market_listings for the market phase
-    const cleared = await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
-    if (!cleared) await safeExecute(db, `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]);
-
+    // Staging intentionally NOT deleted — persistent cart model
     return { ok: true, moved };
 }
 
@@ -352,6 +355,20 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         `, [listingId]);
     }
 
+    // 3b️⃣ خصم الكمية من عربة القافلة (staging) — الـ staging هو المصدر الدائم
+    const stagingDeducted = await safeExecute(db, `
+        UPDATE caravan_staging_market
+        SET "quantity" = GREATEST(0, "quantity" - $1)
+        WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4
+    `, [quantity, sellerId, guildId, itemId]);
+    if (!stagingDeducted) {
+        await safeExecute(db, `
+            UPDATE caravan_staging_market
+            SET quantity = GREATEST(0, quantity - $1)
+            WHERE userid=$2 AND guildid=$3 AND itemid=$4
+        `, [quantity, sellerId, guildId, itemId]);
+    }
+
     await safeExecute(db, `
         INSERT INTO caravan_market_transactions
             ("listingId","buyerID","sellerID","guildID","itemID","quantity",
@@ -394,57 +411,29 @@ async function closeSession(db, threadId) {
     `, [threadId]);
 }
 
-// Returns unsold items from caravan_market_listings back into caravan_staging_market
-// (the persistent cart), preserving the seller's price for the next trip.
-// Items only leave staging when the user explicitly hits "Remove" in the UI.
+// Closes the market for an owner: marks all active/sold_out listings as returned.
+// Staging is the persistent cart — items were never removed from it, so no upsert needed.
+// Returns the current staging contents so the caller can display what remains in the cart.
 async function returnUnsoldItems(db, ownerId, guildId) {
-    const listings = await safeQuery(db, `
-        SELECT * FROM caravan_market_listings
-        WHERE "ownerID"=$1 AND "guildID"=$2 AND "status" IN ('active','sold_out')
-          AND CAST("quantity" AS BIGINT) > CAST(COALESCE("quantitySold", '0') AS BIGINT)
-    `, [ownerId, guildId]);
-
-    const returned = [];
-    const now = Date.now();
-
-    for (const listing of (listings.rows || [])) {
-        const itemId = listing.itemid || listing.itemID;
-        const qty    = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
-        const price  = Number(listing.priceperunit || listing.pricePerUnit || 0);
-        const name   = listing.itemname || listing.itemName || itemId;
-
-        if (!itemId || qty <= 0) continue;
-
-        // Upsert back into the staging cart, accumulating qty and keeping price
-        const upserted = await safeExecute(db, `
-            INSERT INTO caravan_staging_market ("userID","guildID","itemID","quantity","pricePerUnit","createdAt")
-            VALUES ($1,$2,$3,$4,$5,$6)
-            ON CONFLICT ("userID","guildID","itemID")
-            DO UPDATE SET
-                "quantity"     = caravan_staging_market."quantity" + EXCLUDED."quantity",
-                "pricePerUnit" = EXCLUDED."pricePerUnit",
-                "createdAt"    = EXCLUDED."createdAt"
-        `, [ownerId, guildId, itemId, qty, price, now]);
-
-        if (!upserted) {
-            await safeExecute(db, `
-                INSERT INTO caravan_staging_market (userid,guildid,itemid,quantity,priceperunit,createdat)
-                VALUES ($1,$2,$3,$4,$5,$6)
-                ON CONFLICT (userid,guildid,itemid)
-                DO UPDATE SET
-                    quantity     = caravan_staging_market.quantity + EXCLUDED.quantity,
-                    priceperunit = EXCLUDED.priceperunit,
-                    createdat    = EXCLUDED.createdat
-            `, [ownerId, guildId, itemId, qty, price, now]);
-        }
-
-        returned.push({ itemId, quantity: qty, name });
-    }
-
+    // Mark listings closed
     await safeExecute(db, `
         UPDATE caravan_market_listings SET "status"='returned'
         WHERE "ownerID"=$1 AND "guildID"=$2 AND "status" IN ('active','sold_out')
     `, [ownerId, guildId]);
+
+    // Read staging — it's the source of truth for what's still in the cart
+    const stagingRes = await safeQuery(db, `
+        SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2
+    `, [ownerId, guildId]);
+
+    const returned = [];
+    for (const s of (stagingRes?.rows || [])) {
+        const idKey  = Object.keys(s).find(k => k.toLowerCase() === 'itemid');
+        const qtyKey = Object.keys(s).find(k => k.toLowerCase() === 'quantity');
+        const itemId = idKey  ? s[idKey]          : null;
+        const qty    = qtyKey ? Number(s[qtyKey]) : 0;
+        if (itemId && qty > 0) returned.push({ itemId, quantity: qty, name: itemId });
+    }
 
     return returned;
 }

@@ -6,16 +6,16 @@ const { getUserCaravanStats } = require('./stats');
 const { initCaravanTables } = require('./tables');
 const { initMarketTables, createMarketThread, getListingsByCaravan, finalizeStagedItems } = require('./market');
 
-async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) {
+async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = [], marketChannelId = null) {
     const dest = caravanConfig.destinations.find(d => d.id === destId);
     if (!dest) return { error: 'وجهة غير موجودة.' };
 
     if (equippedArtifacts && equippedArtifacts.length > 0) {
         for (const art of equippedArtifacts) {
-            await safeExecute(db, 
-                `UPDATE user_inventory 
-                 SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1) 
-                 WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR "itemid"=$4)`, 
+            await safeExecute(db,
+                `UPDATE user_inventory
+                 SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1)
+                 WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR "itemid"=$4)`,
                 [art.count, userId, guildId, art.id]
             );
         }
@@ -36,19 +36,22 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) 
         attackScheduledAt  = Math.floor(startTime + attackOffset);
     }
 
-    await safeExecute(db, `
+    const cvRow = await safeQuery(db, `
         INSERT INTO user_caravans
             ("userID","guildID","destinationId","startTime","endTime","status",
-             "equippedArtifacts","attackScheduledAt","attackResolved","rewardMultiplier")
-        VALUES ($1,$2,$3,$4,$5,'traveling',$6,$7,0,1.0)
+             "equippedArtifacts","attackScheduledAt","attackResolved","rewardMultiplier","marketChannelId")
+        VALUES ($1,$2,$3,$4,$5,'traveling',$6,$7,0,1.0,$8)
         ON CONFLICT ("userID","guildID") DO UPDATE SET
             "destinationId"=$3,"startTime"=$4,"endTime"=$5,"status"='traveling',
             "equippedArtifacts"=$6,"attackScheduledAt"=$7,"attackResolved"=0,
-            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0`,
+            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0,
+            "marketChannelId"=$8
+        RETURNING "id"`,
         [userId, guildId, destId, startTime, endTime,
-         JSON.stringify(equippedArtifacts), attackScheduledAt]);
+         JSON.stringify(equippedArtifacts), attackScheduledAt, marketChannelId]);
 
-    return { ok: true, dest, durationMs, endTime, riskFactor, willBeAttacked };
+    const caravanId = cvRow?.rows?.[0]?.id || null;
+    return { ok: true, dest, durationMs, endTime, riskFactor, willBeAttacked, caravanId };
 }
 
 async function distributeRewards(client, db, caravan) {
@@ -199,18 +202,21 @@ async function processCaravanReturns(client, db) {
                 const summary = await distributeRewards(client, db, caravan);
                 
                 try {
-                    // 👑 قراءة الإعدادات بطريقة آمنة جداً تمنع أي كراش 👑
-                    let settingsRes;
-                    try {
-                        settingsRes = await db.query(`SELECT * FROM settings WHERE "guild"=$1`, [guildId]);
-                    } catch(e) {
-                        settingsRes = await db.query(`SELECT * FROM settings WHERE guild=$1`, [guildId]).catch(()=>({rows:[]}));
+                    // Prefer the channel stored at dispatch time; fall back to settings
+                    let casinoId = caravan.marketchannelid || caravan.marketChannelId || null;
+
+                    if (!casinoId) {
+                        let settingsRes;
+                        try {
+                            settingsRes = await db.query(`SELECT * FROM settings WHERE "guild"=$1`, [guildId]);
+                        } catch(e) {
+                            settingsRes = await db.query(`SELECT * FROM settings WHERE guild=$1`, [guildId]).catch(()=>({rows:[]}));
+                        }
+                        const sRow = settingsRes?.rows?.[0] || {};
+                        casinoId = sRow.caravanchannelid || sRow.caravanChannelID
+                                || sRow.casinochannelid  || sRow.casinoChannelID
+                                || sRow.casinochannelid2 || sRow.casinoChannelID2;
                     }
-                    
-                    const sRow = settingsRes?.rows?.[0] || {};
-                    const casinoId = sRow.caravanchannelid || sRow.caravanChannelID 
-                                  || sRow.casinochannelid || sRow.casinoChannelID 
-                                  || sRow.casinochannelid2 || sRow.casinoChannelID2;
 
                     // 👑 جلب السيرفر والروم بشكل مؤكد لتجنب فقدانها بسبب الريستارت 👑
                     let guild = client.guilds.cache.get(guildId);
@@ -224,8 +230,8 @@ async function processCaravanReturns(client, db) {
                     if (channel) {
                         const destId = caravan.destinationid || caravan.destinationId;
                         const dest   = caravanConfig.destinations.find(d => d.id === destId);
-                        
-                        // إرسال رسالة وصول القافلة 
+
+                        // إرسال رسالة وصول القافلة
                         if (summary && summary.length > 0) {
                             await channel.send({
                                 content: `<@${userId}>`,
@@ -246,7 +252,7 @@ async function processCaravanReturns(client, db) {
                             }).catch(() => {});
                         }
 
-                        // 👑 نقل البضائع من العربة إلى قائمة السوق ثم فتح الثريد 👑
+                        // نقل البضائع من العربة إلى قائمة السوق ثم فتح الثريد
                         await finalizeStagedItems(db, caravanId, userId, guildId);
                         const listings = await getListingsByCaravan(db, caravanId);
                         if (listings.length > 0 && casinoId) {

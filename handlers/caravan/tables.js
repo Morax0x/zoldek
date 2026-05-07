@@ -35,6 +35,9 @@ async function initCaravanTables(db) {
 
     await safeExecute(db,
         `ALTER TABLE user_caravan_stats ADD COLUMN IF NOT EXISTS "cooldown_until" BIGINT DEFAULT 0`, []);
+
+    await safeExecute(db,
+        `ALTER TABLE user_caravans ADD COLUMN IF NOT EXISTS "marketChannelId" TEXT DEFAULT NULL`, []);
 }
 
 async function checkCaravanCooldown(db, userId, guildId) {
