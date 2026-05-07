@@ -5,7 +5,7 @@ const {
 } = require('discord.js');
 const { safeQuery, safeExecute } = require('../db');
 const { EMOJI_MORA } = require('../config');
-const { createListing, lockItemsFromInventory } = require('./market-db'); // إزالة دوال الستيجنج القديمة المليئة بالأخطاء
+const { createListing, lockItemsFromInventory } = require('./market-db');
 
 let INVENTORY_GEN;
 try { INVENTORY_GEN = require('../../../generators/inventory-generator.js'); } catch (e) { INVENTORY_GEN = null; }
@@ -22,19 +22,109 @@ const CATEGORY_NAMES = {
 
 const RARITY_AR = { 'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
 
+// ============================================================================
+// [جلب المخزون وتجميعه لمنع تكرار نفس العنصر في الشاشة]
+// ============================================================================
 async function getFilteredInventoryCategories(db, userId, guildId) {
-    if (!INVENTORY_GEN) return { 'موارد': [], 'صيد': [], 'مزرعة': [] };
-    const rawCategories = await INVENTORY_GEN.getInventoryCategories(db, userId, guildId);
+    let inventory = [];
+    try {
+        const res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        inventory = res?.rows || [];
+        if (inventory.length === 0) {
+            const res2 = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+            inventory = res2?.rows || [];
+        }
+    } catch(e) {}
+
+    const categories = { 'موارد': [], 'صيد': [], 'مزرعة': [], 'أخرى': [] };
     
-    return {
-        'موارد': rawCategories['موارد'] || [],
-        'صيد': (rawCategories['صيد'] || []).filter(item => String(item.id).startsWith('bait_')),
-        'مزرعة': rawCategories['مزرعة'] || []
+    // تجميع السطور المتكررة لنفس العنصر
+    let aggregatedInv = new Map();
+    for (const row of inventory) {
+        const itemId = row.itemID || row.itemid || row.item_id;
+        if (!itemId || itemId === 'gacha_chest' || itemId === 'free_gacha_chest') continue;
+        const quantity = Number(row.quantity || row.qty || row.QUANTITY) || 0;
+        if (quantity <= 0) continue;
+        
+        aggregatedInv.set(itemId, (aggregatedInv.get(itemId) || 0) + quantity);
+    }
+
+    aggregatedInv.forEach((qty, itemId) => {
+        const itemInfo = resolveItemInfo(itemId);
+        if (categories[itemInfo.category]) {
+            categories[itemInfo.category].push({ ...itemInfo, quantity: qty, id: itemId });
+        }
+    });
+
+    const rarityWeights = { 'Legendary': 5, 'Epic': 4, 'Rare': 3, 'Uncommon': 2, 'Common': 1 };
+    const filtered = {
+        'موارد': categories['موارد'] || [],
+        'صيد': (categories['صيد'] || []).filter(item => String(item.id).startsWith('bait_')),
+        'مزرعة': categories['مزرعة'] || []
     };
+    
+    Object.keys(filtered).forEach(cat => {
+        filtered[cat].sort((a, b) => (rarityWeights[b.rarity] || 1) - (rarityWeights[a.rarity] || 1));
+    });
+
+    return filtered;
 }
 
 // ============================================================================
-// [دوال قواعد البيانات فائقة الحماية - تتخطى أخطاء أحرف الأعمدة]
+// [نظام الخصم الذكي المطور (يسحب من عدة سطور لو اضطر)]
+// ============================================================================
+async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDeduct) {
+    let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+    if (!res || !res.rows || res.rows.length === 0) {
+        res = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
+        if (!res || !res.rows) return false;
+    }
+
+    let remaining = quantityToDeduct;
+    const targetId = String(itemId).toLowerCase().trim();
+
+    // التحقق من أن المجموع الكلي يكفي
+    let totalAvailable = 0;
+    res.rows.forEach(r => {
+        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+        const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
+        const dbItemId = idKey ? String(r[idKey]).toLowerCase().trim() : '';
+        if (dbItemId === targetId) totalAvailable += (qtyKey ? Number(r[qtyKey]) : 0);
+    });
+
+    if (totalAvailable < quantityToDeduct) return false;
+
+    // الخصم المتسلسل
+    for (let r of res.rows) {
+        if (remaining <= 0) break;
+        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+        const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
+        const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
+
+        const dbItemId = idKey ? String(r[idKey]).toLowerCase().trim() : '';
+        if (dbItemId !== targetId) continue;
+
+        const q = qtyKey ? Number(r[qtyKey]) : 0;
+        if (q <= 0) continue;
+        
+        const deduct = Math.min(q, remaining);
+        const rowId = r[rowIdKey];
+        
+        try { await db.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, rowId]); } 
+        catch(e) { await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE id = $2`, [deduct, rowId]).catch(()=>{}); }
+        
+        remaining -= deduct;
+    }
+
+    // تنظيف السطور الفارغة
+    try { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]); } 
+    catch(e) { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE(quantity, '0') AS INTEGER) <= 0 AND userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>{}); }
+    
+    return true;
+}
+
+// ============================================================================
+// [دوال الـ Staging للتعامل مع قاعدة البيانات أمنياً]
 // ============================================================================
 function getMarketListingsCache(client, userId, guildId) {
     const key = `market_listings_${userId}_${guildId}`;
@@ -64,77 +154,63 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
 
 async function getStagedItemsSafe(db, userId, guildId) {
     try {
-        await db.query(`CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`).catch(()=>{});
-        let res = await db.query(`SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]).catch(()=>null);
+        await safeExecute(db, `CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`);
+        let res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
         if (!res || !res.rows || res.rows.length === 0) {
-            res = await db.query(`SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]).catch(()=>null);
+            res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]);
         }
         return res?.rows || [];
     } catch { return []; }
 }
 
 async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) {
-    let success = false;
+    const deducted = await safeDeductFromInventory(db, userId, guildId, itemId, quantity);
+    if (!deducted) return { ok: false, error: 'الكمية غير كافية في مخزونك.' };
 
-    // 1. المحاولة بالأحرف الكبيرة (PostgreSQL Default)
-    try {
-        const res = await db.query(
-            `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) AND CAST(COALESCE(quantity, '0') AS INTEGER) >= $1 RETURNING *`, 
-            [quantity, userId, guildId, itemId]
-        );
-        if (res && res.rows && res.rows.length > 0) success = true;
-    } catch (e) {}
-
-    // 2. المحاولة بالأحرف الصغيرة (لو كانت الداتابيس معدلة)
-    if (!success) {
-        try {
-            const res2 = await db.query(
-                `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE userid = $2 AND guildid = $3 AND (itemid = $4 OR "itemID"=$4) AND CAST(COALESCE(quantity, '0') AS INTEGER) >= $1 RETURNING *`, 
-                [quantity, userId, guildId, itemId]
-            );
-            if (res2 && res2.rows && res2.rows.length > 0) success = true;
-        } catch (e) {}
-    }
-
-    if (!success) return { ok: false, error: 'الكمية غير كافية في مخزونك.' };
-
-    // الإضافة لعربة القافلة
     try {
         await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
     } catch(e) {
-        try { await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]); } catch (err) {}
+        await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]).catch(()=>{});
     }
     
     return { ok: true };
 }
 
-async function stagingRemoveItemSafe(db, userId, guildId, itemId, quantity) {
+async function stagingRemoveItemSafe(db, userId, guildId, recordId, itemId, removeQty) {
     try {
-        await db.query(`DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3)`, [userId, guildId, itemId]).catch(() => {
-            return db.query(`DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND (itemid=$3 OR "itemID"=$3)`, [userId, guildId, itemId]);
-        });
+        const res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE id = $1`, [recordId]);
+        if (!res || !res.rows || res.rows.length === 0) return { ok: false, error: 'لم يتم العثور على البضاعة.' };
         
+        const currentQty = res.rows[0].quantity || res.rows[0].QUANTITY;
+        if (removeQty > currentQty) return { ok: false, error: 'الكمية المراد إزالتها أكبر من الموجودة.' };
+        
+        if (removeQty === currentQty) {
+            await db.query(`DELETE FROM caravan_staging_market WHERE id = $1`, [recordId]);
+        } else {
+            await db.query(`UPDATE caravan_staging_market SET quantity = quantity - $1 WHERE id = $2`, [removeQty, recordId]);
+        }
+        
+        // إرجاعها للمخزون
         let updated = false;
         try {
-            const res = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) RETURNING *`, [quantity, userId, guildId, itemId]);
-            if (res && res.rowCount > 0) updated = true;
+            const resUpdate = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) RETURNING *`, [removeQty, userId, guildId, itemId]);
+            if (resUpdate && resUpdate.rowCount > 0) updated = true;
         } catch(e) {}
         
         if (!updated) {
             try {
-                const res2 = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND (itemid = $4 OR "itemID"=$4) RETURNING *`, [quantity, userId, guildId, itemId]);
-                if (res2 && res2.rowCount > 0) updated = true;
+                const resUpdate2 = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND (itemid = $4 OR "itemID"=$4) RETURNING *`, [removeQty, userId, guildId, itemId]);
+                if (resUpdate2 && resUpdate2.rowCount > 0) updated = true;
             } catch(e) {}
         }
         
         if (!updated) {
-            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, quantity]); } catch(e) {
-                await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, quantity]).catch(()=>{});
+            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, removeQty]); } catch(e) {
+                await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, removeQty]).catch(()=>{});
             }
         }
-        
         return { ok: true };
-    } catch { return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' }; }
+    } catch(e) { return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' }; }
 }
 
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
@@ -155,7 +231,7 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
 }
 
 // ============================================================================
-// [الواجهة الرئيسية] متجر القافلة
+// [الواجهة الرئيسية] متجر القافلة بأسلوب الـ Inventory الجديد
 // ============================================================================
 async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     const stateKey = `mkt_state_${user.id}_${guild.id}`;
@@ -177,11 +253,10 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     if (isCart) {
         currentItems = staged.map(s => {
             const info = resolveItemInfo(s.itemID || s.itemid);
-            return { id: s.itemID || s.itemid, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity: s.quantity, pricePerUnit: s.pricePerUnit || s.priceperunit, imgPath: info.imgPath, fullImage: info.fullImage };
+            return { dbId: s.id, id: s.itemID || s.itemid, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity: s.quantity, pricePerUnit: s.pricePerUnit || s.priceperunit, imgPath: info.imgPath, fullImage: info.fullImage };
         });
     } else {
-        const stagedIds = new Set(staged.map(s => s.itemID || s.itemid));
-        currentItems = (categoriesData[state.category] || []).filter(i => !stagedIds.has(i.id));
+        currentItems = categoriesData[state.category] || [];
     }
 
     const ITEMS_PER_PAGE = 15;
@@ -279,7 +354,7 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
 }
 
 // ============================================================================
-// [الأحداث]
+// [الأحداث] الحركة واختيار البضائع باستخدام Modal
 // ============================================================================
 async function handleStagingInteraction(interaction, db, user, guild) {
     const id = interaction.customId;
@@ -305,6 +380,35 @@ async function handleStagingInteraction(interaction, db, user, guild) {
         return await showStagingUI(interaction, db, user, guild, true);
     }
 
+    if (id.startsWith('stg_ok_')) {
+        const pageItems = state.pageItems || [];
+        const selectedItem = pageItems[state.selectedIndex];
+
+        if (!selectedItem) {
+             await interaction.deferUpdate();
+             return interaction.followUp({ content: "❌ المربع المحدد فارغ.", flags: [MessageFlags.Ephemeral] });
+        }
+        
+        if (state.category === 'staged') {
+            const modal = new ModalBuilder().setCustomId(`stg_rmv_modal_${selectedItem.dbId}_${selectedItem.id}`).setTitle(`إزالة البضاعة`);
+            modal.addComponents(new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('rmv_qty').setLabel(`الكمية (الحد الأقصى ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
+            ));
+            return await interaction.showModal(modal).catch(()=>{});
+        } else {
+            const modal = new ModalBuilder().setCustomId(`stg_add_modal_${selectedItem.id}`).setTitle(`تسعير: ${selectedItem.name}`.substring(0, 45));
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('add_qty').setLabel(`الكمية (لديك: ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('add_price').setLabel(`سعر الحبة (مورا)`).setStyle(TextInputStyle.Short).setRequired(true)
+                )
+            );
+            return await interaction.showModal(modal).catch(()=>{});
+        }
+    }
+
     await interaction.deferUpdate().catch(()=>{});
 
     if (id.startsWith('stg_prev_')) { state.page = Math.max(1, state.page - 1); state.selectedIndex = 0; }
@@ -327,6 +431,9 @@ async function handleStagingInteraction(interaction, db, user, guild) {
     await showStagingUI(interaction, db, user, guild, true);
 }
 
+// ============================================================================
+// [التعامل مع استجابة المودل (Modal Submit)]
+// ============================================================================
 async function handleStageModalSubmit(modalSubmit, db, user, guild) {
     const id = modalSubmit.customId;
     
@@ -345,13 +452,16 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         await showStagingUI(modalSubmit, db, user, guild, true);
         
     } else if (id.startsWith('stg_rmv_modal_')) {
-        const itemId = id.replace('stg_rmv_modal_', '');
+        const parts = id.replace('stg_rmv_modal_', '').split('_');
+        const dbId = parts[0];
+        const itemId = parts.slice(1).join('_');
+
         const qty = parseInt(modalSubmit.fields.getTextInputValue('rmv_qty'));
         
         if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
         
         await modalSubmit.deferUpdate().catch(() => {});
-        const result = await stagingRemoveItemSafe(db, user.id, guild.id, itemId, qty);
+        const result = await stagingRemoveItemSafe(db, user.id, guild.id, dbId, itemId, qty);
         if (!result.ok) return modalSubmit.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
         
         await showStagingUI(modalSubmit, db, user, guild, true);
