@@ -440,9 +440,6 @@ module.exports = {
                     }).catch(() => {});
                 }
 
-                // ============================================================================
-                // 👑 بداية متجر القافلة المضاد للانهيار (نظام D-Pad) 👑
-                // ============================================================================
                 else if (id === 'cv_market_staging') {
                     await i.deferUpdate().catch(() => {});
                     await marketSetup.showStagingUI(i, db, user, guild, true);
@@ -450,7 +447,6 @@ module.exports = {
                 
                 else if (id.startsWith('stg_')) {
                     if (id.startsWith(`stg_ok_`)) {
-                        // جلب البيانات المخزنة محلياً لفتح المودل مباشرة بدون تأخير
                         const stateKey = `mkt_state_${user.id}_${guild.id}`;
                         const state = client[stateKey];
                         const pageItems = state?.pageItems || [];
@@ -470,9 +466,9 @@ module.exports = {
                             ));
                             await i.showModal(modal);
                             
-                            // التقاط استجابة المودل وتمريرها للمتجر
                             try {
                                 const mSubmit = await i.awaitModalSubmit({ filter: m => m.customId.startsWith(`stg_rmv_modal_${itemIdToUse}|`) && m.user.id === user.id, time: 60000 });
+                                mSubmit.customId = `stg_rmv_modal_${itemIdToUse}`;
                                 await marketSetup.handleStageModalSubmit(mSubmit, db, user, guild);
                             } catch(e) { activeProcesses.delete(user.id); }
                             
@@ -489,7 +485,6 @@ module.exports = {
                             );
                             await i.showModal(modal);
                             
-                            // التقاط استجابة المودل وتمريرها للمتجر
                             try {
                                 const mSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
                                 mSubmit.customId = `stg_add_modal_${selectedItem.id}`;
@@ -497,14 +492,13 @@ module.exports = {
                             } catch(e) { activeProcesses.delete(user.id); }
                         }
                     } else {
-                        // أي زر ثاني يخص الـ D-Pad (تنقل، تصفح، إلخ)
                         await marketSetup.handleStagingInteraction(i, db, user, guild);
                     }
                 }
-                // ============================================================================
-                // 👑 نهاية متجر القافلة 👑
-                // ============================================================================
 
+                // ============================================================================
+                // 👑 إصلاح إرسال القافلة: الآن يتم تمرير i.message.channelId بشكل مؤكد 👑
+                // ============================================================================
                 else if (id.startsWith('cv_noprotect_')) {
                     const destId = id.replace('cv_noprotect_', '');
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
@@ -520,8 +514,10 @@ module.exports = {
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     
-                    // Pass the channel ID so the arrival checker knows where to open the market thread
-                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, i.channel.id);
+                    const currentChannelId = i.message ? i.message.channelId : i.channelId;
+
+                    // 👑 تمرير القناة بشكل دقيق 👑
+                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, currentChannelId);
 
                     if (result.error) {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
@@ -529,7 +525,6 @@ module.exports = {
                         return;
                     }
 
-                    // Pre-finalize staged items into listings at dispatch time
                     if (result.caravanId) {
                         await finalizeListings(client, db, result.caravanId, user.id, guild.id);
                         if (typeof marketSetup.finalizeStagedItems === 'function') {
@@ -565,7 +560,9 @@ module.exports = {
                         embeds: [], files: [], components: []
                     }).catch(() => {});
 
-                    startEscortLobby(i.channel, user, guild, db, dest)
+                    const currentChannel = i.message ? i.message.channel : i.channel;
+
+                    startEscortLobby(currentChannel, user, guild, db, dest)
                         .then(async lobbyResult => {
                             if (lobbyResult.ready) {
                                 client.emit('caravan_escort_ready', {
@@ -576,7 +573,7 @@ module.exports = {
                                     dest,
                                     destId,
                                     hostId:       user.id,
-                                    channel:      i.channel,
+                                    channel:      currentChannel,
                                     hubMsg,
                                     db,
                                     getMora,
@@ -586,7 +583,7 @@ module.exports = {
                                 return;
                             }
                             if (!lobbyResult.cancelled) {
-                                await i.channel.send({
+                                await currentChannel.send({
                                     content: `💀 **فشل التأمين!**\n<@${user.id}> لم تنجح الحراسة. القافلة لم تُرسَل ولم يُخصَم منك شيء.`
                                 }).catch(() => {});
                             }
