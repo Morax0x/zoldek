@@ -176,56 +176,53 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) 
 
 async function stagingRemoveItemSafe(db, userId, guildId, itemId, removeQty) {
     try {
-        let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3)`, [userId, guildId, itemId]);
-        if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) {
-            stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND (itemid=$3 OR "itemID"=$3)`, [userId, guildId, itemId]);
-        }
+        const targetId = String(itemId).toLowerCase().trim();
         
-        if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) {
+        let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE ("userID"=$1 OR userid=$1) AND ("guildID"=$2 OR guildid=$2)`, [userId, guildId]);
+        if (!stagedRes || !stagedRes.rows) return { ok: false, error: 'لم يتم العثور على البضاعة في العربة.' };
+
+        let matchingRows = stagedRes.rows.filter(r => {
+            const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
+            return idKey && String(r[idKey]).toLowerCase().trim() === targetId;
+        });
+
+        if (matchingRows.length === 0) {
             return { ok: false, error: 'لم يتم العثور على البضاعة في العربة.' };
         }
 
         let totalStaged = 0;
         let firstPrice = 0;
-        stagedRes.rows.forEach(r => {
-            totalStaged += Number(r.quantity || r.QUANTITY || 0);
-            if (firstPrice === 0) firstPrice = Number(r.pricePerUnit || r.priceperunit || 0);
+        matchingRows.forEach(r => {
+            const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
+            totalStaged += Number(r[qtyKey] || 0);
+            if (firstPrice === 0) {
+                const priceKey = Object.keys(r).find(k => k.toLowerCase() === 'priceperunit');
+                firstPrice = Number(r[priceKey] || 0);
+            }
         });
 
         if (removeQty > totalStaged) return { ok: false, error: 'الكمية المراد إزالتها أكبر من الموجودة.' };
 
-        // 1. مسح جميع السطور المتعلقة بالعنصر من العربة كلياً لضمان عدم وجود ملفات معلقة
-        for (const r of stagedRes.rows) {
+        for (const r of matchingRows) {
             const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
             const rowId = rowIdKey ? r[rowIdKey] : null;
             if (rowId) {
                 try { await db.query(`DELETE FROM caravan_staging_market WHERE "id" = $1`, [rowId]); } 
                 catch(e) { await db.query(`DELETE FROM caravan_staging_market WHERE id = $1`, [rowId]).catch(()=>{}); }
-            } else {
-                await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [userId, guildId, itemId]);
             }
         }
         
-        // 2. إعادة ما تبقى من الكمية للعربة كسطر واحد جديد ونظيف
         const remainingToStage = totalStaged - removeQty;
         if (remainingToStage > 0) {
             try { await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, remainingToStage, firstPrice]); } 
             catch(e) { await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, remainingToStage, firstPrice]).catch(()=>{}); }
         }
 
-        // 3. الإرجاع الآمن للمخزون
         let updated = false;
         try {
-            const resUpd = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) RETURNING *`, [removeQty, userId, guildId, itemId]);
+            const resUpd = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE ("userID"=$2 OR userid=$2) AND ("guildID"=$3 OR guildid=$3) AND ("itemID"=$4 OR itemid=$4) RETURNING *`, [removeQty, userId, guildId, itemId]);
             if (resUpd && resUpd.rowCount > 0) updated = true;
         } catch(e) {}
-        
-        if (!updated) {
-            try {
-                const resUpd2 = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND (itemid = $4 OR "itemID"=$4) RETURNING *`, [removeQty, userId, guildId, itemId]);
-                if (resUpd2 && resUpd2.rowCount > 0) updated = true;
-            } catch(e) {}
-        }
         
         if (!updated) {
             try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, removeQty]); } 

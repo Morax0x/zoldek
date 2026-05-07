@@ -197,9 +197,9 @@ async function lockItemsFromInventory(db, guildId, userId, listings) {
 }
 
 async function getListingsByCaravan(db, caravanId) {
-    const result = await safeQuery(db, `
+    let result = await safeQuery(db, `
         SELECT * FROM caravan_market_listings
-        WHERE "caravanId"=$1 AND "status"='active'
+        WHERE ("caravanId"=$1 OR "caravanID"=$1) AND "status"='active'
         ORDER BY "id" ASC
     `, [caravanId]);
     return result.rows || [];
