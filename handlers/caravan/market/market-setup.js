@@ -7,141 +7,34 @@ const { safeQuery, safeExecute } = require('../db');
 const { EMOJI_MORA } = require('../config');
 const { createListing, lockItemsFromInventory, stagingAddItem, getStagedItems, stagingRemoveItem } = require('./market-db');
 
-const path = require('path');
-const upgradeMats = require('../../../json/upgrade-materials.json');
-let fishData = [], farmSeeds = [], farmFeeds = [], potionsData = [], baitsData = [];
+let INVENTORY_GEN;
+try { INVENTORY_GEN = require('../../../generators/inventory-generator.js'); } catch (e) { INVENTORY_GEN = null; }
 
-try { 
-    const fishJson = require('../../../json/fishing-config.json') || require('../../../json/fish.json');
-    fishData = fishJson.fishItems || fishJson; 
-} catch(e) {}
-try { baitsData = require('../../../json/baits.json'); } catch(e) {}
-try { farmSeeds = require('../../../json/seeds.json'); } catch(e) {}
-try { farmFeeds = require('../../../json/feed-items.json'); } catch(e) {}
-try { potionsData = require('../../../json/potions.json'); } catch(e) {}
-
-const ITEM_DICTIONARY = new Map();
-
-const ID_TO_IMAGE = {
-    'mat_dragon_1': 'dragon_ash.png', 'mat_dragon_2': 'dragon_scale.png', 'mat_dragon_3': 'dragon_claw.png', 'mat_dragon_4': 'dragon_heart.png', 'mat_dragon_5': 'dragon_core.png',
-    'mat_human_1': 'human_iron.png', 'mat_human_2': 'human_steel.png', 'mat_human_3': 'human_meteor.png', 'mat_human_4': 'human_seal.png', 'mat_human_5': 'human_crown.png',
-    'mat_elf_1': 'elf_branch.png', 'mat_elf_2': 'elf_bark.png', 'mat_elf_3': 'elf_flower.png', 'mat_elf_4': 'elf_crystal.png', 'mat_elf_5': 'elf_tear.png',
-    'mat_darkelf_1': 'darkelf_obsidian.png', 'mat_darkelf_2': 'darkelf_glass.png', 'mat_darkelf_3': 'darkelf_crystal.png', 'mat_darkelf_4': 'darkelf_void.png', 'mat_darkelf_5': 'darkelf_ash.png',
-    'mat_seraphim_1': 'seraphim_feathe.png', 'mat_seraphim_2': 'seraphim_halo.png', 'mat_seraphim_3': 'seraphim_crystal.png', 'mat_seraphim_4': 'seraphim_core.png', 'mat_seraphim_5': 'seraphim_chalice.png',
-    'demon_1': 'demon_ember.png', 'mat_demon_2': 'demon_horn.png', 'mat_demon_3': 'demon_crystal.png', 'mat_demon_4': 'demon_flame.png', 'mat_demon_5': 'demon_crown.png',
-    'mat_vampire_1': 'vampire_blood.png', 'mat_vampire_2': 'vampire_vial.png', 'mat_vampire_3': 'vampire_fang.png', 'mat_vampire_4': 'vampire_moon.png', 'mat_vampire_5': 'vampire_chalice.png',
-    'mat_spirit_1': 'spirit_dust.png', 'mat_spirit_2': 'spirit_remnant.png', 'mat_spirit_3': 'spirit_crystal.png', 'mat_spirit_4': 'spirit_core.png', 'mat_spirit_5': 'spirit_pulse.png',
-    'mat_hybrid_1': 'hybrid_claw.png', 'mat_hybrid_2': 'hybrid_fur.png', 'mat_hybrid_3': 'hybrid_bone.png', 'mat_hybrid_4': 'hybrid_crystal.png', 'mat_hybrid_5': 'hybrid_soul.png',
-    'mat_dwarf_1': 'dwarf_copper.png', 'mat_dwarf_2': 'dwarf_bronze.png', 'mat_dwarf_3': 'dwarf_mithril.png', 'mat_dwarf_4': 'dwarf_heart.png', 'mat_dwarf_5': 'dwarf_hammer.png',
-    'mat_ghoul_1': 'ghoul_bone.png', 'mat_ghoul_2': 'ghoul_remains.png', 'mat_ghoul_3': 'ghoul_skull.png', 'mat_ghoul_4': 'ghoul_crystal.png', 'mat_ghoul_5': 'ghoul_core.png',
-    'book_general_1': 'gen_book_tactic.png', 'book_general_2': 'gen_book_combat.png', 'book_general_3': 'gen_book_arts.png', 'book_general_4': 'gen_book_war.png', 'book_general_5': 'gen_book_wisdom.png',
-    'book_race_1': 'race_book_stone.png', 'book_race_2': 'race_book_ancestor.png', 'book_race_3': 'race_book_secrets.png', 'book_race_4': 'race_book_covenant.png', 'book_race_5': 'race_book_pact.png'
-};
-
-function buildDictionary() {
-    if (upgradeMats && upgradeMats.weapon_materials) {
-        for (const race of upgradeMats.weapon_materials) {
-            for (const mat of race.materials) {
-                ITEM_DICTIONARY.set(mat.id, { name: mat.name, emoji: mat.emoji, category: 'materials', rarity: mat.rarity, imgPath: `images/materials/${race.race.toLowerCase().replace(' ', '_')}/${ID_TO_IMAGE[mat.id] || mat.id + '.png'}` });
-            }
-        }
-    }
-    if (upgradeMats && upgradeMats.skill_books) {
-        for (const cat of upgradeMats.skill_books) {
-            const typeFolder = cat.category === 'General_Skills' ? 'general' : 'race';
-            for (const book of cat.books) {
-                ITEM_DICTIONARY.set(book.id, { name: book.name, emoji: book.emoji, category: 'materials', rarity: book.rarity, imgPath: `images/materials/${typeFolder}/${ID_TO_IMAGE[book.id] || book.id + '.png'}` });
-            }
-        }
-    }
-    if (fishData && Array.isArray(fishData)) {
-        for (const fish of fishData) {
-            ITEM_DICTIONARY.set(fish.id, { name: fish.name, emoji: fish.emoji || '🐟', category: 'materials', rarity: fish.rarity > 3 ? 'Epic' : 'Common', imgPath: fish.image || null });
-        }
-    }
-    if (baitsData && Array.isArray(baitsData)) {
-        for (const bait of baitsData) {
-            ITEM_DICTIONARY.set(bait.id, { name: bait.name, emoji: bait.emoji || '🪱', category: 'fishing', rarity: 'Common', imgPath: bait.image || null });
-        }
-    }
-    if (farmSeeds && Array.isArray(farmSeeds)) {
-        for (const seed of farmSeeds) {
-            ITEM_DICTIONARY.set(seed.id, { name: seed.name, emoji: seed.emoji || '🌾', category: 'farming', rarity: 'Common', imgPath: seed.image || `images/farm/seeds/${seed.id}.png` });
-        }
-    }
-    if (farmFeeds && Array.isArray(farmFeeds)) {
-        for (const feed of farmFeeds) {
-            ITEM_DICTIONARY.set(feed.id, { name: feed.name, emoji: feed.emoji || '🌾', category: 'farming', rarity: 'Common', imgPath: feed.image || `images/feeds/${feed.id}.png` });
-        }
-    }
-    if (potionsData && Array.isArray(potionsData)) {
-        for (const potion of potionsData) {
-            ITEM_DICTIONARY.set(potion.id, { name: potion.name, emoji: potion.emoji || '🧪', category: 'potions', rarity: 'Rare', imgPath: potion.image || `images/potions/${potion.id}.png` });
-        }
-    }
-}
-buildDictionary();
-
-function resolveItemInfo(itemId) {
-    if (!itemId) return { name: 'مجهول', emoji: '❓', category: 'others', rarity: 'Common', imgPath: null };
-    if (ITEM_DICTIONARY.has(itemId)) return ITEM_DICTIONARY.get(itemId);
-    if (itemId.startsWith('bait_')) return { name: `طعم ${itemId.split('_')[1]}`, emoji: '🪱', category: 'fishing', rarity: 'Common', imgPath: null };
-    return { name: itemId.replace(/_/g, ' '), emoji: '📦', category: 'others', rarity: 'Common', imgPath: null };
-}
+// الاعتماد بالكامل على نظام الانفنتوري الأساسي
+const resolveItemInfo = INVENTORY_GEN ? INVENTORY_GEN.resolveItemInfo : (id) => ({ name: id, emoji: '📦', rarity: 'Common', category: 'أخرى', imgPath: null });
 const getItemInfo = resolveItemInfo;
 
 const CATEGORY_NAMES = {
-    'materials': '💎 موارد وتطوير',
-    'fishing': '🪱 طعوم الصيد',
-    'farming': '🌾 المزرعة',
-    'potions': '🧪 الجرعات',
+    'موارد': '💎 موارد وتطوير',
+    'صيد': '🪱 طعوم الصيد',
+    'مزرعة': '🌾 المزرعة',
     'staged': '🛒 سلة البضائع (محملة)'
 };
 
 const RARITY_AR = { 'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
 
-async function fetchUserInventory(db, userId, guildId) {
-    let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
-    if (!invRes || !invRes.rows || invRes.rows.length === 0) {
-        invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
-    }
-    return (invRes?.rows || []).map(row => ({
-        itemId: row.itemid || row.itemID || row.ITEMID,
-        quantity: Number(row.quantity || row.QUANTITY || 0),
-    }));
-}
-
-async function getInventoryCategories(db, userId, guildId) {
-    let inventory = [];
-    try {
-        const invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
-        inventory = invRes?.rows || [];
-        if (inventory.length === 0) {
-            const invRes2 = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
-            inventory = invRes2?.rows || [];
-        }
-    } catch(e) {}
-
-    const categories = { materials: [], fishing: [], farming: [], potions: [] };
+// دالة جلب وفلترة المخزون بناءً على طلبك
+async function getFilteredInventoryCategories(db, userId, guildId) {
+    if (!INVENTORY_GEN) return { 'موارد': [], 'صيد': [], 'مزرعة': [] };
+    const rawCategories = await INVENTORY_GEN.getInventoryCategories(db, userId, guildId);
     
-    for (const row of inventory) {
-        const itemId = row.itemID || row.itemid;
-        const quantity = Number(row.quantity || row.QUANTITY) || 0;
-        if (quantity <= 0 || itemId === 'gacha_chest' || itemId === 'free_gacha_chest') continue;
-        
-        const itemInfo = resolveItemInfo(itemId);
-        
-        if (categories[itemInfo.category]) {
-            categories[itemInfo.category].push({ ...itemInfo, quantity, id: itemId });
-        }
-    }
-    
-    const rarityWeights = { 'Legendary': 5, 'Epic': 4, 'Rare': 3, 'Uncommon': 2, 'Common': 1 };
-    Object.keys(categories).forEach(cat => {
-        categories[cat].sort((a, b) => (rarityWeights[b.rarity] || 1) - (rarityWeights[a.rarity] || 1));
-    });
-
-    return categories;
+    // تصفية الأقسام: إبقاء الموارد والمزرعة، وفي الصيد إبقاء الطعوم فقط (تبدأ بـ bait_)
+    const filtered = {
+        'موارد': rawCategories['موارد'] || [],
+        'صيد': (rawCategories['صيد'] || []).filter(item => String(item.id).startsWith('bait_')),
+        'مزرعة': rawCategories['مزرعة'] || []
+    };
+    return filtered;
 }
 
 // ============================================================================
@@ -174,7 +67,6 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
 }
 
 async function getStagedItemsSafe(db, userId, guildId) {
-    if (typeof getStagedItems === 'function') return await getStagedItems(db, userId, guildId);
     try {
         await safeExecute(db, `CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`);
         const res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
@@ -183,49 +75,49 @@ async function getStagedItemsSafe(db, userId, guildId) {
 }
 
 async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) {
-    if (typeof stagingAddItem === 'function') return await stagingAddItem(db, userId, guildId, itemId, quantity, price);
     try {
         const res = await safeQuery(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) AND CAST(COALESCE(quantity, '0') AS INTEGER) >= $1 RETURNING *`, [quantity, userId, guildId, itemId]);
         if (!res || res.rows.length === 0) return { ok: false, error: 'لا تملك كمية كافية.' };
         await safeExecute(db, `INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
         return { ok: true };
-    } catch { return { ok: false, error: 'حدث خطأ.' }; }
+    } catch { return { ok: false, error: 'حدث خطأ في قاعدة البيانات.' }; }
 }
 
 async function stagingRemoveItemSafe(db, userId, guildId, itemId, quantity) {
-    if (typeof stagingRemoveItem === 'function') return await stagingRemoveItem(db, userId, guildId, itemId, quantity);
     try {
         await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3) LIMIT 1`, [userId, guildId, itemId]);
         await safeExecute(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4)`, [quantity, userId, guildId, itemId]);
         return { ok: true };
-    } catch { return { ok: false, error: 'حدث خطأ.' }; }
+    } catch { return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' }; }
+}
+
+async function fetchUserInventory(db, userId, guildId) {
+    let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
+    if (!invRes || !invRes.rows || invRes.rows.length === 0) {
+        invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
+    }
+    return (invRes?.rows || []).map(row => ({
+        itemId: row.itemid || row.itemID || row.ITEMID,
+        quantity: Number(row.quantity || row.QUANTITY || 0),
+    }));
 }
 
 // ============================================================================
 // [الواجهة الرئيسية] متجر القافلة بأسلوب الـ Inventory الجديد
 // ============================================================================
-let INVENTORY_GEN;
-try { INVENTORY_GEN = require('../../../generators/inventory-generator.js'); } catch (e) { INVENTORY_GEN = null; }
-
-// خريطة تحويل الأسماء للعربي عشان الرسام (Canvas) ما يضرب كراش ويظهر الصور
-const CAT_TO_ARABIC = {
-    'materials': 'موارد',
-    'fishing': 'صيد',
-    'farming': 'مزرعة',
-    'potions': 'أخرى',
-    'staged': 'موارد' // العربة تستخدم خلفية الموارد مؤقتاً
-};
-
 async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     const stateKey = `mkt_state_${user.id}_${guild.id}`;
     if (!interaction.client[stateKey]) {
-        interaction.client[stateKey] = { category: 'materials', page: 1, selectedIndex: 0 };
+        interaction.client[stateKey] = { category: 'موارد', page: 1, selectedIndex: 0 };
     }
     const state = interaction.client[stateKey];
 
+    // التأكد من صحة القسم الحالي (عشان لو كان محفوظ باسم إنجليزي يتصحح)
+    if (!CATEGORY_NAMES[state.category]) state.category = 'موارد';
+
     const [staged, categoriesData] = await Promise.all([
         getStagedItemsSafe(db, user.id, guild.id),
-        getInventoryCategories(db, user.id, guild.id)
+        getFilteredInventoryCategories(db, user.id, guild.id)
     ]);
 
     const isCart = state.category === 'staged';
@@ -234,7 +126,7 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     if (isCart) {
         currentItems = staged.map(s => {
             const info = resolveItemInfo(s.itemID || s.itemid);
-            return { id: s.itemID || s.itemid, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity: s.quantity, pricePerUnit: s.pricePerUnit || s.priceperunit, imgPath: info.imgPath };
+            return { id: s.itemID || s.itemid, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity: s.quantity, pricePerUnit: s.pricePerUnit || s.priceperunit, imgPath: info.imgPath, fullImage: info.fullImage };
         });
     } else {
         const stagedIds = new Set(staged.map(s => s.itemID || s.itemid));
@@ -257,12 +149,12 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     let buffer = null;
     if (INVENTORY_GEN && INVENTORY_GEN.generateInventoryCard) {
         try {
-            // 👑 تجهيز المكونات للرسام مع تحويل القسم للعربي لكي يقبله
-            const drawCategory = CAT_TO_ARABIC[state.category] || 'موارد';
+            // 👑 سر الخلطة: العربة تستخدم ستايل الموارد عشان الرسام ما يضرب كراش ويظهر الخلفية
+            const drawCategory = isCart ? 'موارد' : state.category; 
             
             const drawItems = pageItems.map(item => ({
                 ...item,
-                category: drawCategory // إجبار العنصر يكون له قسم عربي عشان الرسام
+                category: drawCategory // إجبار جميع العناصر على أخذ هذا القسم ليقبله الرسام
             }));
             
             buffer = await INVENTORY_GEN.generateInventoryCard(user.displayName || user.username, drawCategory, drawItems, state.page, totalPages, state.selectedIndex);
@@ -356,7 +248,7 @@ async function handleStagingInteraction(interaction, db, user, guild) {
 
     const stateKey = `mkt_state_${user.id}_${guild.id}`;
     if (!interaction.client[stateKey]) {
-        interaction.client[stateKey] = { category: 'materials', page: 1, selectedIndex: 0 };
+        interaction.client[stateKey] = { category: 'موارد', page: 1, selectedIndex: 0 };
     }
     const state = interaction.client[stateKey];
 
@@ -459,7 +351,7 @@ module.exports = {
     getMarketListingsCache,
     clearMarketListingsCache,
     fetchUserInventory,
-    getInventoryCategories,
+    getFilteredInventoryCategories,
     showStagingUI,
     handleStagingInteraction,
     handleStageModalSubmit,
