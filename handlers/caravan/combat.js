@@ -829,9 +829,8 @@ async function handleEscortReady(data) {
 
             // Finalize staged market items into caravan listings
             try {
-                const { finalizeStagedItems, getStagedItems } = require('./market/market-db');
-                const staged = await getStagedItems(db, hostId, guild.id);
-                if (staged && staged.length > 0) {
+                const { finalizeStagedItems } = require('./market/market-db');
+                if (cvResult.caravanId) {
                     await finalizeStagedItems(db, cvResult.caravanId, hostId, guild.id);
                 }
             } catch(e) { console.error('[FinalizeStagedEscort]', e); }

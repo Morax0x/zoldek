@@ -36,7 +36,6 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = [], 
         attackScheduledAt  = Math.floor(startTime + attackOffset);
     }
 
-    // RETURNING "id" so callers can reference the caravan row for market listings
     const cvRow = await safeQuery(db, `
         INSERT INTO user_caravans
             ("userID","guildID","destinationId","startTime","endTime","status",
@@ -51,7 +50,6 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = [], 
          JSON.stringify(equippedArtifacts), attackScheduledAt, marketChannelId]);
 
     const caravanId = cvRow?.rows?.[0]?.id || null;
-
     return { ok: true, caravanId, dest, durationMs, endTime, riskFactor, willBeAttacked };
 }
 
@@ -203,20 +201,21 @@ async function processCaravanReturns(client, db) {
                 const summary = await distributeRewards(client, db, caravan);
                 
                 try {
-                    // 👑 قراءة الإعدادات بطريقة آمنة جداً تمنع أي كراش 👑
-                    let settingsRes;
-                    try {
-                        settingsRes = await db.query(`SELECT * FROM settings WHERE "guild"=$1`, [guildId]);
-                    } catch(e) {
-                        settingsRes = await db.query(`SELECT * FROM settings WHERE guild=$1`, [guildId]).catch(()=>({rows:[]}));
+                    // Prefer the channel stored at dispatch time; fall back to settings
+                    let casinoId = caravan.marketchannelid || caravan.marketChannelId || null;
+
+                    if (!casinoId) {
+                        let settingsRes;
+                        try {
+                            settingsRes = await db.query(`SELECT * FROM settings WHERE "guild"=$1`, [guildId]);
+                        } catch(e) {
+                            settingsRes = await db.query(`SELECT * FROM settings WHERE guild=$1`, [guildId]).catch(()=>({rows:[]}));
+                        }
+                        const sRow = settingsRes?.rows?.[0] || {};
+                        casinoId = sRow.caravanchannelid || sRow.caravanChannelID
+                                || sRow.casinochannelid  || sRow.casinoChannelID
+                                || sRow.casinochannelid2 || sRow.casinoChannelID2;
                     }
-                    
-                    const sRow = settingsRes?.rows?.[0] || {};
-                    // Stored channel ID (set at dispatch) is the primary source; settings is fallback
-                    const casinoId = caravan.marketchannelid || caravan.marketChannelId
-                                  || sRow.caravanchannelid || sRow.caravanChannelID
-                                  || sRow.casinochannelid  || sRow.casinoChannelID
-                                  || sRow.casinochannelid2 || sRow.casinoChannelID2;
 
                     // 👑 جلب السيرفر والروم بشكل مؤكد لتجنب فقدانها بسبب الريستارت 👑
                     let guild = client.guilds.cache.get(guildId);
@@ -230,8 +229,8 @@ async function processCaravanReturns(client, db) {
                     if (channel) {
                         const destId = caravan.destinationid || caravan.destinationId;
                         const dest   = caravanConfig.destinations.find(d => d.id === destId);
-                        
-                        // إرسال رسالة وصول القافلة 
+
+                        // إرسال رسالة وصول القافلة
                         if (summary && summary.length > 0) {
                             await channel.send({
                                 content: `<@${userId}>`,
@@ -252,7 +251,7 @@ async function processCaravanReturns(client, db) {
                             }).catch(() => {});
                         }
 
-                        // 👑 نقل البضائع من العربة إلى قائمة السوق ثم فتح الثريد 👑
+                        // نقل البضائع من العربة إلى قائمة السوق ثم فتح الثريد
                         await finalizeStagedItems(db, caravanId, userId, guildId);
                         const listings = await getListingsByCaravan(db, caravanId);
                         if (listings.length > 0 && casinoId) {
