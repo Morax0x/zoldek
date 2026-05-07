@@ -520,7 +520,8 @@ module.exports = {
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     
-                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts);
+                    // Pass the channel ID so the arrival checker knows where to open the market thread
+                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, i.channel.id);
 
                     if (result.error) {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
@@ -528,17 +529,11 @@ module.exports = {
                         return;
                     }
 
-                    const activeCheck = await getActiveCaravan(db, user.id, guild.id);
-                    if (activeCheck) {
-                        await finalizeListings(client, db, activeCheck.id, user.id, guild.id);
+                    // Pre-finalize staged items into listings at dispatch time
+                    if (result.caravanId) {
+                        await finalizeListings(client, db, result.caravanId, user.id, guild.id);
                         if (typeof marketSetup.finalizeStagedItems === 'function') {
-                            await marketSetup.finalizeStagedItems(db, activeCheck.id, user.id, guild.id);
-                        } else {
-                            const staged = await marketSetup.getStagedItemsSafe ? await marketSetup.getStagedItemsSafe(db, user.id, guild.id) : [];
-                            for (const st of staged) {
-                                await safeExecute(db, `INSERT INTO caravan_market_listings ("caravanID","guildID","itemID","quantity","quantitySold","pricePerUnit") VALUES ($1,$2,$3,$4,0,$5)`, [activeCheck.id, guild.id, st.itemID || st.itemid, st.quantity, st.pricePerUnit || st.priceperunit]);
-                            }
-                            await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
+                            await marketSetup.finalizeStagedItems(db, result.caravanId, user.id, guild.id);
                         }
                     }
 
