@@ -274,11 +274,9 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
     if (!caravanId) return;
 
-    // Idempotency: if listings already exist for this caravan, skip
-    const existCheck = await safeQuery(db,
-        `SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1`,
-        [caravanId]);
-    if (existCheck.rows.length > 0) return;
+    // Fetch existing so we don't duplicate
+    const existingCheck = await safeQuery(db, `SELECT "itemID" FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active'`, [caravanId]);
+    const existingIds = new Set((existingCheck.rows || []).map(r => r.itemID || r.itemid));
 
     const staged = await getStagedItemsSafe(db, userId, guildId);
     for (const st of staged) {
@@ -291,6 +289,7 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         const price  = priceKey ? st[priceKey] : 0;
 
         if (!itemId) continue;
+        if (existingIds.has(itemId)) continue;
 
         const itemInfo = resolveItemInfo(itemId);
         const now = Date.now();
@@ -302,7 +301,6 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`,
             [caravanId, userId, guildId, itemId, itemInfo.name || '', itemInfo.emoji || '📦', qty, price, now]);
     }
-    // Staging intentionally NOT deleted — persistent cart model
 }
 
 // ============================================================================

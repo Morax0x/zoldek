@@ -31,9 +31,22 @@ async function createMarketThread(client, db, caravan, channelId, sourceMessage 
         if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
         if (!guild) return null;
 
+
         let channel = guild.channels.cache.get(channelId);
         if (!channel) channel = await guild.channels.fetch(channelId).catch(() => null);
+
+        // Add fallback channel resolution
+        if (!channel) {
+            await guild.channels.fetch().catch(() => {});
+            const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+            channel = guild.channels.cache.find(c =>
+                c.type === 0 &&
+                me && me.permissionsIn(c).has(['SendMessages', 'CreatePublicThreads'])
+            ) ?? null;
+        }
+
         if (!channel) return null;
+
 
         // إنشاء الثريد: إما على رسالة الوصول مباشرة أو كثريد مستقل
         let thread;

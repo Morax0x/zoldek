@@ -161,7 +161,8 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
     console.log(`[MarketDB] Finalizing staged items for caravan ${caravanId}, user ${userId}...`);
 
     const existing = await getListingsByCaravan(db, caravanId);
-    if (existing.length > 0) return { ok: true, moved: existing.length };
+    const existingItemIds = new Set(existing.map(e => e.itemID || e.itemid));
+
 
     // Use a safe fallback-enabled fetch for staged items
     let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
@@ -188,6 +189,8 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         const pricePerUnit = priceKey ? Number(s[priceKey]) : 0;
 
         if (!itemId || quantity <= 0) continue;
+
+        if (existingItemIds.has(itemId)) continue;
 
         const itemInfo = resolveItemInfo(itemId);
 
