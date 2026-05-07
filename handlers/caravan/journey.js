@@ -250,7 +250,7 @@ async function processCaravanReturns(client, db) {
                     const destId = caravan.destinationid || caravan.destinationId;
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
 
-                    await channel.send({
+                    const arrivalMsg = await channel.send({
                         content: `<@${userId}>`,
                         embeds: [new EmbedBuilder()
                             .setColor(dest?.color || '#00FF88')
@@ -260,11 +260,11 @@ async function processCaravanReturns(client, db) {
                                 (summary?.length ? summary.join('\n') : 'لا يوجد')
                             )
                             .setTimestamp()],
-                    }).catch(() => {});
+                    }).catch(() => null);
 
-                    // Open the market thread only when the caravan carried staged goods
-                    if (listings.length > 0) {
-                        await createMarketThread(client, db, caravan, channel.id);
+                    // Open the market as a thread on the arrival message itself
+                    if (listings.length > 0 && arrivalMsg) {
+                        await createMarketThread(client, db, caravan, channel.id, arrivalMsg);
                     }
                 }
 
