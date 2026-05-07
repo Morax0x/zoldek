@@ -5,12 +5,11 @@ const {
 } = require('discord.js');
 const { safeQuery, safeExecute } = require('../db');
 const { EMOJI_MORA } = require('../config');
-const { createListing, lockItemsFromInventory, stagingAddItem, getStagedItems, stagingRemoveItem } = require('./market-db');
+const { createListing, lockItemsFromInventory } = require('./market-db'); // إزالة دوال الستيجنج القديمة المليئة بالأخطاء
 
 let INVENTORY_GEN;
 try { INVENTORY_GEN = require('../../../generators/inventory-generator.js'); } catch (e) { INVENTORY_GEN = null; }
 
-// الاعتماد بالكامل على نظام الانفنتوري الأساسي
 const resolveItemInfo = INVENTORY_GEN ? INVENTORY_GEN.resolveItemInfo : (id) => ({ name: id, emoji: '📦', rarity: 'Common', category: 'أخرى', imgPath: null });
 const getItemInfo = resolveItemInfo;
 
@@ -23,22 +22,19 @@ const CATEGORY_NAMES = {
 
 const RARITY_AR = { 'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري' };
 
-// دالة جلب وفلترة المخزون بناءً على طلبك
 async function getFilteredInventoryCategories(db, userId, guildId) {
     if (!INVENTORY_GEN) return { 'موارد': [], 'صيد': [], 'مزرعة': [] };
     const rawCategories = await INVENTORY_GEN.getInventoryCategories(db, userId, guildId);
     
-    // تصفية الأقسام: إبقاء الموارد والمزرعة، وفي الصيد إبقاء الطعوم فقط (تبدأ بـ bait_)
-    const filtered = {
+    return {
         'موارد': rawCategories['موارد'] || [],
         'صيد': (rawCategories['صيد'] || []).filter(item => String(item.id).startsWith('bait_')),
         'مزرعة': rawCategories['مزرعة'] || []
     };
-    return filtered;
 }
 
 // ============================================================================
-// [دوال الـ Staging للتعامل مع قاعدة البيانات أمنياً]
+// [دوال قواعد البيانات فائقة الحماية - تتخطى أخطاء أحرف الأعمدة]
 // ============================================================================
 function getMarketListingsCache(client, userId, guildId) {
     const key = `market_listings_${userId}_${guildId}`;
@@ -68,42 +64,98 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
 
 async function getStagedItemsSafe(db, userId, guildId) {
     try {
-        await safeExecute(db, `CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`);
-        const res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+        await db.query(`CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`).catch(()=>{});
+        let res = await db.query(`SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]).catch(()=>null);
+        if (!res || !res.rows || res.rows.length === 0) {
+            res = await db.query(`SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]).catch(()=>null);
+        }
         return res?.rows || [];
     } catch { return []; }
 }
 
 async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) {
+    let success = false;
+
+    // 1. المحاولة بالأحرف الكبيرة (PostgreSQL Default)
     try {
-        const res = await safeQuery(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) AND CAST(COALESCE(quantity, '0') AS INTEGER) >= $1 RETURNING *`, [quantity, userId, guildId, itemId]);
-        if (!res || res.rows.length === 0) return { ok: false, error: 'لا تملك كمية كافية.' };
-        await safeExecute(db, `INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
-        return { ok: true };
-    } catch { return { ok: false, error: 'حدث خطأ في قاعدة البيانات.' }; }
+        const res = await db.query(
+            `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) AND CAST(COALESCE(quantity, '0') AS INTEGER) >= $1 RETURNING *`, 
+            [quantity, userId, guildId, itemId]
+        );
+        if (res && res.rows && res.rows.length > 0) success = true;
+    } catch (e) {}
+
+    // 2. المحاولة بالأحرف الصغيرة (لو كانت الداتابيس معدلة)
+    if (!success) {
+        try {
+            const res2 = await db.query(
+                `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE userid = $2 AND guildid = $3 AND (itemid = $4 OR "itemID"=$4) AND CAST(COALESCE(quantity, '0') AS INTEGER) >= $1 RETURNING *`, 
+                [quantity, userId, guildId, itemId]
+            );
+            if (res2 && res2.rows && res2.rows.length > 0) success = true;
+        } catch (e) {}
+    }
+
+    if (!success) return { ok: false, error: 'الكمية غير كافية في مخزونك.' };
+
+    // الإضافة لعربة القافلة
+    try {
+        await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
+    } catch(e) {
+        try { await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]); } catch (err) {}
+    }
+    
+    return { ok: true };
 }
 
 async function stagingRemoveItemSafe(db, userId, guildId, itemId, quantity) {
     try {
-        await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3) LIMIT 1`, [userId, guildId, itemId]);
-        await safeExecute(db, `UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4)`, [quantity, userId, guildId, itemId]);
+        await db.query(`DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND ("itemID"=$3 OR itemid=$3)`, [userId, guildId, itemId]).catch(() => {
+            return db.query(`DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND (itemid=$3 OR "itemID"=$3)`, [userId, guildId, itemId]);
+        });
+        
+        let updated = false;
+        try {
+            const res = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE "userID" = $2 AND "guildID" = $3 AND ("itemID" = $4 OR itemid=$4) RETURNING *`, [quantity, userId, guildId, itemId]);
+            if (res && res.rowCount > 0) updated = true;
+        } catch(e) {}
+        
+        if (!updated) {
+            try {
+                const res2 = await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) + $1 WHERE userid = $2 AND guildid = $3 AND (itemid = $4 OR "itemID"=$4) RETURNING *`, [quantity, userId, guildId, itemId]);
+                if (res2 && res2.rowCount > 0) updated = true;
+            } catch(e) {}
+        }
+        
+        if (!updated) {
+            try { await db.query(`INSERT INTO user_inventory ("guildID", "userID", "itemID", "quantity") VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, quantity]); } catch(e) {
+                await db.query(`INSERT INTO user_inventory (guildid, userid, itemid, quantity) VALUES ($1, $2, $3, $4)`, [guildId, userId, itemId, quantity]).catch(()=>{});
+            }
+        }
+        
         return { ok: true };
     } catch { return { ok: false, error: 'حدث خطأ أثناء الإرجاع.' }; }
 }
 
-async function fetchUserInventory(db, userId, guildId) {
-    let invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
-    if (!invRes || !invRes.rows || invRes.rows.length === 0) {
-        invRes = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE("quantity",'0') AS BIGINT) > 0`, [userId, guildId]);
+async function finalizeStagedItems(db, caravanId, userId, guildId) {
+    const staged = await getStagedItemsSafe(db, userId, guildId);
+    for (const st of staged) {
+        const itemId = st.itemID || st.itemid;
+        const qty = st.quantity;
+        const price = st.pricePerUnit || st.priceperunit;
+        try {
+            await db.query(`INSERT INTO caravan_market_listings ("caravanID","guildID","itemID","quantity","quantitySold","pricePerUnit") VALUES ($1,$2,$3,$4,0,$5)`, [caravanId, guildId, itemId, qty, price]);
+        } catch(e) {
+            await db.query(`INSERT INTO caravan_market_listings (caravanid, guildid, itemid, quantity, quantitysold, priceperunit) VALUES ($1,$2,$3,$4,0,$5)`, [caravanId, guildId, itemId, qty, price]).catch(()=>{});
+        }
     }
-    return (invRes?.rows || []).map(row => ({
-        itemId: row.itemid || row.itemID || row.ITEMID,
-        quantity: Number(row.quantity || row.QUANTITY || 0),
-    }));
+    await db.query(`DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]).catch(()=>{
+        return db.query(`DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]).catch(()=>{});
+    });
 }
 
 // ============================================================================
-// [الواجهة الرئيسية] متجر القافلة بأسلوب الـ Inventory الجديد
+// [الواجهة الرئيسية] متجر القافلة
 // ============================================================================
 async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     const stateKey = `mkt_state_${user.id}_${guild.id}`;
@@ -112,7 +164,6 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     }
     const state = interaction.client[stateKey];
 
-    // التأكد من صحة القسم الحالي (عشان لو كان محفوظ باسم إنجليزي يتصحح)
     if (!CATEGORY_NAMES[state.category]) state.category = 'موارد';
 
     const [staged, categoriesData] = await Promise.all([
@@ -149,14 +200,8 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     let buffer = null;
     if (INVENTORY_GEN && INVENTORY_GEN.generateInventoryCard) {
         try {
-            // 👑 سر الخلطة: العربة تستخدم ستايل الموارد عشان الرسام ما يضرب كراش ويظهر الخلفية
             const drawCategory = isCart ? 'موارد' : state.category; 
-            
-            const drawItems = pageItems.map(item => ({
-                ...item,
-                category: drawCategory // إجبار جميع العناصر على أخذ هذا القسم ليقبله الرسام
-            }));
-            
+            const drawItems = pageItems.map(item => ({ ...item, category: drawCategory }));
             buffer = await INVENTORY_GEN.generateInventoryCard(user.displayName || user.username, drawCategory, drawItems, state.page, totalPages, state.selectedIndex);
         } catch (e) { buffer = null; }
     }
@@ -234,7 +279,7 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
 }
 
 // ============================================================================
-// [الأحداث] الحركة واختيار البضائع باستخدام Modal
+// [الأحداث]
 // ============================================================================
 async function handleStagingInteraction(interaction, db, user, guild) {
     const id = interaction.customId;
@@ -260,35 +305,6 @@ async function handleStagingInteraction(interaction, db, user, guild) {
         return await showStagingUI(interaction, db, user, guild, true);
     }
 
-    if (id.startsWith('stg_ok_')) {
-        const pageItems = state.pageItems || [];
-        const selectedItem = pageItems[state.selectedIndex];
-
-        if (!selectedItem) {
-             await interaction.deferUpdate();
-             return interaction.followUp({ content: "❌ المربع المحدد فارغ.", flags: [MessageFlags.Ephemeral] });
-        }
-        
-        if (state.category === 'staged') {
-            const modal = new ModalBuilder().setCustomId(`stg_rmv_modal_${selectedItem.id || selectedItem.itemID}`).setTitle(`إزالة البضاعة`);
-            modal.addComponents(new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('rmv_qty').setLabel(`الكمية (الحد الأقصى ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
-            ));
-            return await interaction.showModal(modal).catch(()=>{});
-        } else {
-            const modal = new ModalBuilder().setCustomId(`stg_add_modal_${selectedItem.id}`).setTitle(`تسعير: ${selectedItem.name}`.substring(0, 45));
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(
-                    new TextInputBuilder().setCustomId('add_qty').setLabel(`الكمية (لديك: ${selectedItem.quantity})`).setStyle(TextInputStyle.Short).setValue(String(selectedItem.quantity)).setRequired(true)
-                ),
-                new ActionRowBuilder().addComponents(
-                    new TextInputBuilder().setCustomId('add_price').setLabel(`سعر الحبة (مورا)`).setStyle(TextInputStyle.Short).setRequired(true)
-                )
-            );
-            return await interaction.showModal(modal).catch(()=>{});
-        }
-    }
-
     await interaction.deferUpdate().catch(()=>{});
 
     if (id.startsWith('stg_prev_')) { state.page = Math.max(1, state.page - 1); state.selectedIndex = 0; }
@@ -311,9 +327,6 @@ async function handleStagingInteraction(interaction, db, user, guild) {
     await showStagingUI(interaction, db, user, guild, true);
 }
 
-// ============================================================================
-// [التعامل مع استجابة المودل (Modal Submit)]
-// ============================================================================
 async function handleStageModalSubmit(modalSubmit, db, user, guild) {
     const id = modalSubmit.customId;
     
@@ -350,8 +363,9 @@ module.exports = {
     getItemInfo,
     getMarketListingsCache,
     clearMarketListingsCache,
-    fetchUserInventory,
     getFilteredInventoryCategories,
+    getStagedItemsSafe,
+    finalizeStagedItems,
     showStagingUI,
     handleStagingInteraction,
     handleStageModalSubmit,
