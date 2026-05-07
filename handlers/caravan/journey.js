@@ -4,7 +4,7 @@ const { caravanConfig, farmAnimals, seedsData, upgradeMats, EMOJI_MORA } = requi
 const { getEquippedBuffs, calcDuration, calcRiskFactor, calcRewardMultiplier } = require('./calculations');
 const { getUserCaravanStats } = require('./stats');
 const { initCaravanTables } = require('./tables');
-const { initMarketTables, createMarketThread, getListingsByCaravan } = require('./market');
+const { initMarketTables, createMarketThread, getListingsByCaravan, finalizeStagedItems } = require('./market');
 
 async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) {
     const dest = caravanConfig.destinations.find(d => d.id === destId);
@@ -246,7 +246,8 @@ async function processCaravanReturns(client, db) {
                             }).catch(() => {});
                         }
 
-                        // 👑 فتح السوق فوراً (إذا كان اللاعب قد وضع بضائع للبيع) 👑
+                        // 👑 نقل البضائع من العربة إلى قائمة السوق ثم فتح الثريد 👑
+                        await finalizeStagedItems(db, caravanId, userId, guildId);
                         const listings = await getListingsByCaravan(db, caravanId);
                         if (listings.length > 0 && casinoId) {
                             await createMarketThread(client, db, caravan, casinoId);
