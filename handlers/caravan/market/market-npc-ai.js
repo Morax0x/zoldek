@@ -25,7 +25,6 @@ try { SEEDS_DATA = require('../../../json/seeds.json'); } catch(e) {}
 try { FISHING_DATA = require('../../../json/fishing-config.json'); } catch(e) {}
 try { POTIONS_DATA = require('../../../json/potions.json'); } catch(e) {}
 
-// بناء خريطة سريعة لأسعار جونس
 const JONES_PRICES = new Map();
 
 for (const s of SEEDS_DATA) {
@@ -146,7 +145,6 @@ async function callAI(systemPrompt, messages, jsonMode = false) {
 async function generateDynamicArchetype(availableListings, usedIds) {
     const itemIds = availableListings.map(l => l.itemid || l.itemID || '');
     
-    // اختيار القاعدة المرجعية للميزانية
     const scored = BASE_ARCHETYPES.map(a => {
         let score = a.preferredIds.length === 0 ? 5 : 0;
         for (const itemId of itemIds) {
@@ -158,8 +156,6 @@ async function generateDynamicArchetype(availableListings, usedIds) {
     }).sort((a, b) => b.score - a.score);
 
     const baseArchetype = scored[0].archetype;
-    
-    // سياق البضائع للذكاء الاصطناعي
     const itemSummary = availableListings.slice(0, 5).map(l => getItemInfo(l.itemid || l.itemID).name).join('، ');
 
     const systemPrompt = `أنت مصمم شخصيات (NPC Generator) للعبة RPG عربية.
@@ -169,15 +165,18 @@ async function generateDynamicArchetype(availableListings, usedIds) {
 {
   "name": "اسم عربي خيالي للمشتري (مثل: جابر الساحر، هند الثرية، قاسم الرحال)",
   "emoji": "إيموجي واحد يعبر عن وظيفته أو شخصيته",
-  "persona": "وصف دقيق لشخصيته وأسلوبه في التفاوض (مثل: تاجر عجوز بخيل يجادل على كل قرش، أو شاب ثري متهور يدفع بدون تفكير)",
+  "persona": "وصف دقيق لشخصيته وأسلوبه في التفاوض",
   "openingLine": "جملة حوارية واحدة قصيرة يقولها المشتري عندما يصل للسوق مبدياً اهتمامه بالبضائع، يجب أن تكون باللهجة العربية المناسبة لأسلوبه."
 }`;
 
     try {
         const aiResponse = await callAI(systemPrompt, [], true);
         if (aiResponse) {
-            const data = JSON.parse(aiResponse);
+            // تنظيف الكود لو رجعه الذكاء الاصطناعي كـ Markdown
+            const cleanStr = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const data = JSON.parse(cleanStr);
             if (data.name && data.openingLine) {
+                console.log(`[Market AI] Generated Dynamic NPC: ${data.name}`);
                 return {
                     id: `dyn_${Date.now()}`,
                     name: data.name,
@@ -191,9 +190,9 @@ async function generateDynamicArchetype(availableListings, usedIds) {
                 };
             }
         }
-    } catch(e) { console.error('Dynamic NPC Error:', e); }
+    } catch(e) { console.error('[Dynamic NPC Error]:', e.message); }
 
-    // Fallback في حال فشل الذكاء الاصطناعي
+    console.log(`[Market AI] Using Fallback NPC due to AI timeout/error.`);
     return {
         id: `fallback_${Date.now()}`,
         name: 'تاجر مجهول',
@@ -274,7 +273,6 @@ ${listingsContext}`;
         const jonesPrice = getJonesPrice(listing.itemid || listing.itemID, info);
         const finalPrice = action.offeredPrice;
 
-        // 👑 حماية برمجية تمنع الذكاء الاصطناعي من دفع مبالغ خيالية 👑
         if (finalPrice > jonesPrice * 1.5) {
             return {
                 message: `هل تستغفلني؟ السعر العادل هو ${jonesPrice.toLocaleString()} مورا. لن أشتري بهذا السعر المبالغ فيه!`,
@@ -382,18 +380,17 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
 }
 
 // ============================================================================
-// [6] إنتاج الزوار وجدولتهم
+// [6] إنتاج الزوار وجدولتهم 👑
 // ============================================================================
 async function spawnNpc(client, db, thread, destId, ownerId, guildId, usedArchetypeIds = []) {
     try {
         const npcSpawnCount = await getNpcSpawnCount(db, thread.id);
-        if (npcSpawnCount >= 7) return null; // رفعنا الحد الأقصى للمشترين
+        if (npcSpawnCount >= 8) return null;
 
         const listings = await getListingsBySession(db, thread.id);
         const availableListings = listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
         if (availableListings.length === 0) return null;
 
-        // توليد شخصية بالذكاء الاصطناعي بدلاً من الاعتماد على قائمة ثابتة
         const archetype = await generateDynamicArchetype(availableListings, usedArchetypeIds);
         await incrementNpcSpawn(db, thread.id);
 
@@ -481,20 +478,16 @@ async function handleNpcModalSubmit(interaction, client, db) {
 
 function scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDurationMs) {
     const destId = dest.id;
-    // 👑 رفع عدد الزوار إلى (5 - 7 زوار) عشان تختبرهم براحتك 👑
-    const npcCount = 5 + Math.floor(Math.random() * 3); 
+    const npcCount = 6 + Math.floor(Math.random() * 3); // 6 إلى 8 زوار لتعظيم فرص التجربة
     const usedArchetypeIds = [];
 
-    const slots = [];
-    for (let i = 0; i < npcCount; i++) {
-        // 👑 تظهيرهم بشكل سريع جداً في أول دقائق السوق (أول 15% من الوقت) 👑
-        const position = 0.01 + (Math.random() * 0.14);
-        slots.push(Math.min(position, 0.90));
-    }
-    slots.sort((a, b) => a - b);
+    console.log(`[Market AI] Scheduling ${npcCount} NPCs...`);
 
-    for (const pos of slots) {
-        const delay = Math.floor(marketDurationMs * pos);
+    for (let i = 0; i < npcCount; i++) {
+        // 👑 أول زائر يطب بعد 3 ثواني بالضبط من فتح السوق! 👑
+        // والزوار اللي بعده ينزلون وراه بتأخير بين 15 و 45 ثانية
+        const delay = (i === 0) ? 3000 : 15000 + (Math.random() * 30000 * i);
+        
         setTimeout(async () => {
             try {
                 const session = await getSessionByThread(db, thread.id);
