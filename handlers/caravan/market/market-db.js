@@ -156,7 +156,10 @@ async function getStagedItems(db, userId, guildId) {
 
 // 👑 الدالة التي تنقل الأغراض للسوق بدون أن تحذفها من السلة الدائمة 👑
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
-    if (!caravanId) return { ok: false, error: 'caravanId is null' };
+    if (!caravanId) {
+        console.warn('[finalizeStagedItems] caravanId is null/undefined — skipping');
+        return { ok: false, error: 'caravanId is null' };
+    }
 
     console.log(`[MarketDB] Finalizing staged items for caravan ${caravanId}, user ${userId}...`);
 
@@ -175,7 +178,8 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         return { ok: true, moved: 0 };
     }
 
-    const { resolveItemInfo } = require('./market-setup');
+    // 👑 التعديل الوحيد هنا: استدعاء صحيح لجلب معلومات البضاعة (الاسم والإيموجي) 👑
+    const { getItemInfo } = require('./market-setup');
 
     let moved = 0;
     for (const s of staged) {
@@ -189,7 +193,8 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
 
         if (!itemId || quantity <= 0) continue;
 
-        const itemInfo = resolveItemInfo(itemId);
+        // جلب البيانات الحقيقية من قاموس اللعبة
+        const itemInfo = getItemInfo(itemId) || {};
 
         const listingId = await createListing(db, caravanId, userId, guildId, {
             itemId,
@@ -219,7 +224,7 @@ async function lockItemsFromInventory(db, guildId, userId, listings) {
 async function getListingsByCaravan(db, caravanId) {
     let result = await safeQuery(db, `
         SELECT * FROM caravan_market_listings
-        WHERE "caravanId"=$1 AND "status"='active'
+        WHERE ("caravanId"=$1 OR "caravanID"=$1) AND "status"='active'
         ORDER BY "id" ASC
     `, [caravanId]);
     return result.rows || [];
@@ -228,7 +233,7 @@ async function getListingsByCaravan(db, caravanId) {
 async function getListingsBySession(db, threadId) {
     let result = await safeQuery(db, `
         SELECT l.* FROM caravan_market_listings l
-        INNER JOIN caravan_market_sessions s ON l."caravanId" = s."caravanId"
+        INNER JOIN caravan_market_sessions s ON (l."caravanId" = s."caravanId" OR l."caravanID" = s."caravanId")
         WHERE s."threadId"=$1 AND l."status"='active' AND s."status"='open'
         ORDER BY l."id" ASC
     `, [threadId]);
