@@ -54,7 +54,7 @@ function getJonesPrice(itemId, info) {
 }
 
 // ============================================================================
-// [2] محركات الذكاء الاصطناعي
+// محركات الذكاء الاصطناعي
 // ============================================================================
 async function callGeminiDirect(apiKey, systemPrompt, messages, jsonMode = false) {
     try {
@@ -99,29 +99,26 @@ async function callAI(systemPrompt, messages, jsonMode = false) {
 }
 
 // ============================================================================
-// [3] توليد الزبون (أسماء واقعية قصيرة + نفسية متغيرة) 👑
+// توليد الزبون (أسماء فانتازيا وتحديد السعر المبدئي الذكي) 👑
 // ============================================================================
 async function generateDynamicCustomer(itemName, askingPrice, jonesPrice) {
-    // إعطاء الزبون نفسية عشوائية عشان ينوع في الكلام
-    const vibes = ['عجوز بخيل جداً ومحنك', 'شاب مستعجل يبحث عن صفقة', 'تاجر ماكر يفاصل على القرش', 'شخص مريب وغامض', 'فلاح بسيط يعشق التوفير'];
-    const randomVibe = vibes[Math.floor(Math.random() * vibes.length)];
+    const isCheap = askingPrice <= jonesPrice;
+    
+    // الزبون يقترح سعر مبدئي (لا يتجاوز السعر المطلوب أبداً)
+    let npcInitialOffer = askingPrice;
+    if (!isCheap) {
+        npcInitialOffer = Math.floor(jonesPrice * (0.6 + Math.random() * 0.4)); // يعرض 60% إلى 100% من السعر العادل
+    }
 
-    const systemPrompt = `أنت زبون في سوق تجاري.
-البائع يعرض سلعة باسم "${itemName}" بسعر ${askingPrice} مورا.
-أنت كزبون خبير، تعرف أن السعر المعروف والعادل في السوق هو ${jonesPrice} مورا.
+    const systemPrompt = `أنت زبون في سوق قوافل لعبة فانتازيا RPG.
+البائع يعرض سلعة باسم "${itemName}" ووضع لها سعر ${askingPrice} مورا. السعر المعروف والعادل في السوق هو ${jonesPrice} مورا.
+أنت ستفتتح كلامك وتعرض دفع ${npcInitialOffer} مورا كبداية للتفاوض أو لشراء السلعة.
 
-اطلب منك أن تتقمص هذه الشخصية بدقة: "${randomVibe}".
-
-يجب أن ترجع كائن JSON حصراً بالصيغة التالية:
+يجب أن ترجع كائن JSON حصراً:
 {
-  "name": "اسمك كزبون (يجب أن يكون كلمة أو كلمتين كحد أقصى، أسماء طبيعية مثل: صالح، طارق، التاجر، أبو خالد، الغريب)",
-  "openingLine": "الجملة الافتتاحية التي ستخاطب بها البائع متأثراً بشخصيتك"
-}
-
-قواعد الجملة الافتتاحية (إجبارية جداً لمنع الغباء الاصطناعي):
-1. إذا كان السعر المعروض (${askingPrice}) أقل من أو يساوي السعر المعروف (${jonesPrice}): افرح بالسعر واذكر أنك ستشتريه بهذا السعر المغري لتوفير مالك. (لا تقترح أبداً سعراً أعلى من سعره!).
-2. إذا كان السعر المعروض (${askingPrice}) أعلى من السعر المعروف (${jonesPrice}): صرح بأن السعر مبالغ فيه، واقترح سعراً أقل من السعر المعروف (مثلاً اطرح 20% منه كنقطة بداية للمكاسرة).
-لا تضف أي نص خارج الـ JSON.`;
+  "name": "اسمك كزبون (نوّع! استخدم أسماء فانتازيا، يابانية، أجنبية، ألقاب غامضة، أو عربية. كلمة أو كلمتين فقط كحد أقصى مثل: Kael، رورونوا، تاجر الشرق، آرثر، الظل)",
+  "openingLine": "الجملة الافتتاحية التي ستخاطب بها البائع، تعرض فيها رغبتك بالسلعة وتقترح الدفع (${npcInitialOffer} مورا) بأسلوبك."
+}`;
 
     try {
         const aiResponse = await callAI(systemPrompt, [], true);
@@ -129,63 +126,57 @@ async function generateDynamicCustomer(itemName, askingPrice, jonesPrice) {
             const cleanStr = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
             const data = JSON.parse(cleanStr);
             if (data.name && data.openingLine) {
-                return { name: data.name, openingLine: data.openingLine };
+                return { name: data.name, openingLine: data.openingLine, offer: npcInitialOffer };
             }
         }
     } catch(e) {}
     
-    // الفولباك الذكي
-    const isCheap = askingPrice <= jonesPrice;
-    const suggestedPrice = Math.floor(jonesPrice * 0.8);
     return {
-        name: 'زبون عابر',
+        name: ['Zoro', 'Arthur', 'الظل', 'تاجر شرقي', 'Jin', 'Kael', 'الغريب'][Math.floor(Math.random() * 7)],
+        offer: npcInitialOffer,
         openingLine: isCheap 
-            ? `يا بلاش! تبيع ${itemName} بـ ${askingPrice} بس؟ هذي صفقة ما تتفوت، باخذها.`
-            : `أرى أنك تعرض ${itemName} بسعر مبالغ فيه.. سعره بالسوق ${jonesPrice}. وش رأيك تبيعني إياه بـ ${suggestedPrice}؟`
+            ? `يا للروعة! تبيع ${itemName} بـ ${askingPrice} مورا فقط؟ صفقة ممتازة، سأشتريها.`
+            : `مرحباً، أرى أنك تعرض ${itemName} بسعر مبالغ فيه. سعره المعروف هو ${jonesPrice}، ما رأيك أن تبيعني إياه بـ ${npcInitialOffer} مورا؟`
     };
 }
 
 // ============================================================================
-// [4] معالجة التفاوض (نظام الـ 3 جولات والمكاسرة) 👑
+// معالجة التفاوض (حد الصبر والمكاسرة الذكية) 👑
 // ============================================================================
 function parseNpcAction(text) {
     const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/i);
     if (buyMatch) return { action: 'buy', listingId: parseInt(buyMatch[1]), quantity: parseInt(buyMatch[2]), offeredPrice: parseInt(buyMatch[3]) };
+    
     if (/\[LEAVE\]/i.test(text)) return { action: 'leave' };
+    
+    const offerMatch = text.match(/\[OFFER:\s*(\d+)\s*\]/i);
+    if (offerMatch) return { action: 'haggle', newOffer: parseInt(offerMatch[1]) };
+    
     return null;
 }
 
 async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId) {
     const availableListings = conv.listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
-    if (availableListings.length === 0) return { message: 'نفذت البضاعة! لا يوجد شيء لأشتريه.', action: { action: 'leave' } };
+    if (availableListings.length === 0) return { message: 'لا يوجد شيء لأشتريه هنا.', action: { action: 'leave' } };
 
-    // زيادة عداد الجولات
+    // زيادة عداد التفاوض
     conv.haggleTurns = (conv.haggleTurns || 0) + 1;
-
-    // طرد إجباري لو طولها البائع (أكثر من 3 جولات)
-    if (conv.haggleTurns > 3 && !userMessageStr.includes('موافق')) {
-        return { message: 'أضعنا وقتاً طويلاً ولم نتفق.. وقتي أثمن من هذا. وداعاً!', action: { action: 'leave' } };
-    }
 
     const conversationHistory = conv.history.map(e => ({ role: e.role, content: e.role === 'assistant' ? `${conv.name}: ${e.content}` : `البائع: ${e.content}` }));
 
-    const systemPrompt = `أنت الزبون "${conv.name}".
-تتفاوض لشراء "${conv.targetItemName}".
-السعر المعروف (العادل) في السوق هو: ${conv.jonesPrice} مورا.
-البائع عرض السلعة في البداية بـ: ${conv.askingPrice} مورا.
+    const systemPrompt = `أنت الزبون "${conv.name}". تتفاوض لشراء "${conv.targetItemName}".
+السعر العادل المعروف: ${conv.jonesPrice} مورا. السعر الذي يطلبه البائع: ${conv.askingPrice} مورا.
+أنت اقترحت سابقاً سعر: ${conv.currentOffer} مورا.
 
-جولة التفاوض الحالية: ${conv.haggleTurns} (الحد الأقصى المسموح 3).
+أنت في الجولة ${conv.haggleTurns} من أصل ${conv.maxTurns} من التفاوض.
 
-قواعد التفاوض الصارمة (لمنع الاستغلال):
-1. البائع يرد عليك الآن، اقرأ رده جيداً.
-2. إذا وافق البائع صراحة وقال "موافق" أو ما شابه، أتمم الصفقة وأضف الكود نصياً: [BUY_ITEM:${conv.targetListingId}:الكمية_المطلوبة:السعر_الذي_اتفقتم_عليه]
-3. إذا اقترح البائع سعراً جديداً:
-   - إذا كان سعره أعلى من ${conv.jonesPrice}: ارفض قطعياً! كاسره بسعر أقل (ابدأ بـ 80% من السعر العادل ثم ارفع تدريجياً، ولا تتجاوز ${conv.jonesPrice} أبداً).
-   - إذا كان سعره أقل من أو يساوي ${conv.jonesPrice}: يمكنك الموافقة فوراً وإضافة كود [BUY_ITEM] بالسعر الذي طلبه، أو الاستمرار بالمكاسرة إذا أردت التوفير.
-4. 🛑 يمنع منعاً باتاً الشراء بسعر يتجاوز ${conv.jonesPrice}.
-5. لا تستخدم كود [BUY_ITEM] إلا عند الموافقة النهائية وإنهاء الصفقة. عند طرح سعر للتباحث، قل جملتك بدون الكود.
-6. إذا كانت هذه هي الجولة رقم 3 ولم تتفقا، قدم عرضك النهائي (${conv.jonesPrice} كحد أقصى) أو أضف الكود: [LEAVE] للانسحاب.
-7. رد بجملة واحدة فقط تناسب شخصيتك.`;
+قواعدك (صارمة ومهمة لمنع الغباء):
+1. كن ذكياً ووفر مالك! لا تقم بتاتاً بعرض سعر أعلى من السعر الذي عارضه البائع أساساً (${conv.askingPrice}).
+2. إذا اقترح البائع سعراً أقل من أو يساوي السعر المعروف (${conv.jonesPrice})، وافق فوراً ولا ترفع السعر!
+3. إذا أردت اقتراح سعر جديد للمكاسرة، يجب أن تضيف نصياً في نهاية ردك: [OFFER:السعر_الذي_تقترحه]
+4. إذا وافقتم على السعر لإنهاء الصفقة، أضف نصياً: [BUY_ITEM:${conv.targetListingId}:الكمية_المطلوبة:السعر_المتفق_عليه]
+5. إذا طفح الكيل والمبلغ غالي جداً أو لم تتفقا، أضف نصياً للانسحاب: [LEAVE]
+6. رد بجملة قصيرة واحدة فقط.`;
 
     const messages = [...conversationHistory, { role: 'user', content: `البائع: ${userMessageStr}` }];
     const response = await callAI(systemPrompt, messages, false);
@@ -193,21 +184,23 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
     if (!response) return { message: '...', action: null };
 
     const action = parseNpcAction(response);
-    const cleanMessage = response.replace(/\[BUY_ITEM:.*?\]/gi, '').replace(/\[LEAVE\]/gi, '').trim();
+    const cleanMessage = response.replace(/\[BUY_ITEM:.*?\]/gi, '').replace(/\[OFFER:.*?\]/gi, '').replace(/\[LEAVE\]/gi, '').trim();
+
+    // إذا استنفد الزبون صبره (وصل للحد الأقصى) وما تمت الصفقة، يمشي إجبارياً
+    if (conv.haggleTurns >= conv.maxTurns && action?.action !== 'buy') {
+        return { message: cleanMessage || 'لم نصل لاتفاق ولن أضيع وقتي أكثر من هذا. وداعاً!', action: { action: 'leave' } };
+    }
 
     if (action?.action === 'buy') {
         let finalPrice = action.offeredPrice;
 
-        // 👑 حماية برمجية قصوى: مستحيل يدفع أكثر من اللي طالبه البائع أساساً 👑
-        if (finalPrice > conv.askingPrice) {
-            finalPrice = conv.askingPrice;
-        }
+        // حماية برمجية قسوى: الزبون مستحيل يدفع أكثر من السعر المطلوب
+        if (finalPrice > conv.askingPrice) finalPrice = conv.askingPrice;
 
-        // حماية برمجية ثانية: مستحيل يدفع أكثر من سعر السوق 
-        // (إلا إذا اللاعب نفسه كان حاطط سعر غالي والـ AI تعطل، هنا نطرده)
-        if (finalPrice > conv.jonesPrice && finalPrice > conv.askingPrice) {
+        // حماية ضد الأسعار الخيالية
+        if (finalPrice > conv.jonesPrice * 1.5) {
             return {
-                message: `هل تمازحني؟ لن أدفع هذا السعر! السعر العادل هو ${conv.jonesPrice}. وداعاً!`,
+                message: `السعر العادل هو ${conv.jonesPrice}. لن أدفع أكثر من هذا. وداعاً!`,
                 action: { action: 'leave' },
             };
         }
@@ -216,7 +209,7 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
         const qtyToBuy = Math.min(action.quantity, maxQty);
 
         return {
-            message: cleanMessage || 'اتفقنا.',
+            message: cleanMessage || 'اتفقنا على الشراء.',
             action: {
                 type: 'purchase',
                 listingId: conv.targetListingId,
@@ -234,16 +227,25 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
 }
 
 // ============================================================================
-// [5] واجهة التفاعل (تنظيف الشاشة كما طلبت) 👑
+// واجهة التفاعل (إيمبد نظيف وعشوائي اللون + سجل محادثة) 👑
 // ============================================================================
+function generateMarketEmbed(conv) {
+    const baseDesc = `✶ **الاسـم:** ${conv.name}\n` +
+                     `✶ **العنـصر:** ${conv.targetItemName}\n` +
+                     `✶ **السـعـر المعروض:** ${conv.currentOffer} مورا\n\n`;
+
+    return new EmbedBuilder()
+        .setColor(conv.color)
+        .setTitle('✥ زبـون يقترب من قافلتـك')
+        .setDescription(baseDesc + conv.chatLog.join('\n\n'));
+}
+
 async function processNpcTurn(conv, userMessage, interaction, client, db) {
+    // إضافة رسالة اللاعب للسجل
     conv.history.push({ role: 'user', content: userMessage });
+    conv.chatLog.push(`✦ **أنت:** ${userMessage}`);
 
-    const thinkingEmbed = new EmbedBuilder()
-        .setColor('#2B2D31')
-        .setDescription(`**الزبون:** ${conv.name}\n\n🗣️ **أنت:**\n> ${userMessage}\n\n*يفكر في ردك...*`);
-
-    await conv.message.edit({ embeds: [thinkingEmbed] }).catch(() => {});
+    await conv.message.edit({ embeds: [generateMarketEmbed(conv)] }).catch(() => {});
 
     const thread = interaction.channel;
     conv.listings = await getListingsBySession(db, thread.id);
@@ -251,24 +253,26 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
     const result = await handleNpcHaggle(client, db, thread, conv, userMessage, conv.ownerId);
 
     if (!result) {
-        const leaveEmbed = new EmbedBuilder()
-            .setColor('#E74C3C')
-            .setDescription(`**الزبون:** ${conv.name}\n\n🗣️ **أنت:**\n> ${userMessage}\n\n⚠️ *نفد صبره وغادر السوق.*`);
-        await conv.message.edit({ embeds: [leaveEmbed], components: [] }).catch(() => {});
+        conv.chatLog.push(`✦ **${conv.name}:** ⚠️ *غادر السوق فجأة.*`);
+        await conv.message.edit({ embeds: [generateMarketEmbed(conv)], components: [] }).catch(() => {});
         conv.active = false;
         NpcConversations.delete(conv.id);
         return;
     }
 
-    conv.history.push({ role: 'assistant', content: result.message });
+    // تحديث السعر المعروض إذا الزبون كاسر واقترح سعر جديد
+    if (result.action && result.action.action === 'haggle') {
+        conv.currentOffer = result.action.newOffer;
+    }
 
-    const responseEmbed = new EmbedBuilder()
-        .setColor('#2B2D31')
-        .setDescription(`**الزبون:** ${conv.name}\n\n🗣️ **أنت:**\n> ${userMessage}\n\n👤 **الرد:**\n> "${result.message}"`);
+    conv.history.push({ role: 'assistant', content: result.message });
+    conv.chatLog.push(`✦ **${conv.name}:** ${result.message}`);
+
+    const updatedEmbed = generateMarketEmbed(conv);
 
     if (result.action?.action === 'leave') {
-        responseEmbed.setColor('#E74C3C').setFooter({ text: '🏃 غادر المشتري السوق ولم تكتمل الصفقة.' });
-        await conv.message.edit({ embeds: [responseEmbed], components: [] }).catch(() => {});
+        updatedEmbed.setFooter({ text: '🏃 غادر المشتري السوق ولم تكتمل الصفقة.' });
+        await conv.message.edit({ embeds: [updatedEmbed], components: [] }).catch(() => {});
         conv.active = false;
         NpcConversations.delete(conv.id);
 
@@ -278,29 +282,29 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
 
         if (purchaseResult.ok) {
             const earned = (a.quantity * a.pricePerUnit).toLocaleString();
-            responseEmbed.setColor('#2ECC71').setFooter({ text: `💰 اشترى منك ${a.quantity} من ${conv.targetItemName} بـ ${earned} مورا` });
-            await conv.message.edit({ embeds: [responseEmbed], components: [] }).catch(() => {});
+            updatedEmbed.setFooter({ text: `💰 تم بيع ${a.quantity} من ${conv.targetItemName} بـ ${earned} مورا` });
+            await conv.message.edit({ embeds: [updatedEmbed], components: [] }).catch(() => {});
 
             const freshListings = await getListingsBySession(db, thread.id);
             const session = await getSessionByThread(db, thread.id);
             const dest = caravanConfig.destinations.find(d => d.id === (session?.destinationid || session?.destinationId));
             await updateMarketMessage(thread, freshListings, dest);
 
-            await thread.send({ content: `✅ <@${conv.ownerId}> أتممت صفقة بـ **${earned}** مورا مع المشتري ${conv.name}!` }).catch(() => {});
+            await thread.send({ content: `✅ <@${conv.ownerId}> كسبت **${earned}** مورا من المشتري ${conv.name}!` }).catch(() => {});
         } else {
-            responseEmbed.setColor('#E74C3C').setFooter({ text: `❌ فشلت الصفقة: ${purchaseResult.error}` });
-            await conv.message.edit({ embeds: [responseEmbed], components: [] }).catch(() => {});
+            updatedEmbed.setFooter({ text: `❌ فشلت الصفقة: ${purchaseResult.error}` });
+            await conv.message.edit({ embeds: [updatedEmbed], components: [] }).catch(() => {});
         }
         conv.active = false;
         NpcConversations.delete(conv.id);
     } else {
-        responseEmbed.setFooter({ text: `(الجولة ${conv.haggleTurns}/3) - استخدم الأزرار للرد` });
-        await conv.message.edit({ embeds: [responseEmbed] }).catch(() => {});
+        updatedEmbed.setFooter({ text: `(الفرصة: الجولة ${conv.haggleTurns} من ${conv.maxTurns}) - استخدم الأزرار للرد` });
+        await conv.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
     }
 }
 
 // ============================================================================
-// [6] جدولة الإنتاج (زبون واحد فقط في كل مرة) 👑
+// جدولة الإنتاج (شخص واحد فقط في كل مرة) 👑
 // ============================================================================
 async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
     try {
@@ -319,16 +323,30 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         const npcData = await generateDynamicCustomer(itemName, askingPrice, jonesPrice);
         const convId = `conv_${thread.id}_${Date.now()}`;
         
-        const embed = new EmbedBuilder()
-            .setColor('#2B2D31')
-            .setDescription(`**الزبون:** ${npcData.name}\n\n> "${npcData.openingLine}"`);
+        // توليد لون عشوائي مميز لكل زبون
+        const randomColor = `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
+        
+        // مزاج الزبون (الصبر: من جولة إلى 3 جولات كحد أقصى)
+        const maxTurns = Math.floor(Math.random() * 3) + 1;
 
-        const npcMsg = await thread.send({ content: `يا <@${ownerId}>، زبون يقف عند بسطتك! 🛎️`, embeds: [embed] }).catch(() => null);
+        const chatLog = [`✦ **${npcData.name}:** ${npcData.openingLine}`];
+        
+        const baseDesc = `✶ **الاسـم:** ${npcData.name}\n` +
+                         `✶ **العنـصر:** ${itemName}\n` +
+                         `✶ **السـعـر المعروض:** ${npcData.offer} مورا\n\n`;
+
+        const embed = new EmbedBuilder()
+            .setColor(randomColor)
+            .setTitle('✥ زبـون يقترب من قافلتـك')
+            .setDescription(baseDesc + chatLog[0]);
+
+        const npcMsg = await thread.send({ content: `<@${ownerId}>`, embeds: [embed] }).catch(() => null);
         if (!npcMsg) return null;
 
         NpcConversations.set(convId, {
             id: convId, 
             name: npcData.name,
+            color: randomColor,
             threadId: thread.id,
             ownerId, guildId, listings,
             targetListingId: targetListing.id,
@@ -337,15 +355,18 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             targetListingQty: targetListing.quantity,
             targetListingSold: targetListing.quantitysold || targetListing.quantitySold || 0,
             askingPrice, jonesPrice,
-            haggleTurns: 0, // تصفير العداد
+            currentOffer: npcData.offer,
+            haggleTurns: 0, 
+            maxTurns, // حد الصبر
             message: npcMsg,
             history: [{ role: 'assistant', content: npcData.openingLine }], 
+            chatLog, // لحفظ شكل السوالف
             active: true,
         });
 
         const negotiateBtn = new ButtonBuilder().setCustomId(`mkt_npc_talk_${convId}`).setLabel('💬 فاوض').setStyle(ButtonStyle.Primary);
         const acceptBtn = new ButtonBuilder().setCustomId(`mkt_npc_accept_${convId}`).setLabel('✅ موافق على سعره').setStyle(ButtonStyle.Success);
-        const declineBtn = new ButtonBuilder().setCustomId(`mkt_npc_reject_${convId}`).setLabel('❌ رفض ومغادرة').setStyle(ButtonStyle.Danger);
+        const declineBtn = new ButtonBuilder().setCustomId(`mkt_npc_reject_${convId}`).setLabel('❌ طرده').setStyle(ButtonStyle.Danger);
 
         await npcMsg.edit({ components: [new ActionRowBuilder().addComponents(negotiateBtn, acceptBtn, declineBtn)] }).catch(() => {});
 
@@ -354,7 +375,8 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         collector.on('collect', async i => {
             if (i.customId === `mkt_npc_reject_${convId}`) {
                 await i.deferUpdate().catch(() => {});
-                const rejectEmbed = new EmbedBuilder().setColor('#E74C3C').setDescription(`**الزبون:** ${npcData.name}\n\n⚠️ رفضت التفاوض وطردت الزبون.`);
+                const conv = NpcConversations.get(convId);
+                const rejectEmbed = new EmbedBuilder().setColor('#E74C3C').setTitle('✥ زبـون يقترب من قافلتـك').setDescription(`**الاسـم:** ${conv.name}\n\n⚠️ تم طرد الزبون من المتجر.`);
                 await npcMsg.edit({ embeds: [rejectEmbed], components: [] }).catch(() => {});
                 NpcConversations.delete(convId);
                 collector.stop();
@@ -370,7 +392,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             }
 
             if (i.customId === `mkt_npc_talk_${convId}`) {
-                const modal = new ModalBuilder().setCustomId(`mkt_npc_modal_${convId}`).setTitle(`مكاسرة مع ${npcData.name}`);
+                const modal = new ModalBuilder().setCustomId(`mkt_npc_modal_${convId}`).setTitle(`مكاسرة مع ${conv.name}`);
                 const replyInput = new TextInputBuilder().setCustomId('user_reply').setLabel('ردك:').setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(replyInput));
                 await i.showModal(modal).catch(() => {});
@@ -381,7 +403,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             const conv = NpcConversations.get(convId);
             if (conv?.active) {
                 NpcConversations.delete(convId);
-                const timeoutEmbed = new EmbedBuilder().setColor('#78909C').setDescription(`**الزبون:** ${npcData.name}\n\n⚠️ غادر الزبون لتأخرك في الرد.`);
+                const timeoutEmbed = new EmbedBuilder().setColor('#78909C').setTitle('✥ زبـون يقترب من قافلتـك').setDescription(`**الاسـم:** ${conv.name}\n\n⚠️ غادر الزبون لتأخرك في الرد.`);
                 npcMsg.edit({ embeds: [timeoutEmbed], components: [] }).catch(() => {});
             }
         });
@@ -404,7 +426,7 @@ async function handleNpcModalSubmit(interaction, client, db) {
     return true;
 }
 
-// 👑 مجدول الزوار: يفحص السوق كل 15 ثانية، ولن يُنزل زبوناً جديداً طالما هناك زبون واقف! 👑
+// مُجدول الزوار: يفحص السوق كل 15 ثانية، ولن يُنزل زبوناً جديداً طالما هناك زبون واقف!
 function scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDurationMs) {
     const destId = dest.id;
     const maxNpcs = 5 + Math.floor(Math.random() * 3); 
@@ -423,7 +445,6 @@ function scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDura
                 return;
             }
 
-            // التحقق من وجود زبون نشط يتفاوض حالياً
             let isBusy = false;
             for (const conv of NpcConversations.values()) {
                 if (conv.threadId === thread.id && conv.active) {
@@ -442,9 +463,7 @@ function scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDura
     NpcSpawnIntervals.set(thread.id, interval);
 }
 
-function cleanupNpcConversations() { 
-    NpcConversations.clear(); 
-}
+function cleanupNpcConversations() { NpcConversations.clear(); }
 setInterval(cleanupNpcConversations, 3600000);
 
 module.exports = {
