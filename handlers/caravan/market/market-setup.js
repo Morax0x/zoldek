@@ -9,6 +9,9 @@ const { createListing, lockItemsFromInventory } = require('./market-db');
 let INVENTORY_GEN;
 try { INVENTORY_GEN = require('../../../generators/inventory-generator.js'); } catch (e) { INVENTORY_GEN = null; }
 
+let STAGING_GEN;
+try { STAGING_GEN = require('../../../generators/staging-market-generator.js'); } catch (e) { STAGING_GEN = null; }
+
 const resolveItemInfo = INVENTORY_GEN ? INVENTORY_GEN.resolveItemInfo : (id) => ({ name: id, emoji: '📦', rarity: 'Common', category: 'أخرى', imgPath: null });
 const getItemInfo = resolveItemInfo;
 
@@ -151,21 +154,29 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) 
     const deducted = await safeDeductFromInventory(db, userId, guildId, itemId, quantity);
     if (!deducted) return { ok: false, error: 'الكمية غير كافية في مخزونك.' };
 
+    // If same item already in staging (any price) → add quantity AND update to latest price
     let updated = false;
     try {
-        const upd1 = await db.query(`UPDATE caravan_staging_market SET quantity = quantity + $1 WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR itemid=$4) AND ("pricePerUnit"=$5 OR priceperunit=$5) RETURNING *`, [quantity, userId, guildId, itemId, price]);
+        const upd1 = await db.query(
+            `UPDATE caravan_staging_market SET "quantity" = "quantity" + $1, "pricePerUnit" = $5
+             WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR itemid=$4) RETURNING *`,
+            [quantity, userId, guildId, itemId, price]);
         if (upd1 && upd1.rowCount > 0) updated = true;
     } catch(e) {}
 
     if (!updated) {
         try {
-            const upd2 = await db.query(`UPDATE caravan_staging_market SET quantity = quantity + $1 WHERE userid=$2 AND guildid=$3 AND (itemid=$4 OR "itemID"=$4) AND (priceperunit=$5 OR "pricePerUnit"=$5) RETURNING *`, [quantity, userId, guildId, itemId, price]);
+            const upd2 = await db.query(
+                `UPDATE caravan_staging_market SET quantity = quantity + $1, priceperunit = $5
+                 WHERE userid=$2 AND guildid=$3 AND (itemid=$4 OR "itemID"=$4) RETURNING *`,
+                [quantity, userId, guildId, itemId, price]);
             if (upd2 && upd2.rowCount > 0) updated = true;
         } catch(e) {}
     }
 
     if (updated) return { ok: true };
 
+    // New item — insert fresh row
     try {
         await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
     } catch(e) {
@@ -376,12 +387,32 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
     }, 0);
 
     let buffer = null;
-    if (INVENTORY_GEN && INVENTORY_GEN.generateInventoryCard) {
+    if (STAGING_GEN && STAGING_GEN.generateStagingCanvas) {
         try {
-            const drawCategory = isCart ? 'موارد' : state.category; 
-            const drawItems = pageItems.map(item => ({ ...item, category: drawCategory }));
-            buffer = await INVENTORY_GEN.generateInventoryCard(user.displayName || user.username, drawCategory, drawItems, state.page, totalPages, state.selectedIndex);
-        } catch (e) { buffer = null; }
+            const canvasItems = pageItems.map(item => ({
+                id:          item.id,
+                name:        item.name   || String(item.id),
+                emoji:       item.emoji  || '📦',
+                rarity:      item.rarity || 'Common',
+                imgPath:     item.imgPath || null,
+                quantity:    item.quantity || 0,
+                pricePerUnit: isCart ? (Number(item.pricePerUnit) || 0) : undefined,
+            }));
+            buffer = await STAGING_GEN.generateStagingCanvas(
+                user.displayName || user.username,
+                canvasItems,
+                state.page,
+                totalPages,
+                0,
+                staged.length,
+                state.selectedIndex,
+                isCart,
+                isCart ? 'cart' : 'inventory'
+            );
+        } catch (e) {
+            console.error('[showStagingUI] canvas error:', e?.message);
+            buffer = null;
+        }
     }
 
     const embed = new EmbedBuilder()

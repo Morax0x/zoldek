@@ -160,8 +160,11 @@ function autoText(ctx, text, x, y, maxW, maxFs, minFs = 10) {
  * @param {number} totalPages - Total pages
  * @param {number} mora - User's mora balance
  * @param {number} stagedCount - How many items already staged
+ * @param {number} selectedIndex - Index of selected item (-1 = none)
+ * @param {boolean} showPrices - Whether to show price in item ribbon
+ * @param {string} mode - 'inventory' | 'cart'
  */
-async function generateStagingCanvas(userName, items, page, totalPages, mora, stagedCount) {
+async function generateStagingCanvas(userName, items, page, totalPages, mora, stagedCount, selectedIndex = -1, showPrices = false, mode = 'inventory') {
     const W = 1200, H = 900;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
@@ -215,8 +218,8 @@ async function generateStagingCanvas(userName, items, page, totalPages, mora, st
     ctx.fillText(`💰 ${mora?.toLocaleString() || 0} مورا`, W - 30, 70);
 
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#B968FF';
-    ctx.fillText(`📦 مرحّلة: ${stagedCount || 0}`, 30, 45);
+    ctx.fillStyle = mode === 'cart' ? '#2ECC71' : '#B968FF';
+    ctx.fillText(mode === 'cart' ? `🛒 السلة: ${stagedCount || 0}` : `📦 مرحّلة: ${stagedCount || 0}`, 30, 45);
 
     // Grid: 5 cols, 3 rows
     const cols = 5, rows = 3, slotSize = 175, gapX = 45, gapY = 55;
@@ -252,7 +255,20 @@ async function generateStagingCanvas(userName, items, page, totalPages, mora, st
         }
 
         const rc = item.rarity ? (RARITY_COLORS[item.rarity] || '#777') : '#A8B8D0';
-        drawFrame(ctx, x, y, slotSize, slotSize, rc);
+        const isSelected = (i === selectedIndex);
+        drawFrame(ctx, x, y, slotSize, slotSize, isSelected ? '#FFFFFF' : rc);
+
+        // Selection glow
+        if (isSelected) {
+            ctx.save();
+            ctx.shadowColor = '#FFFFFF';
+            ctx.shadowBlur = 24;
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 3;
+            roundRect(ctx, x + 2, y + 2, slotSize - 4, slotSize - 4, 10);
+            ctx.stroke();
+            ctx.restore();
+        }
 
         // Aura
         const aura = ctx.createRadialGradient(x + slotSize/2, y + slotSize/2, 10, x + slotSize/2, y + slotSize/2, slotSize/1.2);
@@ -294,11 +310,17 @@ async function generateStagingCanvas(userName, items, page, totalPages, mora, st
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#FFF';
         const cleanName = (item.name || '').replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FAFF}₿🪙]/gu, '').trim();
-        autoText(ctx, cleanName, x + slotSize/2, ribbonY + ribbonH/2 - 8, slotSize - 20, 15, 10);
 
-        ctx.fillStyle = '#2ECC71';
-        ctx.font = 'bold 11px "Bein"';
-        ctx.fillText(`${item.pricePerUnit?.toLocaleString() || 0} 🪙`, x + slotSize/2, ribbonY + ribbonH/2 + 10);
+        if (showPrices && item.pricePerUnit > 0) {
+            // Two lines: name + price
+            autoText(ctx, cleanName, x + slotSize/2, ribbonY + ribbonH/2 - 8, slotSize - 20, 13, 9);
+            ctx.fillStyle = '#2ECC71';
+            ctx.font = 'bold 11px "Bein"';
+            ctx.fillText(`${Number(item.pricePerUnit).toLocaleString()} 🪙`, x + slotSize/2, ribbonY + ribbonH/2 + 10);
+        } else {
+            // Single centered line: name only
+            autoText(ctx, cleanName, x + slotSize/2, ribbonY + ribbonH/2, slotSize - 20, 15, 10);
+        }
 
         // Qty badge
         const qtyText = item.quantity > 999 ? '999+' : String(item.quantity);

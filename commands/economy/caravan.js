@@ -101,8 +101,7 @@ function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
         );
     } else {
         row.addComponents(
-            new ButtonBuilder().setCustomId('cv_status').setLabel('🗺️ متابعة الرحلة').setStyle(ButtonStyle.Success).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('🏪 متجر القافلة').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+            new ButtonBuilder().setCustomId('cv_status').setLabel('🗺️ متابعة الرحلة').setStyle(ButtonStyle.Success).setDisabled(disabled)
         );
         
         if (userId === EMPEROR_ID) {
@@ -132,44 +131,77 @@ async function sendCanvas(fn, args, content = '') {
 let cachedDestBg = null;
 
 async function generateDestChoiceImage(dest, mora) {
-    const canvas = createCanvas(800, 400);
+    const W = 900, H = 480;
+    const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
-    
+
+    // Background
     try {
         if (!cachedDestBg) cachedDestBg = await loadImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_caravan.jpg');
-        ctx.drawImage(cachedDestBg, 0, 0, 800, 400);
+        ctx.drawImage(cachedDestBg, 0, 0, W, H);
     } catch(e) {
-        ctx.fillStyle = '#1c1c1e';
-        ctx.fillRect(0, 0, 800, 400);
+        ctx.fillStyle = '#1a0a08';
+        ctx.fillRect(0, 0, W, H);
     }
-    
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-    ctx.fillRect(0, 0, 800, 400);
-    
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'top';
+    // Dark overlay
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(0, 0, W, H);
+
+    // ── Title ──
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.fillStyle = dest.color || '#FFD700';
-    ctx.font = 'bold 36px "sans-serif"';
-    ctx.fillText(`الانطلاق إلى ${dest.name}`, 750, 40);
-    
+    ctx.font = 'bold 38px "sans-serif"';
+    ctx.shadowColor = dest.color || '#FFD700';
+    ctx.shadowBlur = 18;
+    ctx.fillText(`${dest.emoji} الانطلاق إلى ${dest.name}`, W/2, 52);
+    ctx.shadowBlur = 0;
+
+    // ── Info bar ──
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(50, 82, W - 100, 50);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(50, 82, W - 100, 50);
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 26px "sans-serif"';
-    ctx.fillText(`💰 التكلفة: ${dest.cost.toLocaleString()} مورا`, 750, 110);
-    
-    ctx.fillStyle = (mora >= dest.cost) ? '#2ECC71' : '#E74C3C';
-    ctx.fillText(`💳 رصيدك الحالي: ${mora.toLocaleString()} مورا`, 750, 150);
-    
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(`⏱️ المدة المتوقعة: ${dest.duration_hours} ساعة`, 750, 190);
-    ctx.fillText(`⚠️ نسبة الخطر والكمائن: ${(dest.risk_factor * 100).toFixed(0)}%`, 750, 230);
-    
+    ctx.font = '20px "sans-serif"';
+    ctx.fillText(`⏱️ ${dest.duration_hours} ساعة   ·   💰 ${dest.cost.toLocaleString()} مورا   ·   ⚠️ خطر ${(dest.risk_factor * 100).toFixed(0)}%`, W/2, 107);
+
+    // ── Bandit alert ──
+    const banditCount = Math.max(2, Math.round(dest.risk_factor * 12));
+    ctx.fillStyle = '#E74C3C';
+    ctx.font = 'bold 24px "sans-serif"';
+    ctx.shadowColor = '#E74C3C';
+    ctx.shadowBlur = 12;
+    ctx.fillText(`⚔️ الطريق محفوف بالمخاطر — يوجد ${banditCount} أوكار لقطاع الطرق!`, W/2, 170);
+    ctx.shadowBlur = 0;
+
+    // ── Question ──
+    ctx.fillStyle = '#F0F0F0';
+    ctx.font = '21px "sans-serif"';
+    ctx.fillText('هل تريد الإغارة عليهم وتأمين الطريق قبل إطلاق القافلة؟', W/2, 218);
+    ctx.fillStyle = '#C0C0C0';
+    ctx.font = '19px "sans-serif"';
+    ctx.fillText('أم المجازفة وترك القافلة دون حماية؟', W/2, 252);
+
+    // ── Mora status ──
+    const canAfford = mora >= dest.cost;
+    ctx.fillStyle = canAfford ? '#2ECC71' : '#E74C3C';
+    ctx.font = 'bold 18px "sans-serif"';
+    ctx.fillText(`💳 رصيدك: ${mora.toLocaleString()} مورا  ${canAfford ? '✅' : '❌ غير كافٍ'}`, W/2, 302);
+
+    // ── Divider ──
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(80, 330); ctx.lineTo(W - 80, 330); ctx.stroke();
+
+    // ── Button hints ──
+    ctx.font = '16px "sans-serif"';
+    ctx.fillStyle = '#E74C3C';
+    ctx.fillText('⚔️ هجوم وتأمين الطريق — قاتل لحماية القافلة مسبقاً', W/2, 365);
     ctx.fillStyle = '#3498DB';
-    ctx.font = '22px "sans-serif"';
-    ctx.fillText(`🛡️ [تأمين الطريق]: قاتل 5 موجات لحماية القافلة مسبقاً (مضمونة).`, 750, 290);
-    
-    ctx.fillStyle = '#E67E22';
-    ctx.fillText(`🐫 [إرسال بدون حماية]: قد تتعرض القافلة لكمين في أي وقت!`, 750, 330);
-    
+    ctx.fillText('🐫 تخطي الحماية — المجازفة بدون قتال', W/2, 400);
+
     return canvas.toBuffer('image/png');
 }
 
@@ -425,16 +457,16 @@ module.exports = {
                             new ActionRowBuilder().addComponents(
                                 new ButtonBuilder()
                                     .setCustomId(`cv_escort_${dest.id}`)
-                                    .setLabel('🛡️ تأمين الطريق (تذكرة حارس)')
-                                    .setStyle(ButtonStyle.Primary),
+                                    .setLabel('⚔️ هجوم وتأمين الطريق')
+                                    .setStyle(ButtonStyle.Danger),
                                 new ButtonBuilder()
                                     .setCustomId(`cv_noprotect_${dest.id}`)
-                                    .setLabel('🐫 إرسال بدون حماية')
-                                    .setStyle(ButtonStyle.Secondary),
+                                    .setLabel('🐫 تخطي الحماية')
+                                    .setStyle(ButtonStyle.Primary),
                                 new ButtonBuilder()
                                     .setCustomId('cv_back')
-                                    .setLabel('↩️ إلغاء الرحلة')
-                                    .setStyle(ButtonStyle.Danger)
+                                    .setLabel('↩️ إلغاء')
+                                    .setStyle(ButtonStyle.Secondary)
                             )
                         ]
                     }).catch(() => {});
