@@ -130,9 +130,10 @@ async function closeMarketThread(client, db, threadId, guildId) {
             }).catch(() => {});
         }
 
-        // 👑 حذف الثريد بالكامل (لكي لا يبقى مفتوحاً للأبد) 👑
+        // 👑 أرشفة الثريد وإغلاقه بدلاً من حذفه (لكي يبقى كسجل للمبيعات والتجارة) 👑
         if (thread) {
-            await thread.delete('انتهى وقت السوق وتم إغلاقه').catch(e => console.error('[Delete Thread Error]', e.message));
+            await thread.setLocked(true, 'انتهى وقت السوق وتم إغلاقه').catch(() => {});
+            await thread.setArchived(true).catch(() => {});
         }
         
         clearTimer(threadId);

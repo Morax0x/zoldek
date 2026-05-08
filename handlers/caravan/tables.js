@@ -38,6 +38,9 @@ async function initCaravanTables(db) {
 
     await safeExecute(db,
         `ALTER TABLE user_caravans ADD COLUMN IF NOT EXISTS "marketChannelId" TEXT DEFAULT NULL`, []);
+
+    await safeExecute(db,
+        `CREATE INDEX IF NOT EXISTS idx_user_caravans_status ON user_caravans("status")`, []);
 }
 
 async function checkCaravanCooldown(db, userId, guildId) {
