@@ -1,6 +1,4 @@
-const {
-    EmbedBuilder, ChannelType
-} = require('discord.js');
+const { EmbedBuilder, ChannelType } = require('discord.js');
 const { safeQuery } = require('../db');
 const { caravanConfig, EMOJI_MORA } = require('../config');
 const {
@@ -16,7 +14,7 @@ const { scheduleNpcSpawn } = require('./market-npc-ai');
 
 const activeTimers = new Map();
 
-async function createMarketThread(client, db, caravan, channelId, sourceMessage = null) {
+async function createMarketThread(client, db, caravan, channelId) {
     try {
         const ownerId = caravan.userid || caravan.userID;
         const guildId = caravan.guildid || caravan.guildID;
@@ -26,57 +24,29 @@ async function createMarketThread(client, db, caravan, channelId, sourceMessage 
         const dest = caravanConfig.destinations.find(d => d.id === destId);
         if (!dest) return null;
 
-        let guild = client.guilds.cache.get(guildId);
-        if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
+        let guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
         if (!guild) return null;
 
-        let channel = guild.channels.cache.get(channelId);
-        if (!channel) channel = await guild.channels.fetch(channelId).catch(() => null);
+        let channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
         if (!channel) return null;
 
-        const threadName = `🏪 سوق-${dest.name.replace(/ /g, '-')}`;
-        const threadReason = `سوق القافلة - ${dest.name}`;
+        const thread = await channel.threads.create({
+            name: `🏪 سوق-${dest.name.replace(/ /g, '-')}`,
+            autoArchiveDuration: 1440,
+            type: ChannelType.PublicThread,
+            reason: `سوق القافلة - ${dest.name}`,
+        }).catch(err => {
+            console.error('[CreateThread Error]', err.message);
+            return null;
+        });
 
-        // Create thread on arrival message if provided, otherwise standalone
-        let thread;
-        if (sourceMessage) {
-            thread = await sourceMessage.startThread({
-                name: threadName,
-                autoArchiveDuration: 1440,
-                reason: threadReason,
-            }).catch(async (err) => {
-                console.error('[CreateThread] startThread failed, trying channel.threads.create:', err?.message || err);
-                return await channel.threads.create({
-                    name: threadName,
-                    autoArchiveDuration: 1440,
-                    type: ChannelType.PublicThread,
-                    reason: threadReason,
-                }).catch(e2 => {
-                    console.error('[CreateThread] channel.threads.create also failed:', e2?.message || e2);
-                    return null;
-                });
-            });
-        } else {
-            thread = await channel.threads.create({
-                name: threadName,
-                autoArchiveDuration: 1440,
-                type: ChannelType.PublicThread,
-                reason: threadReason,
-            }).catch(err => {
-                console.error('[CreateThread Error]', err?.message || err);
-                return null;
-            });
-        }
-
-        console.log(`[CreateThread] thread=${thread?.id || null} channel=${channelId}`);
         if (!thread) return null;
 
-        // Market duration tied to trip duration, clamped between 10 min and 24 h
-        const durationMs = Number(caravan.endtime || caravan.endTime) - Number(caravan.starttime || caravan.startTime);
-        const marketDurationMs = Math.max(
-            10 * 60 * 1000,
-            Math.min(durationMs, 24 * 60 * 60 * 1000)
-        );
+        // حساب وقت السوق (الحد الأدنى 15 دقيقة حتى لو الرحلة تم تسريعها)
+        let durationMs = Number(caravan.endtime || caravan.endTime) - Number(caravan.starttime || caravan.startTime);
+        if (isNaN(durationMs) || durationMs <= 0) durationMs = 30 * 60 * 1000; 
+        
+        const marketDurationMs = Math.max(15 * 60 * 1000, Math.min(durationMs, 24 * 60 * 60 * 1000));
 
         await createMarketSession(db, caravanId, ownerId, guildId, destId, thread.id, channel.id, marketDurationMs);
 
@@ -106,14 +76,13 @@ async function createMarketThread(client, db, caravan, channelId, sourceMessage 
 
         const timer = setTimeout(async () => {
             await closeMarketThread(client, db, thread.id, guildId);
-            activeTimers.delete(thread.id);
         }, marketDurationMs);
 
         activeTimers.set(thread.id, timer);
 
         return { thread, marketDurationMs, listings };
     } catch (err) {
-        console.error('[createMarketThread]', err);
+        console.error('[createMarketThread Fatal]', err);
         return null;
     }
 }
@@ -125,45 +94,55 @@ async function closeMarketThread(client, db, threadId, guildId) {
 
         await closeSession(db, threadId);
 
-        const guild = client.guilds.cache.get(guildId);
-        if (guild) {
-            const thread = guild.channels.cache.get(threadId);
-            if (thread) {
-                const returned = await returnUnsoldItems(db, session.ownerid || session.ownerID, guildId);
+        const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
+        if (!guild) return;
 
-                if (returned.length > 0) {
-                    const summary = returned.map(r => `${r.quantity}x ${r.name}`).join('\n');
-                    await thread.send({
-                        embeds: [new EmbedBuilder()
-                            .setColor('#FF9900')
-                            .setTitle('⏳ انتهى وقت السوق!')
-                            .setDescription(
-                                `🛒 البضائع التالية لا تزال في عربة قافلتك وستكون جاهزة في رحلتك القادمة:\n${summary}\n\n` +
-                                `📊 ملخص المبيعات:\n` +
-                                `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
-                                `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`
-                            )
-                            .setTimestamp()]
-                    }).catch(() => {});
-                } else {
-                    await thread.send({
-                        embeds: [new EmbedBuilder()
-                            .setColor('#2ECC71')
-                            .setTitle('⏳ انتهى وقت السوق!')
-                            .setDescription(
-                                `🎉 تم بيع جميع البضائع بالكامل!\n\n` +
-                                `📊 ملخص المبيعات:\n` +
-                                `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
-                                `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`
-                            )
-                            .setTimestamp()]
-                    }).catch(() => {});
-                }
+        // جلب الروم الأب (الكازينو) عشان نرسل فيه التقرير
+        const parentChannelId = session.channelid || session.channelId;
+        const parentChannel = guild.channels.cache.get(parentChannelId) || await guild.channels.fetch(parentChannelId).catch(() => null);
+        
+        const thread = guild.channels.cache.get(threadId) || await guild.channels.fetch(threadId).catch(() => null);
+        
+        const ownerId = session.ownerid || session.ownerID;
+        const returned = await returnUnsoldItems(db, ownerId, guildId);
 
-                await thread.setLocked(true).catch(() => {});
-                await thread.setArchived(true).catch(() => {});
-            }
+        let embedDesc = '';
+        if (returned.length > 0) {
+            const summary = returned.map(r => `\`${r.quantity}x\` ${r.name}`).join('\n');
+            embedDesc = `🛒 **البضائع المتبقية (عادت للسلة الدائمة):**\n${summary}\n\n`;
+        } else {
+            embedDesc = `🎉 **تم بيع جميع البضائع بالكامل!** لا يوجد بضائع متبقية.\n\n`;
         }
+
+        embedDesc += `📊 **ملخص المبيعات النهائي:**\n` +
+                     `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
+                     `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`;
+
+        const summaryEmbed = new EmbedBuilder()
+            .setColor(returned.length > 0 ? '#FF9900' : '#2ECC71')
+            .setTitle('⏳ انتهى وقت السوق وتم إغلاقه!')
+            .setDescription(embedDesc)
+            .setTimestamp();
+
+        // 1. إرسال التقرير النهائي في الروم الأب (خارج السوق) 👑
+        if (parentChannel) {
+            await parentChannel.send({
+                content: `🔔 إشعار إغلاق السوق لـ <@${ownerId}>:`,
+                embeds: [summaryEmbed]
+            }).catch(() => {});
+        }
+
+        // 2. إغلاق الثريد بقوة 👑
+        if (thread) {
+            await thread.send({ embeds: [summaryEmbed] }).catch(() => {});
+            
+            // قفل وأرشفة الثريد (تتطلب صلاحية Manage Threads للبوت)
+            await thread.setLocked(true, 'انتهى وقت السوق').catch(e => console.error('[Lock Thread Error]', e.message));
+            await thread.setArchived(true, 'انتهى وقت السوق').catch(e => console.error('[Archive Thread Error]', e.message));
+        }
+        
+        clearTimer(threadId);
+
     } catch (err) {
         console.error('[closeMarketThread]', err);
     }
@@ -175,8 +154,10 @@ async function checkExpiredMarketSessions(client, db) {
 
     for (const session of expired) {
         const threadId = session.threadid || session.threadId;
-        if (threadId && !activeTimers.has(threadId)) {
-            const guildId = session.guildid || session.guildID;
+        const guildId = session.guildid || session.guildID;
+        
+        // إغلاق أي سوق منتهي فوراً حتى لو البوت ترستر وانحذفت التايمرات
+        if (threadId) {
             await closeMarketThread(client, db, threadId, guildId);
         }
     }
