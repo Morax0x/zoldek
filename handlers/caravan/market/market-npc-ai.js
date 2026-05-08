@@ -14,9 +14,6 @@ const {
 const { getItemInfo } = require('./market-setup');
 const { updateMarketMessage } = require('./market-ui');
 
-// ============================================================================
-// بيانات أسعار جونس (المرجع الرسمي للأسعار)
-// ============================================================================
 let SEEDS_DATA = [];
 let FISHING_DATA = { fishItems: [], rods: [], boats: [], baits: [] };
 let POTIONS_DATA = [];
@@ -64,7 +61,7 @@ async function callGeminiDirect(apiKey, systemPrompt, messages, jsonMode = false
         const payload = {
             system_instruction: { parts: [{ text: systemPrompt }] },
             contents,
-            generationConfig: { temperature: 0.85, maxOutputTokens: 250 },
+            generationConfig: { temperature: 0.90, maxOutputTokens: 250 },
         };
         if (jsonMode) payload.generationConfig.responseMimeType = 'application/json';
 
@@ -80,7 +77,7 @@ async function callOpenAIDirect(apiKey, systemPrompt, messages, jsonMode = false
         const apiMessages = [{ role: 'system', content: systemPrompt }, ...messages];
         if (messages.length === 0) apiMessages.push({ role: 'user', content: 'ابدأ' });
 
-        const payload = { model: 'gpt-4o-mini', messages: apiMessages, temperature: 0.85, max_tokens: 250 };
+        const payload = { model: 'gpt-4o-mini', messages: apiMessages, temperature: 0.90, max_tokens: 250 };
         if (jsonMode) payload.response_format = { type: 'json_object' };
 
         const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
@@ -101,7 +98,7 @@ async function callAI(systemPrompt, messages, jsonMode = false) {
 // ============================================================================
 // توليد الزبون
 // ============================================================================
-async function generateDynamicCustomer(itemName, askingPrice, jonesPrice) {
+async function generateDynamicCustomer(itemName, askingPrice, jonesPrice, maxAvailableQty) {
     const isCheap = askingPrice <= jonesPrice;
     
     let npcInitialOffer = askingPrice;
@@ -109,20 +106,23 @@ async function generateDynamicCustomer(itemName, askingPrice, jonesPrice) {
         npcInitialOffer = Math.floor(jonesPrice * (0.6 + Math.random() * 0.4)); 
     }
 
+    const requestedQty = Math.floor(Math.random() * Math.min(5, maxAvailableQty)) + 1;
+
     const systemPrompt = `أنت زبون في سوق قوافل لعبة فانتازيا RPG.
-البائع يعرض سلعة باسم "${itemName}" ووضع لها سعر ${askingPrice} مورا. السعر المعروف والعادل في السوق هو ${jonesPrice} مورا.
-أنت ستفتتح كلامك وتعرض دفع ${npcInitialOffer} مورا لشراء السلعة.
+البائع يعرض سلعة باسم "${itemName}" وسعر الحبة الواحدة هو ${askingPrice} مورا. 
+السعر العادل والمعروف في السوق هو ${jonesPrice} مورا.
+أنت تريد شراء (${requestedQty}) حبة. وستفتتح كلامك وتعرض دفع ${npcInitialOffer} مورا للحبة الواحدة.
 
 يجب أن ترجع كائن JSON حصراً:
 {
-  "name": "اسمك كزبون (يجب أن يكون كلمة أو كلمتين كحد أقصى، أي اسم عادي أو لقب فانتازيا مثل: جاك، طارق، التاجر، غريب، سام، آرثر، الظل)",
-  "openingLine": "الجملة الافتتاحية التي ستخاطب بها البائع، تقترح فيها سعرك (${npcInitialOffer} مورا)."
+  "name": "ابتكر لنفسك اسماً خيالياً أو لقباً (كلمة أو كلمتين كحد أقصى، كن مبدعاً ولا تعتمد على أسماء شائعة جداً)",
+  "openingLine": "الجملة الافتتاحية التي ستخاطب بها البائع، تقترح فيها سعرك (${npcInitialOffer} مورا للحبة) وتذكر أنك تريد ${requestedQty} حبة."
 }
 
-قواعد الجملة الافتتاحية (إجبارية جداً):
-1. ممنوع منعاً باتاً استخدام أي مصطلح يظهرك كروبوت (مثل: "كعرض أول"، "بداية"، "كعرض افتتاحي"، "مبدئياً"). كن طبيعياً جداً.
-2. إذا كان السعر المعروض (${askingPrice}) أقل من أو يساوي السعر المعروف (${jonesPrice}): قل أن السعر ممتاز ومغري وأنك ستشتريه فوراً.
-3. إذا كان السعر المعروض (${askingPrice}) أعلى: صرح بأن السعر مبالغ فيه واقترح سعرك المخفض.
+قواعد الجملة الافتتاحية:
+1. كن طبيعياً جداً، ممنوع مصطلحات البوتات.
+2. إذا كان السعر المعروض (${askingPrice}) أقل من أو يساوي السعر المعروف (${jonesPrice}): قل أن السعر ممتاز وستشتري.
+3. إذا كان أعلى: صرح بأن السعر مبالغ فيه واقترح سعرك المخفض.
 لا تضف أي نص خارج الـ JSON.`;
 
     try {
@@ -131,24 +131,24 @@ async function generateDynamicCustomer(itemName, askingPrice, jonesPrice) {
             const cleanStr = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
             const data = JSON.parse(cleanStr);
             if (data.name && data.openingLine) {
-                return { name: data.name, openingLine: data.openingLine, offer: npcInitialOffer };
+                return { name: data.name, openingLine: data.openingLine, offer: npcInitialOffer, requestedQty };
             }
         }
     } catch(e) {}
     
-    const isCheapFallback = askingPrice <= jonesPrice;
     const suggestedPrice = Math.floor(jonesPrice * 0.8);
     return {
-        name: ['جاك', 'آرثر', 'الظل', 'تاجر شرقي', 'سام', 'طارق', 'الغريب'][Math.floor(Math.random() * 7)],
+        name: 'زبون المجهول',
         offer: npcInitialOffer,
-        openingLine: isCheapFallback 
-            ? `يا بلاش! تبيع ${itemName} بـ ${askingPrice} بس؟ هذي صفقة ما تتفوت، باخذها.`
-            : `أرى أنك تعرض ${itemName} بسعر مبالغ فيه.. سعره بالسوق ${jonesPrice}. وش رأيك تبيعني إياه بـ ${suggestedPrice}؟`
+        requestedQty,
+        openingLine: isCheap 
+            ? `أرى أنك تبيع ${itemName} بـ ${askingPrice}، هذا سعر مناسب! أريد ${requestedQty} لو سمحت.`
+            : `أرى أنك تعرض ${itemName} بسعر غالي. السعر العادل هو ${jonesPrice}، سأدفع لك ${suggestedPrice} للحبة وأريد ${requestedQty}.`
     };
 }
 
 // ============================================================================
-// معالجة التفاوض 
+// معالجة التفاوض (تقييم رد اللاعب والمنطق الصحيح للمشتري) 👑
 // ============================================================================
 function parseNpcAction(text) {
     const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/i);
@@ -163,28 +163,25 @@ function parseNpcAction(text) {
 }
 
 async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId) {
-    const availableListings = conv.listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
-    if (availableListings.length === 0) return { message: 'نفذت البضاعة! لا يوجد شيء لأشتريه.', action: { action: 'leave' } };
-
     conv.haggleTurns = (conv.haggleTurns || 0) + 1;
 
     if (conv.haggleTurns >= conv.maxTurns && !userMessageStr.includes('موافق')) {
-        return { message: 'لم نصل لاتفاق ولن أضيع وقتي أكثر من هذا. وداعاً!', action: { action: 'leave' } };
+        return { message: 'لن نصل لاتفاق، سأبحث في مكان آخر. وداعاً!', action: { action: 'leave' } };
     }
 
     const conversationHistory = conv.history.map(e => ({ role: e.role, content: e.role === 'assistant' ? `${conv.name}: ${e.content}` : `البائع: ${e.content}` }));
 
-    const systemPrompt = `أنت الزبون "${conv.name}". تتفاوض لشراء "${conv.targetItemName}".
-السعر المعروف في السوق: ${conv.jonesPrice} مورا. السعر الذي طلبه البائع في البداية: ${conv.askingPrice} مورا.
-آخر سعر اقترحته أنت هو: ${conv.currentOffer} مورا.
+    const systemPrompt = `أنت الزبون "${conv.name}". تتفاوض لشراء عدد (${conv.requestedQty}) من "${conv.targetItemName}".
+السعر المعروف والعادل في السوق للحبة هو: ${conv.jonesPrice} مورا. 
+آخر سعر اقترحته أنت هو: ${conv.currentOffer} مورا للحبة.
 
-قواعدك (صارمة جداً لمنع الغباء):
-1. 🛑 ممنوع منعاً باتاً استخدام عبارات مثل "كعرض أول"، "بدايةً"، "كعرض أخير".
-2. إذا البائع وافق صراحة على سعرك (مثلاً قال "موافق"، "تم"، "مبروك"، "خذها")، انسخ هذا الكود فوراً لإنهاء الصفقة: [BUY_ITEM:${conv.targetListingId}:1:${conv.currentOffer}]
-3. إذا رفض البائع وطلب سعراً أعلى من السعر المعروف (${conv.jonesPrice})، ارفض واقترح سعراً أقل أو غادر بكتابة [LEAVE].
-4. إذا البائع خفض سعره لسعر مناسب لك، يمكنك كتابة: [BUY_ITEM:${conv.targetListingId}:1:السعر_الجديد]
-5. لا توافق أبداً على أي سعر أعلى من ${conv.jonesPrice} مورا!
-6. إذا أردت اقتراح سعر جديد، أضف هذا الكود: [OFFER:سعرك_الجديد]
+قواعدك كمشتري ذكي (صارمة جداً لمنع الغباء الاصطناعي):
+1. 🛑 اقرأ رد البائع بعناية لتقييم أسلوبه: تفاعل معه، إذا كان حاداً أو مرناً رد عليه بأسلوب مناسب لشخصيتك.
+2. 🛑 لكي تقنعه بالبيع إذا رفض سعرك، يجب أن **ترفع** عرضك قليلاً لتقترب من سعره. من الغباء أن تقوم بخفض سعرك أثناء التفاوض لإقناع بائع!
+3. إذا وافق البائع على السعر الذي طرحته، أو طرح سعراً أقل من أو يساوي السعر المعروف، استخدم الكود فوراً لإنهاء الصفقة: [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:السعر_المتفق_عليه]
+4. إذا لم يوافق، اقترح سعراً جديداً أعلى من السعر الذي اقترحته سابقاً (ولكن لا يتجاوز ${conv.jonesPrice}) باستخدام الكود: [OFFER:سعرك_الجديد]
+5. 🛑 لا توافق أبداً على دفع أكثر من ${conv.jonesPrice} مورا للحبة الواحدة!
+6. إذا لم تتفقا أو غضبت، انسحب باستخدام: [LEAVE]
 7. رد بجملة واحدة فقط طبيعية.`;
 
     const messages = [...conversationHistory, { role: 'user', content: `البائع: ${userMessageStr}` }];
@@ -201,17 +198,17 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
 
         if (finalPrice > conv.jonesPrice * 1.5) {
             return {
-                message: `هذا استغلال! السعر العادل هو ${conv.jonesPrice}. وداعاً!`,
+                message: `السعر العادل هو ${conv.jonesPrice} ولن أدفع أكثر. وداعاً!`,
                 action: { action: 'leave' },
             };
         }
 
         return {
-            message: cleanMessage || 'اتفقنا.',
+            message: cleanMessage || 'تم، سأشتري.',
             action: {
                 type: 'purchase',
                 listingId: conv.targetListingId,
-                quantity: 1,
+                quantity: conv.requestedQty,
                 pricePerUnit: finalPrice,
                 buyerId: `npc_${conv.name}`,
                 sellerId: ownerId,
@@ -225,22 +222,20 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
 }
 
 // ============================================================================
-// واجهة التفاعل (إيمبد نظيف وعشوائي اللون + سجل محادثة + صورة الزبون) 👑
+// واجهة التفاعل 
 // ============================================================================
 function generateMarketEmbed(conv) {
     const baseDesc = `✶ **الاسـم:** ${conv.name}\n` +
                      `✶ **العنـصر:** ${conv.targetItemName}\n` +
-                     `✶ **السـعـر المعروض:** ${conv.currentOffer} مورا\n\n`;
+                     `✶ **السـعـر المعروض:** ${conv.currentOffer} مورا\n` +
+                     `✶ **العدد المطلوب:** ${conv.requestedQty}\n\n`;
 
     const embed = new EmbedBuilder()
         .setColor(conv.color)
         .setTitle('✥ زبـون يقترب من قافلتـك')
         .setDescription(baseDesc + conv.chatLog.join('\n\n'));
 
-    // 👑 إضافة صورة الزبون الخيالية أسفل الإيمبد 👑
-    if (conv.imageUrl) {
-        embed.setImage(conv.imageUrl);
-    }
+    if (conv.imageUrl) embed.setImage(conv.imageUrl);
 
     return embed;
 }
@@ -257,7 +252,7 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
     const result = await handleNpcHaggle(client, db, thread, conv, userMessage, conv.ownerId);
 
     if (!result) {
-        conv.chatLog.push(`✦ **${conv.name}:** ⚠️ *نفد صبره وغادر السوق.*`);
+        conv.chatLog.push(`✦ **${conv.name}:** ⚠️ *غادر السوق فجأة.*`);
         await conv.message.edit({ embeds: [generateMarketEmbed(conv)], components: [] }).catch(() => {});
         conv.active = false;
         NpcConversations.delete(conv.id);
@@ -292,7 +287,7 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
             const dest = caravanConfig.destinations.find(d => d.id === (session?.destinationid || session?.destinationId));
             await updateMarketMessage(thread, freshListings, dest);
 
-            await thread.send({ content: `✅ <@${conv.ownerId}> أتممت صفقة بـ **${earned}** مورا مع المشتري ${conv.name}!` }).catch(() => {});
+            await thread.send({ content: `✅ <@${conv.ownerId}> أتممت صفقة بـ **${earned}** مورا مع ${conv.name}!` }).catch(() => {});
         } else {
             updatedEmbed.setFooter({ text: `❌ فشلت الصفقة: ${purchaseResult.error}` });
             await conv.message.edit({ embeds: [updatedEmbed], components: [] }).catch(() => {});
@@ -300,13 +295,12 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
         conv.active = false;
         NpcConversations.delete(conv.id);
     } else {
-        updatedEmbed.setFooter({ text: `استخدم الأزرار للرد أو الموافقة` });
         await conv.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
     }
 }
 
 // ============================================================================
-// جدولة الإنتاج واختيار الصورة العشوائية
+// جدولة الإنتاج (شخص واحد فقط في كل مرة) 
 // ============================================================================
 async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
     try {
@@ -321,14 +315,15 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         const itemName = itemInfo.name || targetListing.itemid;
         const askingPrice = Number(targetListing.priceperunit || targetListing.pricePerUnit);
         const jonesPrice = getJonesPrice(targetListing.itemid || targetListing.itemID, itemInfo);
+        
+        const maxQty = Number(targetListing.quantity) - Number(targetListing.quantitysold || targetListing.quantitySold || 0);
 
-        const npcData = await generateDynamicCustomer(itemName, askingPrice, jonesPrice);
+        const npcData = await generateDynamicCustomer(itemName, askingPrice, jonesPrice, maxQty);
         const convId = `conv_${thread.id}_${Date.now()}`;
         
         const randomColor = `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
-        const maxTurns = Math.floor(Math.random() * 3) + 1;
+        const maxTurns = Math.floor(Math.random() * 3) + 1; // حد الصبر مخفي (1 إلى 3 محاولات)
 
-        // 👑 سحب صورة عشوائية للزبون من 1 إلى 8 👑
         const randomImageNumber = Math.floor(Math.random() * 8) + 1;
         const imageUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/caravan/cu/customer${randomImageNumber}.png`;
 
@@ -336,13 +331,14 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         
         const baseDesc = `✶ **الاسـم:** ${npcData.name}\n` +
                          `✶ **العنـصر:** ${itemName}\n` +
-                         `✶ **السـعـر المعروض:** ${npcData.offer} مورا\n\n`;
+                         `✶ **السـعـر المعروض:** ${npcData.offer} مورا\n` +
+                         `✶ **العدد المطلوب:** ${npcData.requestedQty}\n\n`;
 
         const embed = new EmbedBuilder()
             .setColor(randomColor)
             .setTitle('✥ زبـون يقترب من قافلتـك')
             .setDescription(baseDesc + chatLog[0])
-            .setImage(imageUrl); // وضع الصورة
+            .setImage(imageUrl); 
 
         const npcMsg = await thread.send({ content: `<@${ownerId}>`, embeds: [embed] }).catch(() => null);
         if (!npcMsg) return null;
@@ -351,7 +347,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             id: convId, 
             name: npcData.name,
             color: randomColor,
-            imageUrl: imageUrl, // حفظ الصورة عشان تظل معاه للمحادثة الجاية
+            imageUrl, 
             threadId: thread.id,
             ownerId, guildId, listings,
             targetListingId: targetListing.id,
@@ -359,6 +355,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             targetItemName: itemName,
             targetListingQty: targetListing.quantity,
             targetListingSold: targetListing.quantitysold || targetListing.quantitySold || 0,
+            requestedQty: npcData.requestedQty,
             askingPrice, jonesPrice,
             currentOffer: npcData.offer,
             haggleTurns: 0, 
@@ -370,8 +367,8 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         });
 
         const negotiateBtn = new ButtonBuilder().setCustomId(`mkt_npc_talk_${convId}`).setLabel('💬 فاوض').setStyle(ButtonStyle.Primary);
-        const acceptBtn = new ButtonBuilder().setCustomId(`mkt_npc_accept_${convId}`).setLabel('✅ موافق على سعره').setStyle(ButtonStyle.Success);
-        const declineBtn = new ButtonBuilder().setCustomId(`mkt_npc_reject_${convId}`).setLabel('❌ طرده').setStyle(ButtonStyle.Danger);
+        const acceptBtn = new ButtonBuilder().setCustomId(`mkt_npc_accept_${convId}`).setLabel('✅ موافق').setStyle(ButtonStyle.Success);
+        const declineBtn = new ButtonBuilder().setCustomId(`mkt_npc_reject_${convId}`).setLabel('❌ طرد').setStyle(ButtonStyle.Danger);
 
         await npcMsg.edit({ components: [new ActionRowBuilder().addComponents(negotiateBtn, acceptBtn, declineBtn)] }).catch(() => {});
 
@@ -391,9 +388,32 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             const conv = NpcConversations.get(convId);
             if (!conv?.active) return i.reply({ content: '❌ لقد غادر هذا المشتري.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
 
+            // 👑 تجاوز الذكاء الاصطناعي وتنفيذ الشراء الفوري عند ضغط (موافق) 👑
             if (i.customId === `mkt_npc_accept_${convId}`) {
                 await i.deferUpdate().catch(() => {});
-                await processNpcTurn(conv, 'أنا موافق على سعرك الحالي، اشترِ الآن.', i, client, db);
+                const finalPrice = conv.currentOffer; // يأخذ آخر سعر معروض من الزبون
+
+                const purchaseResult = await buyItem(db, conv.targetListingId, `npc_${conv.name}`, ownerId, guildId, conv.targetItemId, conv.requestedQty, finalPrice, 'npc', client);
+
+                const updatedEmbed = generateMarketEmbed(conv);
+                if (purchaseResult.ok) {
+                    const earned = (conv.requestedQty * finalPrice).toLocaleString();
+                    updatedEmbed.setFooter({ text: `💰 تم بيع ${conv.requestedQty} بـ ${earned} مورا` });
+                    await conv.message.edit({ embeds: [updatedEmbed], components: [] }).catch(() => {});
+
+                    const freshListings = await getListingsBySession(db, thread.id);
+                    const session = await getSessionByThread(db, thread.id);
+                    const dest = caravanConfig.destinations.find(d => d.id === (session?.destinationid || session?.destinationId));
+                    await updateMarketMessage(thread, freshListings, dest);
+
+                    await thread.send({ content: `✅ <@${conv.ownerId}> أتممت صفقة بـ **${earned}** مورا مع المشتري ${conv.name}!` }).catch(() => {});
+                } else {
+                    updatedEmbed.setFooter({ text: `❌ فشلت الصفقة: ${purchaseResult.error}` });
+                    await conv.message.edit({ embeds: [updatedEmbed], components: [] }).catch(() => {});
+                }
+                conv.active = false;
+                NpcConversations.delete(conv.id);
+                return;
             }
 
             if (i.customId === `mkt_npc_talk_${convId}`) {
