@@ -156,17 +156,13 @@ async function getStagedItems(db, userId, guildId) {
 
 // 👑 الدالة التي تنقل الأغراض للسوق بدون أن تحذفها من السلة الدائمة 👑
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
-    if (!caravanId) {
-        console.warn('[finalizeStagedItems] caravanId is null/undefined — skipping');
-        return { ok: false, error: 'caravanId is null' };
-    }
+    if (!caravanId) return { ok: false, error: 'caravanId is null' };
 
     console.log(`[MarketDB] Finalizing staged items for caravan ${caravanId}, user ${userId}...`);
 
     const existing = await getListingsByCaravan(db, caravanId);
     if (existing.length > 0) return { ok: true, moved: existing.length };
 
-    // Use a safe fallback-enabled fetch for staged items
     let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
     if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) {
         stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]);
@@ -178,8 +174,7 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         return { ok: true, moved: 0 };
     }
 
-    // 👑 التعديل الوحيد هنا: استدعاء صحيح لجلب معلومات البضاعة (الاسم والإيموجي) 👑
-    const { getItemInfo } = require('./market-setup');
+    const { resolveItemInfo } = require('./market-setup');
 
     let moved = 0;
     for (const s of staged) {
@@ -193,8 +188,7 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
 
         if (!itemId || quantity <= 0) continue;
 
-        // جلب البيانات الحقيقية من قاموس اللعبة
-        const itemInfo = getItemInfo(itemId) || {};
+        const itemInfo = resolveItemInfo(itemId);
 
         const listingId = await createListing(db, caravanId, userId, guildId, {
             itemId,
@@ -221,45 +215,59 @@ async function lockItemsFromInventory(db, guildId, userId, listings) {
     }
 }
 
+// 👑 الإصلاح الجذري: تطابق دقيق مع أسماء الأعمدة في قاعدة البيانات (caravanId) بدلاً من (caravanID) 👑
 async function getListingsByCaravan(db, caravanId) {
     let result = await safeQuery(db, `
         SELECT * FROM caravan_market_listings
-        WHERE ("caravanId"=$1 OR "caravanID"=$1) AND "status"='active'
+        WHERE "caravanId"=$1 AND "status"='active'
         ORDER BY "id" ASC
     `, [caravanId]);
-    return result.rows || [];
+
+    // دعم احتياطي لو كان العمود بأحرف صغيرة في أنظمة أخرى
+    if (!result || !result.rows || result.rows.length === 0) {
+        result = await safeQuery(db, `
+            SELECT * FROM caravan_market_listings
+            WHERE caravanid=$1 AND status='active'
+            ORDER BY id ASC
+        `, [caravanId]);
+    }
+
+    return result?.rows || [];
 }
 
 async function getListingsBySession(db, threadId) {
     let result = await safeQuery(db, `
         SELECT l.* FROM caravan_market_listings l
-        INNER JOIN caravan_market_sessions s ON (l."caravanId" = s."caravanId" OR l."caravanID" = s."caravanId")
+        INNER JOIN caravan_market_sessions s ON l."caravanId" = s."caravanId"
         WHERE s."threadId"=$1 AND l."status"='active' AND s."status"='open'
         ORDER BY l."id" ASC
     `, [threadId]);
+
     if (!result || !result.rows || result.rows.length === 0) {
         result = await safeQuery(db, `
             SELECT l.* FROM caravan_market_listings l
-            INNER JOIN caravan_market_sessions s ON (l.caravanid = s.caravanid)
+            INNER JOIN caravan_market_sessions s ON l.caravanid = s.caravanid
             WHERE s.threadid=$1 AND l.status='active' AND s.status='open'
             ORDER BY l.id ASC
         `, [threadId]);
     }
-    return result.rows || [];
+    return result?.rows || [];
 }
 
 async function getSessionByThread(db, threadId) {
-    const result = await safeQuery(db, `
-        SELECT * FROM caravan_market_sessions WHERE "threadId"=$1
-    `, [threadId]);
-    return result.rows[0] || null;
+    let result = await safeQuery(db, `SELECT * FROM caravan_market_sessions WHERE "threadId"=$1`, [threadId]);
+    if (!result || !result.rows || result.rows.length === 0) {
+        result = await safeQuery(db, `SELECT * FROM caravan_market_sessions WHERE threadid=$1`, [threadId]);
+    }
+    return result?.rows?.[0] || null;
 }
 
 async function getSessionByCaravan(db, caravanId) {
-    const result = await safeQuery(db, `
-        SELECT * FROM caravan_market_sessions WHERE "caravanId"=$1
-    `, [caravanId]);
-    return result.rows[0] || null;
+    let result = await safeQuery(db, `SELECT * FROM caravan_market_sessions WHERE "caravanId"=$1`, [caravanId]);
+    if (!result || !result.rows || result.rows.length === 0) {
+        result = await safeQuery(db, `SELECT * FROM caravan_market_sessions WHERE caravanid=$1`, [caravanId]);
+    }
+    return result?.rows?.[0] || null;
 }
 
 async function createMarketSession(db, caravanId, ownerId, guildId, destId, threadId, channelId, durationMs) {
@@ -284,10 +292,7 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
     const totalPrice = quantity * pricePerUnit;
     const now = Date.now();
 
-    const listingRes = await safeQuery(db, `
-        SELECT * FROM caravan_market_listings WHERE "id"=$1 AND "status"='active'
-    `, [listingId]);
-
+    const listingRes = await safeQuery(db, `SELECT * FROM caravan_market_listings WHERE "id"=$1 AND "status"='active'`, [listingId]);
     if (!listingRes.rows.length) return { error: 'السلعة غير موجودة أو تم بيعها بالكامل.' };
 
     const listing = listingRes.rows[0];
@@ -346,18 +351,12 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         } catch(e) {}
     }
 
-    await safeExecute(db, `
-        UPDATE caravan_market_listings SET "quantitySold" = COALESCE("quantitySold", 0) + $1
-        WHERE "id"=$2
-    `, [quantity, listingId]);
+    await safeExecute(db, `UPDATE caravan_market_listings SET "quantitySold" = COALESCE("quantitySold", 0) + $1 WHERE "id"=$2`, [quantity, listingId]);
 
     if (available - quantity <= 0) {
-        await safeExecute(db, `
-            UPDATE caravan_market_listings SET "status"='sold_out' WHERE "id"=$1
-        `, [listingId]);
+        await safeExecute(db, `UPDATE caravan_market_listings SET "status"='sold_out' WHERE "id"=$1`, [listingId]);
     }
 
-    // 👑 الخصم المباشر من السلة الدائمة (Staging) لكي ينعكس البيع على البضائع المعروضة 👑
     const stagingDeducted = await safeExecute(db, `
         UPDATE caravan_staging_market
         SET "quantity" = GREATEST(0, "quantity" - $1)
@@ -381,7 +380,7 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
     await safeExecute(db, `
         UPDATE caravan_market_sessions
         SET "totalSales" = COALESCE("totalSales", 0) + 1, "totalRevenue" = COALESCE("totalRevenue", 0) + $1
-        WHERE "caravanId" = (SELECT "caravanId" FROM caravan_market_listings WHERE "id"=$2)
+        WHERE "caravanId" = (SELECT "caravanId" FROM caravan_market_listings WHERE "id"=$2 LIMIT 1)
     `, [totalPrice, listingId]);
 
     if (buyerType === 'player') {
@@ -406,22 +405,19 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
 }
 
 async function closeSession(db, threadId) {
-    await safeExecute(db, `
-        UPDATE caravan_market_sessions SET "status"='closed'
-        WHERE "threadId"=$1 AND "status"='open'
-    `, [threadId]);
+    let closed = await safeExecute(db, `UPDATE caravan_market_sessions SET "status"='closed' WHERE "threadId"=$1 AND "status"='open'`, [threadId]);
+    if (!closed) {
+        await safeExecute(db, `UPDATE caravan_market_sessions SET status='closed' WHERE threadid=$1 AND status='open'`, [threadId]);
+    }
 }
 
-// 👑 إرجاع البضائع للمخزن صار يُقرأ مباشرة من السلة بدون مسحها لأن السلة دائمية 👑
 async function returnUnsoldItems(db, ownerId, guildId) {
-    await safeExecute(db, `
-        UPDATE caravan_market_listings SET "status"='returned'
-        WHERE "ownerID"=$1 AND "guildID"=$2 AND "status" IN ('active','sold_out')
-    `, [ownerId, guildId]);
-
-    const stagingRes = await safeQuery(db, `
-        SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2
-    `, [ownerId, guildId]);
+    await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "ownerID"=$1 AND "guildID"=$2 AND "status" IN ('active','sold_out')`, [ownerId, guildId]);
+    
+    let stagingRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [ownerId, guildId]);
+    if (!stagingRes || !stagingRes.rows || stagingRes.rows.length === 0) {
+        stagingRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [ownerId, guildId]);
+    }
 
     const returned = [];
     for (const s of (stagingRes?.rows || [])) {
@@ -436,47 +432,40 @@ async function returnUnsoldItems(db, ownerId, guildId) {
 }
 
 async function incrementNpcSpawn(db, threadId) {
-    await safeExecute(db, `
-        UPDATE caravan_market_sessions SET "npcSpawnCount" = COALESCE("npcSpawnCount", 0) + 1
-        WHERE "threadId"=$1
-    `, [threadId]);
+    let inc = await safeExecute(db, `UPDATE caravan_market_sessions SET "npcSpawnCount" = COALESCE("npcSpawnCount", 0) + 1 WHERE "threadId"=$1`, [threadId]);
+    if (!inc) {
+        await safeExecute(db, `UPDATE caravan_market_sessions SET npcspawncount = COALESCE(npcspawncount, 0) + 1 WHERE threadid=$1`, [threadId]);
+    }
 }
 
 async function getNpcSpawnCount(db, threadId) {
-    const result = await safeQuery(db, `
-        SELECT "npcSpawnCount" FROM caravan_market_sessions WHERE "threadId"=$1
-    `, [threadId]);
-    return Number(result.rows[0]?.npcspawncount || result.rows[0]?.npcSpawnCount || 0);
+    let result = await safeQuery(db, `SELECT "npcSpawnCount" FROM caravan_market_sessions WHERE "threadId"=$1`, [threadId]);
+    if (!result || !result.rows || result.rows.length === 0) {
+        result = await safeQuery(db, `SELECT npcspawncount FROM caravan_market_sessions WHERE threadid=$1`, [threadId]);
+    }
+    return Number(result?.rows?.[0]?.npcspawncount || result?.rows?.[0]?.npcSpawnCount || 0);
 }
 
 async function getActiveSessions(db) {
-    const result = await safeQuery(db, `
-        SELECT * FROM caravan_market_sessions
-        WHERE "status"='open' AND "expiresAt" > $1
-    `, [Date.now()]);
-    return result.rows || [];
+    const result = await safeQuery(db, `SELECT * FROM caravan_market_sessions WHERE "status"='open' AND "expiresAt" > $1`, [Date.now()]);
+    return result?.rows || [];
 }
 
 async function getExpiredSessions(db) {
-    const result = await safeQuery(db, `
-        SELECT * FROM caravan_market_sessions
-        WHERE "status"='open' AND "expiresAt" <= $1
-    `, [Date.now()]);
-    return result.rows || [];
+    let result = await safeQuery(db, `SELECT * FROM caravan_market_sessions WHERE "status"='open' AND "expiresAt" <= $1`, [Date.now()]);
+    if (!result || !result.rows || result.rows.length === 0) {
+        result = await safeQuery(db, `SELECT * FROM caravan_market_sessions WHERE status='open' AND expiresat <= $1`, [Date.now()]);
+    }
+    return result?.rows || [];
 }
 
 async function updateListingPrice(db, listingId, newPrice) {
-    await safeExecute(db, `
-        UPDATE caravan_market_listings SET "pricePerUnit"=$1
-        WHERE "id"=$2 AND "status"='active'
-    `, [newPrice, listingId]);
+    await safeExecute(db, `UPDATE caravan_market_listings SET "pricePerUnit"=$1 WHERE "id"=$2 AND "status"='active'`, [newPrice, listingId]);
 }
 
 async function getListingById(db, listingId) {
-    const result = await safeQuery(db, `
-        SELECT * FROM caravan_market_listings WHERE "id"=$1
-    `, [listingId]);
-    return result.rows[0] || null;
+    const result = await safeQuery(db, `SELECT * FROM caravan_market_listings WHERE "id"=$1`, [listingId]);
+    return result?.rows?.[0] || null;
 }
 
 module.exports = {
