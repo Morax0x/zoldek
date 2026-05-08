@@ -26,7 +26,7 @@ module.exports = {
     stagingAddItem: marketDb.stagingAddItem,
     stagingRemoveItem: marketDb.stagingRemoveItem,
     getStagedItems: marketDb.getStagedItems,
-    finalizeStagedItems: marketDb.finalizeStagedItems,
+    finalizeStagedItems: marketSetup.finalizeStagedItems,
 
     showMarketSetup: marketSetup.showMarketSetup,
     showStagingUI: marketSetup.showStagingUI,
