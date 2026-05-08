@@ -429,7 +429,7 @@ module.exports = {
                     
                     const targetTime = Date.now() - 60000; 
                     
-                    const tables = ['active_caravans', 'caravans', 'user_caravans', 'caravan_active'];
+                    const tables = ['user_caravans'];
                     for (const table of tables) {
                         await safeExecute(db, `UPDATE ${table} SET "endTime" = $1 WHERE "userID" = $2`, [targetTime, user.id]);
                         await safeExecute(db, `UPDATE ${table} SET endtime = $1 WHERE userid = $2`, [targetTime, user.id]);

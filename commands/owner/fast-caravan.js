@@ -14,7 +14,7 @@ module.exports = {
         
         let success = false;
         // قائمة بأسماء جداول القوافل المحتملة في قاعدة بياناتك
-        const tables = ['caravans', 'active_caravans', 'user_caravans'];
+        const tables = ['user_caravans'];
         
         for (const table of tables) {
             try {
