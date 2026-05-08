@@ -6,7 +6,7 @@ const { getUserCaravanStats } = require('./stats');
 const { initCaravanTables } = require('./tables');
 const { initMarketTables, createMarketThread, getListingsByCaravan, finalizeStagedItems } = require('./market');
 
-async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) {
+async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = [], marketChannelId = null) {
     const dest = caravanConfig.destinations.find(d => d.id === destId);
     if (!dest) return { error: 'وجهة غير موجودة.' };
 
@@ -36,19 +36,21 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) 
         attackScheduledAt  = Math.floor(startTime + attackOffset);
     }
 
-    await safeExecute(db, `
+    const cvRow = await safeQuery(db, `
         INSERT INTO user_caravans
             ("userID","guildID","destinationId","startTime","endTime","status",
-             "equippedArtifacts","attackScheduledAt","attackResolved","rewardMultiplier")
-        VALUES ($1,$2,$3,$4,$5,'traveling',$6,$7,0,1.0)
+             "equippedArtifacts","attackScheduledAt","attackResolved","rewardMultiplier","marketChannelId")
+        VALUES ($1,$2,$3,$4,$5,'traveling',$6,$7,0,1.0,$8)
         ON CONFLICT ("userID","guildID") DO UPDATE SET
             "destinationId"=$3,"startTime"=$4,"endTime"=$5,"status"='traveling',
             "equippedArtifacts"=$6,"attackScheduledAt"=$7,"attackResolved"=0,
-            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0`,
+            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0,"marketChannelId"=$8
+        RETURNING "id"`,
         [userId, guildId, destId, startTime, endTime,
-         JSON.stringify(equippedArtifacts), attackScheduledAt]);
+         JSON.stringify(equippedArtifacts), attackScheduledAt, marketChannelId]);
 
-    return { ok: true, dest, durationMs, endTime, riskFactor, willBeAttacked };
+    const caravanId = cvRow?.rows?.[0]?.id || null;
+    return { ok: true, caravanId, dest, durationMs, endTime, riskFactor, willBeAttacked };
 }
 
 async function distributeRewards(client, db, caravan) {
@@ -151,16 +153,18 @@ async function distributeRewards(client, db, caravan) {
             }
         }
     } catch (e) {
-        console.error('[Caravan distributeRewards]', e);
+        console.error('[distributeRewards]', e);
     }
 
+    // Update trip counters
     await safeExecute(db,
         `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1, "successful_trips"="successful_trips"+$3
          WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId, attackMulti >= 0.5 ? 1 : 0]);
 
+    // Remove the completed caravan record
     await safeExecute(db,
-        `DELETE FROM user_caravans WHERE "userID"=$1 AND "guildID"=$2`,
+        `UPDATE user_caravans SET "status"='completed' WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId]);
 
     return summary;
@@ -184,95 +188,90 @@ async function processCaravanReturns(client, db) {
         for (const caravan of active.rows) {
             const caravanId      = caravan.id;
             const attackAt       = Number(caravan.attackscheduledat || caravan.attackScheduledAt || 0);
-            const endTime        = Number(caravan.endtime            || caravan.endTime            || 0);
-            const attackResolved = Number(caravan.attackresolved     || caravan.attackResolved    || 0);
-            const guardMsgId     = caravan.guardmessageid            || caravan.guardMessageId;
-            const userId         = caravan.userid                    || caravan.userID;
-            const guildId        = caravan.guildid                   || caravan.guildID;
+            const endTime        = Number(caravan.endtime           || caravan.endTime            || 0);
+            const attackResolved = Number(caravan.attackresolved    || caravan.attackResolved     || 0);
+            const guardMsgId     = caravan.guardmessageid           || caravan.guardMessageId;
+            const userId         = caravan.userid                   || caravan.userID;
+            const guildId        = caravan.guildid                  || caravan.guildID;
 
             if (now >= endTime) {
+                // Penalize for unresolved ambush
                 if (attackAt > 0 && attackResolved === 0) {
                     caravan.rewardmultiplier = 0.5;
                     caravan.rewardMultiplier = 0.5;
                 }
 
-                // Move staging items into listings BEFORE distributing rewards
-                const finalizeResult = await finalizeStagedItems(db, caravanId, userId, guildId);
-                console.log(`[Caravan] caravanId=${caravanId} userId=${userId} finalizeStagedItems:`, finalizeResult);
+                // Ensure staging items are in listings (idempotent — skips if already done at dispatch)
+                await finalizeStagedItems(db, caravanId, userId, guildId);
                 const listings = await getListingsByCaravan(db, caravanId);
-                console.log(`[Caravan] caravanId=${caravanId} listings count: ${listings.length}`);
 
+                // Distribute rewards and remove caravan row
                 const summary = await distributeRewards(client, db, caravan);
 
-                try {
-                    // Channel lookup: settings > fallback to any writable channel
-                    let casinoId = null;
-                    try {
-                        const sRes = await db.query(`SELECT * FROM settings WHERE "guild"=$1`, [guildId]);
-                        const s = sRes?.rows?.[0] || {};
-                        casinoId = s.caravanchannelid || s.caravanChannelID
-                                || s.casinochannelid  || s.casinoChannelID
-                                || s.casinochannelid2 || s.casinoChannelID2;
-                    } catch(e) {
-                        const sRes2 = await db.query(`SELECT * FROM settings WHERE guild=$1`, [guildId])
-                            .catch(() => ({ rows: [] }));
-                        const s2 = sRes2?.rows?.[0] || {};
-                        casinoId = s2.caravanchannelid || s2.caravanChannelID
-                                || s2.casinochannelid  || s2.casinoChannelID
-                                || s2.casinochannelid2 || s2.casinoChannelID2;
+                // --- Locate the announcement/market channel ---
+                // Priority 1: channel stored at dispatch time
+                let casinoId = caravan.marketchannelid || caravan.marketChannelId || null;
+
+                // Priority 2: fall back to settings table
+                if (!casinoId) {
+                    const sRes = await db.query(
+                        `SELECT * FROM settings WHERE guild=$1 OR "guild"=$1`, [guildId]
+                    ).catch(() => ({ rows: [] }));
+                    const s = sRes.rows[0] || {};
+                    casinoId = s.casinochannelid  || s.casinoChannelID
+                            || s.caravanchannelid || s.caravanChannelID
+                            || s.casinochannelid2 || s.casinoChannelID2;
+                }
+
+                let guild = client.guilds.cache.get(guildId);
+                if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
+
+                let channel = null;
+                if (guild) {
+                    // Try the known channel ID first (cache → fetch)
+                    if (casinoId) {
+                        channel = guild.channels.cache.get(casinoId)
+                               || await guild.channels.fetch(casinoId).catch(() => null);
                     }
 
-                    let guild = client.guilds.cache.get(guildId);
-                    if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
-
-                    let channel = null;
-                    if (guild) {
-                        if (casinoId) {
-                            channel = guild.channels.cache.get(casinoId)
-                                   || await guild.channels.fetch(casinoId).catch(() => null);
-                        }
-                        // Fallback: repopulate cache then find a channel with required permissions
-                        if (!channel) {
-                            await guild.channels.fetch().catch(() => {});
-                            const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
-                            channel = guild.channels.cache.find(c =>
-                                c.type === 0 &&
-                                me?.permissionsIn(c).has(['SendMessages', 'CreatePublicThreads'])
-                            ) ?? null;
-                        }
+                    // Fallback: fetch ALL guild channels (repopulates cache after restart),
+                    // then pick the first text channel the bot can post and create threads in.
+                    if (!channel) {
+                        await guild.channels.fetch().catch(() => {});
+                        const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+                        channel = guild.channels.cache.find(c =>
+                            c.type === 0 &&
+                            me && me.permissionsIn(c).has(['SendMessages', 'CreatePublicThreads'])
+                        ) ?? null;
                     }
+                }
 
-                    console.log(`[Caravan] caravanId=${caravanId} channel=${channel?.id || null}`);
+                if (channel) {
+                    const destId = caravan.destinationid || caravan.destinationId;
+                    const dest   = caravanConfig.destinations.find(d => d.id === destId);
 
-                    if (channel) {
-                        const destId = caravan.destinationid || caravan.destinationId;
-                        const dest   = caravanConfig.destinations.find(d => d.id === destId);
+                    const arrivalMsg = await channel.send({
+                        content: `<@${userId}>`,
+                        embeds: [new EmbedBuilder()
+                            .setColor(dest?.color || '#00FF88')
+                            .setTitle(`✅ وصلت القافلة من ${dest?.emoji || ''} ${dest?.name || ''}!`)
+                            .setDescription(
+                                `<@${userId}> عادت بضاعتك بسلام.\n**المكافآت:**\n` +
+                                (summary?.length ? summary.join('\n') : 'لا يوجد')
+                            )
+                            .setTimestamp()],
+                    }).catch(() => null);
 
-                        const arrivalMsg = await channel.send({
-                            content: `<@${userId}>`,
-                            embeds: [new EmbedBuilder()
-                                .setColor(dest?.color || '#00FF88')
-                                .setTitle(`✅ عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!`)
-                                .setDescription(
-                                    summary && summary.length > 0
-                                        ? `**المكافآت:**\n${summary.map(s => `✶ ${s}`).join('\n')}`
-                                        : `عادت القافلة بسلام (بدون مكافآت إضافية).`
-                                )
-                                .setTimestamp()]
-                        }).catch(e => { console.error('[Caravan] arrivalMsg failed:', e?.message); return null; });
-
-                        console.log(`[Caravan] arrivalMsg=${arrivalMsg?.id || null} listings=${listings.length}`);
-
-                        // Open market as a thread on the arrival message
-                        if (listings.length > 0 && arrivalMsg) {
-                            await createMarketThread(client, db, caravan, channel.id, arrivalMsg);
-                        }
+                    // Open the market as a thread on the arrival message itself
+                    if (listings.length > 0 && arrivalMsg) {
+                        await createMarketThread(client, db, caravan, channel.id, arrivalMsg);
                     }
-                } catch (e) { console.error('[Open Market Error]', e); }
+                }
 
                 continue;
             }
 
+            // Caravan still traveling — fire ambush notification when the time comes
             if (attackAt > 0 && now >= attackAt && attackResolved === 0 && !guardMsgId) {
                 if (!pendingAttacks.has(caravanId)) {
                     pendingAttacks.add(caravanId);
@@ -290,6 +289,7 @@ let _checkerStarted = false;
 function setupCaravanChecker(client, db) {
     if (_checkerStarted) return;
     _checkerStarted = true;
+    // Run immediately so initCaravanTables (adds marketChannelId column) fires at startup
     processCaravanReturns(client, db);
     setInterval(() => processCaravanReturns(client, db), 15 * 1000);
 }
