@@ -4,7 +4,7 @@ const { caravanConfig, farmAnimals, seedsData, upgradeMats, EMOJI_MORA } = requi
 const { getEquippedBuffs, calcDuration, calcRiskFactor, calcRewardMultiplier } = require('./calculations');
 const { getUserCaravanStats } = require('./stats');
 const { initCaravanTables } = require('./tables');
-const { initMarketTables, createMarketThread, getListingsByCaravan, finalizeStagedItems } = require('./market');
+const { initMarketTables } = require('./market');
 
 async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = [], marketChannelId = null) {
     const dest = caravanConfig.destinations.find(d => d.id === destId);
@@ -201,14 +201,10 @@ async function processCaravanReturns(client, db) {
                     caravan.rewardMultiplier = 0.5;
                 }
 
-                // Ensure staging items are in listings (idempotent — skips if already done at dispatch)
-                await finalizeStagedItems(db, caravanId, userId, guildId);
-                const listings = await getListingsByCaravan(db, caravanId);
-
-                // Distribute rewards and remove caravan row
+                // Distribute rewards and mark caravan complete
                 const summary = await distributeRewards(client, db, caravan);
 
-                // --- Locate the announcement/market channel ---
+                // --- Locate the announcement channel ---
                 // Priority 1: channel stored at dispatch time
                 let casinoId = caravan.marketchannelid || caravan.marketChannelId || null;
 
@@ -228,20 +224,16 @@ async function processCaravanReturns(client, db) {
 
                 let channel = null;
                 if (guild) {
-                    // Try the known channel ID first (cache → fetch)
                     if (casinoId) {
                         channel = guild.channels.cache.get(casinoId)
                                || await guild.channels.fetch(casinoId).catch(() => null);
                     }
-
-                    // Fallback: fetch ALL guild channels (repopulates cache after restart),
-                    // then pick the first text channel the bot can post and create threads in.
                     if (!channel) {
                         await guild.channels.fetch().catch(() => {});
                         const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
                         channel = guild.channels.cache.find(c =>
                             c.type === 0 &&
-                            me && me.permissionsIn(c).has(['SendMessages', 'CreatePublicThreads'])
+                            me && me.permissionsIn(c).has(['SendMessages'])
                         ) ?? null;
                     }
                 }
@@ -250,7 +242,7 @@ async function processCaravanReturns(client, db) {
                     const destId = caravan.destinationid || caravan.destinationId;
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
 
-                    const arrivalMsg = await channel.send({
+                    await channel.send({
                         content: `<@${userId}>`,
                         embeds: [new EmbedBuilder()
                             .setColor(dest?.color || '#00FF88')
@@ -260,12 +252,7 @@ async function processCaravanReturns(client, db) {
                                 (summary?.length ? summary.join('\n') : 'لا يوجد')
                             )
                             .setTimestamp()],
-                    }).catch(() => null);
-
-                    // Open the market as a thread on the arrival message itself
-                    if (listings.length > 0 && arrivalMsg) {
-                        await createMarketThread(client, db, caravan, channel.id, arrivalMsg);
-                    }
+                    }).catch(() => {});
                 }
 
                 continue;

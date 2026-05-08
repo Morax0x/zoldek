@@ -520,7 +520,7 @@ module.exports = {
                     // استخدام آيدي القناة لتخزينه في الداتابيس للعودة إليه
                     const channelId = i.message ? i.message.channelId : i.channelId;
                     
-                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, i.message ? i.message.channelId : i.channelId);
+                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
 
                     if (result.error) {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
@@ -528,16 +528,54 @@ module.exports = {
                         return;
                     }
 
+                    // Finalize both in-memory cache AND DB staging into listings at dispatch time
                     if (result.caravanId) {
                         await finalizeListings(client, db, result.caravanId, user.id, guild.id);
-                        // لا نستدعي finalizeStagedItems هنا عشان البضائع تظل بالسلة
+                        await market.finalizeStagedItems(db, result.caravanId, user.id, guild.id);
                     }
 
                     if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
 
                     const eta = Math.floor(result.endTime / 1000);
+
+                    // Check if staged items were moved to listings
+                    const listings = result.caravanId
+                        ? await market.getListingsByCaravan(db, result.caravanId)
+                        : [];
+
+                    // Send a public departure message in the channel
+                    const departureChannel = i.channel ?? await client.channels.fetch(channelId).catch(() => null);
+                    let departureMsg = null;
+                    if (departureChannel) {
+                        departureMsg = await departureChannel.send({
+                            content: `<@${user.id}>`,
+                            embeds: [new EmbedBuilder()
+                                .setColor(dest?.color || '#5865F2')
+                                .setTitle(`🚀 انطلقت القافلة إلى ${dest.emoji} ${dest.name}!`)
+                                .setDescription(
+                                    `📅 الوصول: <t:${eta}:R> — ⚠️ خطر: **${(result.riskFactor * 100).toFixed(0)}%**`
+                                )
+                                .setTimestamp()],
+                        }).catch(() => null);
+                    }
+
+                    // Open market thread immediately on the departure message if there are items
+                    if (listings.length > 0 && departureMsg && result.caravanId) {
+                        const caravanObj = {
+                            userid: user.id,   userID: user.id,
+                            guildid: guild.id, guildID: guild.id,
+                            destinationid: destId, destinationId: destId,
+                            id: result.caravanId,
+                            starttime: Date.now(), startTime: Date.now(),
+                            endtime: result.endTime, endTime: result.endTime,
+                        };
+                        await market.createMarketThread(client, db, caravanObj, channelId, departureMsg);
+                    }
+
                     await i.followUp({
-                        content: `✅ **انطلقت القافلة إلى ${dest.emoji} ${dest.name}!**\n📅 **وقت الوصول:** <t:${eta}:R>\n⚠️ **نسبة الخطر:** ${(result.riskFactor*100).toFixed(0)}%`,
+                        content: listings.length > 0
+                            ? `✅ **انطلقت القافلة وفُتح السوق في القناة!** وقت الوصول: <t:${eta}:R>`
+                            : `✅ **انطلقت القافلة إلى ${dest.emoji} ${dest.name}!**\n📅 وقت الوصول: <t:${eta}:R>\n⚠️ **نسبة الخطر:** ${(result.riskFactor*100).toFixed(0)}%`,
                         flags: [MessageFlags.Ephemeral],
                     }).catch(() => {});
                     
