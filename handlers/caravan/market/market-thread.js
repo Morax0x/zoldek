@@ -42,7 +42,6 @@ async function createMarketThread(client, db, caravan, channelId) {
 
         if (!thread) return null;
 
-        // حساب وقت السوق (الحد الأدنى 15 دقيقة حتى لو الرحلة تم تسريعها)
         let durationMs = Number(caravan.endtime || caravan.endTime) - Number(caravan.starttime || caravan.startTime);
         if (isNaN(durationMs) || durationMs <= 0) durationMs = 30 * 60 * 1000; 
         
@@ -97,7 +96,6 @@ async function closeMarketThread(client, db, threadId, guildId) {
         const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
         if (!guild) return;
 
-        // جلب الروم الأب (الكازينو) عشان نرسل فيه التقرير
         const parentChannelId = session.channelid || session.channelId;
         const parentChannel = guild.channels.cache.get(parentChannelId) || await guild.channels.fetch(parentChannelId).catch(() => null);
         
@@ -124,7 +122,7 @@ async function closeMarketThread(client, db, threadId, guildId) {
             .setDescription(embedDesc)
             .setTimestamp();
 
-        // 1. إرسال التقرير النهائي في الروم الأب (خارج السوق) 👑
+        // إرسال التقرير في الروم الأساسية
         if (parentChannel) {
             await parentChannel.send({
                 content: `🔔 إشعار إغلاق السوق لـ <@${ownerId}>:`,
@@ -132,13 +130,9 @@ async function closeMarketThread(client, db, threadId, guildId) {
             }).catch(() => {});
         }
 
-        // 2. إغلاق الثريد بقوة 👑
+        // 👑 حذف الثريد بالكامل (لكي لا يبقى مفتوحاً للأبد) 👑
         if (thread) {
-            await thread.send({ embeds: [summaryEmbed] }).catch(() => {});
-            
-            // قفل وأرشفة الثريد (تتطلب صلاحية Manage Threads للبوت)
-            await thread.setLocked(true, 'انتهى وقت السوق').catch(e => console.error('[Lock Thread Error]', e.message));
-            await thread.setArchived(true, 'انتهى وقت السوق').catch(e => console.error('[Archive Thread Error]', e.message));
+            await thread.delete('انتهى وقت السوق وتم إغلاقه').catch(e => console.error('[Delete Thread Error]', e.message));
         }
         
         clearTimer(threadId);
@@ -156,7 +150,6 @@ async function checkExpiredMarketSessions(client, db) {
         const threadId = session.threadid || session.threadId;
         const guildId = session.guildid || session.guildID;
         
-        // إغلاق أي سوق منتهي فوراً حتى لو البوت ترستر وانحذفت التايمرات
         if (threadId) {
             await closeMarketThread(client, db, threadId, guildId);
         }
