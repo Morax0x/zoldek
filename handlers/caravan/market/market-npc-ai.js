@@ -54,7 +54,7 @@ function getJonesPrice(itemId, info) {
 }
 
 // ============================================================================
-// [2] محركات الذكاء الاصطناعي
+// محركات الذكاء الاصطناعي
 // ============================================================================
 async function callGeminiDirect(apiKey, systemPrompt, messages, jsonMode = false) {
     try {
@@ -99,7 +99,7 @@ async function callAI(systemPrompt, messages, jsonMode = false) {
 }
 
 // ============================================================================
-// [3] توليد الزبون (أسماء عادية وجمل نظيفة من البوتات) 👑
+// توليد الزبون
 // ============================================================================
 async function generateDynamicCustomer(itemName, askingPrice, jonesPrice) {
     const isCheap = askingPrice <= jonesPrice;
@@ -148,7 +148,7 @@ async function generateDynamicCustomer(itemName, askingPrice, jonesPrice) {
 }
 
 // ============================================================================
-// [4] معالجة التفاوض 
+// معالجة التفاوض 
 // ============================================================================
 function parseNpcAction(text) {
     const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/i);
@@ -168,7 +168,6 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
 
     conv.haggleTurns = (conv.haggleTurns || 0) + 1;
 
-    // طرد إجباري لو استنفد صبره
     if (conv.haggleTurns >= conv.maxTurns && !userMessageStr.includes('موافق')) {
         return { message: 'لم نصل لاتفاق ولن أضيع وقتي أكثر من هذا. وداعاً!', action: { action: 'leave' } };
     }
@@ -226,17 +225,24 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
 }
 
 // ============================================================================
-// واجهة التفاعل (إيمبد نظيف وعشوائي اللون + سجل محادثة) 👑
+// واجهة التفاعل (إيمبد نظيف وعشوائي اللون + سجل محادثة + صورة الزبون) 👑
 // ============================================================================
 function generateMarketEmbed(conv) {
     const baseDesc = `✶ **الاسـم:** ${conv.name}\n` +
                      `✶ **العنـصر:** ${conv.targetItemName}\n` +
-                     `✶ **السـعـر المعروض:** ${conv.currentOffer} \n\n`;
+                     `✶ **السـعـر المعروض:** ${conv.currentOffer} مورا\n\n`;
 
-    return new EmbedBuilder()
+    const embed = new EmbedBuilder()
         .setColor(conv.color)
         .setTitle('✥ زبـون يقترب من قافلتـك')
         .setDescription(baseDesc + conv.chatLog.join('\n\n'));
+
+    // 👑 إضافة صورة الزبون الخيالية أسفل الإيمبد 👑
+    if (conv.imageUrl) {
+        embed.setImage(conv.imageUrl);
+    }
+
+    return embed;
 }
 
 async function processNpcTurn(conv, userMessage, interaction, client, db) {
@@ -300,6 +306,170 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
 }
 
 // ============================================================================
-// جدولة الإنتاج (شخص واحد فقط في كل مرة) 👑
+// جدولة الإنتاج واختيار الصورة العشوائية
 // ============================================================================
-async function spawnNpc(
+async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
+    try {
+        const listings = await getListingsBySession(db, thread.id);
+        const availableListings = listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
+        if (availableListings.length === 0) return null;
+
+        await incrementNpcSpawn(db, thread.id);
+
+        const targetListing = availableListings[Math.floor(Math.random() * availableListings.length)];
+        const itemInfo = getItemInfo(targetListing.itemid || targetListing.itemID);
+        const itemName = itemInfo.name || targetListing.itemid;
+        const askingPrice = Number(targetListing.priceperunit || targetListing.pricePerUnit);
+        const jonesPrice = getJonesPrice(targetListing.itemid || targetListing.itemID, itemInfo);
+
+        const npcData = await generateDynamicCustomer(itemName, askingPrice, jonesPrice);
+        const convId = `conv_${thread.id}_${Date.now()}`;
+        
+        const randomColor = `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
+        const maxTurns = Math.floor(Math.random() * 3) + 1;
+
+        // 👑 سحب صورة عشوائية للزبون من 1 إلى 8 👑
+        const randomImageNumber = Math.floor(Math.random() * 8) + 1;
+        const imageUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/caravan/cu/customer${randomImageNumber}.png`;
+
+        const chatLog = [`✦ **${npcData.name}:** ${npcData.openingLine}`];
+        
+        const baseDesc = `✶ **الاسـم:** ${npcData.name}\n` +
+                         `✶ **العنـصر:** ${itemName}\n` +
+                         `✶ **السـعـر المعروض:** ${npcData.offer} مورا\n\n`;
+
+        const embed = new EmbedBuilder()
+            .setColor(randomColor)
+            .setTitle('✥ زبـون يقترب من قافلتـك')
+            .setDescription(baseDesc + chatLog[0])
+            .setImage(imageUrl); // وضع الصورة
+
+        const npcMsg = await thread.send({ content: `<@${ownerId}>`, embeds: [embed] }).catch(() => null);
+        if (!npcMsg) return null;
+
+        NpcConversations.set(convId, {
+            id: convId, 
+            name: npcData.name,
+            color: randomColor,
+            imageUrl: imageUrl, // حفظ الصورة عشان تظل معاه للمحادثة الجاية
+            threadId: thread.id,
+            ownerId, guildId, listings,
+            targetListingId: targetListing.id,
+            targetItemId: targetListing.itemid || targetListing.itemID,
+            targetItemName: itemName,
+            targetListingQty: targetListing.quantity,
+            targetListingSold: targetListing.quantitysold || targetListing.quantitySold || 0,
+            askingPrice, jonesPrice,
+            currentOffer: npcData.offer,
+            haggleTurns: 0, 
+            maxTurns, 
+            message: npcMsg,
+            history: [{ role: 'assistant', content: npcData.openingLine }], 
+            chatLog, 
+            active: true,
+        });
+
+        const negotiateBtn = new ButtonBuilder().setCustomId(`mkt_npc_talk_${convId}`).setLabel('💬 فاوض').setStyle(ButtonStyle.Primary);
+        const acceptBtn = new ButtonBuilder().setCustomId(`mkt_npc_accept_${convId}`).setLabel('✅ موافق على سعره').setStyle(ButtonStyle.Success);
+        const declineBtn = new ButtonBuilder().setCustomId(`mkt_npc_reject_${convId}`).setLabel('❌ طرده').setStyle(ButtonStyle.Danger);
+
+        await npcMsg.edit({ components: [new ActionRowBuilder().addComponents(negotiateBtn, acceptBtn, declineBtn)] }).catch(() => {});
+
+        const collector = npcMsg.createMessageComponentCollector({ filter: i => i.user.id === ownerId, time: 10 * 60 * 1000 });
+
+        collector.on('collect', async i => {
+            if (i.customId === `mkt_npc_reject_${convId}`) {
+                await i.deferUpdate().catch(() => {});
+                const conv = NpcConversations.get(convId);
+                const rejectEmbed = new EmbedBuilder().setColor('#E74C3C').setTitle('✥ زبـون يقترب من قافلتـك').setDescription(`**الاسـم:** ${conv.name}\n\n⚠️ تم طرد الزبون من المتجر.`).setImage(conv.imageUrl);
+                await npcMsg.edit({ embeds: [rejectEmbed], components: [] }).catch(() => {});
+                NpcConversations.delete(convId);
+                collector.stop();
+                return;
+            }
+
+            const conv = NpcConversations.get(convId);
+            if (!conv?.active) return i.reply({ content: '❌ لقد غادر هذا المشتري.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+
+            if (i.customId === `mkt_npc_accept_${convId}`) {
+                await i.deferUpdate().catch(() => {});
+                await processNpcTurn(conv, 'أنا موافق على سعرك الحالي، اشترِ الآن.', i, client, db);
+            }
+
+            if (i.customId === `mkt_npc_talk_${convId}`) {
+                const modal = new ModalBuilder().setCustomId(`mkt_npc_modal_${convId}`).setTitle(`مكاسرة مع ${conv.name}`);
+                const replyInput = new TextInputBuilder().setCustomId('user_reply').setLabel('ردك:').setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true);
+                modal.addComponents(new ActionRowBuilder().addComponents(replyInput));
+                await i.showModal(modal).catch(() => {});
+            }
+        });
+
+        collector.on('end', () => {
+            const conv = NpcConversations.get(convId);
+            if (conv?.active) {
+                NpcConversations.delete(convId);
+                const timeoutEmbed = new EmbedBuilder().setColor('#78909C').setTitle('✥ زبـون يقترب من قافلتـك').setDescription(`**الاسـم:** ${conv.name}\n\n⚠️ غادر الزبون لتأخرك في الرد.`).setImage(conv.imageUrl);
+                npcMsg.edit({ embeds: [timeoutEmbed], components: [] }).catch(() => {});
+            }
+        });
+
+        return convId;
+    } catch (err) { console.error('[spawnNpc Error]', err); return null; }
+}
+
+async function handleNpcModalSubmit(interaction, client, db) {
+    if (!interaction.customId.startsWith('mkt_npc_modal_')) return false;
+    const convId = interaction.customId.replace('mkt_npc_modal_', '');
+    const conv = NpcConversations.get(convId);
+    if (!conv?.active) {
+        await interaction.reply({ content: '❌ المحادثة انتهت أو الزبون غادر.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+        return true;
+    }
+    await interaction.deferUpdate().catch(() => {});
+    const userMessage = interaction.fields.getTextInputValue('user_reply');
+    await processNpcTurn(conv, userMessage, interaction, client, db);
+    return true;
+}
+
+function scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDurationMs) {
+    const destId = dest.id;
+    const maxNpcs = 5 + Math.floor(Math.random() * 3); 
+
+    const interval = setInterval(async () => {
+        try {
+            const session = await getSessionByThread(db, thread.id);
+            if (!session || session.status !== 'open') {
+                clearInterval(interval);
+                return;
+            }
+
+            const npcSpawnCount = await getNpcSpawnCount(db, thread.id);
+            if (npcSpawnCount >= maxNpcs) {
+                clearInterval(interval);
+                return;
+            }
+
+            let isBusy = false;
+            for (const conv of NpcConversations.values()) {
+                if (conv.threadId === thread.id && conv.active) {
+                    isBusy = true;
+                    break;
+                }
+            }
+
+            if (!isBusy && Math.random() < 0.60) {
+                await spawnNpc(client, db, thread, destId, ownerId, guildId);
+            }
+        } catch (err) { console.error('[scheduleNpcSpawn Interval Error]', err); }
+    }, 15000);
+
+    NpcSpawnIntervals.set(thread.id, interval);
+}
+
+function cleanupNpcConversations() { NpcConversations.clear(); }
+setInterval(cleanupNpcConversations, 3600000);
+
+module.exports = {
+    spawnNpc, scheduleNpcSpawn, handleNpcHaggle, handleNpcModalSubmit,
+    NpcConversations, cleanupNpcConversations, getJonesPrice,
+};
