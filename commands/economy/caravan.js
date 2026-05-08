@@ -536,50 +536,27 @@ module.exports = {
 
                     if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
 
-                    const eta = Math.floor(result.endTime / 1000);
-
                     // Check if staged items were moved to listings
                     const listings = result.caravanId
                         ? await market.getListingsByCaravan(db, result.caravanId)
                         : [];
 
-                    // Send a public departure message in the channel
-                    const departureChannel = i.channel ?? await client.channels.fetch(channelId).catch(() => null);
-                    let departureMsg = null;
-                    if (departureChannel) {
-                        departureMsg = await departureChannel.send({
-                            content: `<@${user.id}>`,
-                            embeds: [new EmbedBuilder()
-                                .setColor(dest?.color || '#5865F2')
-                                .setTitle(`🚀 انطلقت القافلة إلى ${dest.emoji} ${dest.name}!`)
-                                .setDescription(
-                                    `📅 الوصول: <t:${eta}:R> — ⚠️ خطر: **${(result.riskFactor * 100).toFixed(0)}%**`
-                                )
-                                .setTimestamp()],
-                        }).catch(() => null);
-                    }
+                    // Update the hub message to show active caravan state — this IS the departure message
+                    await showHub(hubMsg);
 
-                    // Open market thread immediately on the departure message if there are items
-                    if (listings.length > 0 && departureMsg && result.caravanId) {
+                    // Open market thread on the hub message itself if items were staged for sale
+                    if (listings.length > 0 && result.caravanId) {
+                        const dispatchNow = Date.now();
                         const caravanObj = {
                             userid: user.id,   userID: user.id,
                             guildid: guild.id, guildID: guild.id,
                             destinationid: destId, destinationId: destId,
                             id: result.caravanId,
-                            starttime: Date.now(), startTime: Date.now(),
+                            starttime: dispatchNow, startTime: dispatchNow,
                             endtime: result.endTime, endTime: result.endTime,
                         };
-                        await market.createMarketThread(client, db, caravanObj, channelId, departureMsg);
+                        await market.createMarketThread(client, db, caravanObj, channelId, hubMsg);
                     }
-
-                    await i.followUp({
-                        content: listings.length > 0
-                            ? `✅ **انطلقت القافلة وفُتح السوق في القناة!** وقت الوصول: <t:${eta}:R>`
-                            : `✅ **انطلقت القافلة إلى ${dest.emoji} ${dest.name}!**\n📅 وقت الوصول: <t:${eta}:R>\n⚠️ **نسبة الخطر:** ${(result.riskFactor*100).toFixed(0)}%`,
-                        flags: [MessageFlags.Ephemeral],
-                    }).catch(() => {});
-                    
-                    await showHub(hubMsg);
                 }
 
                 else if (id.startsWith('cv_escort_')) {
