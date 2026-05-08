@@ -12,10 +12,10 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = []) 
 
     if (equippedArtifacts && equippedArtifacts.length > 0) {
         for (const art of equippedArtifacts) {
-            await safeExecute(db, 
-                `UPDATE user_inventory 
-                 SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1) 
-                 WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR "itemid"=$4)`, 
+            await safeExecute(db,
+                `UPDATE user_inventory
+                 SET "quantity" = GREATEST(0, CAST(COALESCE("quantity", '0') AS INTEGER) - $1)
+                 WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR "itemid"=$4)`,
                 [art.count, userId, guildId, art.id]
             );
         }
@@ -56,7 +56,7 @@ async function distributeRewards(client, db, caravan) {
     const guildId = caravan.guildid || caravan.guildID;
     const destId  = caravan.destinationid || caravan.destinationId;
     const dest    = caravanConfig.destinations.find(d => d.id === destId);
-    if (!dest) return;
+    if (!dest) return [];
 
     const stats       = await getUserCaravanStats(db, userId, guildId);
     const artifacts   = JSON.parse(caravan.equippedartifacts || caravan.equippedArtifacts || '[]');
@@ -131,20 +131,22 @@ async function distributeRewards(client, db, caravan) {
             if (Math.random() < (dest.reward_animal_chance || 0.30)) {
                 const animal = farmAnimals[Math.floor(Math.random() * farmAnimals.length)];
                 if (animal) {
-                    const { getUsedCapacity, getPlayerCapacity } = require('../../utils/farmUtils.js');
-                    const maxCap  = await getPlayerCapacity(client, userId, guildId);
-                    const usedCap = await getUsedCapacity(db, userId, guildId);
-                    const lifespan = usedCap >= maxCap
-                        ? Math.floor(animal.lifespan_days * 0.5)
-                        : animal.lifespan_days;
-                    const purchaseTs = Date.now() - ((animal.lifespan_days - lifespan) * 86400000);
-                    await safeExecute(db,
-                        `INSERT INTO user_farm ("guildID","userID","animalID","purchaseTimestamp","quantity","lastFedTimestamp")
-                         VALUES ($1,$2,$3,$4,1,$5)`,
-                        [guildId, userId, animal.id, purchaseTs, Date.now()]);
-                    summary.push(usedCap >= maxCap
-                        ? `🐾 ${animal.name} (عمر مقلص - الحظيرة ممتلئة)`
-                        : `🐾 ${animal.name}`);
+                    try {
+                        const { getUsedCapacity, getPlayerCapacity } = require('../../utils/farmUtils.js');
+                        const maxCap  = await getPlayerCapacity(client, userId, guildId);
+                        const usedCap = await getUsedCapacity(db, userId, guildId);
+                        const lifespan = usedCap >= maxCap
+                            ? Math.floor(animal.lifespan_days * 0.5)
+                            : animal.lifespan_days;
+                        const purchaseTs = Date.now() - ((animal.lifespan_days - lifespan) * 86400000);
+                        await safeExecute(db,
+                            `INSERT INTO user_farm ("guildID","userID","animalID","purchaseTimestamp","quantity","lastFedTimestamp")
+                             VALUES ($1,$2,$3,$4,1,$5)`,
+                            [guildId, userId, animal.id, purchaseTs, Date.now()]);
+                        summary.push(usedCap >= maxCap
+                            ? `🐾 ${animal.name} (عمر مقلص - الحظيرة ممتلئة)`
+                            : `🐾 ${animal.name}`);
+                    } catch (e) { console.error('[Farm animal error]', e); }
                 }
             }
         }
@@ -188,74 +190,87 @@ async function processCaravanReturns(client, db) {
             const userId         = caravan.userid                    || caravan.userID;
             const guildId        = caravan.guildid                   || caravan.guildID;
 
-            // 👑 معالجة الرحلة المنتهية (طبيعياً أو عبر التسريع) 👑
             if (now >= endTime) {
                 if (attackAt > 0 && attackResolved === 0) {
                     caravan.rewardmultiplier = 0.5;
                     caravan.rewardMultiplier = 0.5;
                 }
 
-                // نوزع الجوائز ونمسح الرحلة
-                const summary = await distributeRewards(client, db, caravan);
-                
-                try {
-                    // 👑 قراءة الإعدادات بطريقة آمنة جداً تمنع أي كراش 👑
-                    let settingsRes;
-                    try {
-                        settingsRes = await db.query(`SELECT * FROM settings WHERE "guild"=$1`, [guildId]);
-                    } catch(e) {
-                        settingsRes = await db.query(`SELECT * FROM settings WHERE guild=$1`, [guildId]).catch(()=>({rows:[]}));
-                    }
-                    
-                    const sRow = settingsRes?.rows?.[0] || {};
-                    const casinoId = sRow.caravanchannelid || sRow.caravanChannelID 
-                                  || sRow.casinochannelid || sRow.casinoChannelID 
-                                  || sRow.casinochannelid2 || sRow.casinoChannelID2;
+                // Move staging items into listings BEFORE distributing rewards
+                const finalizeResult = await finalizeStagedItems(db, caravanId, userId, guildId);
+                console.log(`[Caravan] caravanId=${caravanId} userId=${userId} finalizeStagedItems:`, finalizeResult);
+                const listings = await getListingsByCaravan(db, caravanId);
+                console.log(`[Caravan] caravanId=${caravanId} listings count: ${listings.length}`);
 
-                    // 👑 جلب السيرفر والروم بشكل مؤكد لتجنب فقدانها بسبب الريستارت 👑
+                const summary = await distributeRewards(client, db, caravan);
+
+                try {
+                    // Channel lookup: settings > fallback to any writable channel
+                    let casinoId = null;
+                    try {
+                        const sRes = await db.query(`SELECT * FROM settings WHERE "guild"=$1`, [guildId]);
+                        const s = sRes?.rows?.[0] || {};
+                        casinoId = s.caravanchannelid || s.caravanChannelID
+                                || s.casinochannelid  || s.casinoChannelID
+                                || s.casinochannelid2 || s.casinoChannelID2;
+                    } catch(e) {
+                        const sRes2 = await db.query(`SELECT * FROM settings WHERE guild=$1`, [guildId])
+                            .catch(() => ({ rows: [] }));
+                        const s2 = sRes2?.rows?.[0] || {};
+                        casinoId = s2.caravanchannelid || s2.caravanChannelID
+                                || s2.casinochannelid  || s2.casinoChannelID
+                                || s2.casinochannelid2 || s2.casinoChannelID2;
+                    }
+
                     let guild = client.guilds.cache.get(guildId);
                     if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
 
-                    let channel = guild?.channels.cache.get(casinoId);
-                    if (!channel && guild && casinoId) {
-                        channel = await guild.channels.fetch(casinoId).catch(() => null);
+                    let channel = null;
+                    if (guild) {
+                        if (casinoId) {
+                            channel = guild.channels.cache.get(casinoId)
+                                   || await guild.channels.fetch(casinoId).catch(() => null);
+                        }
+                        // Fallback: repopulate cache then find a channel with required permissions
+                        if (!channel) {
+                            await guild.channels.fetch().catch(() => {});
+                            const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+                            channel = guild.channels.cache.find(c =>
+                                c.type === 0 &&
+                                me?.permissionsIn(c).has(['SendMessages', 'CreatePublicThreads'])
+                            ) ?? null;
+                        }
                     }
+
+                    console.log(`[Caravan] caravanId=${caravanId} channel=${channel?.id || null}`);
 
                     if (channel) {
                         const destId = caravan.destinationid || caravan.destinationId;
                         const dest   = caravanConfig.destinations.find(d => d.id === destId);
-                        
-                        // إرسال رسالة وصول القافلة 
-                        if (summary && summary.length > 0) {
-                            await channel.send({
-                                content: `<@${userId}>`,
-                                embeds: [new EmbedBuilder()
-                                    .setColor(dest?.color || '#00FF88')
-                                    .setTitle(`✅ عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!`)
-                                    .setDescription(`**المكافآت:**\n${summary.map(s => `✶ ${s}`).join('\n')}`)
-                                    .setTimestamp()]
-                            }).catch(() => {});
-                        } else {
-                            await channel.send({
-                                content: `<@${userId}>`,
-                                embeds: [new EmbedBuilder()
-                                    .setColor(dest?.color || '#00FF88')
-                                    .setTitle(`✅ عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!`)
-                                    .setDescription(`عادت القافلة بسلام (بدون مكافآت إضافية).`)
-                                    .setTimestamp()]
-                            }).catch(() => {});
-                        }
 
-                        // 👑 نقل البضائع من العربة إلى قائمة السوق ثم فتح الثريد 👑
-                        await finalizeStagedItems(db, caravanId, userId, guildId);
-                        const listings = await getListingsByCaravan(db, caravanId);
-                        if (listings.length > 0 && casinoId) {
-                            await createMarketThread(client, db, caravan, casinoId);
+                        const arrivalMsg = await channel.send({
+                            content: `<@${userId}>`,
+                            embeds: [new EmbedBuilder()
+                                .setColor(dest?.color || '#00FF88')
+                                .setTitle(`✅ عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!`)
+                                .setDescription(
+                                    summary && summary.length > 0
+                                        ? `**المكافآت:**\n${summary.map(s => `✶ ${s}`).join('\n')}`
+                                        : `عادت القافلة بسلام (بدون مكافآت إضافية).`
+                                )
+                                .setTimestamp()]
+                        }).catch(e => { console.error('[Caravan] arrivalMsg failed:', e?.message); return null; });
+
+                        console.log(`[Caravan] arrivalMsg=${arrivalMsg?.id || null} listings=${listings.length}`);
+
+                        // Open market as a thread on the arrival message
+                        if (listings.length > 0 && arrivalMsg) {
+                            await createMarketThread(client, db, caravan, channel.id, arrivalMsg);
                         }
                     }
                 } catch (e) { console.error('[Open Market Error]', e); }
-                
-                continue; 
+
+                continue;
             }
 
             if (attackAt > 0 && now >= attackAt && attackResolved === 0 && !guardMsgId) {
@@ -275,10 +290,8 @@ let _checkerStarted = false;
 function setupCaravanChecker(client, db) {
     if (_checkerStarted) return;
     _checkerStarted = true;
-    
-    // 👑 الفاحص يراقب كل 30 ثانية 👑
-    setInterval(() => processCaravanReturns(client, db), 30 * 1000); 
     processCaravanReturns(client, db);
+    setInterval(() => processCaravanReturns(client, db), 15 * 1000);
 }
 
 module.exports = {

@@ -272,28 +272,51 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
 }
 
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
+    if (!caravanId) {
+        console.warn('[finalizeStagedItems] caravanId is null/undefined — skipping');
+        return { ok: false, moved: 0 };
+    }
+
+    // Idempotency: skip if listings already exist for this caravan
+    const existCheck = await safeQuery(db,
+        `SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1`,
+        [caravanId]);
+    if (existCheck.rows.length > 0) {
+        console.log(`[finalizeStagedItems] caravanId=${caravanId} already has listings — skipped`);
+        return { ok: true, moved: 0, skipped: true };
+    }
+
     const staged = await getStagedItemsSafe(db, userId, guildId);
+    console.log(`[finalizeStagedItems] caravanId=${caravanId} userId=${userId} staged items: ${staged.length}`);
+
+    let moved = 0;
     for (const st of staged) {
-        const idKey = Object.keys(st).find(k => k.toLowerCase() === 'itemid');
-        const qtyKey = Object.keys(st).find(k => k.toLowerCase() === 'quantity');
+        const idKey    = Object.keys(st).find(k => k.toLowerCase() === 'itemid');
+        const qtyKey   = Object.keys(st).find(k => k.toLowerCase() === 'quantity');
         const priceKey = Object.keys(st).find(k => k.toLowerCase() === 'priceperunit');
-        
-        const itemId = idKey ? st[idKey] : null;
-        const qty = qtyKey ? st[qtyKey] : 0;
-        const price = priceKey ? st[priceKey] : 0;
-        
-        if(!itemId) continue;
-        
+
+        const itemId = idKey    ? st[idKey]            : null;
+        const qty    = qtyKey   ? Number(st[qtyKey])   : 0;
+        const price  = priceKey ? Number(st[priceKey]) : 0;
+
+        if (!itemId || qty <= 0) continue;
+
         const itemInfo = resolveItemInfo(itemId);
         const now = Date.now();
-        
-        try {
-            await db.query(`INSERT INTO caravan_market_listings ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji","quantity","pricePerUnit","quantitySold","status","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`, [caravanId, userId, guildId, itemId, itemInfo.name || '', itemInfo.emoji || '📦', qty, price, now]);
-        } catch(e) {
-            await safeExecute(db, `INSERT INTO caravan_market_listings ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji","quantity","pricePerUnit","quantitySold","status","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`, [caravanId, userId, guildId, itemId, itemInfo.name || '', itemInfo.emoji || '📦', qty, price, now]);
-        }
+
+        const ok = await safeExecute(db,
+            `INSERT INTO caravan_market_listings
+                ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji",
+                 "quantity","pricePerUnit","quantitySold","status","createdAt")
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`,
+            [caravanId, userId, guildId, itemId, itemInfo.name || itemId, itemInfo.emoji || '📦', qty, price, now]);
+
+        console.log(`[finalizeStagedItems] INSERT itemId=${itemId} qty=${qty} price=${price} ok=${ok}`);
+        if (ok !== false) moved++;
     }
-    // 👑 تم حذف دالة الإزالة من العربة لتظل البضائع في السلة طوال الرحلة 👑
+
+    // Staging intentionally NOT deleted — persistent cart model
+    return { ok: true, moved };
 }
 
 // ============================================================================
