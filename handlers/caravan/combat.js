@@ -807,6 +807,9 @@ async function handleEscortReady(data) {
         return { result: 'error', wavesCleared: 0, lootPenalty: 0 };
     });
 
+    let escortListings = [];
+    let cvResult = null;
+
     if (result === 'win' || result === 'escape') {
         // Everyone in the party (owner + guards) gets cumulative rewards
         const rewardRes = await distributePartyRewards(db, party, guild.id, wavesCleared, lootPenalty);
@@ -821,7 +824,7 @@ async function handleEscortReady(data) {
                 `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`,
                 [dest.cost, hostId, guild.id]);
             // Pass channel.id so the arrival checker knows where to open the market thread
-            const cvResult = await sendCaravan(db, hostId, guild.id, destId, [], channel?.id || null);
+            cvResult = await sendCaravan(db, hostId, guild.id, destId, [], channel?.id || null);
             // Mark route as permanently secured — no ambush will fire
             await safeExecute(db,
                 `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "userID"=$1 AND "guildID"=$2`,
@@ -829,9 +832,11 @@ async function handleEscortReady(data) {
 
             // Finalize staged market items into caravan listings
             try {
-                const { finalizeStagedItems } = require('./market/market-db');
-                if (cvResult.caravanId) {
-                    await finalizeStagedItems(db, cvResult.caravanId, hostId, guild.id);
+                const marketSetup = require('./market/market-setup');
+                const marketDb    = require('./market/market-db');
+                if (cvResult?.caravanId) {
+                    await marketSetup.finalizeStagedItems(db, cvResult.caravanId, hostId, guild.id);
+                    escortListings = await marketDb.getListingsByCaravan(db, cvResult.caravanId);
                 }
             } catch(e) { console.error('[FinalizeStagedEscort]', e); }
 
@@ -868,7 +873,26 @@ async function handleEscortReady(data) {
     }
 
     setTimeout(() => thread.delete().catch(() => {}), 12000);
+
     if (typeof showHub === 'function') await showHub(hubMsg).catch(() => {});
+
+    // Open a separate market thread on the hub message if items were staged
+    try {
+        const { client: _client } = data;
+        const marketThread = require('./market/market-thread');
+        if (_client && hubMsg && escortListings && escortListings.length > 0 && cvResult?.caravanId) {
+            const dispatchNow = Date.now();
+            const caravanObj = {
+                userid: hostId,     userID: hostId,
+                guildid: guild.id,  guildID: guild.id,
+                destinationid: destId, destinationId: destId,
+                id: cvResult.caravanId,
+                starttime: dispatchNow, startTime: dispatchNow,
+                endtime: cvResult.endTime, endTime: cvResult.endTime,
+            };
+            await marketThread.createMarketThread(_client, db, caravanObj, channel?.id, hubMsg);
+        }
+    } catch(e) { console.error('[EscortMarketThread]', e); }
 }
 
 // ─── Ambush Event Handler ─────────────────────────────────────────────────────

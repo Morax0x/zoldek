@@ -5,7 +5,16 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const path = require('path');
+const fs   = require('fs');
+try {
+    const fontsDir  = path.join(process.cwd(), 'fonts');
+    const beinPath  = path.join(fontsDir, 'bein-ar-normal.ttf');
+    const emojiPath = path.join(fontsDir, 'NotoEmoj.ttf');
+    if (fs.existsSync(beinPath))  GlobalFonts.registerFromPath(beinPath,  'Bein');
+    if (fs.existsSync(emojiPath)) GlobalFonts.registerFromPath(emojiPath, 'Emoji');
+} catch(e) {}
 
 const {
     caravanConfig, getUserCaravanStats,
@@ -21,7 +30,6 @@ const marketSetup = require('../../handlers/caravan/market/market-setup.js');
 const EMPEROR_ID = '1145327691772481577';
 
 const upgradeMats = require('../../json/upgrade-materials.json');
-const path = require('path');
 
 let GEN;
 try { GEN = require('../../generators/caravan-generator.js'); }
@@ -131,76 +139,123 @@ async function sendCanvas(fn, args, content = '') {
 let cachedDestBg = null;
 
 async function generateDestChoiceImage(dest, mora) {
-    const W = 900, H = 480;
+    const W = 960, H = 480;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
 
-    // Background
+    const FONT = '"Bein", "Arial"';
+
+    // ── Background ──
     try {
         if (!cachedDestBg) cachedDestBg = await loadImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_caravan.jpg');
         ctx.drawImage(cachedDestBg, 0, 0, W, H);
     } catch(e) {
-        ctx.fillStyle = '#1a0a08';
-        ctx.fillRect(0, 0, W, H);
+        const bg = ctx.createLinearGradient(0, 0, W, H);
+        bg.addColorStop(0, '#1a0a08'); bg.addColorStop(1, '#0d0505');
+        ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
     }
-    // Dark overlay
-    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillStyle = 'rgba(0,0,0,0.76)';
     ctx.fillRect(0, 0, W, H);
 
-    // ── Title ──
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    // ── Left panel: destination card ──
+    const panelW = 300, panelH = 380, panelX = 40, panelY = 50;
+    ctx.fillStyle = 'rgba(10,10,20,0.85)';
+    ctx.beginPath(); ctx.roundRect(panelX, panelY, panelW, panelH, 16); ctx.fill();
+    ctx.strokeStyle = dest.color || '#FFD700'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(panelX, panelY, panelW, panelH, 16); ctx.stroke();
+
+    // Destination emoji (large)
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `90px "Emoji", "Arial"`;
+    ctx.fillText(dest.emoji || '🗺️', panelX + panelW / 2, panelY + 110);
+
+    // Destination name
     ctx.fillStyle = dest.color || '#FFD700';
-    ctx.font = 'bold 38px "sans-serif"';
-    ctx.shadowColor = dest.color || '#FFD700';
-    ctx.shadowBlur = 18;
-    ctx.fillText(`${dest.emoji} الانطلاق إلى ${dest.name}`, W/2, 52);
+    ctx.font = `bold 28px ${FONT}`;
+    ctx.shadowColor = dest.color || '#FFD700'; ctx.shadowBlur = 12;
+    ctx.fillText(dest.name, panelX + panelW / 2, panelY + 195);
     ctx.shadowBlur = 0;
 
-    // ── Info bar ──
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    ctx.fillRect(50, 82, W - 100, 50);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(50, 82, W - 100, 50);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '20px "sans-serif"';
-    ctx.fillText(`⏱️ ${dest.duration_hours} ساعة   ·   💰 ${dest.cost.toLocaleString()} مورا   ·   ⚠️ خطر ${(dest.risk_factor * 100).toFixed(0)}%`, W/2, 107);
+    // Stats rows
+    const stats = [
+        { label: `⏱️  ${dest.duration_hours} ساعة`,           color: '#87CEEB' },
+        { label: `💰  ${dest.cost.toLocaleString()} مورا`,     color: '#FFD700' },
+        { label: `⚠️  خطر ${(dest.risk_factor * 100).toFixed(0)}%`, color: dest.risk_factor > 0.5 ? '#E74C3C' : '#F39C12' },
+    ];
+    ctx.font = `18px ${FONT}`;
+    stats.forEach((s, idx) => {
+        const sy = panelY + 250 + idx * 38;
+        ctx.fillStyle = 'rgba(255,255,255,0.07)';
+        ctx.beginPath(); ctx.roundRect(panelX + 16, sy - 14, panelW - 32, 32, 8); ctx.fill();
+        ctx.fillStyle = s.color;
+        ctx.fillText(s.label, panelX + panelW / 2, sy + 2);
+    });
 
-    // ── Bandit alert ──
+    // Mora check badge
+    const canAfford = mora >= dest.cost;
+    ctx.fillStyle = canAfford ? 'rgba(46,204,113,0.2)' : 'rgba(231,76,60,0.2)';
+    ctx.beginPath(); ctx.roundRect(panelX + 16, panelY + 370 - 24, panelW - 32, 32, 8); ctx.fill();
+    ctx.fillStyle = canAfford ? '#2ECC71' : '#E74C3C';
+    ctx.font = `bold 16px ${FONT}`;
+    ctx.fillText(canAfford ? `✅ رصيدك كافٍ` : `❌ رصيدك غير كافٍ`, panelX + panelW / 2, panelY + 356);
+
+    // ── Right panel: info + warning ──
+    const rx = panelX + panelW + 40, rw = W - rx - 30;
+
+    // Title
+    ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = `bold 32px ${FONT}`;
+    ctx.shadowColor = '#FFFFFF'; ctx.shadowBlur = 8;
+    ctx.fillText('تأمين طريق القافلة', W - 30, panelY + 4);
+    ctx.shadowBlur = 0;
+
+    // Divider
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(rx, panelY + 48); ctx.lineTo(W - 30, panelY + 48); ctx.stroke();
+
+    // Bandit warning
     const banditCount = Math.max(2, Math.round(dest.risk_factor * 12));
     ctx.fillStyle = '#E74C3C';
-    ctx.font = 'bold 24px "sans-serif"';
-    ctx.shadowColor = '#E74C3C';
-    ctx.shadowBlur = 12;
-    ctx.fillText(`⚔️ الطريق محفوف بالمخاطر — يوجد ${banditCount} أوكار لقطاع الطرق!`, W/2, 170);
+    ctx.font = `bold 22px ${FONT}`;
+    ctx.shadowColor = '#E74C3C'; ctx.shadowBlur = 10;
+    ctx.fillText(`⚔️ يوجد ${banditCount} أوكار لقطاع الطرق!`, W - 30, panelY + 66);
     ctx.shadowBlur = 0;
 
-    // ── Question ──
-    ctx.fillStyle = '#F0F0F0';
-    ctx.font = '21px "sans-serif"';
-    ctx.fillText('هل تريد الإغارة عليهم وتأمين الطريق قبل إطلاق القافلة؟', W/2, 218);
-    ctx.fillStyle = '#C0C0C0';
-    ctx.font = '19px "sans-serif"';
-    ctx.fillText('أم المجازفة وترك القافلة دون حماية؟', W/2, 252);
+    // Question lines
+    const lines = [
+        { text: 'هل تريد الإغارة عليهم وتأمين الطريق', color: '#F0F0F0', size: 20 },
+        { text: 'قبل إطلاق القافلة؟', color: '#F0F0F0', size: 20 },
+        { text: 'أم المجازفة وترك القافلة دون حماية؟', color: '#C0C0C0', size: 18 },
+    ];
+    let ly = panelY + 112;
+    for (const ln of lines) {
+        ctx.fillStyle = ln.color;
+        ctx.font = `${ln.size}px ${FONT}`;
+        ctx.fillText(ln.text, W - 30, ly);
+        ly += ln.size + 10;
+    }
 
-    // ── Mora status ──
-    const canAfford = mora >= dest.cost;
-    ctx.fillStyle = canAfford ? '#2ECC71' : '#E74C3C';
-    ctx.font = 'bold 18px "sans-serif"';
-    ctx.fillText(`💳 رصيدك: ${mora.toLocaleString()} مورا  ${canAfford ? '✅' : '❌ غير كافٍ'}`, W/2, 302);
+    // Divider
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(rx, ly + 12); ctx.lineTo(W - 30, ly + 12); ctx.stroke();
+    ly += 28;
 
-    // ── Divider ──
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(80, 330); ctx.lineTo(W - 80, 330); ctx.stroke();
+    // Choice explanations
+    const choices = [
+        { icon: '🔴', text: 'هجوم وتأمين الطريق — قاتل لتأمين القافلة مسبقاً', color: '#E74C3C' },
+        { icon: '🔵', text: 'تخطي الحماية — مجازفة بدون قتال', color: '#3498DB' },
+    ];
+    for (const ch of choices) {
+        ctx.fillStyle = ch.color;
+        ctx.font = `16px ${FONT}`;
+        ctx.fillText(`${ch.icon} ${ch.text}`, W - 30, ly);
+        ly += 30;
+    }
 
-    // ── Button hints ──
-    ctx.font = '16px "sans-serif"';
-    ctx.fillStyle = '#E74C3C';
-    ctx.fillText('⚔️ هجوم وتأمين الطريق — قاتل لحماية القافلة مسبقاً', W/2, 365);
-    ctx.fillStyle = '#3498DB';
-    ctx.fillText('🐫 تخطي الحماية — المجازفة بدون قتال', W/2, 400);
+    // Mora display at bottom right
+    ctx.fillStyle = '#A0A0A0'; ctx.font = `14px ${FONT}`;
+    ctx.fillText(`💳 رصيدك الحالي: ${mora.toLocaleString()} مورا`, W - 30, H - 30);
 
     return canvas.toBuffer('image/png');
 }
@@ -362,7 +417,7 @@ module.exports = {
                 activeProcesses.add(user.id);
             }
             
-            if (i.customId !== 'cv_eq_sel' && i.customId !== 'cv_dest_sel' && i.customId !== 'cv_market_staging' && !i.customId.startsWith('stg_')) {
+            if (i.customId !== 'cv_eq_sel' && i.customId !== 'cv_market_staging' && !i.customId.startsWith('stg_')) {
                 await i.deferUpdate().catch(() => {});
             }
 
