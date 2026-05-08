@@ -81,10 +81,15 @@ function getJonesPrice(itemId, info) {
 // ============================================================================
 async function callGeminiDirect(apiKey, systemPrompt, messages, jsonMode = false) {
     try {
-        const contents = messages.map(m => ({
+        let contents = messages.map(m => ({
             role: m.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: m.content }],
         }));
+
+        // 👑 إصلاح الثغرة: Gemini يرفض الطلب إذا كان مصفوفة المحتوى فارغة 👑
+        if (contents.length === 0) {
+            contents = [{ role: 'user', parts: [{ text: 'ابدأ بتوليد البيانات المطلوبة الآن.' }] }];
+        }
 
         const payload = {
             system_instruction: { parts: [{ text: systemPrompt }] },
@@ -97,31 +102,55 @@ async function callGeminiDirect(apiKey, systemPrompt, messages, jsonMode = false
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
         );
-        if (!response.ok) return null;
+        
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error('[Gemini API Error]:', errText);
+            return null;
+        }
+        
         const data = await response.json();
         return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-    } catch { return null; }
+    } catch (e) {
+        console.error('[callGeminiDirect Exception]:', e.message);
+        return null; 
+    }
 }
 
 async function callOpenAIDirect(apiKey, systemPrompt, messages, jsonMode = false) {
     try {
+        const apiMessages = [{ role: 'system', content: systemPrompt }, ...messages];
+        
+        // 👑 إصلاح الثغرة لـ OpenAI أيضاً 👑
+        if (messages.length === 0) {
+            apiMessages.push({ role: 'user', content: 'ابدأ الإنشاء' });
+        }
+
         const payload = {
             model: 'gpt-4o-mini',
-            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+            messages: apiMessages,
             temperature: 0.85,
             max_tokens: 250,
         };
         if (jsonMode) payload.response_format = { type: 'json_object' };
 
-        const response = await fetch('[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)', {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
             body: JSON.stringify(payload),
         });
-        if (!response.ok) return null;
+        
+        if (!response.ok) {
+            console.error('[OpenAI API Error]:', await response.text());
+            return null;
+        }
+        
         const data = await response.json();
         return data.choices?.[0]?.message?.content?.trim() || null;
-    } catch { return null; }
+    } catch (e) {
+        console.error('[callOpenAIDirect Exception]:', e.message);
+        return null; 
+    }
 }
 
 async function callAI(systemPrompt, messages, jsonMode = false) {
@@ -161,7 +190,7 @@ async function generateDynamicArchetype(availableListings, usedIds) {
     const systemPrompt = `أنت مصمم شخصيات (NPC Generator) للعبة RPG عربية.
 قم بتوليد شخصية مشتري (NPC) يريد شراء بعض هذه البضائع المتوفرة في السوق: ${itemSummary}.
 
-يجب أن تعيد كائن JSON حصراً بالصيغة التالية (بدون أي نصوص إضافية):
+يجب أن تعيد كائن JSON حصراً بالصيغة التالية (بدون أي نصوص إضافية أو Markdown):
 {
   "name": "اسم عربي خيالي للمشتري (مثل: جابر الساحر، هند الثرية، قاسم الرحال)",
   "emoji": "إيموجي واحد يعبر عن وظيفته أو شخصيته",
@@ -172,13 +201,12 @@ async function generateDynamicArchetype(availableListings, usedIds) {
     try {
         const aiResponse = await callAI(systemPrompt, [], true);
         if (aiResponse) {
-            // تنظيف الكود لو رجعه الذكاء الاصطناعي كـ Markdown
             const cleanStr = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
             const data = JSON.parse(cleanStr);
             if (data.name && data.openingLine) {
                 console.log(`[Market AI] Generated Dynamic NPC: ${data.name}`);
                 return {
-                    id: `dyn_${Date.now()}`,
+                    id: `dyn_${Date.now()}_${Math.floor(Math.random() * 1000)}`, // منع التضارب لو نزلوا بنفس اللحظة
                     name: data.name,
                     emoji: data.emoji || '👤',
                     persona: data.persona,
@@ -190,14 +218,14 @@ async function generateDynamicArchetype(availableListings, usedIds) {
                 };
             }
         }
-    } catch(e) { console.error('[Dynamic NPC Error]:', e.message); }
+    } catch(e) { console.error('[Dynamic NPC Parsing Error]:', e.message); }
 
     console.log(`[Market AI] Using Fallback NPC due to AI timeout/error.`);
     return {
-        id: `fallback_${Date.now()}`,
-        name: 'تاجر مجهول',
+        id: `fallback_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        name: 'تاجر غامض',
         emoji: '🐪',
-        persona: 'تاجر عابر يبحث عن صفقات سريعة.',
+        persona: 'تاجر عابر يبحث عن صفقات سريعة ولا يحب المساومة.',
         haggleStyle: 'سريع ومرن.',
         flavorLines: ['رأيت بضاعتك من بعيد، هل نتبادل التجارة؟'],
         budgetMin: baseArchetype.budgetMin,
@@ -395,7 +423,8 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId, usedArchet
         await incrementNpcSpawn(db, thread.id);
 
         const destName = caravanConfig.destinations.find(d => d.id === destId)?.name || 'سوق القوافل';
-        const convId = `conv_${thread.id}_${Date.now()}`;
+        // إضافة رقم عشوائي لمنع تعارض الآيديات لو نزل شخصيتين بنفس الثانية
+        const convId = `conv_${thread.id}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         
         const openingLine = archetype.flavorLines[0];
         const itemSummary = availableListings.slice(0, 5).map(l => getItemInfo(l.itemid || l.itemID).name).join('، ');
@@ -478,14 +507,13 @@ async function handleNpcModalSubmit(interaction, client, db) {
 
 function scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDurationMs) {
     const destId = dest.id;
-    const npcCount = 6 + Math.floor(Math.random() * 3); // 6 إلى 8 زوار لتعظيم فرص التجربة
+    const npcCount = 5 + Math.floor(Math.random() * 3); 
     const usedArchetypeIds = [];
 
     console.log(`[Market AI] Scheduling ${npcCount} NPCs...`);
 
     for (let i = 0; i < npcCount; i++) {
-        // 👑 أول زائر يطب بعد 3 ثواني بالضبط من فتح السوق! 👑
-        // والزوار اللي بعده ينزلون وراه بتأخير بين 15 و 45 ثانية
+        // 👑 توقيت مطور: أول شخصية تنزل بعد 3 ثواني، والباقين ينزلون ورا بعض بتأخير بسيط 👑
         const delay = (i === 0) ? 3000 : 15000 + (Math.random() * 30000 * i);
         
         setTimeout(async () => {
