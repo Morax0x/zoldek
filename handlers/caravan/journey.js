@@ -10,6 +10,10 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = [], 
     const dest = caravanConfig.destinations.find(d => d.id === destId);
     if (!dest) return { error: 'وجهة غير موجودة.' };
 
+    // Ensure tables exist before any insert
+    await initCaravanTables(db);
+    await initMarketTables(db);
+
     if (equippedArtifacts && equippedArtifacts.length > 0) {
         for (const art of equippedArtifacts) {
             await safeExecute(db,
@@ -36,20 +40,39 @@ async function sendCaravan(db, userId, guildId, destId, equippedArtifacts = [], 
         attackScheduledAt  = Math.floor(startTime + attackOffset);
     }
 
+    // Insert WITHOUT marketChannelId to avoid schema issues on existing DBs,
+    // then optionally update it separately if the column exists
     const cvRow = await safeQuery(db, `
         INSERT INTO user_caravans
             ("userID","guildID","destinationId","startTime","endTime","status",
-             "equippedArtifacts","attackScheduledAt","attackResolved","rewardMultiplier","marketChannelId")
-        VALUES ($1,$2,$3,$4,$5,'traveling',$6,$7,0,1.0,$8)
+             "equippedArtifacts","attackScheduledAt","attackResolved","rewardMultiplier")
+        VALUES ($1,$2,$3,$4,$5,'traveling',$6,$7,0,1.0)
         ON CONFLICT ("userID","guildID") DO UPDATE SET
             "destinationId"=$3,"startTime"=$4,"endTime"=$5,"status"='traveling',
             "equippedArtifacts"=$6,"attackScheduledAt"=$7,"attackResolved"=0,
-            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0,"marketChannelId"=$8
+            "guardMessageId"=NULL,"attackChannelId"=NULL,"rewardMultiplier"=1.0
         RETURNING "id"`,
         [userId, guildId, destId, startTime, endTime,
-         JSON.stringify(equippedArtifacts), attackScheduledAt, marketChannelId]);
+         JSON.stringify(equippedArtifacts), attackScheduledAt]);
 
-    const caravanId = cvRow?.rows?.[0]?.id || null;
+    let caravanId = cvRow?.rows?.[0]?.id || null;
+
+    // Fallback: fetch id if RETURNING didn't give it (e.g. conflict updated existing row)
+    if (!caravanId) {
+        const sel = await safeQuery(db,
+            `SELECT "id" FROM user_caravans WHERE "userID"=$1 AND "guildID"=$2`,
+            [userId, guildId]);
+        caravanId = sel?.rows?.[0]?.id || null;
+    }
+
+    // Store channel id for arrival notification (best-effort, column may not exist yet)
+    if (caravanId && marketChannelId) {
+        await safeExecute(db,
+            `UPDATE user_caravans SET "marketChannelId"=$1 WHERE "id"=$2`,
+            [marketChannelId, caravanId]).catch(() => {});
+    }
+
+    console.log(`[sendCaravan] userId=${userId} destId=${destId} caravanId=${caravanId}`);
     return { ok: true, caravanId, dest, durationMs, endTime, riskFactor, willBeAttacked };
 }
 
