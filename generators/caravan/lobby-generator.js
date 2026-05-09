@@ -1,175 +1,217 @@
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const {
+    createCanvas, W, H, C, FE,
+    drawBg, drawHeader, drawCornerAccents,
+    fetchImageSafe, toBuf,
+    M, rr, divLine
+} = require('./shared');
 
-// دالة مساعدة لرسم الزوايا الدائرية
-function rr(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-}
-
-// دالة آمنة لجلب الصور
-async function fetchImageSafe(url) {
-    try {
-        const res = await fetch(url);
-        if (!res.ok) return null;
-        const buf = await res.arrayBuffer();
-        return await loadImage(Buffer.from(buf));
-    } catch { return null; }
-}
-
-// 1. مولد صورة الكمين
+// ============================================================================
+// 1. مولد صورة إشعار الكمين (تصميم سينمائي فخم باللون الأحمر)
+// ============================================================================
 async function generateAmbushAlertImage(dest) {
-    const W = 1200, H = 500;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
     
-    const bgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${dest.id}.png`;
-    let bg = await fetchImageSafe(bgUrl);
-    if (!bg) bg = await fetchImageSafe('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_ambush.jpg');
-
-    if (bg) ctx.drawImage(bg, 0, 0, W, H);
-    else { ctx.fillStyle = '#111'; ctx.fillRect(0, 0, W, H); }
+    // 1. رسم الخلفية الأساسية الخاصة بالمعارك
+    try {
+        await drawBg(ctx, 'banditattack');
+    } catch(e) {
+        ctx.fillStyle = '#05050A';
+        ctx.fillRect(0, 0, W, H);
+    }
     
-    const grad = ctx.createLinearGradient(0, 0, W, H);
-    grad.addColorStop(0, 'rgba(40, 0, 0, 0.85)');
-    grad.addColorStop(1, 'rgba(10, 0, 0, 0.95)');
+    // 2. تظليل إضافي بصورة المدينة إن وجدت (دمج سينمائي)
+    let destImg = null;
+    try {
+        destImg = await fetchImageSafe(dest.id);
+    } catch(e) {}
+    
+    if (destImg) {
+        ctx.save();
+        ctx.globalAlpha = 0.4;
+        const imgRatio = destImg.width / destImg.height;
+        let drawW = W, drawH = W / imgRatio;
+        if (drawH < H) { drawH = H; drawW = H * imgRatio; }
+        ctx.drawImage(destImg, -(drawW - W)/2, -(drawH - H)/2, drawW, drawH);
+        ctx.restore();
+    }
+    
+    // تظليل أحمر مرعب للكمين
+    const grad = ctx.createRadialGradient(W/2, H/2, H/4, W/2, H/2, W);
+    grad.addColorStop(0, 'rgba(231, 76, 60, 0.2)');
+    grad.addColorStop(1, 'rgba(231, 76, 60, 0.8)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
+
+    await drawHeader(ctx, 'تحذير — القافلة في خطر!', `الوجهة: ${dest.name}`);
+    drawCornerAccents(ctx);
     
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#E74C3C';
-    ctx.font = 'bold 70px "Arial", sans-serif';
-    ctx.fillText('⚔️ تحذير — القافلة تتعرض لكمين! ⚔️', W / 2, 120);
+    // النصوص والتحذير
+    M(ctx, '⚔️ قطاع الطرق يحاصرون القافلة ⚔️', W / 2, H / 2 - 80, 55, C.red);
+    M(ctx, 'تحتاج إلى حراس للنجاة، أو دفع الرشوة لفقدان جزء من المكافأة!', W / 2, H / 2, 36, '#FFFFFF');
     
-    ctx.fillStyle = '#F1C40F';
-    ctx.font = 'bold 45px "Arial", sans-serif';
-    ctx.fillText(`الوجهة: ${dest.name} ${dest.emoji}`, W / 2, 220);
+    // رسم مربعات توضيحية لخيارات الأزرار أسفل الصورة
+    const boxW = 400, boxH = 120, gap = 60;
+    const startX = (W - (2 * boxW + gap)) / 2;
     
-    ctx.fillStyle = '#BDC3C7';
-    ctx.font = '35px "Arial", sans-serif';
-    ctx.fillText('قطاع الطرق يهاجمون القافلة! تحتاج إلى حراس للنجاة أو دفع فدية.', W / 2, 300);
-    
+    // مربع الحماية
     ctx.fillStyle = 'rgba(46, 204, 113, 0.15)';
+    rr(ctx, startX, H / 2 + 100, boxW, boxH, 20); ctx.fill();
     ctx.strokeStyle = '#2ECC71'; ctx.lineWidth = 3;
-    rr(ctx, 150, 360, 400, 100, 15); ctx.fill(); ctx.stroke();
+    rr(ctx, startX, H / 2 + 100, boxW, boxH, 20); ctx.stroke();
+    M(ctx, '🛡️ حماية القافلة', startX + boxW / 2, H / 2 + 165, 40, '#2ECC71');
     
-    ctx.fillStyle = '#2ECC71';
-    ctx.font = 'bold 32px "Arial", sans-serif';
-    ctx.fillText('🛡️ حماية القافلة', 350, 420);
-    
+    // مربع الرشوة
     ctx.fillStyle = 'rgba(231, 76, 60, 0.15)';
-    ctx.strokeStyle = '#E74C3C';
-    rr(ctx, 650, 360, 400, 100, 15); ctx.fill(); ctx.stroke();
+    rr(ctx, startX + boxW + gap, H / 2 + 100, boxW, boxH, 20); ctx.fill();
+    ctx.strokeStyle = '#E74C3C'; ctx.lineWidth = 3;
+    rr(ctx, startX + boxW + gap, H / 2 + 100, boxW, boxH, 20); ctx.stroke();
+    M(ctx, '💰 دفع رشوة', startX + boxW + gap + boxW / 2, H / 2 + 165, 40, '#E74C3C');
     
-    ctx.fillStyle = '#E74C3C';
-    ctx.fillText('💰 دفع الرشوة', 850, 420);
-    
-    return canvas.toBuffer('image/png');
+    return toBuf(canvas);
 }
 
-// 2. مولد صورة اللوبي
+// ============================================================================
+// 2. مولد اللوبي وتأمين الطريق (تصميم فخم يعرض الفريق)
+// ============================================================================
 async function generateLobbyImage(hostId, party, partyClasses, destConfig, isAmbush, guild) {
-    const W = 1200, H = 550;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
-
-    const bgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${destConfig.id}.png`;
-    const bg = await fetchImageSafe(bgUrl);
     
-    if (bg) ctx.drawImage(bg, 0, 0, W, H);
-    else { ctx.fillStyle = '#05050A'; ctx.fillRect(0, 0, W, H); }
-
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, 'rgba(10, 15, 30, 0.85)');
-    grad.addColorStop(1, 'rgba(5, 7, 15, 0.98)');
+    // 1. رسم الخلفية
+    try {
+        await drawBg(ctx, isAmbush ? 'banditattack' : 'journeymap');
+    } catch(e) {
+        ctx.fillStyle = '#05050A';
+        ctx.fillRect(0, 0, W, H);
+    }
+    
+    // 2. دمج صورة المدينة مع الخلفية
+    let destImg = null;
+    try {
+        destImg = await fetchImageSafe(destConfig.id);
+    } catch(e) {}
+    
+    if (destImg) {
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+        const imgRatio = destImg.width / destImg.height;
+        let drawW = W, drawH = W / imgRatio;
+        if (drawH < H) { drawH = H; drawW = H * imgRatio; }
+        ctx.drawImage(destImg, -(drawW - W)/2, -(drawH - H)/2, drawW, drawH);
+        ctx.restore();
+    }
+    
+    // إشراقة لونية حسب الحالة (أحمر للكمين، ذهبي للتأمين العادي)
+    const tintColor = isAmbush ? 'rgba(231, 76, 60, 0.2)' : 'rgba(241, 196, 15, 0.1)';
+    const grad = ctx.createRadialGradient(W/2, H/2, H/4, W/2, H/2, W);
+    grad.addColorStop(0, 'transparent');
+    grad.addColorStop(1, tintColor);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    ctx.textAlign = 'center';
-    ctx.fillStyle = isAmbush ? '#E74C3C' : '#3498DB';
-    ctx.font = 'bold 65px "Arial", sans-serif';
-    ctx.fillText(isAmbush ? '⚔️ الدفاع عن القافلة ⚔️' : '🛡️ تأمين مسار القافلة 🛡️', W / 2, 100);
+    await drawHeader(ctx, isAmbush ? 'الدفاع عن القافلة' : 'تأمين مسار القافلة', `الوجهة: ${destConfig.name}`);
+    drawCornerAccents(ctx);
 
-    ctx.fillStyle = '#F1C40F';
-    ctx.font = 'bold 40px "Arial", sans-serif';
-    ctx.fillText(`الوجهة: ${destConfig.name} ${destConfig.emoji}`, W / 2, 170);
-
-    const members = await Promise.all(party.map(uid => guild.members.fetch(uid).catch(() => null)));
+    const contentY = 180;
     
-    const boxW = 340, boxH = 250, gap = 40;
+    if (isAmbush) {
+        M(ctx, '⚠️ قطاع الطرق يقتربون! استعد للقتال! ⚠️', W / 2, contentY + 30, 40, C.red);
+    } else {
+        M(ctx, 'تجمع الحراس لتأمين الرحلة', W / 2, contentY + 30, 36, C.gold);
+    }
+    divLine(ctx, 300, contentY + 60, W - 600, C.gold + '55');
+
+    // 3. رسم بطاقات اللاعبين الثلاثة (Party Slots)
+    const boxW = 380, boxH = 440, gap = 50;
     const totalW = (3 * boxW) + (2 * gap);
     const startX = (W - totalW) / 2;
-    const boxY = 240;
+    const boxY = contentY + 120;
 
     const CLASS_OPTIONS = [
-        { v: 'Tank',     l: 'الطليعة',  e: '🛡️' },
-        { v: 'Priest',   l: 'الكاهن',   e: '✨' },
-        { v: 'Mage',     l: 'الساحر',   e: '🔮' },
-        { v: 'Summoner', l: 'المستدعي', e: '🐺' },
+        { v: 'Tank',     l: 'الطليعة',  e: '🛡️', color: '#3498DB' },
+        { v: 'Priest',   l: 'الكاهن',   e: '✨', color: '#F1C40F' },
+        { v: 'Mage',     l: 'الساحر',   e: '🔮', color: '#9B59B6' },
+        { v: 'Summoner', l: 'المستدعي', e: '🐺', color: '#2ECC71' },
     ];
+
+    const members = await Promise.all(party.map(uid => guild.members.fetch(uid).catch(() => null)));
 
     for (let i = 0; i < 3; i++) {
         const cx = startX + i * (boxW + gap);
         
-        rr(ctx, cx, boxY, boxW, boxH, 20);
-        ctx.fillStyle = 'rgba(20, 25, 35, 0.7)';
-        ctx.fill();
-        ctx.strokeStyle = i < party.length ? '#F1C40F' : '#555';
-        ctx.lineWidth = 3;
-        ctx.stroke();
+        ctx.fillStyle = 'rgba(10, 14, 28, 0.85)';
+        rr(ctx, cx, boxY, boxW, boxH, 24); ctx.fill();
+        
+        ctx.strokeStyle = i < party.length ? C.gold : '#555';
+        ctx.lineWidth = i < party.length ? 3 : 2;
+        rr(ctx, cx, boxY, boxW, boxH, 24); ctx.stroke();
 
         if (i < party.length) {
             const uid = party[i];
             const mem = members[i];
             const clsVal = partyClasses.get(uid);
-            let clsObj = CLASS_OPTIONS.find(c => c.v === clsVal) || { l: 'قائد القافلة', e: '👑' };
+            let clsObj = CLASS_OPTIONS.find(c => c.v === clsVal);
+            const isLeader = (i === 0);
+            
+            if (isLeader && !clsObj) clsObj = { l: 'قائد القافلة', e: '👑', color: C.gold };
 
+            // جلب الأفاتار
             let avatarImg = null;
             if (mem) {
-                const avaUrl = mem.user.displayAvatarURL({ extension: 'png', size: 128 });
+                const avaUrl = mem.user.displayAvatarURL({ extension: 'png', size: 256 });
                 avatarImg = await fetchImageSafe(avaUrl);
             }
 
+            const avaSize = 160;
+            const avaX = cx + boxW / 2;
+            const avaY = boxY + 130;
+
             if (avatarImg) {
                 ctx.save();
-                ctx.beginPath();
-                ctx.arc(cx + boxW / 2, boxY + 80, 50, 0, Math.PI * 2);
-                ctx.clip();
-                ctx.drawImage(avatarImg, cx + boxW / 2 - 50, boxY + 30, 100, 100);
+                ctx.beginPath(); ctx.arc(avaX, avaY, avaSize / 2, 0, Math.PI * 2); ctx.clip();
+                ctx.drawImage(avatarImg, avaX - avaSize / 2, avaY - avaSize / 2, avaSize, avaSize);
                 ctx.restore();
+                
+                // إطار الأفاتار الملون حسب التخصص
+                ctx.beginPath(); ctx.arc(avaX, avaY, avaSize / 2, 0, Math.PI * 2);
+                ctx.strokeStyle = clsObj.color || C.gold; ctx.lineWidth = 4; ctx.stroke();
             } else {
-                ctx.fillStyle = '#555';
-                ctx.beginPath();
-                ctx.arc(cx + boxW / 2, boxY + 80, 50, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.fillStyle = '#222';
+                ctx.beginPath(); ctx.arc(avaX, avaY, avaSize / 2, 0, Math.PI * 2); ctx.fill();
+                ctx.font = `60px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#555'; ctx.fillText('👤', avaX, avaY);
             }
 
-            ctx.fillStyle = '#FFF';
-            ctx.font = 'bold 30px "Arial", sans-serif';
-            ctx.fillText(mem ? (mem.displayName || mem.user.username) : 'غير معروف', cx + boxW / 2, boxY + 175);
+            // الاسم
+            const name = mem ? (mem.displayName || mem.user.username) : 'غير معروف';
+            M(ctx, name, cx + boxW / 2, boxY + 260, 34, '#FFFFFF');
 
-            ctx.fillStyle = '#F1C40F';
-            ctx.font = 'bold 26px "Arial", sans-serif';
-            ctx.fillText(`${clsObj.e} ${clsObj.l}`, cx + boxW / 2, boxY + 220);
+            // شارة التخصص (Class Badge)
+            rr(ctx, cx + 60, boxY + 310, boxW - 120, 50, 25);
+            ctx.fillStyle = (clsObj.color || C.gold) + '33'; ctx.fill();
+            ctx.strokeStyle = clsObj.color || C.gold; ctx.lineWidth = 2;
+            rr(ctx, cx + 60, boxY + 310, boxW - 120, 50, 25); ctx.stroke();
+            
+            M(ctx, `${clsObj.e} ${clsObj.l}`, cx + boxW / 2, boxY + 343, 28, clsObj.color || C.gold);
 
+            if (isLeader) {
+                ctx.font = `50px ${FE}`;
+                ctx.fillText('👑', cx + boxW / 2, boxY + 20);
+            }
         } else {
-            ctx.fillStyle = '#7F8C8D';
-            ctx.font = 'bold 35px "Arial", sans-serif';
-            ctx.fillText('➕', cx + boxW / 2, boxY + 110);
-            ctx.font = '26px "Arial", sans-serif';
-            ctx.fillText('بانتظار حارس...', cx + boxW / 2, boxY + 170);
+            // خانة فارغة
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+            rr(ctx, cx + 40, boxY + 40, boxW - 80, boxW - 80, 24); ctx.fill();
+            
+            ctx.font = `80px ${FE}`; 
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#555'; ctx.fillText('➕', cx + boxW / 2, boxY + boxH / 2 - 20);
+            M(ctx, 'بانتظار حارس...', cx + boxW / 2, boxY + boxH / 2 + 60, 30, '#777');
         }
     }
 
-    return canvas.toBuffer('image/png');
+    return toBuf(canvas);
 }
 
 module.exports = { generateAmbushAlertImage, generateLobbyImage };
