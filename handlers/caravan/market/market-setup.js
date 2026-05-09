@@ -137,14 +137,20 @@ async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDe
 }
 
 // ============================================================================
-// [3] دوال المتجر والعربة (الإزالة المصححة كما تعمل في كودك)
+// [3] دوال المتجر والعربة (تم زرع التنظيف القهري هنا) 👑
 // ============================================================================
 async function getStagedItemsSafe(db, userId, guildId) {
     try {
         await db.query(`CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`).catch(()=>{});
-        let res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+        
+        // 👑 تنظيف الأشباح: مسح أي غرض رقمه 0 أو أقل من السلة قبل جلبها للواجهة 👑
+        await db.query(`DELETE FROM caravan_staging_market WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0`).catch(()=>{});
+        await db.query(`DELETE FROM caravan_staging_market WHERE CAST(COALESCE(quantity, '0') AS INTEGER) <= 0`).catch(()=>{});
+
+        // جلب العناصر اللي كميتها أكبر من صفر فقط
+        let res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND CAST(COALESCE("quantity", '0') AS INTEGER) > 0`, [userId, guildId]);
         if (!res || !res.rows || res.rows.length === 0) {
-            res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]);
+            res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND CAST(COALESCE(quantity, '0') AS INTEGER) > 0`, [userId, guildId]);
         }
         return res?.rows || [];
     } catch { return []; }
@@ -154,7 +160,6 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) 
     const deducted = await safeDeductFromInventory(db, userId, guildId, itemId, quantity);
     if (!deducted) return { ok: false, error: 'الكمية غير كافية في مخزونك.' };
 
-    // If same item already in staging (any price) → add quantity AND update to latest price
     let updated = false;
     try {
         const upd1 = await db.query(
@@ -176,7 +181,6 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) 
 
     if (updated) return { ok: true };
 
-    // New item — insert fresh row
     try {
         await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
     } catch(e) {
@@ -187,7 +191,6 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) 
 
 async function stagingRemoveItemSafe(db, userId, guildId, itemId, removeQty) {
     try {
-        // Fetch the exact row using composite PK (no id column exists on this table)
         let stagedRes = await safeQuery(db,
             `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
             [userId, guildId, itemId]
@@ -210,7 +213,6 @@ async function stagingRemoveItemSafe(db, userId, guildId, itemId, removeQty) {
             return { ok: false, error: `الكمية المراد إزالتها (${removeQty}) أكبر من الموجودة (${totalStaged}).` };
         }
 
-        // Update or delete using composite PK
         if (removeQty >= totalStaged) {
             const deleted = await safeExecute(db,
                 `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
@@ -235,7 +237,6 @@ async function stagingRemoveItemSafe(db, userId, guildId, itemId, removeQty) {
             }
         }
 
-        // Refund to inventory using upsert (ON CONFLICT on composite PK)
         const refunded = await safeExecute(db,
             `INSERT INTO user_inventory ("userID","guildID","itemID","quantity") VALUES ($1,$2,$3,$4)
              ON CONFLICT ("userID","guildID","itemID") DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity",0) + $4`,
@@ -248,6 +249,10 @@ async function stagingRemoveItemSafe(db, userId, guildId, itemId, removeQty) {
                 [userId, guildId, itemId, removeQty]
             );
         }
+
+        // 👑 تنظيف إضافي لضمان مسح أي بقايا أصفار بعد الإزالة
+        await db.query(`DELETE FROM caravan_staging_market WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0`).catch(()=>{});
+        await db.query(`DELETE FROM caravan_staging_market WHERE CAST(COALESCE(quantity, '0') AS INTEGER) <= 0`).catch(()=>{});
 
         return { ok: true };
     } catch(e) {
@@ -274,7 +279,6 @@ function clearMarketListingsCache(client, userId, guildId) {
 async function getMarketSlotLimits(db, userId, guildId, member) {
     let general = 3, sameType = 3;
 
-    // Role bonuses (stacking if user has both)
     if (member?.roles?.cache?.has('1395674235002945636')) { general += 20; sameType += 20; }
     if (member?.roles?.cache?.has('1422160802416164885')) { general += 15; sameType += 15; }
 
@@ -286,11 +290,9 @@ async function getMarketSlotLimits(db, userId, guildId, member) {
     const repPts = Number(repResult?.rows?.[0]?.rep_points || 0);
     const level  = Number(levelResult?.rows?.[0]?.level    || 0);
 
-    // Rep bonuses (cumulative thresholds)
     if (repPts >= 100) { general += 2; sameType += 2; }
     if (repPts >= 500) { general += 3; sameType += 3; }
 
-    // Level bonuses (cumulative thresholds)
     if (level >= 30) { general += 1; sameType += 1; }
     if (level >= 50) { general += 2; sameType += 2; }
     if (level >= 80) { general += 3; sameType += 3; }
@@ -319,7 +321,6 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         return { ok: false, moved: 0 };
     }
 
-    // Idempotency: skip if listings already exist for this caravan
     const existCheck = await safeQuery(db,
         `SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1`,
         [caravanId]);
@@ -357,7 +358,6 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         if (ok !== false) moved++;
     }
 
-    // Staging intentionally NOT deleted — persistent cart model
     return { ok: true, moved };
 }
 
@@ -547,7 +547,6 @@ async function handleStagingInteraction(interaction, db, user, guild) {
     }
 
     if (id.startsWith('stg_ok_')) {
-        // 👑 حماية ضد الإضافة أو الحذف إذا كانت القافلة قد انطلقت 👑
         const activeRes = await safeQuery(db, `SELECT 1 FROM active_caravans WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]).catch(()=>null);
         if (activeRes && activeRes.rows && activeRes.rows.length > 0) {
             await interaction.deferUpdate().catch(()=>{});
@@ -615,7 +614,6 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
         if (isNaN(price) || price < 1 || price > 999999999) return modalSubmit.reply({ content: '❌ سعر غير صالح.', flags: [MessageFlags.Ephemeral] });
 
-        // Slot limit enforcement (check before deferring so we can still reply)
         const [limits, currentStaged] = await Promise.all([
             getMarketSlotLimits(db, user.id, guild.id, modalSubmit.member),
             getStagedItemsSafe(db, user.id, guild.id),
@@ -637,7 +635,6 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
                 });
             }
         } else {
-            // New item type — check general (distinct types) limit
             if (currentStaged.length >= limits.general) {
                 return modalSubmit.reply({
                     content: `❌ وصلت للحد الأقصى من أنواع البضائع! يمكنك عرض **${limits.general}** نوع مختلف كحد أقصى (لديك ${currentStaged.length} نوع حالياً).`,
@@ -653,7 +650,6 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         await showStagingUI(modalSubmit, db, user, guild, true);
         
     } else if (id.startsWith('stg_rmv_modal_')) {
-        // استخراج الـ itemId (باستخدام | كفاصل عن الطابع الزمني)
         const prefixLen = 'stg_rmv_modal_'.length;
         const pipeIdx = id.indexOf('|', prefixLen);
         const itemId = pipeIdx > 0 ? id.substring(prefixLen, pipeIdx) : id.substring(prefixLen);
