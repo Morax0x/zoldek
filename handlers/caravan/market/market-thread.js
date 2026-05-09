@@ -1,6 +1,8 @@
-const { EmbedBuilder, ChannelType } = require('discord.js');
+const {
+    ChannelType, AttachmentBuilder
+} = require('discord.js');
 const { safeQuery } = require('../db');
-const { caravanConfig, EMOJI_MORA } = require('../config');
+const { caravanConfig } = require('../config');
 const {
     createMarketSession,
     closeSession,
@@ -11,6 +13,8 @@ const {
 
 const { updateMarketMessage } = require('./market-ui');
 const { scheduleNpcSpawn } = require('./market-npc-ai');
+const { generateMarketSummaryCanvas } = require('../../../generators/caravan/market-summary-generator');
+const { resolveItemInfo } = require('./market-setup');
 
 const activeTimers = new Map();
 
@@ -91,53 +95,87 @@ async function closeMarketThread(client, db, threadId, guildId) {
         const session = await getSessionByThread(db, threadId);
         if (!session || session.status === 'closed') return;
 
+        const ownerId = session.ownerid || session.ownerID;
+
         await closeSession(db, threadId);
 
         const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
         if (!guild) return;
 
-        const parentChannelId = session.channelid || session.channelId;
-        const parentChannel = guild.channels.cache.get(parentChannelId) || await guild.channels.fetch(parentChannelId).catch(() => null);
-        
-        const thread = guild.channels.cache.get(threadId) || await guild.channels.fetch(threadId).catch(() => null);
-        
-        const ownerId = session.ownerid || session.ownerID;
-        const returned = await returnUnsoldItems(db, ownerId, guildId);
+        let thread = guild.channels.cache.get(threadId);
+        if (!thread) thread = await guild.channels.fetch(threadId).catch(() => null);
+        if (!thread) return;
 
-        let embedDesc = '';
-        if (returned.length > 0) {
-            const summary = returned.map(r => `\`${r.quantity}x\` ${r.name}`).join('\n');
-            embedDesc = `🛒 **البضائع المتبقية (عادت للسلة الدائمة):**\n${summary}\n\n`;
-        } else {
-            embedDesc = `🎉 **تم بيع جميع البضائع بالكامل!** لا يوجد بضائع متبقية.\n\n`;
+        const parentChannel = thread.parent;
+
+        // Fetch all listings and return unsold items to inventory in parallel
+        const [listings] = await Promise.all([
+            getListingsBySession(db, threadId),
+            returnUnsoldItems(db, ownerId, guildId),
+        ]);
+
+        // Build sold/unsold arrays with item metadata
+        const soldItems   = [];
+        const unsoldItems = [];
+        let   totalEarned = 0;
+
+        for (const row of listings) {
+            const idKey       = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
+            const nameKey     = Object.keys(row).find(k => k.toLowerCase() === 'itemname');
+            const emojiKey    = Object.keys(row).find(k => k.toLowerCase() === 'itememoji');
+            const qtyKey      = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
+            const soldKey     = Object.keys(row).find(k => k.toLowerCase() === 'quantitysold');
+            const priceKey    = Object.keys(row).find(k => k.toLowerCase() === 'priceperunit');
+
+            const itemId       = idKey    ? row[idKey]            : '?';
+            const qty          = Number(qtyKey   ? row[qtyKey]   : 0);
+            const quantitySold = Number(soldKey  ? row[soldKey]  : 0);
+            const pricePerUnit = Number(priceKey ? row[priceKey] : 0);
+
+            const info  = resolveItemInfo(itemId);
+            const entry = {
+                itemId,
+                itemName:  nameKey  ? row[nameKey]  : (info.name  || itemId),
+                itemEmoji: emojiKey ? row[emojiKey] : (info.emoji || '📦'),
+                rarity:    info.rarity || 'Common',
+                quantity:  qty,
+                quantitySold,
+                pricePerUnit,
+            };
+
+            if (quantitySold > 0) { soldItems.push(entry);  totalEarned += quantitySold * pricePerUnit; }
+            if (qty - quantitySold > 0) unsoldItems.push(entry);
         }
 
-        embedDesc += `📊 **ملخص المبيعات النهائي:**\n` +
-                     `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
-                     `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`;
+        // Fetch owner display name for the report
+        let ownerName = ownerId;
+        try {
+            const member = await guild.members.fetch(ownerId).catch(() => null);
+            ownerName = member?.displayName || member?.user?.username || ownerId;
+        } catch {}
 
-        const summaryEmbed = new EmbedBuilder()
-            .setColor(returned.length > 0 ? '#FF9900' : '#2ECC71')
-            .setTitle('⏳ انتهى وقت السوق وتم إغلاقه!')
-            .setDescription(embedDesc)
-            .setTimestamp();
+        const destId   = session.destinationid || session.destinationId;
+        const dest     = caravanConfig.destinations.find(d => d.id === destId);
+        const destName = dest?.name || 'القافلة';
 
-        // إرسال التقرير في الروم الأساسية
+        // Generate canvas summary report
+        let reportBuf = null;
+        try {
+            reportBuf = await generateMarketSummaryCanvas({ destName, ownerName, soldItems, unsoldItems, totalEarned });
+        } catch (e) {
+            console.error('[closeMarketThread] canvas error:', e?.message);
+        }
+
+        // Send report to parent channel
         if (parentChannel) {
-            await parentChannel.send({
-                content: `🔔 إشعار إغلاق السوق لـ <@${ownerId}>:`,
-                embeds: [summaryEmbed]
-            }).catch(() => {});
+            const payload = { content: `<@${ownerId}> انتهت جلسة سوقك في **${destName}**! 📋` };
+            if (reportBuf) payload.files = [new AttachmentBuilder(reportBuf, { name: 'market-report.png' })];
+            await parentChannel.send(payload).catch(() => {});
         }
 
-        // 👑 أرشفة الثريد وإغلاقه بدلاً من حذفه (لكي يبقى كسجل للمبيعات والتجارة) 👑
-        if (thread) {
-            await thread.setLocked(true, 'انتهى وقت السوق وتم إغلاقه').catch(() => {});
-            await thread.setArchived(true).catch(() => {});
-        }
-        
+        // Delete the thread and clear timer
+        await thread.delete('انتهت جلسة السوق').catch(() => {});
         clearTimer(threadId);
-
     } catch (err) {
         console.error('[closeMarketThread]', err);
     }

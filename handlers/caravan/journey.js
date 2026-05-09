@@ -1,4 +1,7 @@
-const { EmbedBuilder } = require('discord.js');
+const { AttachmentBuilder } = require('discord.js');
+
+let _generateCaravanEvent = null;
+try { ({ generateCaravanEvent: _generateCaravanEvent } = require('../../generators/caravan/event')); } catch {}
 const { safeQuery, safeExecute } = require('./db');
 const { caravanConfig, farmAnimals, seedsData, upgradeMats, EMOJI_MORA } = require('./config');
 const { getEquippedBuffs, calcDuration, calcRiskFactor, calcRewardMultiplier } = require('./calculations');
@@ -265,17 +268,28 @@ async function processCaravanReturns(client, db) {
                     const destId = caravan.destinationid || caravan.destinationId;
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
 
-                    await channel.send({
-                        content: `<@${userId}>`,
-                        embeds: [new EmbedBuilder()
-                            .setColor(dest?.color || '#00FF88')
-                            .setTitle(`✅ وصلت القافلة من ${dest?.emoji || ''} ${dest?.name || ''}!`)
-                            .setDescription(
-                                `<@${userId}> عادت بضاعتك بسلام.\n**المكافآت:**\n` +
-                                (summary?.length ? summary.join('\n') : 'لا يوجد')
-                            )
-                            .setTimestamp()],
-                    }).catch(() => {});
+                    let arrivalMsg = null;
+                    if (_generateCaravanEvent) {
+                        try {
+                            const member  = await guild.members.fetch(userId).catch(() => null);
+                            const userObj = member?.user || { username: String(userId), displayAvatarURL: () => null };
+                            const buf = await _generateCaravanEvent(userObj, dest, 'arrive', {
+                                mora: summary?.find(s => s.includes('مورا'))?.match(/[\d,]+/)?.[0]?.replace(/,/g,'') | 0,
+                                xp:   0,
+                                reputation: 0,
+                            });
+                            arrivalMsg = await channel.send({
+                                content: `<@${userId}>`,
+                                files:   [new AttachmentBuilder(buf, { name: 'arrive.png' })],
+                                embeds:  [],
+                            }).catch(() => null);
+                        } catch {}
+                    }
+                    if (!arrivalMsg) {
+                        await channel.send({
+                            content: `<@${userId}> ✅ **عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!**\n**المكافآت:**\n${summary?.length ? summary.map(s => `✶ ${s}`).join('\n') : 'عادت القافلة بسلام.'}`,
+                        }).catch(() => {});
+                    }
                 }
 
                 continue;

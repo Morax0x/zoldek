@@ -12,17 +12,22 @@ async function generateCaravanEvent(user, dest, eventType, data = {}) {
     
     // إعدادات البطاقة بناءً على نوع الحدث
     const eventConfig = {
-        'dispatch':  { title: 'انطلاق القافلة', color: C.gold, icon: '🐪', desc: 'بدأت القافلة رحلتها متجهة نحو' },
-        'arrive':    { title: 'وصول القافلة بسلام', color: C.green, icon: '🎉', desc: 'عادت القافلة محملة بالغنائم من' },
-        'guard_ok':  { title: 'حماية ناجحة', color: C.blue, icon: '🛡️', desc: 'تم صد الهجوم بنجاح وحماية البضائع في' },
-        'guard_bad': { title: 'خسائر فادحة', color: C.red, icon: '🔥', desc: 'تعرضت القافلة للنهب وفقدت حمولتها في' },
+        'dispatch':    { title: 'انطلاق القافلة',         color: C.gold,   icon: '🐪', desc: 'بدأت القافلة رحلتها متجهة نحو' },
+        'arrive':      { title: 'وصول القافلة بسلام',    color: C.green,  icon: '🎉', desc: 'عادت القافلة محملة بالغنائم من' },
+        'guard_ok':    { title: 'حماية ناجحة',            color: C.blue,   icon: '🛡️', desc: 'تم صد الهجوم بنجاح وحماية البضائع في' },
+        'guard_bad':   { title: 'خسائر فادحة',            color: C.red,    icon: '🔥', desc: 'تعرضت القافلة للنهب وفقدت حمولتها في' },
+        'escort_win':  { title: 'انتصار! الطريق آمن!',   color: C.green,  icon: '🎉', desc: 'تأمين ناجح وانطلاق القافلة نحو' },
+        'escort_fail': { title: 'فشل التأمين!',           color: C.red,    icon: '💀', desc: 'فشلت الحراسة في حماية القافلة نحو' },
+        'ambush_win':  { title: 'نجاح الدفاع! القافلة آمنة', color: C.blue, icon: '🛡️', desc: 'تم صد الكمين بنجاح في الطريق إلى' },
+        'ambush_fail': { title: 'فشلت الحراسة — القافلة نُهبت!', color: C.red, icon: '💀', desc: 'الكمين اخترق دفاعات القافلة في الطريق إلى' },
     };
     
     const cfg = eventConfig[eventType] || eventConfig['dispatch'];
     const acc = cfg.color;
 
     // رسم الخلفية الأساسية
-    let bgName = eventType.includes('guard') ? 'banditattack' : 'hubbg';
+    const isGuardType = eventType.includes('guard') || eventType.includes('escort') || eventType.includes('ambush');
+    let bgName = isGuardType ? 'banditattack' : 'hubbg';
     await drawBg(ctx, bgName);
     drawCornerAccents(ctx);
     
@@ -135,9 +140,9 @@ async function generateCaravanEvent(user, dest, eventType, data = {}) {
             
             M(ctx, items.join(' • '), LX + 350, textY + 34, 22, C.text);
         }
-    } 
-    // ⚔️ رسم تقرير الهجوم (إذا كان الحدث يخص الحراسة)
-    else if (eventType.includes('guard')) {
+    }
+    // ⚔️ رسم تقرير الاشتباك (الحراسة، الإرشاد، الكمين)
+    else if (isGuardType) {
         ctx.shadowColor = acc + '55'; ctx.shadowBlur = 10;
         L(ctx, 'تقرير الاشتباك:', LX, textY, 32, acc);
         ctx.shadowBlur = 0;
@@ -151,12 +156,34 @@ async function generateCaravanEvent(user, dest, eventType, data = {}) {
         ctx.font = `80px ${FE}`; ctx.textAlign = 'center';
         ctx.fillText(cfg.icon, LX + 100, textY + 70);
 
-        if (eventType === 'guard_ok') {
+        const isWin = eventType === 'guard_ok' || eventType === 'escort_win' || eventType === 'ambush_win';
+        if (isWin) {
             L(ctx, 'تم إبادة قطاع الطرق!', LX + 180, textY + 45, 26, C.green);
-            L(ctx, 'بضائعك ومواردك في أمان تام.', LX + 180, textY + 85, 20, C.textD);
+            if (data.eta) {
+                L(ctx, `وقت الوصول: <t:${data.eta}:R>`, LX + 180, textY + 85, 20, C.textD);
+            } else {
+                L(ctx, 'بضائعك ومواردك في أمان تام.', LX + 180, textY + 85, 20, C.textD);
+            }
         } else {
             L(ctx, 'تم اختراق دفاعات القافلة!', LX + 180, textY + 45, 26, C.red);
-            L(ctx, `الخسائر المقدرة: -${(data.lost_percentage * 100).toFixed(0)}% من الحمولة`, LX + 180, textY + 85, 22, C.gold);
+            if (data.lost_percentage != null) {
+                L(ctx, `الخسائر المقدرة: -${(data.lost_percentage * 100).toFixed(0)}% من الحمولة`, LX + 180, textY + 85, 22, C.gold);
+            } else {
+                L(ctx, 'ضاعت جميع البضائع. انتهت الرحلة.', LX + 180, textY + 85, 20, C.textD);
+            }
+        }
+
+        // Reward summary if provided
+        if (data.rewards && data.rewards.length > 0) {
+            textY += 140;
+            L(ctx, 'مكافآت الفريق:', LX, textY, 26, C.gold);
+            textY += 40;
+            const rewardText = data.rewards.slice(0, 3).join('  •  ');
+            rr(ctx, LX, textY, 700, 50, 10);
+            ctx.fillStyle = 'rgba(245,197,24,0.08)'; ctx.fill();
+            ctx.strokeStyle = C.gold + '44'; ctx.lineWidth = 1.5;
+            rr(ctx, LX, textY, 700, 50, 10); ctx.stroke();
+            M(ctx, rewardText, LX + 350, textY + 26, 18, C.text);
         }
     }
 
