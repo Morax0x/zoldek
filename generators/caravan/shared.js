@@ -149,62 +149,112 @@ async function drawBg(ctx, bgImageName = 'hubbg', cw = W, ch = H) {
 
 function drawPanel(ctx, x, y, w, h, accent = C.gold, opts = {}) {
     const radius = opts.radius || 24;
-    ctx.shadowColor = accent + '11';
-    ctx.shadowBlur  = 15;
 
-    const bg = ctx.createLinearGradient(x, y, x, y + h);
-    bg.addColorStop(0, 'rgba(10,14,28,0.55)');
-    bg.addColorStop(1, 'rgba(4,6,12,0.70)');
+    // Outer glow
+    ctx.shadowColor = accent + '22';
+    ctx.shadowBlur  = 24;
     rr(ctx, x, y, w, h, radius);
-    ctx.fillStyle = bg; ctx.fill();
+    ctx.strokeStyle = 'transparent';
+    ctx.lineWidth = 0;
+    ctx.stroke();
     ctx.shadowBlur = 0;
 
+    // Panel body
+    const bg = ctx.createLinearGradient(x, y, x, y + h);
+    bg.addColorStop(0, 'rgba(12,16,32,0.62)');
+    bg.addColorStop(0.5, 'rgba(8,11,22,0.72)');
+    bg.addColorStop(1, 'rgba(4,6,14,0.82)');
     rr(ctx, x, y, w, h, radius);
-    ctx.strokeStyle = accent + '44';
+    ctx.fillStyle = bg; ctx.fill();
+
+    // Outer border
+    rr(ctx, x, y, w, h, radius);
+    ctx.strokeStyle = accent + '55';
     ctx.lineWidth   = 2;
     ctx.stroke();
+
+    // Inner highlight line (top edge)
+    rr(ctx, x + 2, y + 2, w - 4, h - 4, radius - 1);
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth   = 1;
+    ctx.stroke();
+
+    // Top accent bar (4px strip)
+    ctx.save();
+    rr(ctx, x, y, w, 4, [radius, radius, 0, 0]);
+    ctx.fillStyle = accent + '66';
+    ctx.fill();
+    ctx.restore();
 }
 
 function drawBar(ctx, x, y, w, h, pct, color, showLabel = true) {
     if (isNaN(pct) || pct < 0) pct = 0;
     if (pct > 1) pct = 1;
 
+    // Track background
     rr(ctx, x, y, w, h, h / 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.fill();
+    rr(ctx, x, y, w, h, h / 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
-    const filled = Math.max(h, pct * w);
-    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
-    grad.addColorStop(0, color + 'AA');
-    grad.addColorStop(1, color);
-    rr(ctx, x, y, filled, h, h / 2);
-    ctx.fillStyle   = grad;
-    ctx.shadowColor = color;
-    ctx.shadowBlur  = 12;
-    ctx.fill();
-    ctx.shadowBlur  = 0;
+    const filled = pct * w;
+    if (filled > 0) {
+        ctx.save();
+        rr(ctx, x, y, w, h, h / 2);
+        ctx.clip();
+
+        const grad = ctx.createLinearGradient(x, y, x + filled, y);
+        grad.addColorStop(0, color + 'AA');
+        grad.addColorStop(1, color);
+        rr(ctx, x, y, Math.max(h, filled), h, h / 2);
+        ctx.fillStyle   = grad;
+        ctx.shadowColor = color;
+        ctx.shadowBlur  = 14;
+        ctx.fill();
+        ctx.shadowBlur  = 0;
+
+        // Gloss highlight on filled part
+        const gloss = ctx.createLinearGradient(x, y, x, y + h * 0.5);
+        gloss.addColorStop(0, 'rgba(255,255,255,0.22)');
+        gloss.addColorStop(1, 'rgba(255,255,255,0.02)');
+        rr(ctx, x, y, Math.max(h, filled), h * 0.5, h / 2);
+        ctx.fillStyle = gloss;
+        ctx.fill();
+
+        ctx.restore();
+    }
 
     if (showLabel && h >= 16) {
-        ctx.font         = `bold ${Math.max(16, h - 8)}px ${FA}`;
+        ctx.font         = `bold ${Math.max(14, h - 8)}px ${FA}`;
         ctx.fillStyle    = '#FFFFFF';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
+        ctx.direction    = 'ltr';
+        ctx.shadowColor  = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur   = 4;
         ctx.fillText(`${(pct * 100).toFixed(0)}%`, x + w / 2, y + h / 2 + 1);
+        ctx.shadowBlur   = 0;
     }
 }
 
 function R(ctx, txt, x, y, size, color = C.text) {
     ctx.font = `bold ${size}px ${FA}`; ctx.fillStyle = color;
+    ctx.direction = 'rtl';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.fillText(cleanText(txt), x, y);
 }
 function M(ctx, txt, x, y, size, color = C.text) {
     ctx.font = `bold ${size}px ${FA}`; ctx.fillStyle = color;
+    ctx.direction = 'rtl';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(cleanText(txt), x, y);
 }
 function L(ctx, txt, x, y, size, color = C.text) {
     ctx.font = `bold ${size}px ${FA}`; ctx.fillStyle = color;
+    ctx.direction = 'rtl';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillText(cleanText(txt), x, y);
 }
@@ -269,28 +319,45 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight, align = 'center') {
 }
 
 async function drawHeader(ctx, title, subtitle = '') {
-    const hg = ctx.createLinearGradient(0, 0, 0, 130);
-    hg.addColorStop(0, 'rgba(0,0,0,0.85)');
+    // Header gradient overlay
+    const hg = ctx.createLinearGradient(0, 0, 0, 145);
+    hg.addColorStop(0, 'rgba(0,0,0,0.90)');
+    hg.addColorStop(0.7, 'rgba(0,0,0,0.60)');
     hg.addColorStop(1, 'transparent');
-    ctx.fillStyle = hg; ctx.fillRect(0, 0, W, 130);
+    ctx.fillStyle = hg; ctx.fillRect(0, 0, W, 145);
 
+    // Gold separator line with wider gradient
     const lineG = ctx.createLinearGradient(0, 0, W, 0);
-    lineG.addColorStop(0,   'transparent');
-    lineG.addColorStop(0.3, C.gold);
-    lineG.addColorStop(0.7, C.gold);
-    lineG.addColorStop(1,   'transparent');
-    ctx.fillStyle = lineG; ctx.fillRect(0, 128, W, 2.5);
+    lineG.addColorStop(0,    'transparent');
+    lineG.addColorStop(0.15, C.gold + '66');
+    lineG.addColorStop(0.35, C.gold);
+    lineG.addColorStop(0.65, C.gold);
+    lineG.addColorStop(0.85, C.gold + '66');
+    lineG.addColorStop(1,    'transparent');
+    ctx.fillStyle = lineG; ctx.fillRect(0, 131, W, 2);
 
+    // Center diamond ornament
     ctx.save();
-    ctx.fillStyle = C.gold; ctx.shadowColor = C.gold; ctx.shadowBlur = 14;
-    ctx.translate(W / 2, 129.5); ctx.rotate(Math.PI / 4);
-    ctx.fillRect(-5, -5, 10, 10);
+    ctx.fillStyle = C.gold; ctx.shadowColor = C.gold; ctx.shadowBlur = 16;
+    ctx.translate(W / 2, 132); ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-6, -6, 12, 12);
     ctx.restore();
 
-    ctx.shadowColor = C.gold + '66'; ctx.shadowBlur = 20;
-    M(ctx, title, W / 2, 50, 48, C.text);
+    // Side ornament lines
+    ctx.strokeStyle = C.gold + '33'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(W / 2 - 300, 132); ctx.lineTo(W / 2 - 20, 132); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W / 2 + 20, 132); ctx.lineTo(W / 2 + 300, 132); ctx.stroke();
+
+    // Title with strong glow
+    ctx.shadowColor = C.gold + '55'; ctx.shadowBlur = 28;
+    M(ctx, title, W / 2, subtitle ? 50 : 65, subtitle ? 46 : 52, C.text);
     ctx.shadowBlur = 0;
-    if (subtitle) M(ctx, subtitle, W / 2, 100, 26, C.textD);
+
+    if (subtitle) {
+        ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 6;
+        M(ctx, subtitle, W / 2, 100, 26, C.textD);
+        ctx.shadowBlur = 0;
+    }
 }
 
 function drawStars(ctx, n, max, x, y, size, color = C.gold) {
