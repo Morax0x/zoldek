@@ -19,11 +19,11 @@ async function getPlayerCapacity(client, userId, guildId) {
 async function getUsedCapacity(db, userId, guildId) {
     let totalSize = 0;
     try {
-        const userFarmRes = await db.query("SELECT animalid, quantity FROM user_farm WHERE userid = $1 AND guildid = $2", [userId, guildId]);
+        const userFarmRes = await db.query(`SELECT "animalID", quantity FROM user_farm WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
         const userFarmRows = userFarmRes.rows;
-        
+
         for (const row of userFarmRows) {
-            const animalIdStr = String(row.animalid);
+            const animalIdStr = String(row.animalID || row.animalid);
             const animal = farmAnimals.find(a => String(a.id) === animalIdStr);
             const qty = parseInt(row.quantity) || 1; 
 
