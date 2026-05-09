@@ -5,7 +5,7 @@ const {
     ComponentType, MessageFlags, AttachmentBuilder,
 } = require('discord.js');
 
-const { safeExecute }        = require('./db');
+const { safeExecute, safeQuery } = require('./db');
 const { caravanConfig, EMOJI_MORA } = require('./config');
 const { setCaravanCooldown } = require('./tables');
 const { setupPlayers }       = require('../dungeon/core/setup.js');
@@ -17,10 +17,24 @@ const { buildSkillSelector, buildPotionSelector } = require('../dungeon/ui.js');
 let _generateCaravanBattleImage = null;
 let _generateCaravanRestImage   = null;
 let _generateCaravanResultImage = null;
+let _generateCaravanEvent       = null;
 try {
     ({ generateCaravanBattleImage: _generateCaravanBattleImage } = require('../../generators/caravan/battle-generator'));
     ({ generateCaravanRestImage: _generateCaravanRestImage, generateCaravanResultImage: _generateCaravanResultImage } = require('../../generators/caravan/summary-generator'));
+    ({ generateCaravanEvent: _generateCaravanEvent } = require('../../generators/caravan/event'));
 } catch (e) { console.warn('[CaravanCombat] generators not loaded:', e.message); }
+
+async function sendEventCanvas(thread, userObj, dest, eventType, data = {}) {
+    if (!_generateCaravanEvent) return false;
+    try {
+        const buf = await _generateCaravanEvent(userObj, dest, eventType, data);
+        await thread.send({ files: [new AttachmentBuilder(buf, { name: 'event.png' })], embeds: [] }).catch(() => {});
+        return true;
+    } catch (e) {
+        console.error('[sendEventCanvas]', e?.message);
+        return false;
+    }
+}
 
 async function buildBattlePayload(players, enemy, caravan, waveNum, log, actedIds, hostId, guild) {
     if (_generateCaravanBattleImage) {
@@ -837,20 +851,22 @@ async function handleEscortReady(data) {
 
             const eta = Math.floor((cvResult.endTime || 0) / 1000);
 
-            await thread.send({
-                embeds: [new EmbedBuilder()
-                    .setColor('#00FF88')
-                    .setTitle('🎉 انتصار! الطريق آمن!')
-                    .setDescription(
-                        `🐪 ستنطلق القافلة إلى **${dest.emoji} ${dest.name}**!\n` +
-                        `📅 **وقت الوصول:** <t:${eta}:R>\n` +
-                        (result === 'escape'
-                            ? `⚠️ الطريق غير مؤمَّن تماماً — قد يحدث كمين أثناء الرحلة.`
-                            : `✅ **الطريق مؤمَّن — لن تُهاجَم القافلة!**`) +
-                        `\n\n**مكافآت الجميع (${wavesCleared} موجة):**\n${rewardRes.summary.join('\n')}`
-                    )
-                ]
-            }).catch(() => {});
+            {
+                const member = await guild.members.fetch(hostId).catch(() => null);
+                const userObj = member?.user || { username: String(hostId), displayAvatarURL: () => null };
+                const sent = await sendEventCanvas(thread, userObj, dest, 'escort_win', {
+                    eta,
+                    rewards: rewardRes.summary,
+                    escape: result === 'escape',
+                });
+                if (!sent) {
+                    await thread.send({
+                        content: `🎉 **انتصار! الطريق آمن!**\n🐪 ستنطلق القافلة إلى **${dest.emoji} ${dest.name}**!\n📅 **وقت الوصول:** <t:${eta}:R>\n` +
+                            (result === 'escape' ? `⚠️ الطريق غير مؤمَّن تماماً — قد يحدث كمين.\n` : `✅ الطريق مؤمَّن!\n`) +
+                            `**مكافآت الجميع (${wavesCleared} موجة):**\n${rewardRes.summary.join('\n')}`,
+                    }).catch(() => {});
+                }
+            }
         }
     } else {
         // Apply 1-hour cooldown to owner on any loss
@@ -858,13 +874,16 @@ async function handleEscortReady(data) {
         const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
                      : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
                      : '☠️ سقط كل الحراس!';
-        await thread.send({
-            embeds: [new EmbedBuilder()
-                .setColor('#FF0000')
-                .setTitle('💀 فشل التأمين!')
-                .setDescription(`**${reason}**\nلم تُرسَل القافلة. لم يُخصَم منك شيء.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`)
-            ]
-        }).catch(() => {});
+        {
+            const member = await guild.members.fetch(hostId).catch(() => null);
+            const userObj = member?.user || { username: String(hostId), displayAvatarURL: () => null };
+            const sent = await sendEventCanvas(thread, userObj, dest, 'escort_fail', {});
+            if (!sent) {
+                await thread.send({
+                    content: `💀 **فشل التأمين!**\n${reason}\nلم تُرسَل القافلة. لم يُخصَم منك شيء.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`,
+                }).catch(() => {});
+            }
+        }
     }
 
     setTimeout(() => thread.delete().catch(() => {}), 12000);
@@ -888,16 +907,19 @@ async function handleAmbushReady(data) {
         // Everyone (owner + guards) gets cumulative rewards
         const rewardRes = await distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty);
 
-        await thread.send({
-            embeds: [new EmbedBuilder()
-                .setColor('#00FF88')
-                .setTitle('🎉 نجحت الحراسة! القافلة آمنة!')
-                .setDescription(
-                    `🐪 ستكمل القافلة رحلتها بمكافآت **كاملة**!\n\n` +
-                    `**مكافآت الجميع (${wavesCleared} موجة):**\n${rewardRes.summary.join('\n')}`
-                )
-            ]
-        }).catch(() => {});
+        {
+            const caravanRow = await safeQuery(db, `SELECT * FROM user_caravans WHERE id=$1`, [caravanId]).catch(()=>null);
+            const aDestId = caravanRow?.rows?.[0]?.destinationid || caravanRow?.rows?.[0]?.destinationId;
+            const aDest   = caravanConfig.destinations.find(d => d.id === aDestId) || { name: 'القافلة', emoji: '🐪', color: '#00FF88' };
+            const member  = await guild.members.fetch(userId).catch(() => null);
+            const userObj = member?.user || { username: String(userId), displayAvatarURL: () => null };
+            const sent = await sendEventCanvas(thread, userObj, aDest, 'ambush_win', { rewards: rewardRes.summary });
+            if (!sent) {
+                await thread.send({
+                    content: `🎉 **نجحت الحراسة! القافلة آمنة!**\n🐪 ستكمل القافلة رحلتها بمكافآت كاملة!\n\n**مكافآت الجميع (${wavesCleared} موجة):**\n${rewardRes.summary.join('\n')}`,
+                }).catch(() => {});
+            }
+        }
 
         await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
     } else {
@@ -908,16 +930,22 @@ async function handleAmbushReady(data) {
             [userId, guildId]);
         await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1`, [caravanId]);
 
-        const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
-                     : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
-                     : '☠️ سقط كل الحراس!';
-        await thread.send({
-            embeds: [new EmbedBuilder()
-                .setColor('#FF0000')
-                .setTitle('💀 فشلت الحراسة — القافلة نُهبت!')
-                .setDescription(`**${reason}**\nضاعت جميع البضائع. انتهت الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`)
-            ]
-        }).catch(() => {});
+        {
+            const caravanRow2 = await safeQuery(db, `SELECT * FROM user_caravans WHERE id=$1`, [caravanId]).catch(()=>null);
+            const aDestId2    = caravanRow2?.rows?.[0]?.destinationid || caravanRow2?.rows?.[0]?.destinationId;
+            const aDest2      = caravanConfig.destinations.find(d => d.id === aDestId2) || { name: 'القافلة', emoji: '🐪', color: '#FF0000' };
+            const member2     = await guild.members.fetch(userId).catch(() => null);
+            const userObj2    = member2?.user || { username: String(userId), displayAvatarURL: () => null };
+            const sent = await sendEventCanvas(thread, userObj2, aDest2, 'ambush_fail', {});
+            if (!sent) {
+                const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
+                             : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
+                             : '☠️ سقط كل الحراس!';
+                await thread.send({
+                    content: `💀 **فشلت الحراسة — القافلة نُهبت!**\n${reason}\nضاعت جميع البضائع. انتهت الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`,
+                }).catch(() => {});
+            }
+        }
         await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم الغاء الرحلة.`).catch(() => {});
     }
 

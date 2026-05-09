@@ -65,6 +65,18 @@ async function initMarketTables(db) {
             PRIMARY KEY ("userID","guildID","itemID")
         )
     `);
+
+    // Performance index: fast lookup of active listings by session thread
+    await safeExecute(db, `
+        CREATE INDEX IF NOT EXISTS idx_market_listings_session
+        ON caravan_market_listings("threadId","status")
+    `);
+
+    // Fast session lookup by thread
+    await safeExecute(db, `
+        CREATE INDEX IF NOT EXISTS idx_market_sessions_thread
+        ON caravan_market_sessions("threadId")
+    `);
 }
 
 async function createListing(db, caravanId, ownerId, guildId, item) {

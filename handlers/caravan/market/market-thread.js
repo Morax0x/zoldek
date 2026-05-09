@@ -1,8 +1,8 @@
 const {
-    EmbedBuilder, ChannelType
+    ChannelType, AttachmentBuilder
 } = require('discord.js');
 const { safeQuery } = require('../db');
-const { caravanConfig, EMOJI_MORA } = require('../config');
+const { caravanConfig } = require('../config');
 const {
     createMarketSession,
     closeSession,
@@ -13,6 +13,8 @@ const {
 
 const { updateMarketMessage } = require('./market-ui');
 const { scheduleNpcSpawn } = require('./market-npc-ai');
+const { generateMarketSummaryCanvas } = require('../../../generators/caravan/market-summary-generator');
+const { resolveItemInfo } = require('./market-setup');
 
 const activeTimers = new Map();
 
@@ -123,47 +125,95 @@ async function closeMarketThread(client, db, threadId, guildId) {
         const session = await getSessionByThread(db, threadId);
         if (!session || session.status === 'closed') return;
 
+        const ownerId = session.ownerid || session.ownerID;
+
         await closeSession(db, threadId);
 
         const guild = client.guilds.cache.get(guildId);
-        if (guild) {
-            const thread = guild.channels.cache.get(threadId);
-            if (thread) {
-                const returned = await returnUnsoldItems(db, session.ownerid || session.ownerID, guildId);
+        if (!guild) return;
 
-                if (returned.length > 0) {
-                    const summary = returned.map(r => `${r.quantity}x ${r.name}`).join('\n');
-                    await thread.send({
-                        embeds: [new EmbedBuilder()
-                            .setColor('#FF9900')
-                            .setTitle('⏳ انتهى وقت السوق!')
-                            .setDescription(
-                                `🛒 البضائع التالية لا تزال في عربة قافلتك وستكون جاهزة في رحلتك القادمة:\n${summary}\n\n` +
-                                `📊 ملخص المبيعات:\n` +
-                                `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
-                                `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`
-                            )
-                            .setTimestamp()]
-                    }).catch(() => {});
-                } else {
-                    await thread.send({
-                        embeds: [new EmbedBuilder()
-                            .setColor('#2ECC71')
-                            .setTitle('⏳ انتهى وقت السوق!')
-                            .setDescription(
-                                `🎉 تم بيع جميع البضائع بالكامل!\n\n` +
-                                `📊 ملخص المبيعات:\n` +
-                                `• عمليات البيع: **${session.totalsales || session.totalSales || 0}**\n` +
-                                `• الإيرادات: **${(session.totalrevenue || session.totalRevenue || 0).toLocaleString()}** ${EMOJI_MORA}`
-                            )
-                            .setTimestamp()]
-                    }).catch(() => {});
-                }
+        let thread = guild.channels.cache.get(threadId);
+        if (!thread) thread = await guild.channels.fetch(threadId).catch(() => null);
+        if (!thread) return;
 
-                await thread.setLocked(true).catch(() => {});
-                await thread.setArchived(true).catch(() => {});
+        const parentChannel = thread.parent;
+
+        // Fetch all listings and return unsold items to inventory
+        const [listings] = await Promise.all([
+            getListingsBySession(db, threadId),
+            returnUnsoldItems(db, ownerId, guildId),
+        ]);
+
+        // Build sold/unsold arrays with item metadata
+        const soldItems   = [];
+        const unsoldItems = [];
+        let   totalEarned = 0;
+
+        for (const row of listings) {
+            const idKey       = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
+            const nameKey     = Object.keys(row).find(k => k.toLowerCase() === 'itemname');
+            const emojiKey    = Object.keys(row).find(k => k.toLowerCase() === 'itememoji');
+            const qtyKey      = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
+            const soldKey     = Object.keys(row).find(k => k.toLowerCase() === 'quantitysold');
+            const priceKey    = Object.keys(row).find(k => k.toLowerCase() === 'priceperunit');
+
+            const itemId      = idKey    ? row[idKey]            : '?';
+            const qty         = Number(qtyKey   ? row[qtyKey]   : 0);
+            const quantitySold = Number(soldKey  ? row[soldKey]  : 0);
+            const pricePerUnit = Number(priceKey ? row[priceKey] : 0);
+
+            const info = resolveItemInfo(itemId);
+            const entry = {
+                itemId,
+                itemName:  nameKey  ? row[nameKey]  : (info.name  || itemId),
+                itemEmoji: emojiKey ? row[emojiKey] : (info.emoji || '📦'),
+                rarity:    info.rarity || 'Common',
+                quantity:  qty,
+                quantitySold,
+                pricePerUnit,
+            };
+
+            if (quantitySold > 0) {
+                soldItems.push(entry);
+                totalEarned += quantitySold * pricePerUnit;
+            }
+            if (qty - quantitySold > 0) {
+                unsoldItems.push(entry);
             }
         }
+
+        // Fetch owner display name
+        let ownerName = ownerId;
+        try {
+            const member = await guild.members.fetch(ownerId).catch(() => null);
+            ownerName = member?.displayName || member?.user?.username || ownerId;
+        } catch {}
+
+        const destId = session.destinationid || session.destinationId;
+        const dest   = caravanConfig.destinations.find(d => d.id === destId);
+        const destName = dest?.name || 'القافلة';
+
+        // Generate canvas report
+        let reportBuf = null;
+        try {
+            reportBuf = await generateMarketSummaryCanvas({ destName, ownerName, soldItems, unsoldItems, totalEarned });
+        } catch (e) {
+            console.error('[closeMarketThread] canvas error:', e?.message);
+        }
+
+        // Send report to parent channel
+        if (parentChannel) {
+            const payload = {
+                content: `<@${ownerId}> انتهت جلسة سوقك في **${destName}**! 📋`,
+            };
+            if (reportBuf) {
+                payload.files = [new AttachmentBuilder(reportBuf, { name: 'market-report.png' })];
+            }
+            await parentChannel.send(payload).catch(() => {});
+        }
+
+        // Delete the thread
+        await thread.delete('انتهت جلسة السوق').catch(() => {});
     } catch (err) {
         console.error('[closeMarketThread]', err);
     }
