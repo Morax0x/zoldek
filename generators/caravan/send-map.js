@@ -6,12 +6,6 @@ const {
     formatArabicTime,
 } = require('./shared');
 
-// 👑 دالة مساعدة لقلب ترتيب الكلمات عشان تطلع صح بالكانفاس (حل مشكلة النصوص المعكوسة مع الأرقام) 👑
-function fixRtl(text) {
-    if (!text) return '';
-    return text.toString().split(' ').reverse().join(' ');
-}
-
 async function generateSendMap(user, stats, mora) {
     const cfg  = require('../../json/caravan-config.json');
     const core = require('../../handlers/caravan/index.js');
@@ -119,11 +113,10 @@ async function generateSendMap(user, stats, mora) {
         
         const riskC   = adjRisk >= 0.35 ? C.red : adjRisk >= 0.25 ? '#FFA500' : C.green;
 
-        // 👑 إصلاح الوقت المعكوس بالـ Canvas باستخدام دالة fixRtl
         const timeStr = formatArabicTime(adjDur);
 
         const rows = [
-            { label: 'المدة',    val: fixRtl(timeStr),                  vc: C.text    },
+            { label: 'المدة',    val: timeStr,                          vc: C.text    },
             { label: 'الخطر',   val: `%${(adjRisk * 100).toFixed(0)}`, vc: riskC     },
             { label: 'التكلفة', val: `${d.cost.toLocaleString()}`,     vc: canAfford ? C.gold : C.red },
         ];
