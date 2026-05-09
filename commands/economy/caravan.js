@@ -5,16 +5,8 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 
-const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const fs   = require('fs');
-try {
-    const fontsDir  = path.join(process.cwd(), 'fonts');
-    const beinPath  = path.join(fontsDir, 'bein-ar-normal.ttf');
-    const emojiPath = path.join(fontsDir, 'NotoEmoj.ttf');
-    if (fs.existsSync(beinPath))  GlobalFonts.registerFromPath(beinPath,  'Bein');
-    if (fs.existsSync(emojiPath)) GlobalFonts.registerFromPath(emojiPath, 'Emoji');
-} catch(e) {}
 
 const {
     caravanConfig, getUserCaravanStats,
@@ -34,6 +26,11 @@ const upgradeMats = require('../../json/upgrade-materials.json');
 let GEN;
 try { GEN = require('../../generators/caravan-generator.js'); }
 catch { GEN = {}; }
+
+// 👑 تم ربط ملف مولد اللوبي 👑
+let LOBBY_GEN;
+try { LOBBY_GEN = require('../../generators/caravan/lobby-generator.js'); }
+catch { LOBBY_GEN = {}; }
 
 let STAGING_GEN;
 try { STAGING_GEN = require('../../generators/staging-market-generator.js'); }
@@ -134,130 +131,6 @@ async function sendCanvas(fn, args, content = '') {
     } catch (e) {
         return { content: `⚠️ تعذّر توليد الصورة.`, embeds: [], files: [] };
     }
-}
-
-let cachedDestBg = null;
-
-async function generateDestChoiceImage(dest, mora) {
-    const W = 960, H = 480;
-    const canvas = createCanvas(W, H);
-    const ctx = canvas.getContext('2d');
-
-    const FONT = '"Bein", "Arial"';
-
-    // ── Background ──
-    try {
-        if (!cachedDestBg) cachedDestBg = await loadImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_caravan.jpg');
-        ctx.drawImage(cachedDestBg, 0, 0, W, H);
-    } catch(e) {
-        const bg = ctx.createLinearGradient(0, 0, W, H);
-        bg.addColorStop(0, '#1a0a08'); bg.addColorStop(1, '#0d0505');
-        ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-    }
-    ctx.fillStyle = 'rgba(0,0,0,0.76)';
-    ctx.fillRect(0, 0, W, H);
-
-    // ── Left panel: destination card ──
-    const panelW = 300, panelH = 380, panelX = 40, panelY = 50;
-    ctx.fillStyle = 'rgba(10,10,20,0.85)';
-    ctx.beginPath(); ctx.roundRect(panelX, panelY, panelW, panelH, 16); ctx.fill();
-    ctx.strokeStyle = dest.color || '#FFD700'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(panelX, panelY, panelW, panelH, 16); ctx.stroke();
-
-    // Destination emoji (large)
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = `90px "Emoji", "Arial"`;
-    ctx.fillText(dest.emoji || '🗺️', panelX + panelW / 2, panelY + 110);
-
-    // Destination name
-    ctx.fillStyle = dest.color || '#FFD700';
-    ctx.font = `bold 28px ${FONT}`;
-    ctx.shadowColor = dest.color || '#FFD700'; ctx.shadowBlur = 12;
-    ctx.fillText(dest.name, panelX + panelW / 2, panelY + 195);
-    ctx.shadowBlur = 0;
-
-    // Stats rows
-    const stats = [
-        { label: `⏱️  ${dest.duration_hours} ساعة`,           color: '#87CEEB' },
-        { label: `💰  ${dest.cost.toLocaleString()} مورا`,     color: '#FFD700' },
-        { label: `⚠️  خطر ${(dest.risk_factor * 100).toFixed(0)}%`, color: dest.risk_factor > 0.5 ? '#E74C3C' : '#F39C12' },
-    ];
-    ctx.font = `18px ${FONT}`;
-    stats.forEach((s, idx) => {
-        const sy = panelY + 250 + idx * 38;
-        ctx.fillStyle = 'rgba(255,255,255,0.07)';
-        ctx.beginPath(); ctx.roundRect(panelX + 16, sy - 14, panelW - 32, 32, 8); ctx.fill();
-        ctx.fillStyle = s.color;
-        ctx.fillText(s.label, panelX + panelW / 2, sy + 2);
-    });
-
-    // Mora check badge
-    const canAfford = mora >= dest.cost;
-    ctx.fillStyle = canAfford ? 'rgba(46,204,113,0.2)' : 'rgba(231,76,60,0.2)';
-    ctx.beginPath(); ctx.roundRect(panelX + 16, panelY + 370 - 24, panelW - 32, 32, 8); ctx.fill();
-    ctx.fillStyle = canAfford ? '#2ECC71' : '#E74C3C';
-    ctx.font = `bold 16px ${FONT}`;
-    ctx.fillText(canAfford ? `✅ رصيدك كافٍ` : `❌ رصيدك غير كافٍ`, panelX + panelW / 2, panelY + 356);
-
-    // ── Right panel: info + warning ──
-    const rx = panelX + panelW + 40, rw = W - rx - 30;
-
-    // Title
-    ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = `bold 32px ${FONT}`;
-    ctx.shadowColor = '#FFFFFF'; ctx.shadowBlur = 8;
-    ctx.fillText('تأمين طريق القافلة', W - 30, panelY + 4);
-    ctx.shadowBlur = 0;
-
-    // Divider
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(rx, panelY + 48); ctx.lineTo(W - 30, panelY + 48); ctx.stroke();
-
-    // Bandit warning
-    const banditCount = Math.max(2, Math.round(dest.risk_factor * 12));
-    ctx.fillStyle = '#E74C3C';
-    ctx.font = `bold 22px ${FONT}`;
-    ctx.shadowColor = '#E74C3C'; ctx.shadowBlur = 10;
-    ctx.fillText(`⚔️ يوجد ${banditCount} أوكار لقطاع الطرق!`, W - 30, panelY + 66);
-    ctx.shadowBlur = 0;
-
-    // Question lines
-    const lines = [
-        { text: 'هل تريد الإغارة عليهم وتأمين الطريق', color: '#F0F0F0', size: 20 },
-        { text: 'قبل إطلاق القافلة؟', color: '#F0F0F0', size: 20 },
-        { text: 'أم المجازفة وترك القافلة دون حماية؟', color: '#C0C0C0', size: 18 },
-    ];
-    let ly = panelY + 112;
-    for (const ln of lines) {
-        ctx.fillStyle = ln.color;
-        ctx.font = `${ln.size}px ${FONT}`;
-        ctx.fillText(ln.text, W - 30, ly);
-        ly += ln.size + 10;
-    }
-
-    // Divider
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(rx, ly + 12); ctx.lineTo(W - 30, ly + 12); ctx.stroke();
-    ly += 28;
-
-    // Choice explanations
-    const choices = [
-        { icon: '🔴', text: 'هجوم وتأمين الطريق — قاتل لتأمين القافلة مسبقاً', color: '#E74C3C' },
-        { icon: '🔵', text: 'تخطي الحماية — مجازفة بدون قتال', color: '#3498DB' },
-    ];
-    for (const ch of choices) {
-        ctx.fillStyle = ch.color;
-        ctx.font = `16px ${FONT}`;
-        ctx.fillText(`${ch.icon} ${ch.text}`, W - 30, ly);
-        ly += 30;
-    }
-
-    // Mora display at bottom right
-    ctx.fillStyle = '#A0A0A0'; ctx.font = `14px ${FONT}`;
-    ctx.fillText(`💳 رصيدك الحالي: ${mora.toLocaleString()} مورا`, W - 30, H - 30);
-
-    return canvas.toBuffer('image/png');
 }
 
 const activeProcesses = new Set();
@@ -501,7 +374,8 @@ module.exports = {
                     client.caravanTempDest = client.caravanTempDest || new Map();
                     client.caravanTempDest.set(user.id, dest);
 
-                    const buffer = await generateDestChoiceImage(dest, mora);
+                    // 👑 استدعاء الصورة من مولد اللوبي بدلاً من رسمها هنا 👑
+                    const buffer = await LOBBY_GEN.generateDestChoiceImage(dest, mora);
                     const attachment = new AttachmentBuilder(buffer, { name: 'dest_choice.png' });
 
                     await hubMsg.edit({
@@ -527,9 +401,6 @@ module.exports = {
                     }).catch(() => {});
                 }
 
-                // ============================================================================
-                // 👑 قسم المتجر الخاص بـ D-Pad 👑
-                // ============================================================================
                 else if (id === 'cv_market_staging') {
                     await i.deferUpdate().catch(() => {});
                     await marketSetup.showStagingUI(i, db, user, guild, true);
@@ -586,9 +457,6 @@ module.exports = {
                     }
                 }
 
-                // ============================================================================
-                // 👑 إصلاح إطلاق القافلة: الآن ترسل آيدي القناة الصحيح ليفتح فيه السوق 👑
-                // ============================================================================
                 else if (id.startsWith('cv_noprotect_')) {
                     const destId = id.replace('cv_noprotect_', '');
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
@@ -604,7 +472,6 @@ module.exports = {
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     
-                    // استخدام آيدي القناة لتخزينه في الداتابيس للعودة إليه
                     const channelId = i.message ? i.message.channelId : i.channelId;
                     
                     const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
@@ -615,7 +482,6 @@ module.exports = {
                         return;
                     }
 
-                    // Finalize both in-memory cache AND DB staging into listings at dispatch time
                     if (result.caravanId) {
                         await finalizeListings(client, db, result.caravanId, user.id, guild.id);
                         await market.finalizeStagedItems(db, result.caravanId, user.id, guild.id);
@@ -623,15 +489,12 @@ module.exports = {
 
                     if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
 
-                    // Check if staged items were moved to listings
                     const listings = result.caravanId
                         ? await market.getListingsByCaravan(db, result.caravanId)
                         : [];
 
-                    // Update the hub message to show active caravan state — this IS the departure message
                     await showHub(hubMsg);
 
-                    // Open market thread on the hub message itself if items were staged for sale
                     if (listings.length > 0 && result.caravanId) {
                         const dispatchNow = Date.now();
                         const caravanObj = {
