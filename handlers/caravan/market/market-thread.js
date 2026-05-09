@@ -170,11 +170,13 @@ async function closeMarketThread(client, db, threadId, guildId, journeyRewards =
             if (qty - quantitySold > 0) unsoldItems.push(entry);
         }
 
-        // Fetch owner display name for the report
+        // Fetch owner display name and avatar for the report
         let ownerName = ownerId;
+        let avatarUrl = null;
         try {
             const member = await guild.members.fetch(ownerId).catch(() => null);
-            ownerName = member?.displayName || member?.user?.username || ownerId;
+            ownerName = member?.displayName || member?.user?.globalName || member?.user?.username || ownerId;
+            avatarUrl = member?.user?.displayAvatarURL({ extension: 'png', size: 128 }) || null;
         } catch {}
 
         const destId   = session.destinationid || session.destinationId;
@@ -185,7 +187,7 @@ async function closeMarketThread(client, db, threadId, guildId, journeyRewards =
         let reportBuf = null;
         try {
             reportBuf = await generateMarketSummaryCanvas({
-                destName, ownerName,
+                destName, ownerName, avatarUrl,
                 soldItems, unsoldItems, totalEarned,
                 journeyRewards: journeyRewards || [],
             });
