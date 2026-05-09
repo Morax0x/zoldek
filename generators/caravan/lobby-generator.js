@@ -5,10 +5,14 @@ const {
     M, rr, divLine
 } = require('./shared');
 
+// ============================================================================
+// 1. مولد صورة إشعار الكمين (تصميم سينمائي فخم باللون الأحمر)
+// ============================================================================
 async function generateAmbushAlertImage(dest) {
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
     
+    // محاولة استخدام الخلفية الأساسية للهجمات
     try {
         await drawBg(ctx, 'banditattack');
     } catch(e) {
@@ -16,6 +20,7 @@ async function generateAmbushAlertImage(dest) {
         ctx.fillRect(0, 0, W, H);
     }
     
+    // سحب صورة المدينة للدمج
     let destImg = null;
     try {
         destImg = await fetchImageSafe(dest.id);
@@ -69,6 +74,9 @@ async function generateAmbushAlertImage(dest) {
     return toBuf(canvas);
 }
 
+// ============================================================================
+// 2. مولد اللوبي (تجمع الحراس)
+// ============================================================================
 async function generateLobbyImage(hostId, party, partyClasses, destConfig, isAmbush, guild) {
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
@@ -222,4 +230,109 @@ async function generateLobbyImage(hostId, party, partyClasses, destConfig, isAmb
     return toBuf(canvas);
 }
 
-module.exports = { generateAmbushAlertImage, generateLobbyImage };
+// ============================================================================
+// 3. مولد صورة تأكيد الوجهة (تأمين الطريق أو التخطي) 👑
+// ============================================================================
+async function generateDestChoiceImage(dest, mora) {
+    const canvas = createCanvas(W, H); 
+    const ctx = canvas.getContext('2d');
+    const FONT = '"Bein", "Arial"';
+
+    const bgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${dest.id}.png`;
+    let bgImg = await fetchImageSafe(bgUrl);
+    if (!bgImg) bgImg = await fetchImageSafe('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_caravan.jpg');
+
+    if (bgImg) {
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        const imgRatio = bgImg.width / bgImg.height;
+        let drawW = W, drawH = W / imgRatio;
+        if (drawH < H) { drawH = H; drawW = H * imgRatio; }
+        ctx.drawImage(bgImg, -(drawW - W)/2, -(drawH - H)/2, drawW, drawH);
+        ctx.restore();
+    } else {
+        ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0, 0, W, H);
+    }
+    
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, 'rgba(10, 15, 30, 0.85)');
+    grad.addColorStop(1, 'rgba(5, 7, 15, 0.98)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    const destColor = dest.color || '#FFD700';
+
+    const panelW = 400, panelH = 430, panelX = 50, panelY = 60;
+    
+    ctx.shadowColor = destColor; ctx.shadowBlur = 25;
+    rr(ctx, panelX, panelY, panelW, panelH, 24);
+    ctx.fillStyle = 'rgba(15, 20, 35, 0.85)'; ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    ctx.strokeStyle = destColor; ctx.lineWidth = 3; ctx.stroke();
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `100px "Emoji", "Arial"`;
+    ctx.fillText(dest.emoji || '🗺️', panelX + panelW / 2, panelY + 100);
+
+    ctx.fillStyle = destColor; ctx.font = `bold 38px ${FONT}`;
+    ctx.fillText(dest.name, panelX + panelW / 2, panelY + 190);
+
+    ctx.beginPath(); ctx.moveTo(panelX + 40, panelY + 230); ctx.lineTo(panelX + panelW - 40, panelY + 230);
+    ctx.strokeStyle = destColor + '55'; ctx.lineWidth = 2; ctx.stroke();
+
+    const riskPercent = (dest.risk_factor * 100).toFixed(0);
+    const stats = [
+        { icon: '⏱️', text: `${dest.duration_hours} ساعة`, color: '#FFFFFF' },
+        { icon: '💰', text: `${dest.cost.toLocaleString()} مورا`, color: '#F1C40F' },
+        { icon: '⚠️', text: `خطر ${riskPercent}%`, color: dest.risk_factor > 0.4 ? '#E74C3C' : '#F39C12' },
+    ];
+    
+    ctx.font = `24px ${FONT}`;
+    stats.forEach((s, idx) => {
+        const sy = panelY + 280 + idx * 45;
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        rr(ctx, panelX + 30, sy - 20, panelW - 60, 40, 10); ctx.fill();
+        ctx.fillStyle = s.color; ctx.textAlign = 'right'; ctx.fillText(s.text, panelX + panelW - 45, sy + 2);
+        ctx.textAlign = 'left'; ctx.fillText(s.icon, panelX + 45, sy + 2);
+    });
+
+    const canAfford = mora >= dest.cost;
+    const badgeW = 240, badgeH = 45;
+    ctx.fillStyle = canAfford ? 'rgba(46, 204, 113, 0.95)' : 'rgba(231, 76, 60, 0.95)';
+    rr(ctx, panelX + (panelW - badgeW)/2, panelY + panelH - 22, badgeW, badgeH, 14); ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.font = `bold 22px ${FONT}`; ctx.textAlign = 'center';
+    ctx.fillText(canAfford ? '✅ رصيدك كافٍ' : '❌ رصيدك غير كافٍ', panelX + panelW / 2, panelY + panelH + 3);
+
+    const rx = panelX + panelW + 60, rw = W - rx - 50;
+
+    ctx.textAlign = 'center'; ctx.fillStyle = '#FFFFFF'; ctx.font = `bold 45px ${FONT}`;
+    ctx.fillText('تأكيد مسار القافلة', rx + rw / 2, 90);
+
+    ctx.beginPath(); ctx.moveTo(rx + 100, 130); ctx.lineTo(rx + rw - 100, 130);
+    ctx.strokeStyle = '#FFFFFF33'; ctx.lineWidth = 2; ctx.stroke();
+
+    const banditCount = Math.max(2, Math.round(dest.risk_factor * 12));
+    ctx.fillStyle = '#E74C3C'; ctx.font = `bold 30px ${FONT}`;
+    ctx.fillText(`⚠️ الطريق محفوف بالمخاطر! (${banditCount} أوكار)`, rx + rw / 2, 190);
+
+    ctx.fillStyle = '#BDC3C7'; ctx.font = `26px ${FONT}`;
+    ctx.fillText('هل ترغب في تأمين الطريق مسبقاً لحماية بضاعتك،', rx + rw / 2, 240);
+    ctx.fillText('أم أنك تفضل المجازفة وإرسال القافلة فوراً؟', rx + rw / 2, 280);
+
+    ctx.fillStyle = 'rgba(231, 76, 60, 0.15)'; 
+    rr(ctx, rx + 30, 340, rw - 60, 75, 16); ctx.fill();
+    ctx.strokeStyle = '#E74C3C'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#E74C3C'; ctx.font = `bold 28px ${FONT}`;
+    ctx.fillText('⚔️ هجوم وتأمين الطريق (ينصح به)', rx + rw / 2, 385);
+
+    ctx.fillStyle = 'rgba(52, 152, 219, 0.15)'; 
+    rr(ctx, rx + 30, 435, rw - 60, 75, 16); ctx.fill();
+    ctx.strokeStyle = '#3498DB'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#3498DB'; ctx.font = `bold 28px ${FONT}`;
+    ctx.fillText('🐫 تخطي الحماية والمجازفة', rx + rw / 2, 480);
+
+    return toBuf(canvas);
+}
+
+module.exports = { generateAmbushAlertImage, generateLobbyImage, generateDestChoiceImage };
