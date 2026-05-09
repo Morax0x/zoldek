@@ -68,7 +68,7 @@ async function generateCaravanEvent(user, dest, eventType, data = {}) {
     
     const destImg = await fetchImageSafe(dest?.id || '');
     ctx.save();
-    rr(ctx, imgX, imgY, imgW, imgH, 30);
+    rr(ctx, imgX, imgY, imgW, imgH, 24);
     ctx.clip();
     if (destImg) {
         // حساب الـ Cover للأبعاد لضمان ملء الإطار بالكامل
@@ -90,7 +90,7 @@ async function generateCaravanEvent(user, dest, eventType, data = {}) {
 
     // إطار الصورة
     ctx.strokeStyle = acc; ctx.lineWidth = 3;
-    rr(ctx, imgX, imgY, imgW, imgH, 30); ctx.stroke();
+    rr(ctx, imgX, imgY, imgW, imgH, 24); ctx.stroke();
 
     // اسم المدينة بلمسة مذهبة
     ctx.shadowColor = acc; ctx.shadowBlur = 15;
@@ -118,7 +118,7 @@ async function generateCaravanEvent(user, dest, eventType, data = {}) {
 
     ctx.textAlign = 'right';
     ctx.font = `32px ${FONT_WORD}`; ctx.fillStyle = '#FFF';
-    ctx.fillText(`التاجر: ${truncate(user.username, 14)}`, infoX - 110, textY - 10);
+    ctx.fillText(`التاجر: ${truncate(user.displayName || user.globalName || user.username, 14)}`, infoX - 110, textY - 10);
     
     ctx.font = `20px ${FONT_WORD}`; ctx.fillStyle = '#AAA';
     ctx.fillText(cfg.desc, infoX - 110, textY + 30);
@@ -156,12 +156,20 @@ async function generateCaravanEvent(user, dest, eventType, data = {}) {
         if (items.length > 0) {
             textY += 20;
             ctx.font = `22px ${FONT_WORD}`; ctx.fillStyle = '#B968FF';
-            ctx.fillText('قطع نادرة مكتسبة:', infoX, textY);
+            ctx.fillText('غنائم أخرى:', infoX, textY);
             textY += 40;
-            
-            const itemText = items.join(' • ');
-            ctx.font = `18px ${FONT_WORD}`; ctx.fillStyle = '#EEE';
-            ctx.fillText(truncate(itemText, 50), infoX - 20, textY);
+
+            for (const item of items.slice(0, 3)) {
+                const boxX = infoX - 400;
+                ctx.fillStyle = 'rgba(185,104,255,0.08)';
+                rr(ctx, boxX, textY, 400, 46, 12); ctx.fill();
+                ctx.strokeStyle = '#B968FF44';
+                rr(ctx, boxX, textY, 400, 46, 12); ctx.stroke();
+                ctx.font = `17px ${FONT_WORD}`; ctx.textAlign = 'right';
+                ctx.fillStyle = '#EEE';
+                ctx.fillText(truncate(String(item), 38), boxX + 390, textY + 26);
+                textY += 58;
+            }
         }
     } else if (isGuardType) {
         // ... منطق الاشتباك مع مراعاة الخطوط ...
