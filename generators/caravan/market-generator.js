@@ -35,7 +35,7 @@ async function loadCachedImg(url) {
 const MARGIN_X   = 36;
 const MARGIN_TOP  = 152;
 const CARD_W     = 356;
-const CARD_H     = 340;
+const CARD_H     = 316;
 const GAP_X      = 32;
 const GAP_Y      = 20;
 const FOOTER_H   = 72;
@@ -172,17 +172,17 @@ async function drawItemCard(ctx, listing, info, x, y) {
     ctx.shadowBlur = 0;
 
     // ── Price ──
-    const priceLabelY = y + 248;
+    const priceLabelY = y + 234;
     ctx.font = `18px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textD;
     ctx.fillText('السعر / وحدة', x + CARD_W / 2, priceLabelY);
 
-    ctx.font = `bold 30px ${FA}`; ctx.direction = 'rtl';
+    ctx.font = `bold 28px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.green;
     ctx.shadowColor = C.green + '77'; ctx.shadowBlur = 14;
-    ctx.fillText(`${price.toLocaleString()} مورا`, x + CARD_W / 2, priceLabelY + 42);
+    ctx.fillText(`${price.toLocaleString()} مورا`, x + CARD_W / 2, priceLabelY + 36);
     ctx.shadowBlur = 0;
 
     // Listing ID (small, bottom)

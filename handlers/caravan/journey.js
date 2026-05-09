@@ -230,6 +230,25 @@ async function processCaravanReturns(client, db) {
                 // Distribute rewards and mark caravan complete
                 const summary = await distributeRewards(client, db, caravan);
 
+                // If an open market session exists, delegate the arrival report to it
+                let handledByMarket = false;
+                try {
+                    const { closeMarketThread, getSessionByCaravan: getMarketSession } = require('./market/market-thread');
+                    const mktSession = await getMarketSession(db, caravanId);
+                    if (mktSession && mktSession.status !== 'closed') {
+                        const mktThreadId = mktSession.threadid || mktSession.threadId;
+                        const mktGuildId  = mktSession.guildid  || mktSession.guildID;
+                        if (mktThreadId) {
+                            await closeMarketThread(client, db, mktThreadId, mktGuildId, summary);
+                            handledByMarket = true;
+                        }
+                    }
+                } catch (e) {
+                    console.error('[processCaravanReturns] market integration error:', e?.message);
+                }
+
+                if (handledByMarket) { continue; }
+
                 // --- Locate the announcement channel ---
                 // Priority 1: channel stored at dispatch time
                 let casinoId = caravan.marketchannelid || caravan.marketChannelId || null;

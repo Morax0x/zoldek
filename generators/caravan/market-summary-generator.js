@@ -24,7 +24,7 @@ function itemColor(rarity) {
  * @param {number}  opts.totalEarned
  * @returns {Promise<Buffer>}
  */
-async function generateMarketSummaryCanvas({ destName, ownerName, soldItems, unsoldItems, totalEarned }) {
+async function generateMarketSummaryCanvas({ destName, ownerName, soldItems, unsoldItems, totalEarned, journeyRewards = [] }) {
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
 
@@ -100,8 +100,10 @@ async function generateMarketSummaryCanvas({ destName, ownerName, soldItems, uns
     ctx.shadowBlur = 0;
 
     // ── Two-column layout ──
+    const HAS_JOURNEY = journeyRewards && journeyRewards.length > 0;
+    const JRY_H  = HAS_JOURNEY ? 94 : 0;
     const COL_Y   = earnY + earnH + 22;
-    const COL_H   = H - COL_Y - 30;
+    const COL_H   = H - COL_Y - JRY_H - (HAS_JOURNEY ? 14 : 0) - 30;
     const LEFT_X  = 34;
     const LEFT_W  = W / 2 - 50;
     const RIGHT_X = W / 2 + 16;
@@ -111,6 +113,11 @@ async function generateMarketSummaryCanvas({ destName, ownerName, soldItems, uns
     drawColumn(ctx, RIGHT_X, COL_Y, RIGHT_W, COL_H, soldItems,   '✅ البضائع المباعة',   C.green);
     // Left column
     drawColumn(ctx, LEFT_X,  COL_Y, LEFT_W,  COL_H, unsoldItems, '📦 البضائع المُرجعة', '#8A9AAA');
+
+    // ── Journey Rewards Strip ──
+    if (HAS_JOURNEY) {
+        drawJourneyRewards(ctx, LEFT_X, COL_Y + COL_H + 14, W - LEFT_X * 2, JRY_H, journeyRewards);
+    }
 
     return toBuf(canvas);
 }
@@ -206,6 +213,79 @@ function drawColumn(ctx, x, y, w, h, items, title, accentColor) {
         ctx.font = `15px ${FA}`; ctx.direction = 'rtl';
         ctx.textAlign = 'center'; ctx.fillStyle = C.textD;
         ctx.fillText(`... و ${items.length - maxRows} عنصر آخر`, x + w / 2, y + h - 16);
+    }
+}
+
+function drawJourneyRewards(ctx, x, y, w, h, rewards) {
+    // Panel background
+    rr(ctx, x, y, w, h, 14);
+    const jg = ctx.createLinearGradient(x, y, x + w, y);
+    jg.addColorStop(0, 'rgba(90,50,200,0.14)');
+    jg.addColorStop(0.5, 'rgba(120,60,240,0.20)');
+    jg.addColorStop(1, 'rgba(90,50,200,0.14)');
+    ctx.fillStyle = jg; ctx.fill();
+    ctx.strokeStyle = '#8B5CF6' + '55'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Top accent strip
+    ctx.save();
+    rr(ctx, x, y, w, 4, [14, 14, 0, 0]);
+    ctx.fillStyle = '#8B5CF6' + '99'; ctx.fill();
+    ctx.restore();
+
+    // Section title (right-aligned for Arabic)
+    ctx.font = `bold 17px ${FA}`; ctx.direction = 'rtl';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#C4B5FD';
+    ctx.shadowColor = '#8B5CF6'; ctx.shadowBlur = 10;
+    ctx.fillText('🎒 مكافآت الرحلة', x + w - 16, y + 26);
+    ctx.shadowBlur = 0;
+
+    // Divider
+    divLine(ctx, x + 16, y + 44, w - 32, '#8B5CF6' + '33');
+
+    // Badges in a horizontal row (LTR layout since content is emoji+number+mixed)
+    let bx = x + 16;
+    const by = y + 68;
+    const bh = 26;
+
+    ctx.font = `bold 14px ${FA}`;
+    for (const reward of rewards) {
+        const label = String(reward);
+        ctx.direction = 'ltr';
+        const tw = ctx.measureText(label).width;
+        const bw = tw + 28;
+
+        if (bx + bw > x + w - 16) break;
+
+        // Badge background
+        rr(ctx, bx, by - bh / 2, bw, bh, 10);
+        ctx.fillStyle = 'rgba(139,92,246,0.20)'; ctx.fill();
+        ctx.strokeStyle = '#8B5CF6' + '66'; ctx.lineWidth = 1; ctx.stroke();
+
+        // Badge text
+        ctx.direction = 'ltr'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#EDE9FE';
+        ctx.fillText(label, bx + 14, by);
+
+        bx += bw + 10;
+    }
+
+    // If there are more rewards that don't fit, show a +N indicator
+    const fittedCount = rewards.filter((_, i) => {
+        let tx = x + 16;
+        ctx.font = `bold 14px ${FA}`; ctx.direction = 'ltr';
+        for (let j = 0; j <= i; j++) {
+            const tw2 = ctx.measureText(String(rewards[j])).width;
+            tx += tw2 + 28 + 10;
+        }
+        return tx - 10 <= x + w - 16;
+    }).length;
+
+    if (fittedCount < rewards.length) {
+        ctx.font = `bold 14px ${FA}`; ctx.direction = 'ltr';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#A78BFA';
+        ctx.fillText(`+${rewards.length - fittedCount} أخرى`, bx, by);
     }
 }
 

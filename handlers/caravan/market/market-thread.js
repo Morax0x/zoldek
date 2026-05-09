@@ -1,7 +1,7 @@
 const {
     ChannelType, AttachmentBuilder, EmbedBuilder
 } = require('discord.js');
-const { safeQuery } = require('../db');
+const { safeQuery, safeExecute } = require('../db');
 const { caravanConfig } = require('../config');
 const {
     createMarketSession,
@@ -9,6 +9,7 @@ const {
     returnUnsoldItems,
     getSessionByThread,
     getListingsBySession,
+    getSessionByCaravan,
 } = require('./market-db');
 
 const { updateMarketMessage } = require('./market-ui');
@@ -90,14 +91,36 @@ async function createMarketThread(client, db, caravan, channelId) {
     }
 }
 
-async function closeMarketThread(client, db, threadId, guildId) {
+async function closeMarketThread(client, db, threadId, guildId, journeyRewards = null) {
     try {
         const session = await getSessionByThread(db, threadId);
         if (!session || session.status === 'closed') return;
 
-        const ownerId = session.ownerid || session.ownerID;
+        const ownerId   = session.ownerid   || session.ownerID;
+        const caravanId = session.caravanid || session.caravanId;
 
         await closeSession(db, threadId);
+
+        // If journey rewards weren't passed (market timer fired before journey.js ran),
+        // try to distribute them now if the caravan is still in 'traveling' state.
+        if (!journeyRewards && caravanId) {
+            try {
+                const cvRow = await safeQuery(db,
+                    `SELECT * FROM user_caravans WHERE "id"=$1 AND ("status"='traveling' OR status='traveling')`,
+                    [caravanId]);
+                const caravan = cvRow?.rows?.[0];
+                if (caravan) {
+                    const now = Date.now();
+                    const endTime = Number(caravan.endtime || caravan.endTime || 0);
+                    if (now >= endTime) {
+                        const { distributeRewards } = require('../journey');
+                        journeyRewards = await distributeRewards(client, db, caravan);
+                    }
+                }
+            } catch (e) {
+                console.error('[closeMarketThread] journey rewards auto-distribute error:', e?.message);
+            }
+        }
 
         const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
         if (!guild) return;
@@ -161,14 +184,18 @@ async function closeMarketThread(client, db, threadId, guildId) {
         // Generate canvas summary report
         let reportBuf = null;
         try {
-            reportBuf = await generateMarketSummaryCanvas({ destName, ownerName, soldItems, unsoldItems, totalEarned });
+            reportBuf = await generateMarketSummaryCanvas({
+                destName, ownerName,
+                soldItems, unsoldItems, totalEarned,
+                journeyRewards: journeyRewards || [],
+            });
         } catch (e) {
             console.error('[closeMarketThread] canvas error:', e?.message);
         }
 
         // Send report to parent channel
         if (parentChannel) {
-            const payload = { content: `<@${ownerId}> انتهت جلسة سوقك في **${destName}**! 📋` };
+            const payload = { content: `<@${ownerId}> انتهت رحلتك إلى **${destName}** 🎉` };
             if (reportBuf) payload.files = [new AttachmentBuilder(reportBuf, { name: 'market-report.png' })];
             await parentChannel.send(payload).catch(() => {});
         }
@@ -214,4 +241,5 @@ module.exports = {
     setupMarketChecker,
     clearTimer,
     activeTimers,
+    getSessionByCaravan,
 };
