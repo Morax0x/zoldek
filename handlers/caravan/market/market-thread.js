@@ -1,5 +1,5 @@
 const {
-    ChannelType, AttachmentBuilder
+    ChannelType, AttachmentBuilder, EmbedBuilder
 } = require('discord.js');
 const { safeQuery } = require('../db');
 const { caravanConfig } = require('../config');
