@@ -130,6 +130,7 @@ async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
         return { ok: false, error: 'الكمية المطلوبة أكبر من المرحّلة' };
     }
 
+    // 👑 التعديل هنا: إذا الكمية المراد سحبها تساوي الكمية المتبقية، نحذفه فوراً. وإذا أقل ونقصناها لصفر بنحذفه بعدها مباشرة. 👑
     if (quantity >= stagedQty) {
         await safeExecute(db, `
             DELETE FROM caravan_staging_market
@@ -141,6 +142,12 @@ async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
             WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3
         `, [userId, guildId, itemId, quantity]);
     }
+
+    // تنظيف إضافي لضمان عدم بقاء أي عنصر بكمية صفر
+    await safeExecute(db, `
+        DELETE FROM caravan_staging_market 
+        WHERE "userID"=$1 AND "guildID"=$2 AND "quantity" <= 0
+    `, [userId, guildId]);
 
     await safeExecute(db, `
         INSERT INTO user_inventory ("userID","guildID","itemID","quantity")
@@ -154,13 +161,14 @@ async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
         VALUES ($1,$2,$3,$4)
         ON CONFLICT (userid, guildid, itemid)
         DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $4
-    `, [userId, guildId, itemId, quantity]);
+    `, [userId, guildId, itemId, quantity]).catch(()=>{});
 
     return { ok: true };
 }
 
 async function getStagedItems(db, userId, guildId) {
-    const res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+    // 👑 التعديل هنا: الفلترة أثناء الجلب لضمان عدم جلب عناصر بصفر كمية
+    const res = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "quantity" > 0`, [userId, guildId]);
     return res?.rows || [];
 }
 
@@ -172,9 +180,9 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
     const existing = await getListingsByCaravan(db, caravanId);
     if (existing.length > 0) return { ok: true, moved: existing.length };
 
-    let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+    let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "quantity" > 0`, [userId, guildId]);
     if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) {
-        stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]);
+        stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND quantity > 0`, [userId, guildId]);
     }
     const staged = stagedRes?.rows || [];
 
@@ -227,14 +235,14 @@ async function lockItemsFromInventory(db, guildId, userId, listings) {
 async function getListingsByCaravan(db, caravanId) {
     let result = await safeQuery(db, `
         SELECT * FROM caravan_market_listings
-        WHERE "caravanId"=$1 AND "status"='active'
+        WHERE "caravanId"=$1 AND "status"='active' AND "quantity" > "quantitySold"
         ORDER BY "id" ASC
     `, [caravanId]);
 
     if (!result || !result.rows || result.rows.length === 0) {
         result = await safeQuery(db, `
             SELECT * FROM caravan_market_listings
-            WHERE caravanid=$1 AND status='active'
+            WHERE caravanid=$1 AND status='active' AND quantity > quantitysold
             ORDER BY id ASC
         `, [caravanId]);
     }
@@ -246,7 +254,7 @@ async function getListingsBySession(db, threadId) {
     let result = await safeQuery(db, `
         SELECT l.* FROM caravan_market_listings l
         INNER JOIN caravan_market_sessions s ON l."caravanId" = s."caravanId"
-        WHERE s."threadId"=$1 AND l."status"='active' AND s."status"='open'
+        WHERE s."threadId"=$1 AND l."status"='active' AND s."status"='open' AND l."quantity" > l."quantitySold"
         ORDER BY l."id" ASC
     `, [threadId]);
 
@@ -254,7 +262,7 @@ async function getListingsBySession(db, threadId) {
         result = await safeQuery(db, `
             SELECT l.* FROM caravan_market_listings l
             INNER JOIN caravan_market_sessions s ON l.caravanid = s.caravanid
-            WHERE s.threadid=$1 AND l.status='active' AND s.status='open'
+            WHERE s.threadid=$1 AND l.status='active' AND s.status='open' AND l.quantity > l.quantitysold
             ORDER BY l.id ASC
         `, [threadId]);
     }
@@ -377,6 +385,10 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         `, [quantity, sellerId, guildId, itemId]);
     }
 
+    // 👑 تنظيف إضافي بعد البيع في السلة
+    await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "quantity" <= 0`, [sellerId, guildId]);
+    await safeExecute(db, `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND quantity <= 0`, [sellerId, guildId]).catch(()=>{});
+
     await safeExecute(db, `
         INSERT INTO caravan_market_transactions
             ("listingId","buyerID","sellerID","guildID","itemID","quantity",
@@ -418,15 +430,12 @@ async function closeSession(db, threadId) {
     }
 }
 
-// 👑 الإصلاح هنا: إرجاع الأغراض وتنظيف سلة الستيجينج بالكامل للرحلة القادمة 👑
 async function returnUnsoldItems(db, ownerId, guildId) {
-    // 1. إعادة حالة العناصر في السوق إلى returned
     await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "ownerID"=$1 AND "guildID"=$2 AND "status" IN ('active','sold_out')`, [ownerId, guildId]);
     
-    // 2. جلب جميع الأغراض المتبقية في عربة الستيجينج
-    let stagingRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [ownerId, guildId]);
+    let stagingRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "quantity" > 0`, [ownerId, guildId]);
     if (!stagingRes || !stagingRes.rows || stagingRes.rows.length === 0) {
-        stagingRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [ownerId, guildId]);
+        stagingRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND quantity > 0`, [ownerId, guildId]);
     }
 
     const returned = [];
@@ -439,7 +448,6 @@ async function returnUnsoldItems(db, ownerId, guildId) {
         if (itemId && qty > 0) {
             returned.push({ itemId, quantity: qty, name: itemId });
             
-            // 3. إعادة الكمية الغير مباعة للمخزون الأساسي للمستخدم
             await safeExecute(db, `
                 INSERT INTO user_inventory ("guildID","userID","itemID","quantity")
                 VALUES ($1,$2,$3,$4)
@@ -456,7 +464,6 @@ async function returnUnsoldItems(db, ownerId, guildId) {
         }
     }
 
-    // 👑 4. مسح وحذف جميع محتويات الستيجينج لهذا المستخدم ليتمكن من بدء رحلة جديدة بسلة نظيفة 👑
     await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [ownerId, guildId]);
     await safeExecute(db, `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [ownerId, guildId]).catch(()=>{});
 
