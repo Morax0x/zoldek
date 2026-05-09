@@ -1,190 +1,190 @@
 const { loadImage } = require('@napi-rs/canvas');
 const {
-    createCanvas, W, H, C, FA, FE,
+    createCanvas, W, H, C, FE,
     drawBg, drawHeader, drawCornerAccents, drawPanel,
     divLine, fetchImageSafe, toBuf,
-    R, M, L, rr, truncate, parseSafeArray
+    M, rr, truncate, parseSafeArray
 } = require('./shared');
+
+// خطوط الإمبراطورية المعتمدة
+const FONT_WORD = '"aaa"';
+const FONT_NUM  = '"ReemKufi-Regular"';
+const FONT_EMOJI = '"Emoji"';
+
+// دالة الرسم الدقيق للنصوص المختلطة (فصل الكلمة عن الرقم لمنع الانعكاس)
+function drawRewardRow(ctx, icon, label, value, x, y, color) {
+    ctx.font = `24px ${FONT_EMOJI}`;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#FFF';
+    ctx.fillText(icon, x + 350, y + 32);
+
+    ctx.font = `22px ${FONT_WORD}`;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#BBB';
+    ctx.fillText(label, x + 310, y + 32);
+
+    // رسم الرقم بخطه الخاص لمنع انعكاس السطر
+    ctx.font = `26px ${FONT_NUM}`;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = color;
+    ctx.fillText(value, x + 20, y + 32);
+}
 
 async function generateCaravanEvent(user, dest, eventType, data = {}) {
     const canvas = createCanvas(W, H);
-    const ctx    = canvas.getContext('2d');
-    
-    // إعدادات البطاقة بناءً على نوع الحدث
+    const ctx = canvas.getContext('2d');
+
     const eventConfig = {
-        'dispatch':    { title: 'انطلاق القافلة',         color: C.gold,   icon: '🐪', desc: 'بدأت القافلة رحلتها متجهة نحو' },
-        'arrive':      { title: 'وصول القافلة بسلام',    color: C.green,  icon: '🎉', desc: 'عادت القافلة محملة بالغنائم من' },
-        'guard_ok':    { title: 'حماية ناجحة',            color: C.blue,   icon: '🛡️', desc: 'تم صد الهجوم بنجاح وحماية البضائع في' },
-        'guard_bad':   { title: 'خسائر فادحة',            color: C.red,    icon: '🔥', desc: 'تعرضت القافلة للنهب وفقدت حمولتها في' },
-        'escort_win':  { title: 'انتصار! الطريق آمن!',   color: C.green,  icon: '🎉', desc: 'تأمين ناجح وانطلاق القافلة نحو' },
-        'escort_fail': { title: 'فشل التأمين!',           color: C.red,    icon: '💀', desc: 'فشلت الحراسة في حماية القافلة نحو' },
-        'ambush_win':  { title: 'نجاح الدفاع! القافلة آمنة', color: C.blue, icon: '🛡️', desc: 'تم صد الكمين بنجاح في الطريق إلى' },
-        'ambush_fail': { title: 'فشلت الحراسة — القافلة نُهبت!', color: C.red, icon: '💀', desc: 'الكمين اخترق دفاعات القافلة في الطريق إلى' },
+        'dispatch':    { title: 'انطلاق القافلة الملكية',      color: C.gold,   icon: '🐪', desc: 'بدأت القافلة رحلتها متجهة نحو' },
+        'arrive':      { title: 'وصول القافلة المظفرة',     color: C.green,  icon: '🎉', desc: 'عادت القافلة محملة بالكنوز من' },
+        'guard_ok':    { title: 'تم سحق قطاع الطرق',            color: C.blue,   icon: '🛡️', desc: 'تم صد الهجوم وتأمين الحمولة في' },
+        'guard_bad':   { title: 'نكبة في الطريق',            color: C.red,    icon: '🔥', desc: 'تعرضت القافلة للنهب في' },
+        'escort_win':  { title: 'الطريق تحت السيطرة',        color: C.green,  icon: '⚔️', desc: 'تأمين كامل وانطلاق الرحلة نحو' },
+        'escort_fail': { title: 'سقوط الحراسة',            color: C.red,    icon: '💀', desc: 'فشل التأمين وضاعت القافلة نحو' },
     };
-    
+
     const cfg = eventConfig[eventType] || eventConfig['dispatch'];
     const acc = cfg.color;
 
-    // رسم الخلفية الأساسية
+    // 1. الخلفية الاحترافية
     const isGuardType = eventType.includes('guard') || eventType.includes('escort') || eventType.includes('ambush');
-    let bgName = isGuardType ? 'banditattack' : 'hubbg';
-    await drawBg(ctx, bgName);
-    drawCornerAccents(ctx);
+    await drawBg(ctx, isGuardType ? 'banditattack' : 'hubbg');
     
-    // رسم الهيدر
+    ctx.fillStyle = 'rgba(6, 8, 15, 0.82)';
+    ctx.fillRect(0, 0, W, H);
+    
+    drawCornerAccents(ctx);
     await drawHeader(ctx, cfg.title);
 
-    // اللوحة الرئيسية
-    const PX = 100, PY = 180, PW = 1400, PH = 600;
-    drawPanel(ctx, PX, PY, PW, PH, acc, { radius: 32 });
+    // 2. اللوحة المركزية (Glassmorphism)
+    const PX = 80, PY = 170, PW = W - 160, PH = 620;
+    drawPanel(ctx, PX, PY, PW, PH, acc, { radius: 40 });
 
     // ==========================================
-    // 🖼️ رسم صورة الوجهة (في الجهة اليمنى)
+    // 🖼️ معالجة صورة المدينة (الجهة اليسرى للتوازن البصري)
     // ==========================================
-    const RX = 900, RY = 220, RW = 550, RH = 520;
+    const imgW = 580, imgH = 500;
+    const imgX = PX + 50, imgY = PY + 60;
+    
     const destImg = await fetchImageSafe(dest?.id || '');
+    ctx.save();
+    rr(ctx, imgX, imgY, imgW, imgH, 30);
+    ctx.clip();
     if (destImg) {
-        ctx.save();
-        rr(ctx, RX, RY, RW, RH, 24); ctx.clip();
-        const imgRatio = destImg.width / destImg.height;
-        const drawH = RH;
-        const drawW = RH * imgRatio;
-        ctx.globalAlpha = 0.85;
-        ctx.drawImage(destImg, RX - (drawW - RW)/2, RY, drawW, drawH);
-        
-        // تدرج لوني لتغطية حواف الصورة ودمجها مع اللوحة
-        const imgFade = ctx.createLinearGradient(RX, RY, RX, RY + RH);
-        imgFade.addColorStop(0, 'rgba(10,14,28,0.2)');
-        imgFade.addColorStop(1, 'rgba(10,14,28,0.9)');
-        ctx.fillStyle = imgFade; ctx.fillRect(RX, RY, RW, RH);
-        ctx.restore();
+        // حساب الـ Cover للأبعاد لضمان ملء الإطار بالكامل
+        const scale = Math.max(imgW / destImg.width, imgH / destImg.height);
+        const x = imgX + (imgW - destImg.width * scale) / 2;
+        const y = imgY + (imgH - destImg.height * scale) / 2;
+        ctx.drawImage(destImg, x, y, destImg.width * scale, destImg.height * scale);
     } else {
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        rr(ctx, RX, RY, RW, RH, 24); ctx.fill();
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(imgX, imgY, imgW, imgH);
     }
     
-    // إطار ذهبي أو ملون حول الصورة
-    ctx.strokeStyle = acc + '66'; ctx.lineWidth = 4;
-    rr(ctx, RX, RY, RW, RH, 24); ctx.stroke();
-    
-    // اسم الوجهة فوق الصورة
-    ctx.shadowColor = '#000'; ctx.shadowBlur = 15;
-    M(ctx, dest?.name || 'وجهة مجهولة', RX + RW / 2, RY + RH - 40, 42, acc);
+    // تدرج دمج احترافي
+    const grad = ctx.createLinearGradient(imgX, imgY, imgX, imgY + imgH);
+    grad.addColorStop(0, 'transparent');
+    grad.addColorStop(1, 'rgba(10,14,28,0.8)');
+    ctx.fillStyle = grad; ctx.fillRect(imgX, imgY, imgW, imgH);
+    ctx.restore();
+
+    // إطار الصورة
+    ctx.strokeStyle = acc; ctx.lineWidth = 3;
+    rr(ctx, imgX, imgY, imgW, imgH, 30); ctx.stroke();
+
+    // اسم المدينة بلمسة مذهبة
+    ctx.shadowColor = acc; ctx.shadowBlur = 15;
+    ctx.font = `bold 42px ${FONT_WORD}`;
+    ctx.textAlign = 'center'; ctx.fillStyle = acc;
+    ctx.fillText(dest?.name || 'وجهة مجهولة', imgX + imgW / 2, imgY + imgH - 50);
     ctx.shadowBlur = 0;
 
     // ==========================================
-    // 📜 رسم التفاصيل والغنائم (في الجهة اليسرى)
+    // 📜 منطقة البيانات (الجهة اليمنى - البداية العربية)
     // ==========================================
-    const LX = 140;
-    let textY = PY + 80;
+    const infoX = PX + PW - 70; // نقطة الارتكاز لليمين
+    let textY = PY + 90;
 
-    // رسم أفاتار التاجر واسمه
+    // رأسية التاجر
     try {
         const av = await loadImage(user.displayAvatarURL({ extension: 'png', size: 128 }));
         ctx.save();
-        ctx.beginPath(); ctx.arc(LX + 50, textY, 40, 0, Math.PI * 2); ctx.clip();
-        ctx.drawImage(av, LX + 10, textY - 40, 80, 80);
+        ctx.beginPath(); ctx.arc(infoX - 45, textY, 45, 0, Math.PI * 2); ctx.clip();
+        ctx.drawImage(av, infoX - 90, textY - 45, 90, 90);
         ctx.restore();
         ctx.strokeStyle = acc; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(LX + 50, textY, 40, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(infoX - 45, textY, 45, 0, Math.PI * 2); ctx.stroke();
     } catch {}
 
-    L(ctx, `التاجر: ${truncate(user.username, 16)}`, LX + 110, textY - 10, 26, C.text);
-    L(ctx, cfg.desc, LX + 110, textY + 25, 20, C.textD);
+    ctx.textAlign = 'right';
+    ctx.font = `32px ${FONT_WORD}`; ctx.fillStyle = '#FFF';
+    ctx.fillText(`التاجر: ${truncate(user.username, 14)}`, infoX - 110, textY - 10);
     
-    textY += 90;
-    divLine(ctx, LX, textY, 700, acc + '44');
-    textY += 50;
+    ctx.font = `20px ${FONT_WORD}`; ctx.fillStyle = '#AAA';
+    ctx.fillText(cfg.desc, infoX - 110, textY + 30);
 
-    // 🎁 رسم الغنائم والمكافآت (إذا كان الحدث وصول أو تجهيز)
+    textY += 100;
+    divLine(ctx, infoX - 650, textY, 650, acc + '33');
+    textY += 60;
+
+    // قسم النتائج / المكافآت
     if (eventType === 'arrive' || eventType === 'dispatch') {
-        ctx.shadowColor = acc + '55'; ctx.shadowBlur = 10;
-        L(ctx, eventType === 'arrive' ? 'حصيلة الرحلة:' : 'التكاليف المتوقعة:', LX, textY, 32, acc);
-        ctx.shadowBlur = 0;
-        textY += 60;
+        ctx.font = `bold 28px ${FONT_WORD}`; ctx.fillStyle = acc;
+        ctx.fillText(eventType === 'arrive' ? 'حصيلة الغنائم المستلمة:' : 'الاستثمار المطلوب:', infoX, textY);
+        textY += 50;
 
         const rewards = [
-            { icon: '💰', label: 'المورا', val: data.mora ? `+${data.mora.toLocaleString()}` : '0', color: C.gold },
-            { icon: '🔮', label: 'الخبرة', val: data.xp ? `+${data.xp.toLocaleString()}` : '0', color: '#8A2BE2' },
-            { icon: '🛡️', label: 'السمعة', val: data.reputation ? `+${data.reputation}` : '0', color: '#3498DB' }
+            { icon: '💰', label: 'المورا الملكية', val: data.mora ? data.mora.toLocaleString() : '0', color: C.gold },
+            { icon: '🔮', label: 'نقاط الخبرة', val: data.xp ? data.xp.toLocaleString() : '0', color: '#B968FF' },
+            { icon: '🌟', label: 'نقاط السمعة', val: data.reputation ? data.reputation.toString() : '0', color: '#00C3FF' }
         ];
 
-        // رسم صناديق الغنائم بشكل أنيق
         for (const r of rewards) {
             if (r.val !== '0') {
-                rr(ctx, LX, textY, 340, 50, 12);
-                ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fill();
-                ctx.strokeStyle = r.color + '44'; ctx.lineWidth = 2;
-                rr(ctx, LX, textY, 340, 50, 12); ctx.stroke();
+                const boxX = infoX - 400;
+                ctx.fillStyle = 'rgba(255,255,255,0.03)';
+                rr(ctx, boxX, textY, 400, 55, 15); ctx.fill();
+                ctx.strokeStyle = r.color + '44';
+                rr(ctx, boxX, textY, 400, 55, 15); ctx.stroke();
 
-                ctx.font = `24px ${FE}`; ctx.textAlign = 'right';
-                ctx.fillText(r.icon, LX + 325, textY + 28);
-                R(ctx, r.label, LX + 280, textY + 28, 22, C.textD);
-                L(ctx, r.val, LX + 20, textY + 28, 22, r.color);
-                
-                textY += 65;
+                drawRewardRow(ctx, r.icon, r.label, r.val, boxX, textY, r.color);
+                textY += 70;
             }
         }
 
-        // إذا كان هناك أدوات (Items)
         const items = parseSafeArray(data.items);
         if (items.length > 0) {
-            textY += 10;
-            L(ctx, 'الأدوات المكتسبة:', LX, textY, 26, C.purple);
+            textY += 20;
+            ctx.font = `22px ${FONT_WORD}`; ctx.fillStyle = '#B968FF';
+            ctx.fillText('قطع نادرة مكتسبة:', infoX, textY);
             textY += 40;
             
-            rr(ctx, LX, textY, 700, 60, 12);
-            ctx.fillStyle = 'rgba(138, 43, 226, 0.1)'; ctx.fill();
-            ctx.strokeStyle = 'rgba(138, 43, 226, 0.4)'; ctx.lineWidth = 2;
-            rr(ctx, LX, textY, 700, 60, 12); ctx.stroke();
-            
-            M(ctx, items.join(' • '), LX + 350, textY + 34, 22, C.text);
+            const itemText = items.join(' • ');
+            ctx.font = `18px ${FONT_WORD}`; ctx.fillStyle = '#EEE';
+            ctx.fillText(truncate(itemText, 50), infoX - 20, textY);
         }
-    }
-    // ⚔️ رسم تقرير الاشتباك (الحراسة، الإرشاد، الكمين)
-    else if (isGuardType) {
-        ctx.shadowColor = acc + '55'; ctx.shadowBlur = 10;
-        L(ctx, 'تقرير الاشتباك:', LX, textY, 32, acc);
-        ctx.shadowBlur = 0;
+    } else if (isGuardType) {
+        // ... منطق الاشتباك مع مراعاة الخطوط ...
+        ctx.font = `bold 32px ${FONT_WORD}`; ctx.fillStyle = acc;
+        ctx.fillText('تقرير الميدان:', infoX, textY);
         textY += 60;
 
-        rr(ctx, LX, textY, 700, 120, 16);
-        ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fill();
-        ctx.strokeStyle = acc + '66'; ctx.lineWidth = 2;
-        rr(ctx, LX, textY, 700, 120, 16); ctx.stroke();
+        const boxX = infoX - 650;
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        rr(ctx, boxX, textY, 650, 140, 20); ctx.fill();
+        ctx.strokeStyle = acc + '66';
+        rr(ctx, boxX, textY, 650, 140, 20); ctx.stroke();
 
-        ctx.font = `80px ${FE}`; ctx.textAlign = 'center';
-        ctx.fillText(cfg.icon, LX + 100, textY + 70);
+        ctx.font = `90px ${FONT_EMOJI}`; ctx.textAlign = 'center';
+        ctx.fillText(cfg.icon, boxX + 100, textY + 80);
 
-        const isWin = eventType === 'guard_ok' || eventType === 'escort_win' || eventType === 'ambush_win';
-        if (isWin) {
-            L(ctx, 'تم إبادة قطاع الطرق!', LX + 180, textY + 45, 26, C.green);
-            if (data.eta) {
-                L(ctx, `وقت الوصول: <t:${data.eta}:R>`, LX + 180, textY + 85, 20, C.textD);
-            } else {
-                L(ctx, 'بضائعك ومواردك في أمان تام.', LX + 180, textY + 85, 20, C.textD);
-            }
-        } else {
-            L(ctx, 'تم اختراق دفاعات القافلة!', LX + 180, textY + 45, 26, C.red);
-            if (data.lost_percentage != null) {
-                L(ctx, `الخسائر المقدرة: -${(data.lost_percentage * 100).toFixed(0)}% من الحمولة`, LX + 180, textY + 85, 22, C.gold);
-            } else {
-                L(ctx, 'ضاعت جميع البضائع. انتهت الرحلة.', LX + 180, textY + 85, 20, C.textD);
-            }
-        }
+        ctx.textAlign = 'right';
+        ctx.font = `28px ${FONT_WORD}`; ctx.fillStyle = '#FFF';
+        const isWin = eventType.includes('win') || eventType === 'guard_ok';
+        ctx.fillText(isWin ? 'سُحق المعتدون تماماً!' : 'كُسرت القافلة ونُهبت!', boxX + 620, textY + 50);
 
-        // Reward summary if provided
-        if (data.rewards && data.rewards.length > 0) {
-            textY += 140;
-            L(ctx, 'مكافآت الفريق:', LX, textY, 26, C.gold);
-            textY += 40;
-            const rewardText = data.rewards.slice(0, 3).join('  •  ');
-            rr(ctx, LX, textY, 700, 50, 10);
-            ctx.fillStyle = 'rgba(245,197,24,0.08)'; ctx.fill();
-            ctx.strokeStyle = C.gold + '44'; ctx.lineWidth = 1.5;
-            rr(ctx, LX, textY, 700, 50, 10); ctx.stroke();
-            M(ctx, rewardText, LX + 350, textY + 26, 18, C.text);
-        }
+        ctx.font = `18px ${FONT_WORD}`; ctx.fillStyle = '#AAA';
+        ctx.fillText(isWin ? 'البضائع في طريقها بأمان.' : 'ضاعت الموارد في غبار المعركة.', boxX + 620, textY + 95);
     }
 
     return toBuf(canvas);
