@@ -291,12 +291,24 @@ async function processCaravanReturns(client, db) {
                     if (_generateCaravanEvent) {
                         try {
                             const member  = await guild.members.fetch(userId).catch(() => null);
-                            const userObj = member?.user || { username: String(userId), displayAvatarURL: () => null };
-                            const buf = await _generateCaravanEvent(userObj, dest, 'arrive', {
-                                mora: summary?.find(s => s.includes('مورا'))?.match(/[\d,]+/)?.[0]?.replace(/,/g,'') | 0,
-                                xp:   0,
-                                reputation: 0,
-                            });
+                            // Include displayName so event.js can show the guild nickname
+                            const userObj = member
+                                ? Object.assign({}, member.user, { displayName: member.displayName })
+                                : { username: String(userId), displayName: String(userId), displayAvatarURL: () => null };
+
+                            // Parse ALL reward types from the summary strings
+                            const rewardData = { mora: 0, xp: 0, reputation: 0, items: [] };
+                            for (const entry of (summary || [])) {
+                                // Strip Discord custom emoji notation before parsing
+                                const plain = String(entry).replace(/<a?:[^:]+:\d+>/g, '').trim();
+                                const num   = Number((plain.match(/[\d,]+/) || ['0'])[0].replace(/,/g, ''));
+                                if (plain.includes('مورا') || /mora/i.test(plain)) rewardData.mora = num;
+                                else if (/\bXP\b/i.test(plain))                    rewardData.xp   = num;
+                                else if (plain.includes('سمعة'))                   rewardData.reputation = num;
+                                else if (plain)                                     rewardData.items.push(plain);
+                            }
+
+                            const buf = await _generateCaravanEvent(userObj, dest, 'arrive', rewardData);
                             arrivalMsg = await channel.send({
                                 content: `<@${userId}>`,
                                 files:   [new AttachmentBuilder(buf, { name: 'arrive.png' })],
