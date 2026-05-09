@@ -268,6 +268,37 @@ function clearMarketListingsCache(client, userId, guildId) {
     if (client.marketListings) client.marketListings.delete(key);
 }
 
+// ============================================================================
+// [نظام الـ Slots] حدود الإدراج في السوق
+// ============================================================================
+async function getMarketSlotLimits(db, userId, guildId, member) {
+    let general = 3, sameType = 3;
+
+    // Role bonuses (stacking if user has both)
+    if (member?.roles?.cache?.has('1395674235002945636')) { general += 20; sameType += 20; }
+    if (member?.roles?.cache?.has('1422160802416164885')) { general += 15; sameType += 15; }
+
+    const [repResult, levelResult] = await Promise.all([
+        safeQuery(db, `SELECT rep_points FROM user_reputation WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]).catch(() => null),
+        safeQuery(db, `SELECT level FROM levels WHERE "user"=$1 AND "guild"=$2`, [userId, guildId]).catch(() => null),
+    ]);
+
+    const repPts = Number(repResult?.rows?.[0]?.rep_points || 0);
+    const level  = Number(levelResult?.rows?.[0]?.level    || 0);
+
+    // Rep bonuses (cumulative thresholds)
+    if (repPts >= 100) { general += 2; sameType += 2; }
+    if (repPts >= 500) { general += 3; sameType += 3; }
+
+    // Level bonuses (cumulative thresholds)
+    if (level >= 30) { general += 1; sameType += 1; }
+    if (level >= 50) { general += 2; sameType += 2; }
+    if (level >= 80) { general += 3; sameType += 3; }
+    if (level >= 99) { general += 5; sameType += 5; }
+
+    return { general, sameType };
+}
+
 async function finalizeListings(client, db, caravanId, userId, guildId) {
     const listings = getMarketListingsCache(client, userId, guildId);
     if (!listings || listings.length === 0) return { ok: true, listings: [] };
@@ -580,9 +611,40 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         const itemId = id.replace('stg_add_modal_', '');
         const qty = parseInt(modalSubmit.fields.getTextInputValue('add_qty'));
         const price = parseInt(modalSubmit.fields.getTextInputValue('add_price'));
-        
+
         if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
         if (isNaN(price) || price < 1 || price > 999999999) return modalSubmit.reply({ content: '❌ سعر غير صالح.', flags: [MessageFlags.Ephemeral] });
+
+        // Slot limit enforcement (check before deferring so we can still reply)
+        const [limits, currentStaged] = await Promise.all([
+            getMarketSlotLimits(db, user.id, guild.id, modalSubmit.member),
+            getStagedItemsSafe(db, user.id, guild.id),
+        ]);
+
+        const normalizedId = String(itemId).toLowerCase().trim();
+        const existingRow = currentStaged.find(s => {
+            const idKey = Object.keys(s).find(k => k.toLowerCase() === 'itemid');
+            return idKey && String(s[idKey]).toLowerCase().trim() === normalizedId;
+        });
+
+        if (existingRow) {
+            const qtyKey = Object.keys(existingRow).find(k => k.toLowerCase() === 'quantity');
+            const alreadyStaged = Number(existingRow[qtyKey] || 0);
+            if (alreadyStaged + qty > limits.sameType) {
+                return modalSubmit.reply({
+                    content: `❌ تجاوزت حد الكمية لنفس النوع! الحد الأقصى **${limits.sameType}** وحدة (لديك ${alreadyStaged} محجوزة، تحاول إضافة ${qty} أخرى).`,
+                    flags: [MessageFlags.Ephemeral],
+                });
+            }
+        } else {
+            // New item type — check general (distinct types) limit
+            if (currentStaged.length >= limits.general) {
+                return modalSubmit.reply({
+                    content: `❌ وصلت للحد الأقصى من أنواع البضائع! يمكنك عرض **${limits.general}** نوع مختلف كحد أقصى (لديك ${currentStaged.length} نوع حالياً).`,
+                    flags: [MessageFlags.Ephemeral],
+                });
+            }
+        }
 
         await modalSubmit.deferUpdate().catch(() => {});
         const result = await stagingAddItemSafe(db, user.id, guild.id, itemId, qty, price);
@@ -619,4 +681,5 @@ module.exports = {
     handleStagingInteraction,
     handleStageModalSubmit,
     finalizeListings,
+    getMarketSlotLimits,
 };

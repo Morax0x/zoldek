@@ -242,11 +242,19 @@ module.exports = (client, db, antiRolesCache) => {
                 } 
                 else if (id.startsWith('pvp_')) {
                     await handlePvpInteraction(i, client, db);
-                } else if (id.startsWith('mkt_buy_select') || id === 'mkt_refresh' || id.startsWith('mkt_price_change_select')) {
+                } else if (id.startsWith('mkt_buy_select') || id === 'mkt_refresh' || id === 'mkt_page_prev' || id === 'mkt_page_next' || id.startsWith('mkt_price_change_select') || id === 'mkt_owner_price') {
                     if (id.startsWith('mkt_buy_select')) {
                         await handleBuySelect(i, client, db, i.user, i.guild);
                     } else if (id === 'mkt_refresh') {
                         await handleRefresh(i, client, db);
+                    } else if (id === 'mkt_page_prev') {
+                        const { handlePageNav } = require('./handlers/caravan/market/market-ui');
+                        await handlePageNav(i, client, db, 'prev');
+                    } else if (id === 'mkt_page_next') {
+                        const { handlePageNav } = require('./handlers/caravan/market/market-ui');
+                        await handlePageNav(i, client, db, 'next');
+                    } else if (id === 'mkt_owner_price') {
+                        await handleOwnerPriceChange(i, client, db, i.user);
                     } else if (id.startsWith('mkt_price_change_select')) {
                         await handlePriceChangeSelect(i, client, db, i.user);
                     }

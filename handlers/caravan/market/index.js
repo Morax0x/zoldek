@@ -48,15 +48,17 @@ module.exports = {
     clearTimer: marketThread.clearTimer,
     activeTimers: marketThread.activeTimers,
 
-    buildMarketEmbed: marketUi.buildMarketEmbed,
+    buildMarketImage: marketUi.buildMarketImage,
     buildMarketComponents: marketUi.buildMarketComponents,
     handleBuySelect: marketUi.handleBuySelect,
     handleBuyModalSubmit: marketUi.handleBuyModalSubmit,
     handleRefresh: marketUi.handleRefresh,
+    handlePageNav: marketUi.handlePageNav,
     refreshMarketMessage: marketUi.refreshMarketMessage,
     handleOwnerPriceChange: marketUi.handleOwnerPriceChange,
     handlePriceChangeSelect: marketUi.handlePriceChangeSelect,
     handleNewPriceModalSubmit: marketUi.handleNewPriceModalSubmit,
+    marketPages: marketUi.marketPages,
 
     spawnNpc: marketNpcAi.spawnNpc,
     scheduleNpcSpawn: marketNpcAi.scheduleNpcSpawn,

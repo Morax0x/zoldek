@@ -14,108 +14,31 @@ const {
 } = require('./market-db');
 
 const { getItemInfo } = require('./market-setup');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { generateMarketCanvas, ITEMS_PER_PAGE } = require('../../../generators/caravan/market-generator');
 
-// 👑 دالة توليد صورة السوق الفخمة (Canvas) 👑
-async function buildMarketImage(listings, dest) {
-    const canvas = createCanvas(800, 500);
-    const ctx = canvas.getContext('2d');
+// Page state: sessionId (threadId) → page number
+const marketPages = new Map();
 
-    // 1. رسم الخلفية
-    try {
-        const bg = await loadImage('https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/dungeon/desert_caravan.jpg');
-        ctx.drawImage(bg, 0, 0, 800, 500);
-    } catch (e) {
-        ctx.fillStyle = '#1c1c1e';
-        ctx.fillRect(0, 0, 800, 500);
-    }
-
-    // تظليل الخلفية لإبراز النصوص
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-    ctx.fillRect(0, 0, 800, 500);
-
-    // 2. رسم العنوان
-    ctx.textAlign = 'center';
-    ctx.fillStyle = dest?.color || '#FFD700';
-    ctx.font = 'bold 38px "sans-serif"';
-    ctx.fillText(`🛒 سوق القافلة — ${dest?.name || 'المدينة المجهولة'}`, 400, 55);
-
-    // تصفية البضائع المتاحة فقط
-    const activeListings = listings.filter(l => (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0);
-
-    // 3. حالة السوق فارغ
-    if (activeListings.length === 0) {
-        ctx.fillStyle = '#E74C3C';
-        ctx.font = 'bold 45px "sans-serif"';
-        ctx.fillText('نفذت جميع البضائع من السوق!', 400, 250);
-        return canvas.toBuffer('image/png');
-    }
-
-    // 4. رسم البضائع في شبكة (Grid)
-    const startX = 40;
-    const startY = 110;
-    const boxW = 340;
-    const boxH = 70;
-    const gapX = 40;
-    const gapY = 15;
-
-    let row = 0; let col = 1; // للرسم من اليمين لليسار (عربي)
-
-    for (let i = 0; i < activeListings.length; i++) {
-        const listing = activeListings[i];
-        const info = getItemInfo(listing.itemid || listing.itemID);
-        const qty = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
-        const price = Number(listing.priceperunit || listing.pricePerUnit);
-
-        const x = startX + col * (boxW + gapX);
-        const y = startY + row * (boxH + gapY);
-
-        // صندوق البضاعة
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-        ctx.strokeStyle = dest?.color || '#FFD700';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.roundRect(x, y, boxW, boxH, 8);
-        ctx.fill();
-        ctx.stroke();
-
-        // اسم الأداة
-        ctx.textAlign = 'right';
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 20px "sans-serif"';
-        ctx.fillText(info.name.substring(0, 20), x + boxW - 15, y + 30);
-
-        // السعر
-        ctx.fillStyle = '#2ECC71';
-        ctx.font = '16px "sans-serif"';
-        ctx.fillText(`السعر: ${price.toLocaleString()} مورا`, x + boxW - 15, y + 55);
-
-        // الكمية المتاحة
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#3498DB';
-        ctx.font = 'bold 16px "sans-serif"';
-        ctx.fillText(`المتاح: ${qty}`, x + 15, y + 55);
-
-        col--;
-        if (col < 0) { col = 1; row++; }
-        if (row > 4) break; // أقصى حد 10 عناصر في الصورة عشان ما تنحاس
-    }
-
-    return canvas.toBuffer('image/png');
+async function buildMarketImage(listings, dest, page = 0) {
+    return generateMarketCanvas(listings, dest, page);
 }
 
-function buildMarketComponents(listings) {
+function buildMarketComponents(listings, threadId, page = 0) {
     const components = [];
     const activeListings = listings.filter(l => {
         const available = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
         return available > 0;
     });
 
-    if (activeListings.length === 0) {
-        return components;
-    }
+    if (activeListings.length === 0) return components;
 
-    const options = activeListings.slice(0, 25).map(l => {
+    const totalPages = Math.max(1, Math.ceil(activeListings.length / ITEMS_PER_PAGE));
+    const safePage   = Math.max(0, Math.min(page, totalPages - 1));
+
+    // Page items for buy menu
+    const pageItems = activeListings.slice(safePage * ITEMS_PER_PAGE, (safePage + 1) * ITEMS_PER_PAGE);
+
+    const options = pageItems.slice(0, 25).map(l => {
         const info = getItemInfo(l.itemid || l.itemID);
         const available = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
         const price = Number(l.priceperunit || l.pricePerUnit);
@@ -131,55 +54,103 @@ function buildMarketComponents(listings) {
         new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
                 .setCustomId('mkt_buy_select')
-                .setPlaceholder('🛒 اختر عنصراً لشرائه...')
+                .setPlaceholder('🛒 اختر عنصراً للشراء...')
                 .addOptions(options)
         )
     );
 
-    components.push(
-        new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('mkt_refresh')
-                .setLabel('🔄 تحديث السوق')
-                .setStyle(ButtonStyle.Secondary)
-        )
-    );
+    // Pagination buttons (only shown if more than 1 page)
+    if (totalPages > 1) {
+        const prevBtn = new ButtonBuilder()
+            .setCustomId('mkt_page_prev')
+            .setLabel('◄ السابق')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(safePage === 0);
+
+        const nextBtn = new ButtonBuilder()
+            .setCustomId('mkt_page_next')
+            .setLabel('التالي ►')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(safePage >= totalPages - 1);
+
+        const priceBtn = new ButtonBuilder()
+            .setCustomId('mkt_owner_price')
+            .setLabel('💰 تغيير سعر')
+            .setStyle(ButtonStyle.Primary);
+
+        components.push(new ActionRowBuilder().addComponents(prevBtn, nextBtn, priceBtn));
+    } else {
+        // Single page: just price change button
+        const priceBtn = new ButtonBuilder()
+            .setCustomId('mkt_owner_price')
+            .setLabel('💰 تغيير سعر')
+            .setStyle(ButtonStyle.Primary);
+        components.push(new ActionRowBuilder().addComponents(priceBtn));
+    }
 
     return components;
 }
 
-// 👑 الدالة السحرية لتحديث رسالة السوق الحالية بدل التكرار 👑
 async function updateMarketMessage(channel, listings, dest, interaction = null) {
     try {
-        const buffer = await buildMarketImage(listings, dest);
+        const threadId = channel.id;
+        const page     = marketPages.get(threadId) || 0;
+        const buffer   = await buildMarketImage(listings, dest, page);
         const attachment = new AttachmentBuilder(buffer, { name: 'market.png' });
-        const components = buildMarketComponents(listings);
+        const components = buildMarketComponents(listings, threadId, page);
 
-        // 1. إذا كان التحديث ناتج عن تفاعل زر مباشر (Refresh)
         if (interaction && interaction.message) {
             await interaction.message.edit({ embeds: [], files: [attachment], components }).catch(() => {});
             return;
         }
 
-        // 2. إذا كان التحديث ناتج عن شراء ذكاء اصطناعي أو نافذة شراء، نبحث عن الرسالة الأصلية في الشات
         const msgs = await channel.messages.fetch({ limit: 20 }).catch(() => null);
         if (!msgs) return;
 
-        const marketMsg = msgs.find(m => 
-            m.author.id === channel.client.user.id && 
-            m.components.length > 0 && 
-            m.components[0].components[0].customId === 'mkt_buy_select'
+        const marketMsg = msgs.find(m =>
+            m.author.id === channel.client.user.id &&
+            m.attachments.some(a => a.name === 'market.png') &&
+            m.components.length > 0
         );
 
         if (marketMsg) {
-            // تحديث الرسالة القديمة بدون إرسال جديدة
             await marketMsg.edit({ embeds: [], files: [attachment], components }).catch(() => {});
         } else {
-            // لو ما لقى الرسالة (مثلاً انحذفت)، يرسلها من جديد
-            await channel.send({ content: '', embeds: [], files: [attachment], components }).catch(() => {});
+            await channel.send({ embeds: [], files: [attachment], components }).catch(() => {});
         }
     } catch (e) {
         console.error('[Update Market Error]', e);
+    }
+}
+
+async function handlePageNav(interaction, client, db, direction) {
+    try {
+        await interaction.deferUpdate().catch(() => {});
+        const threadId = interaction.channel.id;
+        const listings = await getListingsBySession(db, threadId);
+        const session  = await getSessionByThread(db, threadId);
+        const dest = require('../config').caravanConfig.destinations.find(d =>
+            d.id === (session?.destinationid || session?.destinationId)
+        );
+
+        const activeListings = listings.filter(l =>
+            (Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0)) > 0
+        );
+        const totalPages = Math.max(1, Math.ceil(activeListings.length / ITEMS_PER_PAGE));
+        const current    = marketPages.get(threadId) || 0;
+        const next       = direction === 'next'
+            ? Math.min(current + 1, totalPages - 1)
+            : Math.max(current - 1, 0);
+
+        marketPages.set(threadId, next);
+
+        const buffer     = await buildMarketImage(listings, dest, next);
+        const attachment = new AttachmentBuilder(buffer, { name: 'market.png' });
+        const components = buildMarketComponents(listings, threadId, next);
+
+        await interaction.message.edit({ embeds: [], files: [attachment], components }).catch(() => {});
+    } catch (e) {
+        console.error('[handlePageNav Error]', e);
     }
 }
 
@@ -296,16 +267,14 @@ async function handleBuyModalSubmit(modalSubmit, client, db, user, guild) {
 }
 
 async function handleRefresh(interaction, client, db) {
+    // Kept for backwards compat with any existing customId 'mkt_refresh'
+    await interaction.deferUpdate().catch(() => {});
     const threadId = interaction.channel.id;
     const listings = await getListingsBySession(db, threadId);
-    const session = await getSessionByThread(db, threadId);
+    const session  = await getSessionByThread(db, threadId);
     const dest = require('../config').caravanConfig.destinations.find(d =>
         d.id === (session?.destinationid || session?.destinationId)
     );
-
-    await interaction.deferUpdate().catch(() => {});
-    
-    // 👑 التحديث مباشرة على رسالة التفاعل 👑
     await updateMarketMessage(interaction.channel, listings, dest, interaction);
 }
 
@@ -431,14 +400,16 @@ async function handleNewPriceModalSubmit(modalSubmit, client, db, user) {
 }
 
 module.exports = {
-    buildMarketImage, // تم تغيير التصدير من الإمبيد إلى الصورة
+    buildMarketImage,
     buildMarketComponents,
     updateMarketMessage,
     handleBuySelect,
     handleBuyModalSubmit,
     handleRefresh,
+    handlePageNav,
     refreshMarketMessage,
     handleOwnerPriceChange,
     handlePriceChangeSelect,
     handleNewPriceModalSubmit,
+    marketPages,
 };
