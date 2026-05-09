@@ -258,6 +258,8 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2; 
         ctx.beginPath(); ctx.arc(dX, dY, 14, 0, Math.PI * 2); ctx.stroke();
 
+        ctx.save();
+        rr(ctx, MX, MY, MW, MH, 28); ctx.clip();
         const camelImg = await fetchImageSafe('camel');
         if (camelImg) {
             ctx.drawImage(camelImg, cX - 45, cY - 50, 90, 90);
@@ -268,6 +270,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
             ctx.fillText(camelEmoji, cX, cY - 10);
             ctx.shadowBlur = 0;
         }
+        ctx.restore();
 
         if (hasAtk) {
             const bw2 = 260, bx2 = cX - 130, by2 = cY - 100;

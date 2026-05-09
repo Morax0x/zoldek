@@ -184,20 +184,23 @@ async function generateCaravanStatus(user, caravan, stats, dest, mode = 'details
         camH.addColorStop(0, (hasAtk ? C.red : acc) + '66'); camH.addColorStop(1, 'transparent');
         ctx.fillStyle = camH; ctx.beginPath(); ctx.arc(cX, cY, 90, 0, Math.PI * 2); ctx.fill();
 
+        ctx.save();
+        rr(ctx, MX, MY, MW, MH, 32); ctx.clip();
         try {
             const camelImg = await fetchImageSafe('camel').catch(() => null);
             if (camelImg) {
-                ctx.drawImage(camelImg, cX - 75, cY - 90, 150, 150); 
+                ctx.drawImage(camelImg, cX - 75, cY - 90, 150, 150);
             } else {
                 throw new Error("No image");
             }
         } catch (e) {
             const camelEmoji = hasAtk ? '⚔️' : '🐪';
-            ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; 
+            ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.shadowColor = hasAtk ? C.red : acc; ctx.shadowBlur = 30;
             ctx.fillText(camelEmoji, cX, cY - 10);
             ctx.shadowBlur = 0;
         }
+        ctx.restore();
 
         if (hasAtk) {
             const bw2 = 440;
