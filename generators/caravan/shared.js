@@ -368,12 +368,21 @@ function drawStars(ctx, n, max, x, y, size, color = C.gold) {
 }
 
 function caravanRank(trips) {
-    if (trips >= 51) return { name: 'اسطورة التجارة', color: '#FFD700' };
-    if (trips >= 21) return { name: 'سيد القوافل',    color: '#C49A10' };
-    if (trips >= 11) return { name: 'تاجر مشهور',    color: '#C87533' };
-    if (trips >=  6) return { name: 'تاجر ماهر',     color: '#8888FF' };
-    if (trips >=  3) return { name: 'تاجر محلي',     color: '#2ECC71' };
-    return               { name: 'تاجر مبتدئ',        color: '#8A9AAA' };
+    if (trips >= 1000) return { name: 'عظيم الجزيرة',      color: '#FF0000' };
+    if (trips >= 600)  return { name: 'مجير القوافل',       color: '#D4006E' };
+    if (trips >= 500)  return { name: 'كسرى التجار',        color: '#B800D4' };
+    if (trips >= 400)  return { name: 'خازن الاقليم',       color: '#8B00FF' };
+    if (trips >= 300)  return { name: 'سيد البر والبحر',    color: '#4B0082' };
+    if (trips >= 200)  return { name: 'ملك طريق الحرير',   color: '#C49A10' };
+    if (trips >= 150)  return { name: 'ملك التجار',         color: '#FFD700' };
+    if (trips >= 100)  return { name: 'اعجوبة التجار',      color: '#FF8C00' };
+    if (trips >= 90)   return { name: 'طواف الصحراء',       color: '#E67E22' };
+    if (trips >= 75)   return { name: 'سيد الركائب',        color: '#D35400' };
+    if (trips >= 50)   return { name: 'جواب الافق',         color: '#3498DB' };
+    if (trips >= 40)   return { name: 'عقيد التجار',        color: '#2ECC71' };
+    if (trips >= 30)   return { name: 'صاحب العير',         color: '#1ABC9C' };
+    if (trips >= 10)   return { name: 'تاجر الأسواق',       color: '#F39C12' };
+    return                     { name: 'تاجر متجول',        color: '#8A9AAA' };
 }
 
 function getRepRankInfo(points) {
