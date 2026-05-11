@@ -189,6 +189,7 @@ module.exports = {
                 level:        Number(lvlRow.level || lvlRow.LEVEL || 1),
                 repPoints:    Number(repRow.rep_points || repRow.REP_POINTS || 0),
                 best_loot:    Number(stats.best_loot || 0),
+                best_loot_label: stats.best_loot_label || null,
                 favorite_dest: stats.last_dest || '',
             };
 
