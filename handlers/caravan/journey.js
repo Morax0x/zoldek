@@ -4,7 +4,7 @@ let _generateCaravanEvent = null;
 try { ({ generateCaravanEvent: _generateCaravanEvent } = require('../../generators/caravan/event')); } catch {}
 const { safeQuery, safeExecute } = require('./db');
 const { caravanConfig, farmAnimals, seedsData, upgradeMats, EMOJI_MORA } = require('./config');
-const { getEquippedBuffs, calcDuration, calcRiskFactor, calcRewardMultiplier } = require('./calculations');
+const { getEquippedBuffs, calcDuration, calcRiskFactor } = require('./calculations');
 const { getUserCaravanStats } = require('./stats');
 const { initCaravanTables } = require('./tables');
 const { initMarketTables } = require('./market');
@@ -86,35 +86,36 @@ async function distributeRewards(client, db, caravan) {
     const dest    = caravanConfig.destinations.find(d => d.id === destId);
     if (!dest) return [];
 
-    const stats       = await getUserCaravanStats(db, userId, guildId);
-    const artifacts   = JSON.parse(caravan.equippedartifacts || caravan.equippedArtifacts || '[]');
-    const buffs       = getEquippedBuffs(artifacts);
-    const baseMulti   = calcRewardMultiplier(stats, buffs);
-    const attackMulti = Number(caravan.rewardmultiplier ?? caravan.rewardMultiplier ?? 1.0);
-    const finalMulti  = baseMulti * attackMulti;
+    const stats     = await getUserCaravanStats(db, userId, guildId);
+    const artifacts = JSON.parse(caravan.equippedartifacts || caravan.equippedArtifacts || '[]');
+    const buffs     = getEquippedBuffs(artifacts);
+    const luckFactor = (stats.luck_rank || 1) + (buffs.luckBuff || 0);
 
     let summary = [];
 
     try {
         if (dest.reward_type === 'mora') {
-            const amount = Math.floor(
-                (dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min)) * finalMulti);
+            const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
+            const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * 0.05;
+            const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
             await safeExecute(db,
                 `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
                 [amount, userId, guildId]);
             summary.push(`💰 ${amount.toLocaleString()} ${EMOJI_MORA}`);
 
         } else if (dest.reward_type === 'xp') {
-            const amount = Math.floor(
-                (dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min)) * finalMulti);
+            const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
+            const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * 0.05;
+            const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
             await safeExecute(db,
                 `UPDATE levels SET "xp"=CAST(COALESCE("xp",'0') AS BIGINT)+$1,"totalXP"=CAST(COALESCE("totalXP",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
                 [amount, userId, guildId]);
             summary.push(`✨ ${amount.toLocaleString()} XP`);
 
         } else if (dest.reward_type === 'reputation') {
-            const amount = Math.floor(
-                (dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min)) * finalMulti);
+            const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
+            const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * 0.05;
+            const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
             await safeExecute(db,
                 `INSERT INTO user_reputation ("userID","guildID","rep_points") VALUES ($1,$2,$3)
                  ON CONFLICT ("userID","guildID") DO UPDATE SET "rep_points"=user_reputation.rep_points+$3`,
@@ -122,12 +123,14 @@ async function distributeRewards(client, db, caravan) {
             summary.push(`🌟 ${amount} نقطة سمعة`);
 
         } else if (dest.reward_type === 'artifact') {
+            const pullsMin = dest.reward_pulls_min || 2;
+            const pullsMax = dest.reward_pulls_max || 20;
+            const pulls = pullsMin + Math.floor(Math.random() * (pullsMax - pullsMin + 1));
             const allItems = [];
             if (upgradeMats?.weapon_materials)
                 upgradeMats.weapon_materials.forEach(r => r.materials.forEach(m => allItems.push(m)));
             if (upgradeMats?.skill_books)
                 upgradeMats.skill_books.forEach(c => c.books.forEach(b => allItems.push(b)));
-            const pulls = Math.max(1, Math.floor((dest.reward_pulls || 1) * finalMulti));
             for (let i = 0; i < pulls; i++) {
                 const roll = Math.random();
                 let pool;
@@ -146,8 +149,9 @@ async function distributeRewards(client, db, caravan) {
             }
 
         } else if (dest.reward_type === 'nature') {
-            const seedCount = Math.floor(
-                (dest.reward_seeds_min + Math.random() * (dest.reward_seeds_max - dest.reward_seeds_min + 1)) * finalMulti);
+            const seedMin = dest.reward_seeds_min || 10;
+            const seedMax = dest.reward_seeds_max || 30;
+            const seedCount = seedMin + Math.floor(Math.random() * (seedMax - seedMin + 1));
             const seed = seedsData[Math.floor(Math.random() * seedsData.length)];
             if (seed) {
                 await safeExecute(db,
@@ -156,25 +160,29 @@ async function distributeRewards(client, db, caravan) {
                     [guildId, userId, seed.id, seedCount]);
                 summary.push(`🌱 ${seedCount}x ${seed.name}`);
             }
-            if (Math.random() < (dest.reward_animal_chance || 0.30)) {
-                const animal = farmAnimals[Math.floor(Math.random() * farmAnimals.length)];
-                if (animal) {
-                    try {
-                        const { getUsedCapacity, getPlayerCapacity } = require('../../utils/farmUtils.js');
-                        const maxCap  = await getPlayerCapacity(client, userId, guildId);
-                        const usedCap = await getUsedCapacity(db, userId, guildId);
-                        const lifespan = usedCap >= maxCap
-                            ? Math.floor(animal.lifespan_days * 0.5)
-                            : animal.lifespan_days;
-                        const purchaseTs = Date.now() - ((animal.lifespan_days - lifespan) * 86400000);
-                        await safeExecute(db,
-                            `INSERT INTO user_farm ("guildID","userID","animalID","purchaseTimestamp","quantity","lastFedTimestamp")
-                             VALUES ($1,$2,$3,$4,1,$5)`,
-                            [guildId, userId, animal.id, purchaseTs, Date.now()]);
-                        summary.push(usedCap >= maxCap
-                            ? `🐾 ${animal.name} (عمر مقلص - الحظيرة ممتلئة)`
-                            : `🐾 ${animal.name}`);
-                    } catch (e) { console.error('[Farm animal error]', e); }
+            const maxAnimals = dest.reward_animals_max || 5;
+            if (Math.random() < (dest.reward_animal_chance || 0.40)) {
+                const animalCount = 1 + Math.floor(Math.random() * Math.min(maxAnimals, 5));
+                for (let a = 0; a < animalCount; a++) {
+                    const animal = farmAnimals[Math.floor(Math.random() * farmAnimals.length)];
+                    if (animal) {
+                        try {
+                            const { getUsedCapacity, getPlayerCapacity } = require('../../utils/farmUtils.js');
+                            const maxCap  = await getPlayerCapacity(client, userId, guildId);
+                            const usedCap = await getUsedCapacity(db, userId, guildId);
+                            const lifespan = usedCap >= maxCap
+                                ? Math.floor(animal.lifespan_days * 0.5)
+                                : animal.lifespan_days;
+                            const purchaseTs = Date.now() - ((animal.lifespan_days - lifespan) * 86400000);
+                            await safeExecute(db,
+                                `INSERT INTO user_farm ("guildID","userID","animalID","purchaseTimestamp","quantity","lastFedTimestamp")
+                                 VALUES ($1,$2,$3,$4,1,$5)`,
+                                [guildId, userId, animal.id, purchaseTs, Date.now()]);
+                            summary.push(usedCap >= maxCap
+                                ? `🐾 ${animal.name} (عمر مقلص - الحظيرة ممتلئة)`
+                                : `🐾 ${animal.name}`);
+                        } catch (e) { console.error('[Farm animal error]', e); }
+                    }
                 }
             }
         }
@@ -182,13 +190,11 @@ async function distributeRewards(client, db, caravan) {
         console.error('[distributeRewards]', e);
     }
 
-    // Update trip counters
     await safeExecute(db,
-        `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1, "successful_trips"="successful_trips"+$3
+        `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1, "successful_trips"="successful_trips"+1
          WHERE "userID"=$1 AND "guildID"=$2`,
-        [userId, guildId, attackMulti >= 0.5 ? 1 : 0]);
+        [userId, guildId]);
 
-    // Remove the completed caravan record
     await safeExecute(db,
         `UPDATE user_caravans SET "status"='completed' WHERE "userID"=$1 AND "guildID"=$2`,
         [userId, guildId]);
@@ -221,10 +227,10 @@ async function processCaravanReturns(client, db) {
             const guildId        = caravan.guildid                  || caravan.guildID;
 
             if (now >= endTime) {
-                // Penalize for unresolved ambush
+                // Loot staging market for unresolved ambush
                 if (attackAt > 0 && attackResolved === 0) {
-                    caravan.rewardmultiplier = 0.5;
-                    caravan.rewardMultiplier = 0.5;
+                    const { stagingLootItems } = require('./market/market-db');
+                    await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
                 }
 
                 // Distribute rewards and mark caravan complete

@@ -947,7 +947,9 @@ async function handleAmbushReady(data) {
 
         await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
     } else {
-        // Battle lost → delete caravan + apply 1-hour cooldown to owner
+        // Battle lost → loot staging market, delete caravan + apply 1-hour cooldown to owner
+        const { stagingLootItems } = require('./market/market-db');
+        await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
         await setCaravanCooldown(db, userId, guildId).catch(() => {});
         await safeExecute(db,
             `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1 WHERE "userID"=$1 AND "guildID"=$2`,

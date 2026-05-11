@@ -185,8 +185,11 @@ async function sendAmbushNotification(client, db, caravan) {
         if (interaction.customId === `cv_amb_bribe_${caravanId}`) {
             if (interaction.user.id !== userId) return interaction.reply({ content: '⛔ فقط مالك القافلة يستطيع الرشوة!', flags: [MessageFlags.Ephemeral] });
             await interaction.deferUpdate().catch(() => {});
-            await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1,"rewardMultiplier"=0.15 WHERE "id"=$1`, [caravanId]);
-            await attackMsg.edit({ content: `💰 <@${userId}> دفعت الرشوة! ستصل قافلتك بـ **15%** فقط من المكافآت.`, embeds: [], files: [], components: [] }).catch(() => {});
+            const { stagingLootItems } = require('./market/market-db');
+            const looted = await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_bribe || 0.50);
+            const lootNotice = looted.length ? `\n💀 نُهبت ${looted.length} بضاعة من سلتك!` : '';
+            await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1 WHERE "id"=$1`, [caravanId]);
+            await attackMsg.edit({ content: `💰 <@${userId}> دفعت الرشوة! قطاع الطرق أخذوا حصتهم من بضائعك.${lootNotice}`, embeds: [], files: [], components: [] }).catch(() => {});
             collector.stop('bribed');
             return;
         }
@@ -210,8 +213,10 @@ async function sendAmbushNotification(client, db, caravan) {
     collector.on('end', async (_, reason) => {
         client.caravanAttackCollectors?.delete(String(caravanId));
         if (reason === 'user' || reason === 'bribed') return;
+        const { stagingLootItems } = require('./market/market-db');
+        await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
         await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1 AND "attackResolved"=0`, [caravanId]);
-        await attackMsg.edit({ content: `💀 <@${userId}> انتهت المهلة! قطاع الطرق دمروا قافلتك.`, embeds: [], files: [], components: [] }).catch(() => {});
+        await attackMsg.edit({ content: `💀 <@${userId}> انتهت المهلة! قطاع الطرق نهبوا قافلتك.`, embeds: [], files: [], components: [] }).catch(() => {});
     });
 }
 

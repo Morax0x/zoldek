@@ -510,6 +510,50 @@ async function getListingById(db, listingId) {
     return result?.rows?.[0] || null;
 }
 
+async function stagingLootItems(db, userId, guildId, lootPercent) {
+    try {
+        let staged = await safeQuery(db,
+            `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "quantity" > 0`,
+            [userId, guildId]);
+        if (!staged || !staged.rows || staged.rows.length === 0) {
+            staged = await safeQuery(db,
+                `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND quantity > 0`,
+                [userId, guildId]);
+        }
+        const rows = staged?.rows || [];
+        if (!rows.length) return [];
+
+        const looted = [];
+        for (const row of rows) {
+            const idKey  = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
+            const qtyKey = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
+            const itemId = idKey  ? row[idKey]          : null;
+            const qty    = qtyKey ? Number(row[qtyKey]) : 0;
+            if (!itemId || qty <= 0) continue;
+
+            const lootedQty = Math.max(1, Math.floor(qty * lootPercent));
+            const remaining = qty - lootedQty;
+
+            await safeExecute(db,
+                remaining <= 0
+                    ? `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`
+                    : `UPDATE caravan_staging_market SET "quantity"=$1 WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4`,
+                remaining <= 0 ? [userId, guildId, itemId] : [remaining, userId, guildId, itemId]);
+            await safeExecute(db,
+                remaining <= 0
+                    ? `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND itemid=$3`
+                    : `UPDATE caravan_staging_market SET quantity=$1 WHERE userid=$2 AND guildid=$3 AND itemid=$4`,
+                remaining <= 0 ? [userId, guildId, itemId] : [remaining, userId, guildId, itemId]).catch(()=>{});
+
+            looted.push({ itemId, quantity: lootedQty });
+        }
+        return looted;
+    } catch (e) {
+        console.error('[stagingLootItems]', e);
+        return [];
+    }
+}
+
 module.exports = {
     initMarketTables,
     createListing,
@@ -524,7 +568,6 @@ module.exports = {
     returnUnsoldItems,
     incrementNpcSpawn,
     getNpcSpawnCount,
-    getActiveSessions,
     getExpiredSessions,
     updateListingPrice,
     getListingById,
@@ -532,4 +575,5 @@ module.exports = {
     stagingRemoveItem,
     getStagedItems,
     finalizeStagedItems,
+    stagingLootItems,
 };
