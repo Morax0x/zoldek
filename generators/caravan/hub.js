@@ -469,34 +469,31 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         for (const u of upgCfg) {
             const lvl2 = Number(stats[u.key] || 1);
             const maxLvl = 30;
-            const upgKey = u.key.replace('_rank', '');
-            const desc = cfg.upgrades[upgKey]?.description || '';
-            rr(ctx, RX + 14, rpy, RW - 28, 110, 14);
-            const rowBg = ctx.createLinearGradient(RX + 14, rpy, RX + RW - 14, rpy + 110);
+            rr(ctx, RX + 14, rpy, RW - 28, 80, 14);
+            const rowBg = ctx.createLinearGradient(RX + 14, rpy, RX + RW - 14, rpy + 80);
             rowBg.addColorStop(0, u.col + '18'); rowBg.addColorStop(1, 'rgba(4,6,12,0.85)'); 
             ctx.fillStyle = rowBg; ctx.fill();
             ctx.strokeStyle = u.col + '33'; ctx.lineWidth = 1.5;
-            rr(ctx, RX + 14, rpy, RW - 28, 110, 14); ctx.stroke();
+            rr(ctx, RX + 14, rpy, RW - 28, 80, 14); ctx.stroke();
 
             ctx.font = `28px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-            ctx.fillText(u.emoji, RX + 26, rpy + 35);
-            L(ctx, u.name, RX + 68, rpy + 22, 20, C.text);
-            L(ctx, desc, RX + 68, rpy + 44, 12, C.textD);
-            drawBar(ctx, RX + 68, rpy + 68, RW - 106, 16, lvl2 / maxLvl, u.col, false);
-            L(ctx, `المستوى ${lvl2}/${maxLvl}`, RX + 68, rpy + 94, 14, u.col);
-            rpy += 120;
+            ctx.fillText(u.emoji, RX + 26, rpy + 30);
+            L(ctx, u.name, RX + 68, rpy + 16, 18, C.text);
+            drawBar(ctx, RX + 68, rpy + 44, RW - 106, 14, lvl2 / maxLvl, u.col, false);
+            L(ctx, `${lvl2}/${maxLvl}`, RX + 68, rpy + 66, 13, u.col);
+            rpy += 90;
         }
-        divLine(ctx, RX + 26, rpy + 6, RW - 52, C.gold + '33'); rpy += 34;
+        divLine(ctx, RX + 26, rpy + 4, RW - 52, C.gold + '33'); rpy += 24;
         const pct = trips > 0 ? success / trips : 0;
         
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        rr(ctx, RX + 20, rpy - 10, RW - 40, 90, 12);
+        rr(ctx, RX + 16, rpy, RW - 32, 76, 12);
         ctx.fill();
         
-        M(ctx, `${success} رحلة ناجحة من ${trips}`, RX + RW / 2, rpy + 8, 20, C.text);
-        rpy += 36;
-        drawBar(ctx, RX + 36, rpy, RW - 72, 26, pct, C.gold, false);
-        M(ctx, `معدل النجاح ${(pct * 100).toFixed(0)}%`, RX + RW / 2, rpy + 42, 17, C.textD);
+        M(ctx, `${success} رحلة ناجحة من ${trips}`, RX + RW / 2, rpy + 20, 17, C.text);
+        drawBar(ctx, RX + 36, rpy + 34, RW - 72, 20, pct, C.gold, false);
+        M(ctx, `معدل النجاح ${(pct * 100).toFixed(0)}%`, RX + RW / 2, rpy + 66, 14, C.textD);
+        rpy += 86;
     }
 
     return toBuf(canvas);
