@@ -17,19 +17,19 @@ async function generateUpgradePanel(user, stats, mora) {
     const upgList = [
         { key: 'capacity_rank', name: cfg.upgrades.capacity.name, emoji: '❤️',
           max_level: cfg.upgrades.capacity.max_level, costs: cfg.upgrades.capacity.costs,
-          effectLabel: `+${cfg.upgrades.capacity.hp_per_level} HP لكل مستوى (يبدأ من ${cfg.upgrades.capacity.base_hp})`,
+          effectLabel: `${cfg.upgrades.capacity.description}`,
           col: '#FF4466' },
         { key: 'speed_rank',    name: cfg.upgrades.speed.name,    emoji: '⚡',
           max_level: cfg.upgrades.speed.max_level,    costs: cfg.upgrades.speed.costs,
-          effectLabel: `${(cfg.upgrades.speed.time_reduction * 100).toFixed(0)}% وقت أقل للمستوى (حد ${cfg.upgrades.speed.max_level}%)`,
+          effectLabel: `${cfg.upgrades.speed.description}`,
           col: '#00C3FF' },
         { key: 'defense_rank',  name: cfg.upgrades.defense.name,  emoji: '🛡️',
           max_level: cfg.upgrades.defense.max_level,  costs: cfg.upgrades.defense.costs,
-          effectLabel: `${(cfg.upgrades.defense.risk_reduction * 100).toFixed(0)}% خطر أقل للمستوى (حد ${cfg.upgrades.defense.max_level}%)`,
+          effectLabel: `${cfg.upgrades.defense.description}`,
           col: '#8888FF' },
         { key: 'luck_rank',     name: cfg.upgrades.luck.name,     emoji: '🍀',
           max_level: cfg.upgrades.luck.max_level,     costs: cfg.upgrades.luck.costs,
-          effectLabel: `تأثير حظ تراكمي بسيط للرحلات`,
+          effectLabel: `${cfg.upgrades.luck.description}`,
           col: '#2ECC71' },
     ];
 
