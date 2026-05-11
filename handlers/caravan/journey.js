@@ -100,7 +100,7 @@ async function distributeRewards(client, db, caravan) {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
-            if (amount > bestThisTrip.score) bestThisTrip = { score: amount, label: `💰 ${amount.toLocaleString()} ${EMOJI_MORA}` };
+            if (amount > bestThisTrip.score) bestThisTrip = { score: amount, label: 'مورا' };
             await safeExecute(db,
                 `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
                 [amount, userId, guildId]);
@@ -110,7 +110,7 @@ async function distributeRewards(client, db, caravan) {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
-            if (amount > bestThisTrip.score) bestThisTrip = { score: amount, label: `✨ ${amount.toLocaleString()} XP` };
+            if (amount > bestThisTrip.score) bestThisTrip = { score: amount, label: 'خبرة' };
             await safeExecute(db,
                 `UPDATE levels SET "xp"=CAST(COALESCE("xp",'0') AS BIGINT)+$1,"totalXP"=CAST(COALESCE("totalXP",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
                 [amount, userId, guildId]);
@@ -120,7 +120,7 @@ async function distributeRewards(client, db, caravan) {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
-            if (amount * 100 > bestThisTrip.score) bestThisTrip = { score: amount * 100, label: `🌟 ${amount} سمعة` };
+            if (amount * 100 > bestThisTrip.score) bestThisTrip = { score: amount * 100, label: 'سمعة' };
             await safeExecute(db,
                 `INSERT INTO user_reputation ("userID","guildID","rep_points") VALUES ($1,$2,$3)
                  ON CONFLICT ("userID","guildID") DO UPDATE SET "rep_points"=user_reputation.rep_points+$3`,
@@ -148,7 +148,7 @@ async function distributeRewards(client, db, caravan) {
                 if (!pool.length) pool = allItems;
                 const item = pool[Math.floor(Math.random() * pool.length)];
                 const w = rarityWeight[item.rarity] || 300;
-                if (w > bestThisTrip.score) bestThisTrip = { score: w, label: `📦 ${item.name} (${item.rarity})` };
+                if (w > bestThisTrip.score) bestThisTrip = { score: w, label: 'ارتيفاكت' };
                 await safeExecute(db,
                     `INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,$3,1)
                      ON CONFLICT ("guildID","userID","itemID") DO UPDATE SET "quantity"=user_inventory.quantity+1`,
@@ -163,7 +163,7 @@ async function distributeRewards(client, db, caravan) {
             const seed = seedsData[Math.floor(Math.random() * seedsData.length)];
             if (seed) {
                 const seedScore = seedCount * 100;
-                if (seedScore > bestThisTrip.score) bestThisTrip = { score: seedScore, label: `🌱 ${seedCount}x ${seed.name}` };
+                if (seedScore > bestThisTrip.score) bestThisTrip = { score: seedScore, label: 'بذور' };
                 await safeExecute(db,
                     `INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,$3,$4)
                      ON CONFLICT ("guildID","userID","itemID") DO UPDATE SET "quantity"=user_inventory.quantity+$4`,
@@ -191,7 +191,7 @@ async function distributeRewards(client, db, caravan) {
                             summary.push(usedCap >= maxCap
                                 ? `🐾 ${animal.name} (عمر مقلص - الحظيرة ممتلئة)`
                                 : `🐾 ${animal.name}`);
-                            if (500 > bestThisTrip.score) bestThisTrip = { score: 500, label: `🐾 ${animal.name}` };
+                            if (500 > bestThisTrip.score) bestThisTrip = { score: 500, label: 'حيوانات' };
                         } catch (e) { console.error('[Farm animal error]', e); }
                     }
                 }
