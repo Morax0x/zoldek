@@ -57,17 +57,4 @@ function calcRiskFactor(destConfig, stats) {
     return Math.max(destConfig.risk_factor - reduction, 0.03);
 }
 
-function calcRewardMultiplier(stats, equippedBuffs) {
-    const capRank  = Number(stats.capacity_rank || 1);
-    const luckRank = Number(stats.luck_rank     || 1);
-    const capCfg   = caravanConfig.upgrades.capacity;
-    const luckCfg  = caravanConfig.upgrades.luck;
-    
-    // البف الخاص بالحظ يتضاعف مع الكمية بناءً على النسب الجديدة
-    return 1
-        + (capRank  - 1) * capCfg.bonus_per_level
-        + (luckRank - 1) * luckCfg.bonus_per_level
-        + equippedBuffs.luckBuff;
-}
-
-module.exports = { getEquippedBuffs, calcDuration, calcRiskFactor, calcRewardMultiplier };
+module.exports = { getEquippedBuffs, calcDuration, calcRiskFactor };

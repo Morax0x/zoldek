@@ -459,7 +459,13 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
     const averageATK = Math.floor(totalPlayerATK / players.length);
 
     // 👑 رفع صحة القافلة لتتحمل ضربات الأعداء وتناسب قوة الفريق (تمنع التدمير الفوري)
-    const dynamicCaravanHP = Math.max(CARAVAN_HP_MAX, Math.floor(totalPlayerHP * 0.8));
+    const { getUserCaravanStats } = require('./stats');
+    const cvOwnerStats   = await getUserCaravanStats(db, hostId, guild.id);
+    const hpRank         = Number(cvOwnerStats.capacity_rank || 1);
+    const hpPerLevel     = caravanConfig.upgrades.capacity.hp_per_level || 100;
+    const baseHP         = caravanConfig.upgrades.capacity.base_hp || 500;
+    const hpBonus        = baseHP + (hpRank - 1) * hpPerLevel;
+    const dynamicCaravanHP = Math.max(CARAVAN_HP_MAX, Math.floor(totalPlayerHP * 0.8)) + hpBonus;
 
     const caravan = {
         hp: dynamicCaravanHP, maxHp: dynamicCaravanHP,

@@ -90,13 +90,14 @@ async function distributeRewards(client, db, caravan) {
     const artifacts = JSON.parse(caravan.equippedartifacts || caravan.equippedArtifacts || '[]');
     const buffs     = getEquippedBuffs(artifacts);
     const luckFactor = (stats.luck_rank || 1) + (buffs.luckBuff || 0);
+    const luckCoeff = caravanConfig.upgrades.luck.luck_per_level || 0.002;
 
     let summary = [];
 
     try {
         if (dest.reward_type === 'mora') {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
-            const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * 0.05;
+            const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
             await safeExecute(db,
                 `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
@@ -105,7 +106,7 @@ async function distributeRewards(client, db, caravan) {
 
         } else if (dest.reward_type === 'xp') {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
-            const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * 0.05;
+            const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
             await safeExecute(db,
                 `UPDATE levels SET "xp"=CAST(COALESCE("xp",'0') AS BIGINT)+$1,"totalXP"=CAST(COALESCE("totalXP",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
@@ -114,7 +115,7 @@ async function distributeRewards(client, db, caravan) {
 
         } else if (dest.reward_type === 'reputation') {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
-            const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * 0.05;
+            const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
             await safeExecute(db,
                 `INSERT INTO user_reputation ("userID","guildID","rep_points") VALUES ($1,$2,$3)

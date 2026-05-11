@@ -461,7 +461,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         rpy += 44; divLine(ctx, RX + 26, rpy, RW - 52, C.gold + '44'); rpy += 24;
 
         const upgCfg = [
-            { key: 'capacity_rank', emoji: '📦', name: 'سعة الحمولة',  col: '#FF9933' },
+            { key: 'capacity_rank', emoji: '❤️', name: 'متانة القافلة',  col: '#FF4466' },
             { key: 'speed_rank',    emoji: '⚡', name: 'سرعة القافلة', col: '#00C3FF' },
             { key: 'defense_rank',  emoji: '🛡️', name: 'درع القافلة',  col: '#8888FF' },
             { key: 'luck_rank',     emoji: '🍀', name: 'حظ القافلة',   col: '#2ECC71' },
