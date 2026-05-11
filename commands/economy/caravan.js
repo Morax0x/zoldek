@@ -186,8 +186,10 @@ module.exports = {
             const lvlRow  = lvlRes?.rows?.[0] || {};
             const repRow  = repRes?.rows?.[0] || {};
             const profExtra = {
-                level:     Number(lvlRow.level || lvlRow.LEVEL || 1),
-                repPoints: Number(repRow.rep_points || repRow.REP_POINTS || 0),
+                level:        Number(lvlRow.level || lvlRow.LEVEL || 1),
+                repPoints:    Number(repRow.rep_points || repRow.REP_POINTS || 0),
+                best_loot:    Number(stats.best_loot || 0),
+                favorite_dest: stats.last_dest || '',
             };
 
             const payload = await sendCanvas(GEN.generateCaravanHub, [user, stats, active, mora, profExtra]);

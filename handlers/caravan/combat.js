@@ -934,6 +934,9 @@ async function handleAmbushReady(data) {
     if (result === 'win') {
         // Mark caravan as survived — trip continues with full rewards
         await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1 WHERE "id"=$1`, [caravanId]);
+        await safeExecute(db,
+            `UPDATE user_caravan_stats SET "ambush_survived"="ambush_survived"+1 WHERE "userID"=$1 AND "guildID"=$2`,
+            [userId, guildId]);
         // Everyone (owner + guards) gets cumulative rewards
         const rewardRes = await distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty);
 

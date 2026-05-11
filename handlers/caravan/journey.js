@@ -92,6 +92,7 @@ async function distributeRewards(client, db, caravan) {
     const luckFactor = (stats.luck_rank || 1) + (buffs.luckBuff || 0);
     const luckCoeff = caravanConfig.upgrades.luck.luck_per_level || 0.002;
 
+    let bestThisTrip = 0;
     let summary = [];
 
     try {
@@ -99,6 +100,7 @@ async function distributeRewards(client, db, caravan) {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
+            bestThisTrip = Math.max(bestThisTrip, amount);
             await safeExecute(db,
                 `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
                 [amount, userId, guildId]);
@@ -108,6 +110,7 @@ async function distributeRewards(client, db, caravan) {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
+            bestThisTrip = Math.max(bestThisTrip, amount);
             await safeExecute(db,
                 `UPDATE levels SET "xp"=CAST(COALESCE("xp",'0') AS BIGINT)+$1,"totalXP"=CAST(COALESCE("totalXP",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
                 [amount, userId, guildId]);
@@ -117,6 +120,7 @@ async function distributeRewards(client, db, caravan) {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
+            bestThisTrip = Math.max(bestThisTrip, amount);
             await safeExecute(db,
                 `INSERT INTO user_reputation ("userID","guildID","rep_points") VALUES ($1,$2,$3)
                  ON CONFLICT ("userID","guildID") DO UPDATE SET "rep_points"=user_reputation.rep_points+$3`,
@@ -192,9 +196,10 @@ async function distributeRewards(client, db, caravan) {
     }
 
     await safeExecute(db,
-        `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1, "successful_trips"="successful_trips"+1
+        `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1, "successful_trips"="successful_trips"+1,
+         "last_dest"=$3, "best_loot"=GREATEST("best_loot",$4)
          WHERE "userID"=$1 AND "guildID"=$2`,
-        [userId, guildId]);
+        [userId, guildId, destId, bestThisTrip]);
 
     await safeExecute(db,
         `UPDATE user_caravans SET "status"='completed' WHERE "userID"=$1 AND "guildID"=$2`,
