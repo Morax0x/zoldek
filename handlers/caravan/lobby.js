@@ -189,7 +189,8 @@ async function sendAmbushNotification(client, db, caravan) {
             const looted = await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_bribe || 0.50);
             const lootNotice = looted.length ? `\n💀 نُهبت ${looted.length} بضاعة من سلتك!` : '';
             await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1 WHERE "id"=$1`, [caravanId]);
-            await attackMsg.edit({ content: `💰 <@${userId}> دفعت الرشوة! قطاع الطرق أخذوا حصتهم من بضائعك.${lootNotice}`, embeds: [], files: [], components: [] }).catch(() => {});
+            const remaining = Math.ceil((Number(caravan.endtime || caravan.endTime || 0) - Date.now()) / 60000);
+            await attackMsg.edit({ content: `💰 <@${userId}> دفعت الرشوة! قطاع الطرق أخذوا حصتهم من بضائعك.${lootNotice}\n✅ تستمر رحلتك إلى **${dest?.name || 'الوجهة'}** وستصل بعد ${Math.max(1, remaining)} دقيقة.`, embeds: [], files: [], components: [] }).catch(() => {});
             collector.stop('bribed');
             return;
         }
@@ -212,7 +213,10 @@ async function sendAmbushNotification(client, db, caravan) {
 
     collector.on('end', async (_, reason) => {
         client.caravanAttackCollectors?.delete(String(caravanId));
-        if (reason === 'user' || reason === 'bribed') return;
+        if (reason === 'user') return;
+        // Check if caravan was already resolved (bribed or guarded) via DB
+        const cvCheck = await safeQuery(db, `SELECT "attackResolved","endTime" FROM user_caravans WHERE "id"=$1`, [caravanId]).catch(() => ({ rows: [] }));
+        if (cvCheck?.rows?.[0]?.attackResolved === 1 || cvCheck?.rows?.[0]?.attackResolved === '1') return;
         const { stagingLootItems } = require('./market/market-db');
         await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
         await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1 AND "attackResolved"=0`, [caravanId]);

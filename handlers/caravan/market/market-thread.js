@@ -62,16 +62,31 @@ async function createMarketThread(client, db, caravan, channelId) {
 
         const listings = await getListingsBySession(db, thread.id);
 
+        let timeStr;
+        const mins = Math.floor(marketDurationMs / 60000);
+        if (mins >= 1440) timeStr = `in ${Math.floor(mins / 1440)} days`;
+        else if (mins >= 60) timeStr = `in ${Math.floor(mins / 60)} hours`;
+        else timeStr = `in ${mins} minutes`;
+
+        let avatarUrl = null;
+        try {
+            const member = await guild.members.fetch(ownerId).catch(() => null);
+            avatarUrl = member?.user?.displayAvatarURL({ extension: 'png', size: 128 }) || null;
+        } catch {}
+
+        let serverIconUrl = guild.iconURL({ extension: 'png', size: 128 }) || null;
+
         const embed = new EmbedBuilder()
             .setColor(dest.color || '#FFD700')
-            .setTitle(`${dest.emoji} سوق القافلة — ${dest.name}`)
+            .setTitle('✥ سـوق الـقافـلـة')
             .setDescription(
-                `<@${ownerId}> وصلت قافلته إلى **${dest.name}**!\n` +
-                `يمكنك الآن عرض بضائعك للبيع للاعبين الآخرين.\n\n` +
-                `⏳ يبقى السوق مفتوحاً لـ **${Math.floor(marketDurationMs / 60000)} دقيقة**.\n` +
-                `📦 عدد العناصر: **${listings.length}**`
+                `✦ قـافـلـتـك تتجه الـى: **${dest.emoji} ${dest.name}**\n` +
+                `✦ عـرضـت بـضـاعتـك للبيـع\n\n` +
+                `✦ يستمر ترخيص متـجرك الـى: **${timeStr}**\n` +
+                `✦ عدد العناصر: **${listings.length}**`
             )
-            .setTimestamp();
+            .setThumbnail(avatarUrl)
+            .setFooter({ text: 'discord.gg/EMM  |  ™ Empire | الامبراطورية', iconURL: serverIconUrl });
 
         const announcement = await thread.send({
             content: `🎉 سوق جديد مفتوح! <@${ownerId}> يعرض بضائعه للبيع!`,

@@ -179,18 +179,37 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
         return { message: 'لن نصل لاتفاق، سأبحث في مكان آخر. وداعاً!', action: { action: 'leave' } };
     }
 
+    // Detect if user made a counter-offer in their message
+    const userOfferMatch = userMessageStr.match(/(\d+[.,]?\d*)\s*مورا/);
+    const userOffer = userOfferMatch ? parseInt(userOfferMatch[1].replace(/[,.]/g, '')) : null;
+
     const conversationHistory = conv.history.map(e => ({ role: e.role, content: e.role === 'assistant' ? `${conv.name}: ${e.content}` : `البائع: ${e.content}` }));
+
+    let contextNote = '';
+    if (userOffer !== null) {
+        if (userOffer <= 0) {
+            contextNote = '\n⚠️ البائع عرض سعراً غير منطقي (صفر أو أقل). أبدِ استياءك وانسحب باستخدام [LEAVE].';
+        } else if (userOffer < conv.currentOffer * 0.5) {
+            contextNote = `\n⚠️ البائع عرض سعراً منخفضاً جداً (${userOffer} مورا). هذا السعر مهين! أبدِ غضبك وانسحب باستخدام [LEAVE].`;
+        } else if (userOffer <= conv.currentOffer) {
+            contextNote = `\n⚠️ البائع عرض ${userOffer} مورا، وهو أقل من أو يساوي عرضك الحالي (${conv.currentOffer}). ارفض هذا السعر المهين واطلب سعراً أعلى لا يقل عن ${conv.currentOffer}.`;
+        } else if (userOffer <= conv.jonesPrice) {
+            contextNote = `\n✅ البائع عرض ${userOffer} مورا، وهو سعر معقول (بين عرضك ${conv.currentOffer} والسعر العادل ${conv.jonesPrice}). استخدم [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:${userOffer}] للشراء.`;
+        } else {
+            contextNote = `\n✅ البائع عرض ${userOffer} مورا، وهو أكثر من السعر العادل ${conv.jonesPrice}. استخدم [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:${conv.jonesPrice}] للشراء بسعر ${conv.jonesPrice} (السعر الأقصى).`;
+        }
+    }
 
     const systemPrompt = `أنت الزبون "${conv.name}". تتفاوض لشراء عدد (${conv.requestedQty}) من "${conv.targetItemName}".
 السعر العادل للحبة هو: ${conv.jonesPrice} مورا.
-آخر سعر عرضته: ${conv.currentOffer} مورا.
+آخر سعر عرضته: ${conv.currentOffer} مورا.${contextNote}
 
 قواعد حديدية:
-1. اقرأ رد البائع جيداً، تفاعل معه كشخصية طبيعية.
-2. إذا وافق البائع على عرضك استخدم: [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:السعر]
-3. إذا رفض، ارفع عرضك قليلاً (لا تنقصه!) واستخدم: [OFFER:سعر_جديد]
+1. اقرأ رد البائع جيداً وفهم ما إذا كان وافق أو رفض أو عرض سعراً.
+2. إذا البائع وافق على عرضك أو عرض سعراً مقبولاً (بين ${conv.currentOffer} و ${conv.jonesPrice}) استخدم: [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:السعر_المتفق_عليه]
+3. إذا البائع رفض العرض أو اقترح سعراً منخفضاً، ارفع عرضك قليلاً (لا تنقصه!) واستخدم: [OFFER:سعر_جديد_أعلى_من_${conv.currentOffer}]
 4. ممنوع تتجاوز ${conv.jonesPrice} مورا للحبة!
-5. ممنوع توافق على سعر أقل من ${conv.currentOffer} (لا تنقص!).
+5. ممنوع تخفض عرضك عن ${conv.currentOffer}.
 6. إذا تعطلت المفاوضة استخدم: [LEAVE]
 7. رد بجملة طبيعية قصيرة فقط.`;
 
@@ -409,7 +428,9 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             // 👑 تجاوز الذكاء الاصطناعي وتنفيذ الشراء الفوري عند ضغط (موافق) 👑
             if (i.customId === `mkt_npc_accept_${convId}`) {
                 await i.deferUpdate().catch(() => {});
-                const finalPrice = conv.currentOffer; // يأخذ آخر سعر معروض من الزبون
+                let finalPrice = conv.currentOffer;
+                if (finalPrice > conv.jonesPrice) finalPrice = conv.jonesPrice;
+                if (finalPrice < 1) finalPrice = conv.jonesPrice;
 
                 const purchaseResult = await buyItem(db, conv.targetListingId, `npc_${conv.name}`, ownerId, guildId, conv.targetItemId, conv.requestedQty, finalPrice, 'npc', client);
 
