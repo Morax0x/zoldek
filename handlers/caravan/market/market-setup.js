@@ -156,7 +156,30 @@ async function getStagedItemsSafe(db, userId, guildId) {
     } catch { return []; }
 }
 
-async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price) {
+async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, member = null) {
+    const [limits, currentStaged] = await Promise.all([
+        getMarketSlotLimits(db, userId, guildId, member),
+        getStagedItemsSafe(db, userId, guildId),
+    ]);
+
+    const normalizedId = String(itemId).toLowerCase().trim();
+    const existingRow = currentStaged.find(s => {
+        const idKey = Object.keys(s).find(k => k.toLowerCase() === 'itemid');
+        return idKey && String(s[idKey]).toLowerCase().trim() === normalizedId;
+    });
+
+    if (existingRow) {
+        const qtyKey = Object.keys(existingRow).find(k => k.toLowerCase() === 'quantity');
+        const alreadyStaged = Number(existingRow[qtyKey] || 0);
+        if (alreadyStaged + quantity > limits.sameType) {
+            return { ok: false, error: `تجاوزت حد الكمية! الحد الأقصى ${limits.sameType} وحدة من نفس النوع (لديك ${alreadyStaged}).` };
+        }
+    } else {
+        if (currentStaged.length >= limits.general) {
+            return { ok: false, error: `وصلت للحد الأقصى من أنواع البضائع! يمكنك عرض ${limits.general} نوع كحد أقصى (لديك ${currentStaged.length}).` };
+        }
+    }
+
     const deducted = await safeDeductFromInventory(db, userId, guildId, itemId, quantity);
     if (!deducted) return { ok: false, error: 'الكمية غير كافية في مخزونك.' };
 
@@ -645,7 +668,7 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         }
 
         await modalSubmit.deferUpdate().catch(() => {});
-        const result = await stagingAddItemSafe(db, user.id, guild.id, itemId, qty, price);
+        const result = await stagingAddItemSafe(db, user.id, guild.id, itemId, qty, price, modalSubmit.member);
         if (!result.ok) return modalSubmit.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
         
         await showStagingUI(modalSubmit, db, user, guild, true);
