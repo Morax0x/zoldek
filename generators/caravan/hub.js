@@ -24,7 +24,8 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const repPts  = Number(profExtra.repPoints || 0);
     const repRank = getRepRankInfo(repPts);
     
-    const bestLoot = profExtra.best_loot_label || (Number(profExtra.best_loot || 0) > 0 ? `${Number(profExtra.best_loot).toLocaleString()} مورا` : null);
+    const bestLootVal = Number(profExtra.best_loot || 0);
+    const bestLoot = bestLootVal > 0 ? `${bestLootVal.toLocaleString()} ${profExtra.best_loot_label || 'مورا'}` : null;
     const ambushes = Number(stats.ambush_survived || 0);
     const favDestId = profExtra.favorite_dest || '';
     const favDestName = cfg.destinations.find(d => d.id === favDestId)?.name || 'غير محدد';
