@@ -22,15 +22,9 @@ try { SEEDS_DATA = require('../../../json/seeds.json'); } catch(e) {}
 try { FISHING_DATA = require('../../../json/fishing-config.json'); } catch(e) {}
 try { POTIONS_DATA = require('../../../json/potions.json'); } catch(e) {}
 
-const CUSTOMER_NAMES = [
+const FALLBACK_NAMES = [
     'سندباد', 'عجيب', 'زعتر', 'كرم', 'درويش', 'مرجان', 'ياقوت', 'عنبر',
-    'ميمون', 'زنجبيل', 'بهار', 'عطر', 'سراب', 'غيم', 'حجر', 'سهيل',
-    'نوار', 'وهج', 'شهاب', 'غدير', 'أثير', 'لجين', 'زبرجد', 'فيروز',
-    'نادر', 'بسّام', 'رافع', 'تاج', 'سيف', 'رمح', 'درع', 'قلم',
-    'كنار', 'صندل', 'عنقود', 'تمر', 'زيتون', 'رمان', 'تين', 'سفرجل',
-    'المنجد', 'الطواش', 'النوخذة', 'الساري', 'المهرّج', 'الحكيم', 'الساحر', 'الحداد',
-    'أبو ياسمين', 'أم كلثوم', 'ابن عرس', 'ذو الفقار', 'خالد', 'بسيمة',
-    'Riddle', 'Ashford', 'Merchant', 'Vagabond', 'Strider', 'Dusk',
+    'ميمون', 'زنجبيل', 'بهار', 'عطر', 'سراب', 'غيم', 'حجر', 'سهيل'
 ];
 
 const JONES_PRICES = new Map();
@@ -61,9 +55,6 @@ function getJonesPrice(itemId, info) {
     return 300;
 }
 
-// ============================================================================
-// محركات الذكاء الاصطناعي
-// ============================================================================
 async function callGeminiDirect(apiKey, systemPrompt, messages, jsonMode = false) {
     try {
         let contents = messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
@@ -106,9 +97,6 @@ async function callAI(systemPrompt, messages, jsonMode = false) {
     return null;
 }
 
-// ============================================================================
-// توليد الزبون
-// ============================================================================
 async function generateDynamicCustomer(itemName, askingPrice, jonesPrice, maxAvailableQty) {
     const isCheap = askingPrice <= jonesPrice;
 
@@ -121,45 +109,45 @@ async function generateDynamicCustomer(itemName, askingPrice, jonesPrice, maxAva
 
     const requestedQty = Math.max(1, Math.min(Math.floor(Math.random() * Math.min(3, maxAvailableQty)) + 1, 3));
 
-    const randomName = CUSTOMER_NAMES[Math.floor(Math.random() * CUSTOMER_NAMES.length)];
+    let generatedName = '';
     let openingLine = '';
-    let openingOffer = npcInitialOffer;
 
     const systemPrompt = `البائع يعرض سلعة باسم "${itemName}" وسعر الحبة الواحدة هو ${askingPrice} مورا
 السعر العادل والمعروف في السوق هو ${jonesPrice} مورا.
-اسمك "${randomName}". افتتح الكلام باقتراح شراء ${requestedQty} حبة.
+أنت زبون تتجول في السوق. ابتكر لنفسك اسما (عربي، خيالي، أو من وحي الأسواق القديمة).
+افتتح الكلام باقتراح شراء ${requestedQty} حبة.
 
 قواعد صارمة:
-1. إذا كان سعر البائع (${askingPrice}) <= السعر العادل (${jonesPrice}): وافق فوراً وقل أن السعر ممتاز.
-2. إذا كان أعلى: تفاوض واقترح سعراً بين ${npcInitialOffer} و ${jonesPrice}.
-3. كن طبيعياً، رد واحد فقط، لا تستخدم مصطلحات البوتات.
+1. إذا كان سعر البائع (${askingPrice}) أقل من أو يساوي السعر العادل (${jonesPrice}): وافق فوراً وقل أن السعر ممتاز.
+2. إذا كان السعر أعلى: تفاوض واقترح سعراً بين ${npcInitialOffer} و ${jonesPrice}.
+3. كن طبيعياً، رد واحد فقط.
 
-أرجع JSON:
-{ "openingLine": "جملتك الافتتاحية" }`;
+أرجع JSON حصراً بالصيغة التالية:
+{ "name": "اسمك المبتكر", "openingLine": "جملتك الافتتاحية" }`;
 
     try {
         const aiResponse = await callAI(systemPrompt, [], true);
         if (aiResponse) {
             const cleanStr = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
             const data = JSON.parse(cleanStr);
-            if (data.openingLine) {
-                openingLine = data.openingLine;
-            }
+            if (data.name) generatedName = data.name;
+            if (data.openingLine) openingLine = data.openingLine;
         }
     } catch(e) {}
 
-    if (!openingLine) {
-        openingLine = isCheap
-            ? `مرحباً! سعر ${itemName} مناسب جداً بـ ${askingPrice}، أريد ${requestedQty} حبة.`
-            : `${randomName} هنا، ${itemName} غالي شوي. السعر العادل ${jonesPrice}، أقترح ${npcInitialOffer} للحبة، خذ ${requestedQty}.`;
+    if (!generatedName) {
+        generatedName = FALLBACK_NAMES[Math.floor(Math.random() * FALLBACK_NAMES.length)];
     }
 
-    return { name: randomName, openingLine, offer: openingOffer, requestedQty };
+    if (!openingLine) {
+        openingLine = isCheap
+            ? `مرحباً! سعر ${itemName} لقطة بـ ${askingPrice}، أعطني ${requestedQty} حبة.`
+            : `يا تاجر، ${itemName} غالي جداً عندك. السعر العادل ${jonesPrice}، سأدفع ${npcInitialOffer} للحبة، أريد ${requestedQty}.`;
+    }
+
+    return { name: generatedName, openingLine, offer: npcInitialOffer, requestedQty };
 }
 
-// ============================================================================
-// معالجة التفاوض (تقييم رد اللاعب والمنطق الصحيح للمشتري) 👑
-// ============================================================================
 function parseNpcAction(text) {
     const buyMatch = text.match(/\[BUY_ITEM:\s*(\d+)\s*:\s*(\d+)\s*:\s*(\d+)\s*\]/i);
     if (buyMatch) return { action: 'buy', listingId: parseInt(buyMatch[1]), quantity: parseInt(buyMatch[2]), offeredPrice: parseInt(buyMatch[3]) };
@@ -176,42 +164,45 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
     conv.haggleTurns = (conv.haggleTurns || 0) + 1;
 
     if (conv.haggleTurns >= conv.maxTurns && !userMessageStr.includes('موافق')) {
-        return { message: 'لن نصل لاتفاق، سأبحث في مكان آخر. وداعاً!', action: { action: 'leave' } };
+        return { message: 'يبدو أننا لن نصل لاتفاق، سأحتفظ بمالي. وداعاً!', action: { action: 'leave' } };
     }
 
-    // Detect if user made a counter-offer in their message
-    const userOfferMatch = userMessageStr.match(/(\d+[.,]?\d*)\s*مورا/);
-    const userOffer = userOfferMatch ? parseInt(userOfferMatch[1].replace(/[,.]/g, '')) : null;
+    let userOffer = null;
+    const offerMatch = userMessageStr.match(/(\d+)/);
+    if (offerMatch) {
+        userOffer = parseInt(offerMatch[1]);
+    }
 
-    const conversationHistory = conv.history.map(e => ({ role: e.role, content: e.role === 'assistant' ? `${conv.name}: ${e.content}` : `البائع: ${e.content}` }));
+    const conversationHistory = conv.history.map(e => ({ 
+        role: e.role, 
+        content: e.role === 'assistant' ? `${conv.name}: ${e.content}` : `البائع: ${e.content}` 
+    }));
 
     let contextNote = '';
     if (userOffer !== null) {
         if (userOffer <= 0) {
-            contextNote = '\n⚠️ البائع عرض سعراً غير منطقي (صفر أو أقل). أبدِ استياءك وانسحب باستخدام [LEAVE].';
-        } else if (userOffer < conv.currentOffer * 0.5) {
-            contextNote = `\n⚠️ البائع عرض سعراً منخفضاً جداً (${userOffer} مورا). هذا السعر مهين! أبدِ غضبك وانسحب باستخدام [LEAVE].`;
+            contextNote = '\n⚠️ تنبيه: البائع يعرض سعراً غير منطقي (صفر أو أقل). اغضب وانسحب باستخدام [LEAVE].';
         } else if (userOffer <= conv.currentOffer) {
-            contextNote = `\n⚠️ البائع عرض ${userOffer} مورا، وهو أقل من أو يساوي عرضك الحالي (${conv.currentOffer}). ارفض هذا السعر المهين واطلب سعراً أعلى لا يقل عن ${conv.currentOffer}.`;
+            contextNote = `\n✅ تنبيه: البائع أعطاك خصماً وقبل بسعر ${userOffer} مورا وهو أقل من أو يساوي عرضك الحالي (${conv.currentOffer}). أنت مشتري ذكي، وافق فوراً واشتر باستخدام [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:${userOffer}]. لا ترفع السعر أبداً!`;
         } else if (userOffer <= conv.jonesPrice) {
-            contextNote = `\n✅ البائع عرض ${userOffer} مورا، وهو سعر معقول (بين عرضك ${conv.currentOffer} والسعر العادل ${conv.jonesPrice}). استخدم [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:${userOffer}] للشراء.`;
+            contextNote = `\n✅ تنبيه: البائع يطلب ${userOffer} مورا. هذا السعر معقول ومقبول. استخدم [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:${userOffer}] للشراء، أو قدم عرضاً أقل إذا أردت بـ [OFFER:سعر].`;
         } else {
-            contextNote = `\n✅ البائع عرض ${userOffer} مورا، وهو أكثر من السعر العادل ${conv.jonesPrice}. استخدم [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:${conv.jonesPrice}] للشراء بسعر ${conv.jonesPrice} (السعر الأقصى).`;
+            contextNote = `\n❌ تنبيه: البائع يطلب ${userOffer} مورا وهو أعلى من السعر العادل (${conv.jonesPrice}). ارفض السعر واعرض سعراً لا يتجاوز ${conv.jonesPrice} باستخدام [OFFER:سعر]، أو انسحب بـ [LEAVE].`;
         }
     }
 
-    const systemPrompt = `أنت الزبون "${conv.name}". تتفاوض لشراء عدد (${conv.requestedQty}) من "${conv.targetItemName}".
-السعر العادل للحبة هو: ${conv.jonesPrice} مورا.
-آخر سعر عرضته: ${conv.currentOffer} مورا.${contextNote}
+    const systemPrompt = `أنت المشتري والزبون واسمك "${conv.name}". تتفاوض لشراء عدد (${conv.requestedQty}) من سلعة "${conv.targetItemName}".
+السعر العادل في السوق هو: ${conv.jonesPrice} مورا.
+آخر سعر عرضته أنت كان: ${conv.currentOffer} مورا.
+${contextNote}
 
-قواعد حديدية:
-1. اقرأ رد البائع جيداً وفهم ما إذا كان وافق أو رفض أو عرض سعراً.
-2. إذا البائع وافق على عرضك أو عرض سعراً مقبولاً (بين ${conv.currentOffer} و ${conv.jonesPrice}) استخدم: [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:السعر_المتفق_عليه]
-3. إذا البائع رفض العرض أو اقترح سعراً منخفضاً، ارفع عرضك قليلاً (لا تنقصه!) واستخدم: [OFFER:سعر_جديد_أعلى_من_${conv.currentOffer}]
-4. ممنوع تتجاوز ${conv.jonesPrice} مورا للحبة!
-5. ممنوع تخفض عرضك عن ${conv.currentOffer}.
-6. إذا تعطلت المفاوضة استخدم: [LEAVE]
-7. رد بجملة طبيعية قصيرة فقط.`;
+قواعد صارمة لتصرفاتك:
+1. أنت تهدف لتقليل السعر قدر الإمكان. إذا وافق البائع على عرضك أو أعطاك خصماً، اقتنص الفرصة واشتر فوراً.
+2. للموافقة والشراء استخدم حصراً: [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:السعر_النهائي]
+3. للمكاسرة وطلب تخفيض استخدم حصراً: [OFFER:سعر_جديد]
+4. لرفض جشع البائع والمغادرة استخدم حصراً: [LEAVE]
+5. لا توافق أبداً على أي سعر يتجاوز ${conv.jonesPrice}.
+6. ردك يجب أن يكون عبارة واحدة طبيعية بلسان زبون شعبي ذكي.`;
 
     const messages = [...conversationHistory, { role: 'user', content: `البائع: ${userMessageStr}` }];
     const response = await callAI(systemPrompt, messages, false);
@@ -225,17 +216,16 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
         let finalPrice = action.offeredPrice;
         if (finalPrice > conv.askingPrice) finalPrice = conv.askingPrice;
         if (finalPrice < 1) finalPrice = conv.currentOffer;
-        if (finalPrice > conv.jonesPrice) finalPrice = conv.jonesPrice;
-
+        
         if (finalPrice > conv.jonesPrice) {
             return {
-                message: `السعر العادل ${conv.jonesPrice} فقط، لن أدفع أكثر. وداعاً!`,
+                message: `لن أسمح لك باستغلالي، السعر العادل هو ${conv.jonesPrice} فقط. طاب يومك!`,
                 action: { action: 'leave' },
             };
         }
 
         return {
-            message: cleanMessage || 'تم، سأشتري.',
+            message: cleanMessage || 'اتفقنا، سأشتري.',
             action: {
                 type: 'purchase',
                 listingId: conv.targetListingId,
@@ -250,17 +240,14 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
     }
 
     if (action?.action === 'haggle') {
-        if (action.newOffer <= conv.currentOffer || action.newOffer > conv.jonesPrice) {
-            return { message: 'عرضك غير منطقي، وداعاً!', action: { action: 'leave' } };
+        if (action.newOffer > conv.jonesPrice) {
+            return { message: `هذا مبالغ فيه! لن أدفع أكثر من السعر العادل. وداعاً!`, action: { action: 'leave' } };
         }
     }
 
     return { message: cleanMessage, action };
 }
 
-// ============================================================================
-// واجهة التفاعل 
-// ============================================================================
 function generateMarketEmbed(conv) {
     const baseDesc = `✶ **الاسـم:** ${conv.name}\n` +
                      `✶ **العنـصر:** ${conv.targetItemName}\n` +
@@ -336,9 +323,6 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
     }
 }
 
-// ============================================================================
-// جدولة الإنتاج (شخص واحد فقط في كل مرة) 
-// ============================================================================
 async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
     try {
         const listings = await getListingsBySession(db, thread.id);
@@ -359,7 +343,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         const convId = `conv_${thread.id}_${Date.now()}`;
         
         const randomColor = `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
-        const maxTurns = Math.floor(Math.random() * 3) + 3; // حد الصبر مخفي (3 إلى 5 محاولات)
+        const maxTurns = Math.floor(Math.random() * 3) + 3; 
 
         const randomImageNumber = Math.floor(Math.random() * 8) + 1;
         const imageUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/caravan/cu/customer${randomImageNumber}.png`;
@@ -425,7 +409,6 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
             const conv = NpcConversations.get(convId);
             if (!conv?.active) return i.reply({ content: '❌ لقد غادر هذا المشتري.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
 
-            // 👑 تجاوز الذكاء الاصطناعي وتنفيذ الشراء الفوري عند ضغط (موافق) 👑
             if (i.customId === `mkt_npc_accept_${convId}`) {
                 await i.deferUpdate().catch(() => {});
                 let finalPrice = conv.currentOffer;
