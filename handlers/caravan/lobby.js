@@ -46,6 +46,31 @@ async function buildLobbyPayload(hostId, party, partyClasses, destConfig, isAmbu
 }
 
 // ─── Shared Lobby Runner ──────────────────────────────────────────────────────
+function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush) {
+    const descLines = [
+        `**القائد:** <@${hostId}>`,
+        `**الوجهة:** ${destConfig.emoji} ${destConfig.name}`,
+        '',
+    ];
+    const partyList = party.map((uid, i) => {
+        const cls = partyClasses.get(uid);
+        if (i === 0) return `👑 <@${uid}> — قائد القافلة`;
+        const clsObj = CLASS_OPTIONS.find(c => c.v === cls);
+        return `**${i+1}.** <@${uid}> — ${clsObj ? `${clsObj.e} ${clsObj.l}` : '❓'}`;
+    }).join('\n');
+    descLines.push(`**الفريق:**\n${partyList}`);
+    descLines.push('', `**العدد:** ${party.length}/${MAX_PARTY}`);
+    const takenClasses = Array.from(partyClasses.values());
+    const availClasses = CLASS_OPTIONS.filter(o => !takenClasses.includes(o.v));
+    if (availClasses.length > 0) {
+        descLines.push(`**التخصصات المتاحة:** ${availClasses.map(o => `${o.e} ${o.l}`).join(' | ')}`);
+    }
+    return new EmbedBuilder()
+        .setTitle(isAmbush ? '⚔️ الدفاع عن القافلة' : '🛡️ تأمين مسار القافلة')
+        .setDescription(descLines.join('\n'))
+        .setColor(isAmbush ? '#FF4444' : '#FFD700');
+}
+
 async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush = false) {
     const partyClasses = new Map([[hostId, 'Leader']]);
     const party        = [hostId];
@@ -57,11 +82,10 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
         new ButtonBuilder().setCustomId(cancelId).setLabel('إلغاء').setStyle(ButtonStyle.Danger).setEmoji('✖️')
     );
 
-    const payload = await buildLobbyPayload(hostId, party, partyClasses, destConfig, isAmbush, guild);
+    const embed = buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush);
 
     const msg = await channel.send({
-        content: `<@${hostId}>`,
-        ...payload,
+        embeds: [embed],
         components: [lobbyButtons()],
     }).catch(() => null);
     if (!msg) return { ready: false, cancelled: true };
@@ -105,8 +129,8 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
                     party.push(i.user.id);
                     await sel.editReply({ content: `✅ انضممت كـ **${chosen}** — خُصمت تذكرة زنزانة.`, components: [] }).catch(() => {});
                     
-                    const updatePayload = await buildLobbyPayload(hostId, party, partyClasses, destConfig, isAmbush, guild);
-                    await msg.edit({ ...updatePayload }).catch(() => {});
+                    const updatedEmbed = buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush);
+                    await msg.edit({ embeds: [updatedEmbed] }).catch(() => {});
 
                 } else if (i.customId === startId) {
                     if (i.user.id !== hostId) return i.reply({ content: '⛔ القائد فقط يستطيع البدء.', flags: [MessageFlags.Ephemeral] });

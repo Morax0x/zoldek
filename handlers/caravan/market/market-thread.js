@@ -75,10 +75,10 @@ async function createMarketThread(client, db, caravan, channelId) {
                 `✦ يستمر ترخيص متـجرك الـى:\n<t:${endTimestamp}:R>\n` +
                 `✦ عدد العناصر: **${listings.length}**`
             )
-            .setFooter({ text: 'discord.gg/EMM  |  ™ Empire | الامبراطورية', iconURL: serverIconUrl });
+            .setFooter({ text: '™ Empire | الامبراطورية', iconURL: serverIconUrl });
 
         const announcement = await thread.send({
-            content: `🎉 سوق جديد مفتوح! <@${ownerId}> يعرض بضائعه للبيع!`,
+            content: `✶ <@${ownerId}>`,
             embeds: [embed],
         }).catch(() => null);
 

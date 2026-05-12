@@ -598,7 +598,7 @@ async function handleWeaponUpgrade(i, user, guildId, db) {
 
 async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
     const raceName = await getUserRaceName(user, i.guild, db);
-    if (!raceName) return await replyWithCanvas(i, user, 'skill_home', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً!' }, [getReturnRow()], isInitial);
+    if (!raceName) return await replyWithCanvas(i, user, 'skill_home', { mora: 0, title: 'الاكاديمية', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً!' }, [getReturnRow()], isInitial);
     
     const raceSkillId = `race_${raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
     const skillsRes = await safeQuery(db, `SELECT * FROM user_skills WHERE "userID" = $1 AND "guildID" = $2`, [user.id, guildId]);
@@ -623,7 +623,7 @@ async function buildAcademyMenuUI(i, user, guildId, db, isInitial = false) {
     });
 
     const skillSelectRow = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('forge_skill_select').setPlaceholder('اختر مهارة للتعلم أو الصقل...').addOptions(skillOptions.slice(0, 25)));
-    return await replyWithCanvas(i, user, 'skill_home', { mora: userMora, title: 'أكاديمية السحر' }, [skillSelectRow, getReturnRow()], isInitial);
+    return await replyWithCanvas(i, user, 'skill_home', { mora: userMora, title: 'الاكاديمية' }, [skillSelectRow, getReturnRow()], isInitial);
 }
 
 async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
@@ -670,7 +670,7 @@ async function buildSkillUpgradeUI(i, user, guildId, db, skillId) {
     const wData = wpnRes?.rows?.[0] || null;
     
     const state = await getUpgradeState(i.client, db, user.id, guildId, currentLevel, true, skillId, roleRaceName, wData);
-    if (!state) return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'أكاديمية السحر', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً!' }, [getReturnRow()]);
+    if (!state) return await replyWithCanvas(i, user, 'skill_error', { mora: userMora, title: 'الاكاديمية', hasError: true, errorMsg: 'يجب اختيار عرقك أولاً!' }, [getReturnRow()]);
 
     const btnRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -689,7 +689,7 @@ async function handleSkillLearn(i, user, guildId, db, skillId) {
 
     try {
         const hasMora = await checkMora(i.client, db, user.id, guildId, LEARN_FEE);
-        if (!hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لتعلم المهارة!` }, [getReturnRow()]);
+        if (!hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'الاكاديمية', hasError: true, errorMsg: `لا تملك ${LEARN_FEE} مورا لتعلم المهارة!` }, [getReturnRow()]);
 
         await deductMora(i.client, db, user.id, guildId, LEARN_FEE);
         try {
@@ -726,8 +726,8 @@ async function handleSkillUpgrade(i, user, guildId, db, skillId) {
         const state = await getUpgradeState(i.client, db, user.id, guildId, currentLevel, true, skillId, roleRaceName, wData);
         if (!state) return;
 
-        if (!state.hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
-        if (!state.hasItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'أكاديمية السحر', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
+        if (!state.hasMora) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'الاكاديمية', hasError: true, errorMsg: 'لا تملك المورا الكافية للترقية!' }, [getReturnRow()]);
+        if (!state.hasItems) return await replyWithCanvas(i, user, 'skill_error', { mora: 0, title: 'الاكاديمية', hasError: true, errorMsg: 'لا تملك الموارد الكافية للترقية!' }, [getReturnRow()]);
 
         await deductMora(i.client, db, user.id, guildId, state.reqMora);
         await deductItems(db, user.id, guildId, state.detailedReqs);

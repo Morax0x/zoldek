@@ -168,9 +168,10 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
         const t = sel.target;
         if (t && !t.isDead) {
             const finalDmg = t.defending ? Math.floor(dmg * 0.5) : dmg;
+            const hpBefore = t.hp;
             const taken    = applyDamageToPlayer(t, finalDmg);
-            // Enforce real death in caravan context (bypass any dev-protection)
-            if (t.hp <= 0) { t.hp = 0; t.isDead = true; }
+            // Force death — no 1 HP protection in caravan combat
+            if (hpBefore - taken <= 0) { t.hp = 0; t.isDead = true; }
             log.push(`⚔️ **${enemy.name}** ضرب **${t.name}** (-${taken})`);
             if (t.isDead) {
                 log.push(`💀 **${t.name}** سقط!`);
@@ -663,7 +664,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                                     await i.followUp({ content: '❌ صحتك منخفضة جداً للتضحية!', flags: [MessageFlags.Ephemeral] }).catch(() => {});
                                     processingSet.delete(pid); return;
                                 }
-                                p.hp = Math.max(1, p.hp - sacrifice);
+                                p.hp = Math.max(0, p.hp - sacrifice);
                                 caravan.hp = Math.min(caravan.maxHp, caravan.hp + sacrifice);
                                 log.push(`💉 **${p.name}** ضحّى بـ${sacrifice} HP لإصلاح القافلة (+${sacrifice} 🐪)`);
                             } else {
@@ -736,18 +737,28 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                 break;
             }
 
-            // ── Disable buttons during enemy turn ─────────────────────────
-            await battleMsg.edit({ components: [] }).catch(() => {});
+            // ── Enemy turn — buttons stay visible but disabled ────────────
+            await battleMsg.edit({ components: makeBattleRows(true) }).catch(() => {});
 
             // ── Enemy turn ────────────────────────────────────────────────
             await processEnemyTurn(enemy, players, caravan, waveNum, log, thread);
             ensureDeadMarked(players);
 
-            // ── Mechanic 3: Loot Drop pickup window (15 s) ───────────────
+            // ── Mechanic 3: Loot Drop — deduct from staging, then pickup window ──
             if (caravan.pendingLootDrop) {
                 caravan.pendingLootDrop = false;
+
+                // Deduct real items from owner's staging area
+                const { stagingLootItems } = require('./market/market-db');
+                const looted = await stagingLootItems(db, hostId, guild.id, 0.10);
+                if (looted.length > 0) {
+                    log.push(`💀 سُرقت ${looted.length} بضاعة من سلّة التاجر!`);
+                }
+
                 const lootMsg = await thread.send({
-                    content: '📦 **بضاعة تساقطت من القافلة!** أول حارس يضغط ينقذها (15 ثانية).',
+                    content: looted.length > 0
+                        ? `📦 **سقطت ${looted.length} بضاعة من القافلة!** أول حارس يضغط ينقذها (15 ثانية).`
+                        : '📦 **بضاعة تساقطت من القافلة!** أول حارس يضغط ينقذها (15 ثانية).',
                     components: [new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('cvb_loot').setLabel('التقاط البضاعة').setEmoji('📦').setStyle(ButtonStyle.Success)
                     )],

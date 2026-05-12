@@ -297,7 +297,7 @@ function executeSkill(attacker, defender, skill, isOwner = false) {
         break;
     }
 
-    // ── المهارات العامة (أكاديمية السحر) ─────────────────────────
+    // ── المهارات العامة (الاكاديمية) ─────────────────────────
     
     case 'RNG':
     case 'Gamble_Dmg': {

@@ -411,7 +411,7 @@ async function generateForgeUI(userObj, view, data) {
             ctx.fillText('الرجاء اختيار القسم الذي تود زيارته من الأزرار بالأسفل', width/2, panelY + 330);
         }
         else if (activeView === 'skill_home') {
-            ctx.fillText('أكاديمية السحر', width/2, panelY + 270);
+            ctx.fillText('الاكاديمية', width/2, panelY + 270);
             ctx.fillStyle = '#AAAAAA'; ctx.font = 'bold 26px "Bein"';
             ctx.fillText('الرفوف مليئة بالمخطوطات... اختر المهارة المراد صقلها من القائمة', width/2, panelY + 330);
         }

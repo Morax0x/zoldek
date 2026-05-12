@@ -448,7 +448,7 @@ async function buildAcademyMenuUI(i, targetUser, guildId, db) {
     });
 
     const skillSelectRow = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('admin_forge_skill_select').setPlaceholder('اختر مهارة للتعلم أو الصقل...').addOptions(skillOptions.slice(0, 25)));
-    return await replyWithCanvas(i, targetUser, 'skill_home', { mora: userMora, title: 'أكاديمية السحر' }, [skillSelectRow, getReturnRow()]);
+    return await replyWithCanvas(i, targetUser, 'skill_home', { mora: userMora, title: 'الاكاديمية' }, [skillSelectRow, getReturnRow()]);
 }
 
 async function buildSkillUpgradeUI(i, targetUser, guildId, db, skillId) {

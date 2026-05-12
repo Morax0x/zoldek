@@ -283,7 +283,7 @@ function applySkillEffect(battleState, attackerId, skill, isHybridCall = false) 
             return `👑 **${attackerName}** قاد بتكتيك متقن! سبب **${finalDmg}** ضرر` + (fx.length > 0 ? ` [${fx.join(' · ')}]` : '');
         }
 
-        // ── المهارات العامة (أكاديمية السحر) متطابقة مع الدانجون ────────
+        // ── المهارات العامة (الاكاديمية) متطابقة مع الدانجون ────────
 
         case 'Gamble_Dmg':
         case 'RNG': {
