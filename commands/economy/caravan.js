@@ -77,6 +77,14 @@ function allItemsList() {
             });
         });
     }
+    if (upgradeMats?.skill_books) {
+        upgradeMats.skill_books.forEach(c => {
+            c.books.forEach(b => {
+                const imgUrl = b.image ? `${R2_BASE}/images/materials/${b.image}` : null;
+                list.push({ ...b, type: 'book', imgPath: imgUrl });
+            });
+        });
+    }
     return list;
 }
 

@@ -9,6 +9,8 @@ function getEquippedBuffs(equippedArtifacts) {
     const allItems = [];
     if (upgradeMats?.weapon_materials)
         upgradeMats.weapon_materials.forEach(race => race.materials.forEach(m => allItems.push(m)));
+    if (upgradeMats?.skill_books)
+        upgradeMats.skill_books.forEach(cat => cat.books.forEach(b => allItems.push(b)));
 
     const newBuffRatios = {
         Common: 0.005, Uncommon: 0.01, Rare: 0.02, Epic: 0.05, Legendary: 0.10
@@ -31,6 +33,8 @@ function getEquippedBuffs(equippedArtifacts) {
         if (slotIdx === 1) defenseBuff += total;
         if (slotIdx === 2) luckBuff    += total;
     }
+
+    speedBuff = Math.min(speedBuff, 0.20); // حد أقصى 20% للسرعة
 
     return { speedBuff, defenseBuff, luckBuff };
 }

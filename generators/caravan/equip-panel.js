@@ -37,7 +37,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
     await drawBg(ctx, 'hubbg');
-    await drawHeader(ctx, 'تجهيز القافلة', 'الحد الاقصى 3 ادوات (بحد أقصى 20 حبة لكل أداة)');
+    await drawHeader(ctx, 'تجهيز القافلة', 'السرعة حدها الأقصى 20%');
     drawCornerAccents(ctx);
 
     const RARITY_COL = {
@@ -104,7 +104,9 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
             const bPct = { Common: 0.005, Uncommon: 0.01, Rare: 0.02, Epic: 0.05, Legendary: 0.10 }[itm.rarity] || 0.005;
             const totalPct = (bPct * count * 100).toFixed(1).replace(/\.0$/, '');
-            const bLabel = `${['سرعة اضافية', 'دفاع اضافي', 'حظ اضافي'][s]} ${totalPct}%`;
+            const capped = s === 0 ? Math.min(parseFloat(totalPct), 20) : parseFloat(totalPct);
+            const cappedStr = capped.toFixed(1).replace(/\.0$/, '');
+            const bLabel = `${['سرعة اضافية', 'دفاع اضافي', 'حظ اضافي'][s]} ${cappedStr}%${s === 0 && capped >= 20 ? ' (حد أقصى)' : ''}`;
             R(ctx, bLabel, sx + sw - 20, sy0 + 135, 24, col);
 
             divLine(ctx, sx + 20, sy0 + 175, sw - 40, col + '44');
