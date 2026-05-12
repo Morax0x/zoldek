@@ -517,7 +517,10 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         try {
             const initPayload = await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild);
             battleMsg = await thread.send({ ...initPayload, components: makeBattleRows() });
-        } catch { break; }
+        } catch {
+            await thread.send('❌ فشل إرسال رسالة المعركة. إلغاء...').catch(() => {});
+            return { result: 'error', wavesCleared };
+        }
 
         // ── Round loop for this wave ──────────────────────────────────────
         let waveWon = false;
@@ -527,13 +530,15 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
             let   earlyEnd      = null;   // 'enemy_dead' | 'all_dead'
 
             const collector = battleMsg.createMessageComponentCollector({
-                filter: i => party.includes(i.user.id),
+                filter: i => {
+                    const p = players.find(pl => pl.id === i.user.id);
+                    return p && !p.isDead && party.includes(i.user.id);
+                },
                 time:   24 * 60 * 60 * 1000,
             });
 
             await new Promise(resolve => {
                 const turnTimer = setTimeout(async () => {
-                    // AFK players auto-skipped
                     const afk = players.filter(p => !p.isDead && !actedPlayers.includes(p.id));
                     for (const p of afk) {
                         p.skipCount = (p.skipCount || 0) + 1;
@@ -546,6 +551,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                         }
                     }
                     if (players.every(p => p.isDead)) earlyEnd = 'all_dead';
+                    await battleMsg.edit({ ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild)), components: [] }).catch(() => {});
                     collector.stop('turn_end');
                 }, TURN_TIMEOUT_MS);
 
@@ -561,10 +567,8 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                         const cid = i.customId;
 
                         if (cid === 'cvb_atk') {
-                            // Mechanic 2: Panic Mode — caravan < 30% HP
                             const inPanic = caravan.hp < caravan.maxHp * 0.30;
                             if (inPanic && pid !== hostId && Math.random() < 0.15) {
-                                // Guard misses due to panic
                                 log.push(`😰 **${p.name}** ذعر وأخطأ ضربته! (وضع الذعر)`);
                                 actedPlayers.push(pid); p.skipCount = 0;
                                 processingSet.delete(pid);
@@ -574,8 +578,11 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                             }
                             const res  = executeWeaponAttack(p, enemy, false);
                             let   dmgD = Math.max(0, res.damage || 0);
-                            if (inPanic && pid !== hostId) dmgD = Math.floor(dmgD * 1.20); // +20% dmg in panic
-                            enemy.hp = Math.max(0, enemy.hp - (inPanic && pid !== hostId ? Math.floor(res.damage * 0.20) : 0));
+                            if (inPanic && pid !== hostId) {
+                                const bonusDmg = Math.floor(dmgD * 0.20);
+                                enemy.hp = Math.max(0, enemy.hp - bonusDmg);
+                                dmgD += bonusDmg;
+                            }
                             p.totalDamage = (p.totalDamage || 0) + dmgD;
                             const panicTag = (inPanic && pid !== hostId) ? ' 😰(ذعر+20%)' : '';
                             log.push((res.log || `⚔️ **${p.name}** هاجم (-${dmgD})`) + panicTag);
@@ -682,16 +689,19 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                         // Ensure any 0-HP player is marked dead
                         ensureDeadMarked(players);
 
-                        // Immediate win check
+                        // Immediate win check — update embed before stopping
                         if (enemy.hp <= 0) {
                             enemy.hp  = 0;
                             earlyEnd  = 'enemy_dead';
+                            const winPayload = await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild);
+                            await battleMsg.edit({ ...winPayload, content: `✅ **سقط ${enemy.name}!**`, components: [] }).catch(() => {});
                             clearTimeout(turnTimer);
                             collector.stop('enemy_dead');
                             return;
                         }
                         if (players.every(p2 => p2.isDead)) {
                             earlyEnd = 'all_dead';
+                            await battleMsg.edit({ content: '☠️ **سقط الفريق بالكامل!**', components: [] }).catch(() => {});
                             clearTimeout(turnTimer);
                             collector.stop('all_dead');
                             return;
@@ -718,20 +728,20 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
             // ── Post-player-turn checks ───────────────────────────────────
             if (earlyEnd === 'all_dead' || players.every(p => p.isDead)) {
-                await battleMsg.edit({ content: '☠️ **سقط الفريق بالكامل!**', components: [] }).catch(() => {});
                 return { result: 'lose_players', wavesCleared };
             }
 
             if (earlyEnd === 'enemy_dead' || enemy.hp <= 0) {
                 waveWon = true;
-                const winPayload1 = await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild);
-                await battleMsg.edit({ ...winPayload1, content: `✅ **سقط ${enemy.name}!**`, components: [] }).catch(() => {});
                 break;
             }
 
+            // ── Disable buttons during enemy turn ─────────────────────────
+            await battleMsg.edit({ components: [] }).catch(() => {});
+
             // ── Enemy turn ────────────────────────────────────────────────
             await processEnemyTurn(enemy, players, caravan, waveNum, log, thread);
-            ensureDeadMarked(players);   // safety after enemy damage
+            ensureDeadMarked(players);
 
             // ── Mechanic 3: Loot Drop pickup window (15 s) ───────────────
             if (caravan.pendingLootDrop) {
@@ -745,7 +755,10 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
                 if (lootMsg) {
                     const lootCollector = lootMsg.createMessageComponentCollector({
-                        filter: i => party.includes(i.user.id) && !players.find(pl => pl.id === i.user.id)?.isDead,
+                        filter: i => {
+                            const p = players.find(pl => pl.id === i.user.id);
+                            return p && !p.isDead && party.includes(i.user.id);
+                        },
                         time: 15000, max: 1,
                     });
                     await new Promise(res => {
@@ -769,6 +782,13 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                 }
             }
 
+            // Refresh board with buttons re-enabled for next round
+            await battleMsg.edit({
+                ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild)),
+                components: makeBattleRows(),
+            }).catch(() => {});
+
+            // Post-enemy loss checks
             if (caravan.hp <= 0) {
                 await battleMsg.edit({ content: '🐪 **دُمِّرت القافلة!**', components: [] }).catch(() => {});
                 return { result: 'lose_caravan', wavesCleared };
@@ -779,16 +799,9 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
             }
             if (enemy.hp <= 0) {
                 waveWon = true;
-                const winPayload2 = await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild);
-                await battleMsg.edit({ ...winPayload2, content: `✅ **سقط ${enemy.name}!**`, components: [] }).catch(() => {});
+                await battleMsg.edit({ content: `✅ **سقط ${enemy.name}!**`, components: [] }).catch(() => {});
                 break;
             }
-
-            // Refresh board
-            await battleMsg.edit({
-                ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild)),
-                components: makeBattleRows(),
-            }).catch(() => {});
         } // end round loop
 
         wavesCleared = waveNum;
@@ -879,7 +892,7 @@ async function handleEscortReady(data) {
         await thread.send({ embeds: [failEmbed] }).catch(() => {});
     }
 
-    setTimeout(() => thread.delete().catch(() => {}), 12000);
+    setTimeout(() => thread.delete().catch(() => {}), 30000);
 
     if (typeof showHub === 'function') await showHub(hubMsg).catch(() => {});
 
@@ -954,7 +967,7 @@ async function handleAmbushReady(data) {
         await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم الغاء الرحلة.`).catch(() => {});
     }
 
-    setTimeout(() => thread.delete().catch(() => {}), 12000);
+    setTimeout(() => thread.delete().catch(() => {}), 30000);
 }
 
 // ─── Register Listeners (call once on bot ready) ──────────────────────────────
