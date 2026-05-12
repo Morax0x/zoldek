@@ -17,7 +17,7 @@ const { scheduleNpcSpawn } = require('./market-npc-ai');
 const { generateMarketSummaryCanvas } = require('../../../generators/caravan/market-summary-generator');
 const { resolveItemInfo } = require('./market-setup');
 
-const activeTimers = new Map();
+const activeTimers = new Map(); // kept for backwards compat
 
 async function createMarketThread(client, db, caravan, channelId) {
     try {
@@ -35,8 +35,14 @@ async function createMarketThread(client, db, caravan, channelId) {
         let channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
         if (!channel) return null;
 
+        let ownerName = ownerId;
+        try {
+            const member = await guild.members.fetch(ownerId).catch(() => null);
+            ownerName = member?.displayName || member?.user?.globalName || member?.user?.username || ownerId;
+        } catch {}
+
         const thread = await channel.threads.create({
-            name: `🏪 سوق-${dest.name.replace(/ /g, '-')}`,
+            name: `🏪 قافلة #${ownerName}`,
             autoArchiveDuration: 1440,
             type: ChannelType.PublicThread,
             reason: `سوق القافلة - ${dest.name}`,
@@ -77,12 +83,6 @@ async function createMarketThread(client, db, caravan, channelId) {
         }
 
         scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDurationMs);
-
-        const timer = setTimeout(async () => {
-            await closeMarketThread(client, db, thread.id, guildId);
-        }, marketDurationMs);
-
-        activeTimers.set(thread.id, timer);
 
         return { thread, marketDurationMs, listings };
     } catch (err) {
@@ -202,9 +202,8 @@ async function closeMarketThread(client, db, threadId, guildId, journeyRewards =
             await parentChannel.send(payload).catch(() => {});
         }
 
-        // Delete the thread and clear timer
+        // Delete the thread
         await thread.delete('انتهت جلسة السوق').catch(() => {});
-        clearTimer(threadId);
     } catch (err) {
         console.error('[closeMarketThread]', err);
     }

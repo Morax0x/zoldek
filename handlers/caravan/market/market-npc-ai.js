@@ -22,6 +22,17 @@ try { SEEDS_DATA = require('../../../json/seeds.json'); } catch(e) {}
 try { FISHING_DATA = require('../../../json/fishing-config.json'); } catch(e) {}
 try { POTIONS_DATA = require('../../../json/potions.json'); } catch(e) {}
 
+const CUSTOMER_NAMES = [
+    'سندباد', 'عجيب', 'زعتر', 'كرم', 'درويش', 'مرجان', 'ياقوت', 'عنبر',
+    'ميمون', 'زنجبيل', 'بهار', 'عطر', 'سراب', 'غيم', 'حجر', 'سهيل',
+    'نوار', 'وهج', 'شهاب', 'غدير', 'أثير', 'لجين', 'زبرجد', 'فيروز',
+    'نادر', 'بسّام', 'رافع', 'تاج', 'سيف', 'رمح', 'درع', 'قلم',
+    'كنار', 'صندل', 'عنقود', 'تمر', 'زيتون', 'رمان', 'تين', 'سفرجل',
+    'المنجد', 'الطواش', 'النوخذة', 'الساري', 'المهرّج', 'الحكيم', 'الساحر', 'الحداد',
+    'أبو ياسمين', 'أم كلثوم', 'ابن عرس', 'ذو الفقار', 'خالد', 'بسيمة',
+    'Riddle', 'Ashford', 'Merchant', 'Vagabond', 'Strider', 'Dusk',
+];
+
 const JONES_PRICES = new Map();
 for (const s of SEEDS_DATA) JONES_PRICES.set(s.id, { buy: s.price, sell: s.sell_price || s.price, name: s.name });
 for (const f of (FISHING_DATA.fishItems || [])) JONES_PRICES.set(f.id, { buy: f.price, sell: f.price, name: f.name });
@@ -100,51 +111,50 @@ async function callAI(systemPrompt, messages, jsonMode = false) {
 // ============================================================================
 async function generateDynamicCustomer(itemName, askingPrice, jonesPrice, maxAvailableQty) {
     const isCheap = askingPrice <= jonesPrice;
-    
+
     let npcInitialOffer = askingPrice;
     if (!isCheap) {
-        npcInitialOffer = Math.floor(jonesPrice * (0.6 + Math.random() * 0.4)); 
+        const minBid = Math.floor(jonesPrice * 0.55);
+        const maxBid = Math.floor(jonesPrice * 0.90);
+        npcInitialOffer = Math.max(minBid, Math.min(maxBid, Math.floor(jonesPrice * (0.6 + Math.random() * 0.3))));
     }
 
-    const requestedQty = Math.floor(Math.random() * Math.min(5, maxAvailableQty)) + 1;
+    const requestedQty = Math.max(1, Math.min(Math.floor(Math.random() * Math.min(3, maxAvailableQty)) + 1, 3));
 
-    const systemPrompt = `أنت زبون في سوق قوافل لعبة فانتازيا RPG.
-البائع يعرض سلعة باسم "${itemName}" وسعر الحبة الواحدة هو ${askingPrice} مورا. 
+    const randomName = CUSTOMER_NAMES[Math.floor(Math.random() * CUSTOMER_NAMES.length)];
+    let openingLine = '';
+    let openingOffer = npcInitialOffer;
+
+    const systemPrompt = `البائع يعرض سلعة باسم "${itemName}" وسعر الحبة الواحدة هو ${askingPrice} مورا
 السعر العادل والمعروف في السوق هو ${jonesPrice} مورا.
-أنت تريد شراء (${requestedQty}) حبة. وستفتتح كلامك وتعرض دفع ${npcInitialOffer} مورا للحبة الواحدة.
+اسمك "${randomName}". افتتح الكلام باقتراح شراء ${requestedQty} حبة.
 
-يجب أن ترجع كائن JSON حصراً:
-{
-  "name": "ابتكر لنفسك اسماً خيالياً أو لقباً (كلمة أو كلمتين كحد أقصى، كن مبدعاً ولا تعتمد على أسماء شائعة جداً)",
-  "openingLine": "الجملة الافتتاحية التي ستخاطب بها البائع، تقترح فيها سعرك (${npcInitialOffer} مورا للحبة) وتذكر أنك تريد ${requestedQty} حبة."
-}
+قواعد صارمة:
+1. إذا كان سعر البائع (${askingPrice}) <= السعر العادل (${jonesPrice}): وافق فوراً وقل أن السعر ممتاز.
+2. إذا كان أعلى: تفاوض واقترح سعراً بين ${npcInitialOffer} و ${jonesPrice}.
+3. كن طبيعياً، رد واحد فقط، لا تستخدم مصطلحات البوتات.
 
-قواعد الجملة الافتتاحية:
-1. كن طبيعياً جداً، ممنوع مصطلحات البوتات.
-2. إذا كان السعر المعروض (${askingPrice}) أقل من أو يساوي السعر المعروف (${jonesPrice}): قل أن السعر ممتاز وستشتري.
-3. إذا كان أعلى: صرح بأن السعر مبالغ فيه واقترح سعرك المخفض.
-لا تضف أي نص خارج الـ JSON.`;
+أرجع JSON:
+{ "openingLine": "جملتك الافتتاحية" }`;
 
     try {
         const aiResponse = await callAI(systemPrompt, [], true);
         if (aiResponse) {
             const cleanStr = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
             const data = JSON.parse(cleanStr);
-            if (data.name && data.openingLine) {
-                return { name: data.name, openingLine: data.openingLine, offer: npcInitialOffer, requestedQty };
+            if (data.openingLine) {
+                openingLine = data.openingLine;
             }
         }
     } catch(e) {}
-    
-    const suggestedPrice = Math.floor(jonesPrice * 0.8);
-    return {
-        name: 'زبون المجهول',
-        offer: npcInitialOffer,
-        requestedQty,
-        openingLine: isCheap 
-            ? `أرى أنك تبيع ${itemName} بـ ${askingPrice}، هذا سعر مناسب! أريد ${requestedQty} لو سمحت.`
-            : `أرى أنك تعرض ${itemName} بسعر غالي. السعر العادل هو ${jonesPrice}، سأدفع لك ${suggestedPrice} للحبة وأريد ${requestedQty}.`
-    };
+
+    if (!openingLine) {
+        openingLine = isCheap
+            ? `مرحباً! سعر ${itemName} مناسب جداً بـ ${askingPrice}، أريد ${requestedQty} حبة.`
+            : `${randomName} هنا، ${itemName} غالي شوي. السعر العادل ${jonesPrice}، أقترح ${npcInitialOffer} للحبة، خذ ${requestedQty}.`;
+    }
+
+    return { name: randomName, openingLine, offer: openingOffer, requestedQty };
 }
 
 // ============================================================================
@@ -172,21 +182,21 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
     const conversationHistory = conv.history.map(e => ({ role: e.role, content: e.role === 'assistant' ? `${conv.name}: ${e.content}` : `البائع: ${e.content}` }));
 
     const systemPrompt = `أنت الزبون "${conv.name}". تتفاوض لشراء عدد (${conv.requestedQty}) من "${conv.targetItemName}".
-السعر المعروف والعادل في السوق للحبة هو: ${conv.jonesPrice} مورا. 
-آخر سعر اقترحته أنت هو: ${conv.currentOffer} مورا للحبة.
+السعر العادل للحبة هو: ${conv.jonesPrice} مورا.
+آخر سعر عرضته: ${conv.currentOffer} مورا.
 
-قواعدك كمشتري ذكي (صارمة جداً لمنع الغباء الاصطناعي):
-1. 🛑 اقرأ رد البائع بعناية لتقييم أسلوبه: تفاعل معه، إذا كان حاداً أو مرناً رد عليه بأسلوب مناسب لشخصيتك.
-2. 🛑 لكي تقنعه بالبيع إذا رفض سعرك، يجب أن **ترفع** عرضك قليلاً لتقترب من سعره. من الغباء أن تقوم بخفض سعرك أثناء التفاوض لإقناع بائع!
-3. إذا وافق البائع على السعر الذي طرحته، أو طرح سعراً أقل من أو يساوي السعر المعروف، استخدم الكود فوراً لإنهاء الصفقة: [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:السعر_المتفق_عليه]
-4. إذا لم يوافق، اقترح سعراً جديداً أعلى من السعر الذي اقترحته سابقاً (ولكن لا يتجاوز ${conv.jonesPrice}) باستخدام الكود: [OFFER:سعرك_الجديد]
-5. 🛑 لا توافق أبداً على دفع أكثر من ${conv.jonesPrice} مورا للحبة الواحدة!
-6. إذا لم تتفقا أو غضبت، انسحب باستخدام: [LEAVE]
-7. رد بجملة واحدة فقط طبيعية.`;
+قواعد حديدية:
+1. اقرأ رد البائع جيداً، تفاعل معه كشخصية طبيعية.
+2. إذا وافق البائع على عرضك استخدم: [BUY_ITEM:${conv.targetListingId}:${conv.requestedQty}:السعر]
+3. إذا رفض، ارفع عرضك قليلاً (لا تنقصه!) واستخدم: [OFFER:سعر_جديد]
+4. ممنوع تتجاوز ${conv.jonesPrice} مورا للحبة!
+5. ممنوع توافق على سعر أقل من ${conv.currentOffer} (لا تنقص!).
+6. إذا تعطلت المفاوضة استخدم: [LEAVE]
+7. رد بجملة طبيعية قصيرة فقط.`;
 
     const messages = [...conversationHistory, { role: 'user', content: `البائع: ${userMessageStr}` }];
     const response = await callAI(systemPrompt, messages, false);
-    
+
     if (!response) return { message: '...', action: null };
 
     const action = parseNpcAction(response);
@@ -195,10 +205,12 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
     if (action?.action === 'buy') {
         let finalPrice = action.offeredPrice;
         if (finalPrice > conv.askingPrice) finalPrice = conv.askingPrice;
+        if (finalPrice < 1) finalPrice = conv.currentOffer;
+        if (finalPrice > conv.jonesPrice) finalPrice = conv.jonesPrice;
 
-        if (finalPrice > conv.jonesPrice * 1.5) {
+        if (finalPrice > conv.jonesPrice) {
             return {
-                message: `السعر العادل هو ${conv.jonesPrice} ولن أدفع أكثر. وداعاً!`,
+                message: `السعر العادل ${conv.jonesPrice} فقط، لن أدفع أكثر. وداعاً!`,
                 action: { action: 'leave' },
             };
         }
@@ -216,6 +228,12 @@ async function handleNpcHaggle(client, db, thread, conv, userMessageStr, ownerId
                 itemId: conv.targetItemId,
             },
         };
+    }
+
+    if (action?.action === 'haggle') {
+        if (action.newOffer <= conv.currentOffer || action.newOffer > conv.jonesPrice) {
+            return { message: 'عرضك غير منطقي، وداعاً!', action: { action: 'leave' } };
+        }
     }
 
     return { message: cleanMessage, action };
@@ -322,7 +340,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
         const convId = `conv_${thread.id}_${Date.now()}`;
         
         const randomColor = `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
-        const maxTurns = Math.floor(Math.random() * 3) + 1; // حد الصبر مخفي (1 إلى 3 محاولات)
+        const maxTurns = Math.floor(Math.random() * 3) + 3; // حد الصبر مخفي (3 إلى 5 محاولات)
 
         const randomImageNumber = Math.floor(Math.random() * 8) + 1;
         const imageUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/caravan/cu/customer${randomImageNumber}.png`;
@@ -453,7 +471,11 @@ async function handleNpcModalSubmit(interaction, client, db) {
 
 function scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDurationMs) {
     const destId = dest.id;
-    const maxNpcs = 5 + Math.floor(Math.random() * 3); 
+    const marketMinutes = marketDurationMs / 60000;
+    const totalNpcs = Math.max(2, Math.min(6, Math.floor(marketMinutes / 12)));
+    const spawnIntervalMs = Math.max(30000, Math.floor(marketDurationMs / (totalNpcs + 1)));
+
+    let spawned = 0;
 
     const interval = setInterval(async () => {
         try {
@@ -463,8 +485,7 @@ function scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDura
                 return;
             }
 
-            const npcSpawnCount = await getNpcSpawnCount(db, thread.id);
-            if (npcSpawnCount >= maxNpcs) {
+            if (spawned >= totalNpcs) {
                 clearInterval(interval);
                 return;
             }
@@ -477,11 +498,12 @@ function scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDura
                 }
             }
 
-            if (!isBusy && Math.random() < 0.60) {
+            if (!isBusy) {
                 await spawnNpc(client, db, thread, destId, ownerId, guildId);
+                spawned++;
             }
         } catch (err) { console.error('[scheduleNpcSpawn Interval Error]', err); }
-    }, 15000);
+    }, spawnIntervalMs);
 
     NpcSpawnIntervals.set(thread.id, interval);
 }

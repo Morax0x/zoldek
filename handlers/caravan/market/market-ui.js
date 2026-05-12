@@ -73,19 +73,7 @@ function buildMarketComponents(listings, threadId, page = 0) {
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(safePage >= totalPages - 1);
 
-        const priceBtn = new ButtonBuilder()
-            .setCustomId('mkt_owner_price')
-            .setLabel('💰 تغيير سعر')
-            .setStyle(ButtonStyle.Primary);
-
-        components.push(new ActionRowBuilder().addComponents(prevBtn, nextBtn, priceBtn));
-    } else {
-        // Single page: just price change button
-        const priceBtn = new ButtonBuilder()
-            .setCustomId('mkt_owner_price')
-            .setLabel('💰 تغيير سعر')
-            .setStyle(ButtonStyle.Primary);
-        components.push(new ActionRowBuilder().addComponents(priceBtn));
+        components.push(new ActionRowBuilder().addComponents(prevBtn, nextBtn));
     }
 
     return components;
