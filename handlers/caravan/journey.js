@@ -155,7 +155,7 @@ async function distributeRewards(client, db, caravan) {
                     `INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,$3,1)
                      ON CONFLICT ("guildID","userID","itemID") DO UPDATE SET "quantity"=user_inventory.quantity+1`,
                     [guildId, userId, item.id]);
-                summary.push(`📦 ${item.name} (${item.rarity})`);
+                summary.push(`📦 ${item.name}`);
             }
 
         } else if (dest.reward_type === 'nature') {
