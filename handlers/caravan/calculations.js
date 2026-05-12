@@ -1,44 +1,38 @@
 const { caravanConfig, upgradeMats } = require('./config');
 
 function getEquippedBuffs(equippedArtifacts) {
-    let speedBuff = 0, luckBuff = 0;
-    if (!equippedArtifacts || !equippedArtifacts.length) return { speedBuff, luckBuff };
+    let speedBuff = 0, defenseBuff = 0, luckBuff = 0;
+    if (!Array.isArray(equippedArtifacts) || equippedArtifacts.length < 3) {
+        return { speedBuff, defenseBuff, luckBuff };
+    }
 
     const allItems = [];
     if (upgradeMats?.weapon_materials)
         upgradeMats.weapon_materials.forEach(race => race.materials.forEach(m => allItems.push(m)));
-    if (upgradeMats?.skill_books)
-        upgradeMats.skill_books.forEach(cat => cat.books.forEach(b => allItems.push(b)));
 
-    // 👑 النسب الجديدة المعتمده (تتجاهل الكونفق القديم) 👑
     const newBuffRatios = {
-        Common: 0.005,    // عادي 0.5%
-        Uncommon: 0.01,   // شائع 1%
-        Rare: 0.02,       // نادر 2%
-        Epic: 0.05,       // ملحمي 5%
-        Legendary: 0.10   // أسطوري 10%
+        Common: 0.005, Uncommon: 0.01, Rare: 0.02, Epic: 0.05, Legendary: 0.10
     };
 
-    // قراءة كائنات الارتيفاكت مع حساب الكمية (Count)
-    for (const art of equippedArtifacts) {
-        // إذا كان النظام القديم لا يزال موجوداً بالخطأ كنصوص، نتفاداه
+    const slotTypes = ['speedBuff', 'defenseBuff', 'luckBuff'];
+    const buffKeys  = ['speedBuff', 'defenseBuff', 'luckBuff'];
+
+    for (let slotIdx = 0; slotIdx < 3; slotIdx++) {
+        const art = equippedArtifacts[slotIdx];
+        if (!art) continue;
         const itemId = typeof art === 'string' ? art : art.id;
         const count  = typeof art === 'object' && art.count ? Number(art.count) : 1;
-
-        const item = allItems.find(i => i.id === itemId);
+        const item   = allItems.find(i => i.id === itemId);
         if (!item) continue;
-
         const rarity = item.rarity || 'Common';
-        const isMat  = !!upgradeMats.weapon_materials?.some(race => race.materials.some(m => m.id === itemId));
-        
-        // ضرب تأثير الارتيفاكت الواحد في الكمية المجهزة بناءً على النسب الجديدة
-        if (isMat) {
-            speedBuff += (newBuffRatios[rarity] || 0.005) * count;
-        } else {
-            luckBuff  += (newBuffRatios[rarity] || 0.005) * count;
-        }
+        const ratio  = newBuffRatios[rarity] || 0.005;
+        const total  = ratio * count;
+        if (slotIdx === 0) speedBuff   += total;
+        if (slotIdx === 1) defenseBuff += total;
+        if (slotIdx === 2) luckBuff    += total;
     }
-    return { speedBuff, luckBuff };
+
+    return { speedBuff, defenseBuff, luckBuff };
 }
 
 function calcDuration(destConfig, stats, equippedBuffs) {
@@ -50,10 +44,10 @@ function calcDuration(destConfig, stats, equippedBuffs) {
     return Math.floor(baseMs * (1 - reduction));
 }
 
-function calcRiskFactor(destConfig, stats) {
+function calcRiskFactor(destConfig, stats, equippedBuffs) {
     const defRank   = Number(stats.defense_rank || 1);
     const defCfg    = caravanConfig.upgrades.defense;
-    const reduction = (defRank - 1) * defCfg.risk_reduction;
+    const reduction = (defRank - 1) * defCfg.risk_reduction + (equippedBuffs?.defenseBuff || 0);
     return Math.max(destConfig.risk_factor - reduction, 0.03);
 }
 

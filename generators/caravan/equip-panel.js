@@ -45,6 +45,9 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         Epic: '#B968FF',   Legendary: '#FFD700',
     };
 
+    const SLOT_NAMES = ['⚡ سرعة القافلة', '🛡️ دفاع القافلة', '🍀 حظ القافلة'];
+    const SLOT_COLORS = ['#00C3FF', '#2ECC71', '#FFD700'];
+
     const sw = 480, sh = 220, sgap = 30;
     const sx0 = (W - (3 * sw + sgap * 2)) / 2;
     const sy0 = 160;
@@ -52,21 +55,26 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     for (let s = 0; s < 3; s++) {
         const sx  = sx0 + s * (sw + sgap);
         
-        const eqObj = equipped[s] || null;
+        const eqObj = equipped ? equipped[s] : null;
         let id = null, count = 0;
-        if (eqObj) {
-            if (typeof eqObj === 'string') { id = eqObj; count = 1; }
-            else { id = eqObj.id; count = eqObj.count; }
+        if (eqObj && typeof eqObj === 'object') {
+            id = eqObj.id || null;
+            count = eqObj.count || 0;
+        } else if (typeof eqObj === 'string') {
+            id = eqObj; count = 1;
         }
         
         const itm = id ? allItems.find(x => x.id === id) : null;
+        const slotColor = SLOT_COLORS[s];
         const col = itm ? (RARITY_COL[itm.rarity] || C.textD) : '#2A3A4A';
 
-        drawPanel(ctx, sx, sy0, sw, sh, col, { noCorners: !itm, radius: 24 });
+        drawPanel(ctx, sx, sy0, sw, sh, itm ? col : slotColor, { noCorners: !itm, radius: 24 });
 
-        rr(ctx, sx + 20, sy0 + 20, 48, 36, 10);
-        ctx.fillStyle = col + '44'; ctx.fill();
-        M(ctx, String(s + 1), sx + 44, sy0 + 38, 24, col);
+        // Slot name label at top
+        rr(ctx, sx + 20, sy0 + 12, 48, 36, 10);
+        ctx.fillStyle = slotColor + '44'; ctx.fill();
+        M(ctx, String(['1','2','3'][s]), sx + 44, sy0 + 30, 22, slotColor);
+        R(ctx, SLOT_NAMES[s], sx + sw - 20, sy0 + 32, 26, slotColor);
 
         if (itm) {
             let hasImage = false;
@@ -87,25 +95,20 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
             if (!hasImage) {
                 ctx.font = `70px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-                ctx.fillText(itm.emoji || (itm.type === 'book' ? '📖' : '⚙️'), sx + 30, sy0 + 105);
+                ctx.fillText(itm.emoji || '⚙️', sx + 30, sy0 + 105);
             }
 
             const rarityArabic = RARITY_AR[itm.rarity] || itm.rarity;
             R(ctx, (itm.name || getItemNameSafe(id)).substring(0, 18), sx + sw - 20, sy0 + 55, 30, col);
             R(ctx, `${rarityArabic} | الكمية: ${count}`, sx + sw - 20, sy0 + 95, 24, C.textD);
 
-            const isMat = itm.type === 'material' || !itm.type?.includes('book');
-            
-            // 👑 تطبيق النسب الجديدة هنا 👑
-            const bPct  = { Common: 0.005, Uncommon: 0.01, Rare: 0.02, Epic: 0.05, Legendary: 0.10 }[itm.rarity] || 0.005;
-            
-            // عشان يطلع 0.5% وما يطلع 0.50% شكلها يغث
-            const totalPct = (bPct * count * 100).toFixed(1).replace(/\.0$/, ''); 
-            const bLabel = isMat ? `سرعة اضافية ${totalPct}%` : `حظ اضافي ${totalPct}%`;
+            const bPct = { Common: 0.005, Uncommon: 0.01, Rare: 0.02, Epic: 0.05, Legendary: 0.10 }[itm.rarity] || 0.005;
+            const totalPct = (bPct * count * 100).toFixed(1).replace(/\.0$/, '');
+            const bLabel = `${['سرعة اضافية', 'دفاع اضافي', 'حظ اضافي'][s]} ${totalPct}%`;
             R(ctx, bLabel, sx + sw - 20, sy0 + 135, 24, col);
 
             divLine(ctx, sx + 20, sy0 + 175, sw - 40, col + '44');
-            M(ctx, 'مجهزة بالقافلة (اضغط للإزالة)', sx + sw / 2, sy0 + 195, 22, '#4A7A4A');
+            M(ctx, 'مجهزة (اضغط الزر للإزالة)', sx + sw / 2, sy0 + 195, 22, '#4A7A4A');
         } else {
             ctx.globalAlpha = 0.20;
             ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -115,7 +118,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         }
     }
 
-    const buffs = core.getEquippedBuffs(equipped);
+    const buffs = core.getEquippedBuffs(equipped || [null, null, null]);
     const sumY  = sy0 + sh + 35;
     const sbg   = ctx.createLinearGradient(60, sumY, W - 60, sumY + 70);
     sbg.addColorStop(0, 'rgba(0,195,255,0.08)');
@@ -125,7 +128,8 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
     ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2;
     rr(ctx, 60, sumY, W - 120, 70, 16); ctx.stroke();
 
-    const bText = `اجمالي السرعة ${(buffs.speedBuff * 100).toFixed(1).replace(/\.0$/, '')}%   |   اجمالي الحظ ${(buffs.luckBuff * 100).toFixed(1).replace(/\.0$/, '')}%`;
+    const fmtPct = (v) => (v * 100).toFixed(1).replace(/\.0$/, '');
+    const bText = `⚡ سرعة ${fmtPct(buffs.speedBuff)}%   |   🛡️ دفاع ${fmtPct(buffs.defenseBuff || 0)}%   |   🍀 حظ ${fmtPct(buffs.luckBuff)}%`;
     M(ctx, bText, W / 2, sumY + 35, 30, C.text);
 
     const gridY = sumY + 90;
@@ -153,11 +157,8 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
         const itm  = allItems.find(x => x.id === id);
         const col  = itm ? (RARITY_COL[itm.rarity] || C.textD) : '#334455';
         
-        const eqObj = equipped.find(x => {
-            if (typeof x === 'string') return x === id;
-            return x.id === id;
-        });
-        const isEq = !!eqObj;
+        const eqIdx = Array.isArray(equipped) ? equipped.findIndex(x => x && (typeof x === 'string' ? x === id : x.id === id)) : -1;
+        const isEq = eqIdx !== -1;
         const availableQty = Number(row.quantity || row.QUANTITY || 0);
         
         const ix   = igx + (i % cols) * (iw + igap);
@@ -192,7 +193,7 @@ async function generateEquipPanel(user, equipped, invRows, allItems, mora) {
 
         if (!hasGridImage) {
             ctx.font = `50px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(itm?.emoji || (itm?.type === 'book' ? '📖' : '⚙️'), ix + iw / 2, iy + 42);
+            ctx.fillText(itm?.emoji || '⚙️', ix + iw / 2, iy + 42);
         }
 
         const rarityArabic = RARITY_AR[itm?.rarity] || itm?.rarity || '';
