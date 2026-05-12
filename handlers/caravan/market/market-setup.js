@@ -394,7 +394,7 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
             const pricePerUnit = priceKey ? s[priceKey] : 0;
             
             const info = resolveItemInfo(itemId);
-            return { id: itemId, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity, pricePerUnit, imgPath: info.imgPath };
+            return { id: itemId, name: info.name, emoji: info.emoji, rarity: info.rarity, quantity, pricePerUnit, imgPath: info.imgPath, fullImage: info.fullImage };
         });
     } else {
         currentItems = categoriesData[state.category] || [];
@@ -428,6 +428,7 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
                 imgPath:     item.imgPath || null,
                 quantity:    item.quantity || 0,
                 pricePerUnit: isCart ? (Number(item.pricePerUnit) || 0) : undefined,
+                fullImage:   item.fullImage === true,
             }));
             buffer = await STAGING_GEN.generateStagingCanvas(
                 user.displayName || user.username,

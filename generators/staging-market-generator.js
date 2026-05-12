@@ -282,11 +282,20 @@ async function generateStagingCanvas(userName, items, page, totalPages, mora, st
         if (item.imgPath) {
             const img = await getCachedImage(item.imgPath);
             if (img) {
-                const pad = 25;
-                ctx.shadowColor = rc;
-                ctx.shadowBlur = 40;
-                ctx.drawImage(img, x + pad, y + pad - 15, slotSize - pad * 2, slotSize - pad * 2);
-                ctx.shadowBlur = 0;
+                if (item.fullImage) {
+                    ctx.save();
+                    ctx.beginPath();
+                    rr(ctx, x + 2, y + 2, slotSize - 4, slotSize - 4, 15);
+                    ctx.clip();
+                    ctx.drawImage(img, x + 2, y + 2, slotSize - 4, slotSize - 4);
+                    ctx.restore();
+                } else {
+                    const pad = 25;
+                    ctx.shadowColor = rc;
+                    ctx.shadowBlur = 40;
+                    ctx.drawImage(img, x + pad, y + pad - 15, slotSize - pad * 2, slotSize - pad * 2);
+                    ctx.shadowBlur = 0;
+                }
                 imgDrawn = true;
             }
         }
