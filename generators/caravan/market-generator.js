@@ -248,7 +248,7 @@ async function generateMarketCanvas(listings, dest, page = 0) {
 
     if (activeListings.length === 0) {
         ctx.shadowColor = C.red + '88'; ctx.shadowBlur = 20;
-        M(ctx, '🛒 لا توجد بضائع متاحة حالياً', W / 2, H / 2, 42, C.red);
+        M(ctx, '🛒 لا توجد بضائع متاحة حاليا', W / 2, H / 2, 42, C.red);
         ctx.shadowBlur = 0;
         return toBuf(canvas);
     }

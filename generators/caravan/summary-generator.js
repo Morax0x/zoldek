@@ -272,8 +272,8 @@ async function generateCaravanResultImage(result, players, caravan, wavesCleared
         const titleMap = {
             'win':          { text: '🎉 انتصار! الطريق آمن!',     color: '#4CAF50' },
             'escape':       { text: '🐪 هرب القائد بالقافلة!',      color: '#F5A623' },
-            'lose_players': { text: '☠️ سقط الجميع! القافلة نُهبت!', color: '#ef5350' },
-            'lose_caravan': { text: '🐪 دُمِّرت القافلة!',           color: '#ef5350' },
+            'lose_players': { text: '☠️ سقط الجميع! القافلة نهبت!', color: '#ef5350' },
+            'lose_caravan': { text: '🐪 دمرت القافلة!',           color: '#ef5350' },
             'lose_timeout': { text: '⏰ انتهى الوقت! هزيمة!',       color: '#ef5350' },
         };
         const titleInfo = titleMap[result] || { text: 'نهاية المعركة', color: '#fff' };

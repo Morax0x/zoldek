@@ -1,7 +1,7 @@
 const { loadImage } = require('@napi-rs/canvas');
 const {
     createCanvas, W, H, FA, FE, C,
-    rr, drawBg, drawCornerAccents, divLine, M, truncate, toBuf,
+    rr, drawBg, drawCornerAccents, divLine, M, truncate, toBuf, fetchImageSafe,
 } = require('./shared');
 
 const RARITY_COLORS = {
@@ -14,23 +14,12 @@ const RARITY_COLORS = {
 
 function itemColor(rarity) { return RARITY_COLORS[rarity] || C.textD; }
 
-// Strip Discord custom emoji syntax (<:name:id> / <a:name:id>) so canvas can render
 function cleanForCanvas(str) {
     return String(str)
         .replace(/<a?:mora:\d+>/gi, 'مورا')
         .replace(/<a?:[^:]+:\d+>/g, '');
 }
 
-/**
- * @param {object} opts
- * @param {string}   opts.destName
- * @param {string}   opts.ownerName       — guild display name (nickname)
- * @param {string}   [opts.avatarUrl]     — Discord CDN avatar URL (png, 128px)
- * @param {Array}    opts.soldItems
- * @param {Array}    opts.unsoldItems
- * @param {number}   opts.totalEarned
- * @param {string[]} [opts.journeyRewards] — reward strings from distributeRewards()
- */
 async function generateMarketSummaryCanvas({
     destName, ownerName, avatarUrl = null,
     soldItems, unsoldItems, totalEarned, journeyRewards = [],
@@ -38,30 +27,39 @@ async function generateMarketSummaryCanvas({
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
 
-    // Load avatar (best-effort; null is fine)
     let avatarImg = null;
     if (avatarUrl) {
         try { avatarImg = await loadImage(avatarUrl); } catch {}
     }
 
+    // Background with destination image
+    const destImg = await fetchImageSafe(destName || '');
     await drawBg(ctx, 'marketbg');
-
     ctx.fillStyle = 'rgba(6,8,15,0.82)'; ctx.fillRect(0, 0, W, H);
 
-    const glowG = ctx.createRadialGradient(W / 2, H / 3, 0, W / 2, H / 3, 500);
-    glowG.addColorStop(0, 'rgba(245,197,24,0.10)'); glowG.addColorStop(1, 'transparent');
+    if (destImg) {
+        ctx.save();
+        ctx.globalAlpha = 0.15;
+        const scale = Math.max(W / destImg.width, H / destImg.height);
+        const dx = (W - destImg.width * scale) / 2;
+        const dy = (H - destImg.height * scale) / 2;
+        ctx.drawImage(destImg, dx, dy, destImg.width * scale, destImg.height * scale);
+        ctx.restore();
+    }
+
+    const glowG = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, 700);
+    glowG.addColorStop(0, 'rgba(245,197,24,0.06)'); glowG.addColorStop(1, 'transparent');
     ctx.fillStyle = glowG; ctx.fillRect(0, 0, W, H);
 
     drawCornerAccents(ctx);
 
-    // ── Header (178px tall to hold avatar + name) ──
+    // ── Header ──
     const HEADER_H = 178;
     const headerGrad = ctx.createLinearGradient(0, 0, 0, HEADER_H);
     headerGrad.addColorStop(0, 'rgba(0,0,0,0.96)');
     headerGrad.addColorStop(1, 'transparent');
     ctx.fillStyle = headerGrad; ctx.fillRect(0, 0, W, HEADER_H);
 
-    // Gold separator line
     const lineG = ctx.createLinearGradient(0, 0, W, 0);
     lineG.addColorStop(0,    'transparent');
     lineG.addColorStop(0.15, C.gold + '66');
@@ -76,33 +74,27 @@ async function generateMarketSummaryCanvas({
     ctx.translate(W / 2, HEADER_H - 17); ctx.rotate(Math.PI / 4); ctx.fillRect(-6, -6, 12, 12);
     ctx.restore();
 
-    // Title
     ctx.shadowColor = C.gold + '55'; ctx.shadowBlur = 22;
     M(ctx, `📋 تقرير الرحلة النهائي — ${destName}`, W / 2, 46, 36, C.text);
     ctx.shadowBlur = 0;
 
-    // ── Avatar + Name group (centred in lower header) ──
-    const AVT_R  = 36;        // radius
-    const GRP_CY = 116;       // vertical centre of the avatar+name row
-    // We anchor the group so avatar+name sit around W/2
+    // ── Avatar + Name ──
+    const AVT_R  = 36;
+    const GRP_CY = 116;
     const AVT_CX = W / 2 - 150;
 
     if (avatarImg) {
         ctx.save();
-        // Outer glow ring
         ctx.shadowColor = C.gold + '99'; ctx.shadowBlur = 18;
         ctx.beginPath(); ctx.arc(AVT_CX, GRP_CY, AVT_R + 3, 0, Math.PI * 2);
         ctx.strokeStyle = C.gold + '88'; ctx.lineWidth = 2.5; ctx.stroke();
         ctx.shadowBlur = 0;
-        // Circular clip for avatar image
         ctx.beginPath(); ctx.arc(AVT_CX, GRP_CY, AVT_R, 0, Math.PI * 2); ctx.clip();
         ctx.drawImage(avatarImg, AVT_CX - AVT_R, GRP_CY - AVT_R, AVT_R * 2, AVT_R * 2);
         ctx.restore();
-        // Crisp ring on top
         ctx.beginPath(); ctx.arc(AVT_CX, GRP_CY, AVT_R, 0, Math.PI * 2);
         ctx.strokeStyle = C.gold + 'BB'; ctx.lineWidth = 2; ctx.stroke();
     } else {
-        // Placeholder
         ctx.beginPath(); ctx.arc(AVT_CX, GRP_CY, AVT_R, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(255,215,0,0.10)'; ctx.fill();
         ctx.strokeStyle = C.gold + '55'; ctx.lineWidth = 2; ctx.stroke();
@@ -110,7 +102,6 @@ async function generateMarketSummaryCanvas({
         ctx.fillStyle = C.gold; ctx.fillText('👤', AVT_CX, GRP_CY);
     }
 
-    // Name pill to the right of the avatar
     const pillX = AVT_CX + AVT_R + 18;
     const pillW = 360;
     const pillH = 56;
@@ -118,13 +109,11 @@ async function generateMarketSummaryCanvas({
     ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fill();
     ctx.strokeStyle = C.gold + '33'; ctx.lineWidth = 1; ctx.stroke();
 
-    // Label "التاجر" small
     ctx.font = `13px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textD;
     ctx.fillText('التاجر', pillX + pillW - 16, GRP_CY - 11);
 
-    // Display name (nickname)
     ctx.font = `bold 22px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.text;
@@ -150,14 +139,14 @@ async function generateMarketSummaryCanvas({
     ctx.fillStyle = C.gold + '88'; ctx.fill();
     ctx.restore();
 
-    M(ctx, '💰 إجمالي أرباح السوق', W / 2, earnY + 28, 19, C.textD);
+    M(ctx, '💰 إجمالي ارباح السوق', W / 2, earnY + 28, 19, C.textD);
     ctx.shadowColor = C.gold + 'AA'; ctx.shadowBlur = 20;
     M(ctx, `${totalEarned.toLocaleString()} مورا`, W / 2, earnY + 68, 40, C.gold);
     ctx.shadowBlur = 0;
 
-    // ── Column + Journey layout ──
+    // ── Columns ──
     const HAS_JOURNEY = journeyRewards && journeyRewards.length > 0;
-    const JRY_H  = HAS_JOURNEY ? 112 : 0;
+    const JRY_H  = HAS_JOURNEY ? 130 : 0;
     const COL_Y  = earnY + earnH + 16;
     const COL_H  = H - COL_Y - JRY_H - (HAS_JOURNEY ? 14 : 0) - 28;
     const LEFT_X  = 34;
@@ -166,7 +155,7 @@ async function generateMarketSummaryCanvas({
     const RIGHT_W = W / 2 - 50;
 
     drawColumn(ctx, RIGHT_X, COL_Y, RIGHT_W, COL_H, soldItems,   '✅ البضائع المباعة',   C.green);
-    drawColumn(ctx, LEFT_X,  COL_Y, LEFT_W,  COL_H, unsoldItems, '📦 البضائع المُرجعة', '#8A9AAA');
+    drawColumn(ctx, LEFT_X,  COL_Y, LEFT_W,  COL_H, unsoldItems, '📦 البضائع المرتجعة', '#8A9AAA');
 
     if (HAS_JOURNEY) {
         drawJourneyRewards(ctx, LEFT_X, COL_Y + COL_H + 14, W - LEFT_X * 2, JRY_H, journeyRewards);
@@ -174,8 +163,6 @@ async function generateMarketSummaryCanvas({
 
     return toBuf(canvas);
 }
-
-// ── Column helper ──────────────────────────────────────────────────────────────
 
 function drawColumn(ctx, x, y, w, h, items, title, accentColor) {
     rr(ctx, x, y, w, h, 18);
@@ -263,10 +250,7 @@ function drawColumn(ctx, x, y, w, h, items, title, accentColor) {
     }
 }
 
-// ── Journey Rewards Strip ──────────────────────────────────────────────────────
-
 function drawJourneyRewards(ctx, x, y, w, h, rewards) {
-    // Panel
     rr(ctx, x, y, w, h, 16);
     const jg = ctx.createLinearGradient(x, y, x + w, y + h);
     jg.addColorStop(0,   'rgba(80,40,190,0.18)');
@@ -280,7 +264,6 @@ function drawJourneyRewards(ctx, x, y, w, h, rewards) {
     ctx.fillStyle = '#8B5CF6' + 'AA'; ctx.fill();
     ctx.restore();
 
-    // Title
     ctx.font = `bold 18px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#C4B5FD';
@@ -290,7 +273,6 @@ function drawJourneyRewards(ctx, x, y, w, h, rewards) {
 
     divLine(ctx, x + 16, y + 42, w - 32, '#8B5CF6' + '44');
 
-    // Clean strings and lay them out in a 3-column grid
     const cleaned  = rewards.map(cleanForCanvas).filter(Boolean);
     const COLS     = 3;
     const cellW    = Math.floor((w - 32) / COLS);
@@ -303,9 +285,8 @@ function drawJourneyRewards(ctx, x, y, w, h, rewards) {
         const cx   = x + 16 + col * cellW;
         const cy   = rowStartY + row * rowH;
 
-        if (cy + rowH > y + h - 4) break; // clip guard
+        if (cy + rowH > y + h - 4) break;
 
-        // Small pill background
         const label = cleaned[i];
         ctx.font = `bold 15px ${FA}`; ctx.direction = 'ltr';
         const tw = ctx.measureText(label).width;

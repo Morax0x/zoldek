@@ -189,7 +189,7 @@ async function generateCaravanEvent(user, dest, eventType, data = {}) {
         ctx.textAlign = 'right';
         ctx.font = `28px ${FONT_WORD}`; ctx.fillStyle = '#FFF';
         const isWin = eventType.includes('win') || eventType === 'guard_ok';
-        ctx.fillText(isWin ? 'سُحق المعتدون تماماً!' : 'كُسرت القافلة ونُهبت!', boxX + 620, textY + 50);
+        ctx.fillText(isWin ? 'سحق المعتدون تماما!' : 'كسرت القافلة ونهبت!', boxX + 620, textY + 50);
 
         ctx.font = `18px ${FONT_WORD}`; ctx.fillStyle = '#AAA';
         ctx.fillText(isWin ? 'البضائع في طريقها بأمان.' : 'ضاعت الموارد في غبار المعركة.', boxX + 620, textY + 95);
