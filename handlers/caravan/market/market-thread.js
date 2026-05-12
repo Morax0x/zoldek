@@ -62,17 +62,7 @@ async function createMarketThread(client, db, caravan, channelId) {
 
         const listings = await getListingsBySession(db, thread.id);
 
-        let timeStr;
-        const mins = Math.floor(marketDurationMs / 60000);
-        if (mins >= 1440) timeStr = `in ${Math.floor(mins / 1440)} days`;
-        else if (mins >= 60) timeStr = `in ${Math.floor(mins / 60)} hours`;
-        else timeStr = `in ${mins} minutes`;
-
-        let avatarUrl = null;
-        try {
-            const member = await guild.members.fetch(ownerId).catch(() => null);
-            avatarUrl = member?.user?.displayAvatarURL({ extension: 'png', size: 128 }) || null;
-        } catch {}
+        const endTimestamp = Math.floor((Date.now() + marketDurationMs) / 1000);
 
         let serverIconUrl = guild.iconURL({ extension: 'png', size: 128 }) || null;
 
@@ -81,11 +71,10 @@ async function createMarketThread(client, db, caravan, channelId) {
             .setTitle('✥ سـوق الـقافـلـة')
             .setDescription(
                 `✦ قـافـلـتـك تتجه الـى: **${dest.emoji} ${dest.name}**\n` +
-                `✦ عـرضـت بـضـاعتـك للبيـع\n\n` +
-                `✦ يستمر ترخيص متـجرك الـى: **${timeStr}**\n` +
+                `✦ عـرضـت بـضـاعتـك للبيـع\n` +
+                `✦ يستمر ترخيص متـجرك الـى:\n<t:${endTimestamp}:R>\n` +
                 `✦ عدد العناصر: **${listings.length}**`
             )
-            .setThumbnail(avatarUrl)
             .setFooter({ text: 'discord.gg/EMM  |  ™ Empire | الامبراطورية', iconURL: serverIconUrl });
 
         const announcement = await thread.send({

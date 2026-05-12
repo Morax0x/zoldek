@@ -31,14 +31,14 @@ async function loadCachedImg(url) {
     } catch { return null; }
 }
 
-// Grid layout
-const MARGIN_X   = 36;
-const MARGIN_TOP  = 152;
-const CARD_W     = 356;
-const CARD_H     = 316;
-const GAP_X      = 32;
-const GAP_Y      = 20;
-const FOOTER_H   = 72;
+// Grid layout (4 cols × 2 rows, bigger cards, less empty space)
+const MARGIN_X   = 20;
+const MARGIN_TOP  = 140;
+const CARD_W     = 378;
+const CARD_H     = 344;
+const GAP_X      = 16;
+const GAP_Y      = 12;
+const FOOTER_H   = 60;
 
 function cardX(col) { return MARGIN_X + col * (CARD_W + GAP_X); }
 function cardY(row) { return MARGIN_TOP + row * (CARD_H + GAP_Y); }
@@ -91,10 +91,10 @@ async function drawItemCard(ctx, listing, info, x, y) {
     ctx.fillStyle = barG; ctx.fill();
     ctx.restore();
 
-    // ── Item image (100×100) ──
-    const imgSize = 100;
+    // ── Item image (130×130) ──
+    const imgSize = 130;
     const imgX = x + (CARD_W - imgSize) / 2;
-    const imgY = y + 18;
+    const imgY = y + 14;
 
     const itemImg = await loadCachedImg(info.imgPath);
     if (itemImg) {
@@ -133,19 +133,19 @@ async function drawItemCard(ctx, listing, info, x, y) {
     ctx.shadowBlur = 0;
 
     // Divider after image
-    divLine(ctx, x + 14, y + 128, CARD_W - 28, 'rgba(255,255,255,0.10)');
+    divLine(ctx, x + 14, y + 152, CARD_W - 28, 'rgba(255,255,255,0.10)');
 
     // ── Item name ──
     ctx.font = `bold 24px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.text;
     ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 8;
-    const nameStr = truncate(info.name || (listing.itemid || listing.itemID || '?'), 17);
-    ctx.fillText(nameStr, x + CARD_W / 2, y + 152);
+    const nameStr = truncate(info.name || (listing.itemid || listing.itemID || '?'), 18);
+    ctx.fillText(nameStr, x + CARD_W / 2, y + 178);
     ctx.shadowBlur = 0;
 
     // ── Quantity bar ──
-    const qtyBarX = x + 18, qtyBarY = y + 192, qtyBarW = CARD_W - 36, qtyBarH = 28;
+    const qtyBarX = x + 18, qtyBarY = y + 218, qtyBarW = CARD_W - 36, qtyBarH = 28;
     rr(ctx, qtyBarX, qtyBarY, qtyBarW, qtyBarH, 8);
     ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1; ctx.stroke();
@@ -172,7 +172,7 @@ async function drawItemCard(ctx, listing, info, x, y) {
     ctx.shadowBlur = 0;
 
     // ── Price ──
-    const priceLabelY = y + 234;
+    const priceLabelY = y + 260;
     ctx.font = `18px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textD;

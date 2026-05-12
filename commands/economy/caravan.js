@@ -101,7 +101,7 @@ function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
     if (!hasActiveCaravan) {
         row.addComponents(
             new ButtonBuilder().setCustomId('cv_send').setLabel('📤 إرسال رحلة').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('🏪 متجر القافلة').setStyle(ButtonStyle.Success).setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('تجهيز البضاعة').setEmoji('🏪').setStyle(ButtonStyle.Success).setDisabled(disabled),
             new ButtonBuilder().setCustomId('cv_equip').setLabel('🔮 التجهيز').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
         );
     } else {
@@ -117,7 +117,7 @@ function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
     }
     
     row.addComponents(
-        new ButtonBuilder().setCustomId('cv_upgrade').setLabel('🏗️ الترقيات').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+        new ButtonBuilder().setCustomId('cv_upgrade').setEmoji('❗').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
     );
 
     return row;
