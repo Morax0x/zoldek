@@ -1,7 +1,7 @@
 const { loadImage } = require('@napi-rs/canvas');
 const {
     createCanvas, W, H, FA, FE, C,
-    rr, drawBg, drawCornerAccents, divLine, M, truncate, toBuf, fetchImageSafe,
+    rr, drawBg, drawCornerAccents, divLine, truncate, toBuf, fetchImageSafe,
 } = require('./shared');
 
 const RARITY_COLORS = {
@@ -33,6 +33,22 @@ function formatReward(str) {
     return s.trim();
 }
 
+// دالة مخصصة للرسم الاحترافي للكلمات بدون انعكاس
+function drawText(ctx, text, x, y, font, color, align = 'center', glow = 0) {
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    if (glow > 0) {
+        ctx.shadowColor = color;
+        ctx.shadowBlur = glow;
+    } else {
+        ctx.shadowBlur = 0;
+    }
+    ctx.fillText(text, x, y);
+    ctx.shadowBlur = 0;
+}
+
 async function generateMarketSummaryCanvas({
     destName, destId = null, destColor = '#FFD700', ownerName, avatarUrl = null,
     soldItems, unsoldItems, totalEarned, journeyRewards = [],
@@ -40,21 +56,23 @@ async function generateMarketSummaryCanvas({
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
     const TC = destColor;
-    const HAS_MARKET = Number(totalEarned) > 0 || (soldItems && soldItems.length > 0);
-    const MARGIN = 40;
+    const HAS_MARKET = Number(totalEarned) > 0 || (soldItems && soldItems.length > 0) || (unsoldItems && unsoldItems.length > 0);
+    const MARGIN = 50;
 
     let avatarImg = null;
     if (avatarUrl) {
         try { avatarImg = await loadImage(avatarUrl); } catch {}
     }
 
+    // 1. الخلفية السينمائية
     const destImg = await fetchImageSafe(destId || destName || '');
     await drawBg(ctx, 'marketbg');
-    ctx.fillStyle = 'rgba(6,8,15,0.82)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(6, 9, 16, 0.88)'; 
+    ctx.fillRect(0, 0, W, H);
 
     if (destImg) {
         ctx.save();
-        ctx.globalAlpha = 0.12;
+        ctx.globalAlpha = 0.15;
         const scale = Math.max(W / destImg.width, H / destImg.height);
         const dx = (W - destImg.width * scale) / 2;
         const dy = (H - destImg.height * scale) / 2;
@@ -62,292 +80,200 @@ async function generateMarketSummaryCanvas({
         ctx.restore();
     }
 
-    const glowG = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, 700);
-    glowG.addColorStop(0, hexToRgba(TC, 0.06));
+    const glowG = ctx.createRadialGradient(W / 2, 200, 0, W / 2, 200, 800);
+    glowG.addColorStop(0, hexToRgba(TC, 0.12));
     glowG.addColorStop(1, 'transparent');
     ctx.fillStyle = glowG; ctx.fillRect(0, 0, W, H);
 
     drawCornerAccents(ctx);
 
-    // ═══════════════ HEADER ═══════════════
-    const HEADER_H = 155;
-    const hGrad = ctx.createLinearGradient(0, 0, 0, HEADER_H);
-    hGrad.addColorStop(0, 'rgba(0,0,0,0.95)');
-    hGrad.addColorStop(1, 'transparent');
-    ctx.fillStyle = hGrad; ctx.fillRect(0, 0, W, HEADER_H);
-
-    const lineG = ctx.createLinearGradient(0, 0, W, 0);
-    lineG.addColorStop(0,    'transparent');
-    lineG.addColorStop(0.15, hexToRgba(TC, 0.3));
-    lineG.addColorStop(0.35, TC);
-    lineG.addColorStop(0.65, TC);
-    lineG.addColorStop(0.85, hexToRgba(TC, 0.3));
-    lineG.addColorStop(1,    'transparent');
-    ctx.fillStyle = lineG; ctx.fillRect(0, HEADER_H - 16, W, 2);
-    ctx.shadowColor = hexToRgba(TC, 0.5); ctx.shadowBlur = 30;
-    ctx.fillRect(0, HEADER_H - 16, W, 2);
-    ctx.shadowBlur = 0;
-
-    ctx.save();
-    ctx.fillStyle = TC; ctx.shadowColor = TC; ctx.shadowBlur = 20;
-    ctx.translate(W / 2, HEADER_H - 15); ctx.rotate(Math.PI / 4); ctx.fillRect(-5, -5, 10, 10);
-    ctx.restore();
-
-    ctx.shadowColor = hexToRgba(TC, 0.4); ctx.shadowBlur = 25;
-    M(ctx, `📋 ${destName}`, W / 2, 38, 34, C.text);
-
-    ctx.font = `16px ${FA}`; ctx.direction = 'rtl';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = hexToRgba(TC, 0.7);
-    ctx.shadowBlur = 0;
-    ctx.fillText('تقرير الرحلة النهائي', W / 2, 66);
-
-    const AVT_R  = 32;
-    const AVT_CY = 110;
-    const AVT_CX = MARGIN + AVT_R + 10;
+    // 2. الهيدر (العنوان ومعلومات اللاعب)
+    drawText(ctx, `تقرير السوق النهائي — ${destName}`, W / 2, 60, `bold 36px ${FA}`, TC, 'center', 20);
+    
+    // شريط معلومات التاجر في الأعلى يمين
+    const topBoxY = 40;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    rr(ctx, W - MARGIN - 300, topBoxY, 300, 60, 30); ctx.fill();
+    ctx.strokeStyle = hexToRgba(TC, 0.3); ctx.lineWidth = 1.5;
+    rr(ctx, W - MARGIN - 300, topBoxY, 300, 60, 30); ctx.stroke();
 
     if (avatarImg) {
         ctx.save();
-        ctx.shadowColor = hexToRgba(TC, 0.5); ctx.shadowBlur = 14;
-        ctx.beginPath(); ctx.arc(AVT_CX, AVT_CY, AVT_R + 2, 0, Math.PI * 2);
-        ctx.strokeStyle = hexToRgba(TC, 0.5); ctx.lineWidth = 2; ctx.stroke();
-        ctx.shadowBlur = 0;
-        ctx.beginPath(); ctx.arc(AVT_CX, AVT_CY, AVT_R, 0, Math.PI * 2); ctx.clip();
-        ctx.drawImage(avatarImg, AVT_CX - AVT_R, AVT_CY - AVT_R, AVT_R * 2, AVT_R * 2);
+        ctx.beginPath(); ctx.arc(W - MARGIN - 30, topBoxY + 30, 24, 0, Math.PI * 2); ctx.clip();
+        ctx.drawImage(avatarImg, W - MARGIN - 54, topBoxY + 6, 48, 48);
         ctx.restore();
-    } else {
-        ctx.beginPath(); ctx.arc(AVT_CX, AVT_CY, AVT_R, 0, Math.PI * 2);
-        ctx.fillStyle = hexToRgba(TC, 0.15); ctx.fill();
-        ctx.font = `${AVT_R}px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = TC; ctx.fillText('👤', AVT_CX, AVT_CY);
+        ctx.beginPath(); ctx.arc(W - MARGIN - 30, topBoxY + 30, 24, 0, Math.PI * 2);
+        ctx.strokeStyle = TC; ctx.lineWidth = 2; ctx.stroke();
     }
+    
+    drawText(ctx, "التاجر", W - MARGIN - 70, topBoxY + 20, `14px ${FA}`, C.textD, 'right');
+    drawText(ctx, truncate(ownerName, 16), W - MARGIN - 70, topBoxY + 42, `bold 18px ${FA}`, '#FFF', 'right');
 
-    ctx.font = `13px ${FA}`; ctx.direction = 'rtl';
-    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = C.textD;
-    ctx.fillText('التاجر', AVT_CX + AVT_R + 12, AVT_CY - 10);
-
-    ctx.font = `bold 19px ${FA}`; ctx.direction = 'rtl';
-    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = C.text;
-    ctx.fillText(truncate(ownerName, 18), AVT_CX + AVT_R + 12, AVT_CY + 11);
-
-    // ═══════════════ STATS CARDS ═══════════════
-    let yPos = HEADER_H + 18;
-    const HAS_JOURNEY = journeyRewards && journeyRewards.length > 0;
-
+    // 3. بطاقات الإحصائيات (Stats Cards)
+    let yPos = 140;
+    
     if (HAS_MARKET) {
         const soldCount = soldItems ? soldItems.reduce((s, i) => s + Number(i.quantitySold || 0), 0) : 0;
         const unsoldCount = unsoldItems ? unsoldItems.reduce((s, i) => s + (Number(i.quantity) - Number(i.quantitySold || 0)), 0) : 0;
 
         const cards = [
-            { icon: '💰', label: 'اجمالي الربح', value: `${totalEarned.toLocaleString()}`, unit: 'مورا', color: TC },
-            { icon: '✅', label: 'بضائع مباعة',  value: String(soldCount),   unit: 'قطعة', color: '#2ECC71' },
-            { icon: '📦', label: 'بضائع مرتجعة', value: String(unsoldCount), unit: 'قطعة', color: '#8A9AAA' },
+            { icon: '📦', label: 'مرتجعات', value: String(unsoldCount), color: '#E74C3C' },
+            { icon: '✅', label: 'مبيعات', value: String(soldCount), color: '#2ECC71' },
+            { icon: '💰', label: 'صافي الأرباح', value: `${totalEarned.toLocaleString()}`, color: TC }
         ];
 
-        const CARD_W = 340;
-        const CARD_H = 95;
-        const totalW = cards.length * CARD_W + (cards.length - 1) * 20;
-        const startX = (W - totalW) / 2;
-        const glowA = hexToRgba(TC, 0.25);
-
+        const CARD_W = (W - (MARGIN * 2) - 40) / 3; // 3 بطاقات متساوية
+        const CARD_H = 100;
+        
         for (let i = 0; i < cards.length; i++) {
-            const cx = startX + i * (CARD_W + 20);
-            const cardData = cards[i];
-            const cc = cardData.color;
+            const cx = MARGIN + i * (CARD_W + 20);
+            const cc = cards[i].color;
 
-            ctx.shadowColor = cc + '33'; ctx.shadowBlur = 20;
-            rr(ctx, cx, yPos, CARD_W, CARD_H, 18);
-            const cGrad = ctx.createLinearGradient(cx, yPos, cx + CARD_W, yPos + CARD_H);
-            cGrad.addColorStop(0, hexToRgba(cc, 0.10));
-            cGrad.addColorStop(0.5, hexToRgba(cc, 0.18));
-            cGrad.addColorStop(1, hexToRgba(cc, 0.10));
-            ctx.fillStyle = cGrad; ctx.fill();
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = hexToRgba(cc, 0.3); ctx.lineWidth = 1.5;
-            rr(ctx, cx, yPos, CARD_W, CARD_H, 18); ctx.stroke();
+            // خلفية البطاقة
+            ctx.fillStyle = 'rgba(10, 15, 25, 0.7)';
+            rr(ctx, cx, yPos, CARD_W, CARD_H, 20); ctx.fill();
+            
+            // إطار وتوهج سفلي
+            ctx.strokeStyle = hexToRgba(cc, 0.4); ctx.lineWidth = 2;
+            rr(ctx, cx, yPos, CARD_W, CARD_H, 20); ctx.stroke();
+            
+            rr(ctx, cx, yPos + CARD_H - 6, CARD_W, 6, [0, 0, 20, 20]);
+            ctx.fillStyle = cc; ctx.fill();
 
-            ctx.font = `28px ${FE}`; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-            ctx.fillStyle = cc; ctx.shadowColor = cc; ctx.shadowBlur = 10;
-            ctx.fillText(cardData.icon, cx + CARD_W - 18, yPos + 14);
-            ctx.shadowBlur = 0;
-
-            ctx.font = `14px ${FA}`; ctx.direction = 'rtl';
-            ctx.textAlign = 'right'; ctx.fillStyle = C.textD;
-            ctx.fillText(cardData.label, cx + CARD_W - 50, yPos + 16);
-
-            ctx.font = `bold 30px ${FA}`; ctx.direction = 'rtl';
-            ctx.textAlign = 'right'; ctx.fillStyle = C.text;
-            ctx.fillText(cardData.value, cx + CARD_W - 50, yPos + 44);
-
-            ctx.font = `14px ${FA}`; ctx.direction = 'rtl';
-            ctx.textAlign = 'right'; ctx.fillStyle = hexToRgba(cc, 0.7);
-            ctx.fillText(cardData.unit, cx + CARD_W - 50, yPos + 74);
+            drawText(ctx, cards[i].icon, cx + 25, yPos + CARD_H / 2, `40px ${FE}`, '#FFF', 'left');
+            drawText(ctx, cards[i].label, cx + CARD_W - 25, yPos + 35, `16px ${FA}`, C.textD, 'right');
+            drawText(ctx, cards[i].value, cx + CARD_W - 25, yPos + 65, `bold 28px ${FA}`, cc, 'right', 10);
         }
-        yPos += CARD_H + 20;
+        yPos += CARD_H + 30;
     }
 
-    // ═══════════════ JOURNEY REWARDS ═══════════════
+    // 4. مكافآت الرحلة الأساسية (Journey Rewards)
+    const HAS_JOURNEY = journeyRewards && journeyRewards.length > 0;
     if (HAS_JOURNEY) {
-        const JR_PAD = 32;
-        const JR_X = MARGIN;
-        const JR_W = W - MARGIN * 2;
-        const JR_H = HAS_MARKET ? 125 : Math.min(125 + Math.ceil(journeyRewards.length / 5) * 32, 200);
+        const JR_H = HAS_MARKET ? 100 : Math.min(100 + Math.ceil(journeyRewards.length / 4) * 45, 250);
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+        rr(ctx, MARGIN, yPos, W - (MARGIN * 2), JR_H, 16); ctx.fill();
+        ctx.strokeStyle = hexToRgba(TC, 0.2); ctx.lineWidth = 1.5;
+        rr(ctx, MARGIN, yPos, W - (MARGIN * 2), JR_H, 16); ctx.stroke();
 
-        rr(ctx, JR_X, yPos, JR_W, JR_H, 16);
-        const jGrad = ctx.createLinearGradient(JR_X, yPos, JR_X + JR_W, yPos + JR_H);
-        jGrad.addColorStop(0,   hexToRgba(TC, 0.10));
-        jGrad.addColorStop(0.5, hexToRgba(TC, 0.18));
-        jGrad.addColorStop(1,   hexToRgba(TC, 0.10));
-        ctx.fillStyle = jGrad; ctx.fill();
-        ctx.strokeStyle = hexToRgba(TC, 0.25); ctx.lineWidth = 1.5;
-        rr(ctx, JR_X, yPos, JR_W, JR_H, 16); ctx.stroke();
-
-        ctx.save();
-        rr(ctx, JR_X, yPos, JR_W, 4, [16, 16, 0, 0]);
-        ctx.fillStyle = hexToRgba(TC, 0.5); ctx.fill();
-        ctx.restore();
-
-        ctx.font = `bold 16px ${FA}`; ctx.direction = 'rtl';
-        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = hexToRgba(TC, 0.85); ctx.shadowColor = TC; ctx.shadowBlur = 8;
-        ctx.fillText('🎒 مكافآت الرحلة', JR_X + JR_W - 16, yPos + 22);
-        ctx.shadowBlur = 0;
-
-        divLine(ctx, JR_X + 16, yPos + 40, JR_W - 32, hexToRgba(TC, 0.2));
+        drawText(ctx, '🎒 غنائم الرحلة المكتسبة', W - MARGIN - 20, yPos + 30, `bold 18px ${FA}`, TC, 'right');
+        divLine(ctx, MARGIN + 20, yPos + 50, W - (MARGIN * 2) - 40, 'rgba(255,255,255,0.08)');
 
         const cleaned = journeyRewards.map(formatReward).filter(Boolean);
-        const PILL_H = 26;
-        const PILL_GAP = 8;
-        const ROW_GAP = 10;
-        const maxPillW = 220;
-        const pillsPerRow = 5;
-        let px = JR_X + 16;
-        let py = yPos + 52;
+        let px = W - MARGIN - 30;
+        let py = yPos + 75;
 
         for (let i = 0; i < cleaned.length; i++) {
             const label = cleaned[i];
             ctx.font = `bold 14px ${FA}`;
-            const tw = ctx.measureText(label.replace(/[\u{1F000}-\u{1FFFF}]/gu, '')).width + 30;
-            const pw = Math.min(tw, maxPillW);
+            const tw = ctx.measureText(label.replace(/[\u{1F000}-\u{1FFFF}]/gu, '')).width + 50;
+            const pw = Math.min(tw, 240);
 
-            if (px + pw > JR_X + JR_W - 16) {
-                px = JR_X + 16;
-                py += PILL_H + ROW_GAP;
-                if (py + PILL_H > yPos + JR_H - 8) break;
+            if (px - pw < MARGIN + 20) {
+                px = W - MARGIN - 30;
+                py += 40;
+                if (py > yPos + JR_H - 10) break; // منع تجاوز الإطار
             }
 
-            rr(ctx, px, py, pw, PILL_H, 13);
+            rr(ctx, px - pw, py - 18, pw, 36, 18);
             ctx.fillStyle = hexToRgba(TC, 0.15); ctx.fill();
-            ctx.strokeStyle = hexToRgba(TC, 0.25); ctx.lineWidth = 1; ctx.stroke();
+            ctx.strokeStyle = hexToRgba(TC, 0.4); ctx.stroke();
 
-            ctx.direction = 'ltr'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-            ctx.fillStyle = hexToRgba(TC, 0.9); ctx.font = `bold 13px ${FA}`;
-            ctx.fillText(label, px + pw - 10, py + PILL_H / 2);
-
-            px += pw + PILL_GAP;
+            drawText(ctx, label, px - 15, py, `bold 14px ${FA}`, '#FFF', 'right');
+            px -= (pw + 15);
         }
-
-        yPos += JR_H + 16;
+        yPos += JR_H + 30;
     }
 
-    // ═══════════════ MARKET COLUMNS ═══════════════
+    // 5. أعمدة السوق (تفصيل المبيعات والمرتجعات)
     if (HAS_MARKET) {
         const COL_Y = yPos;
-        const COL_H = H - COL_Y - 20;
-        const HALF_W = (W - MARGIN * 2 - 20) / 2;
+        const COL_H = H - COL_Y - MARGIN;
+        const COL_W = (W - (MARGIN * 2) - 30) / 2;
 
-        drawColumn(ctx, MARGIN, COL_Y, HALF_W, COL_H, unsoldItems, '📦 البضائع المرتجعة', '#8A9AAA', TC);
-        drawColumn(ctx, MARGIN + HALF_W + 20, COL_Y, HALF_W, COL_H, soldItems, '✅ البضائع المباعة', '#2ECC71', TC);
+        // العمود الأيمن (المباعة) والعمود الأيسر (المرتجعة) - لتوافق القراءة العربية
+        drawColumn(ctx, W - MARGIN - COL_W, COL_Y, COL_W, COL_H, soldItems, 'البضائع المُباعة ✅', '#2ECC71', true);
+        drawColumn(ctx, MARGIN, COL_Y, COL_W, COL_H, unsoldItems, 'البضائع المُرتجعة 📦', '#E74C3C', false);
     }
 
     return toBuf(canvas);
 }
 
-function drawColumn(ctx, x, y, w, h, items, title, accentColor, themeColor) {
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 16;
-    rr(ctx, x, y, w, h, 16);
-    const bg = ctx.createLinearGradient(x, y, x, y + h);
-    bg.addColorStop(0, 'rgba(10,14,28,0.85)');
-    bg.addColorStop(1, 'rgba(4,6,14,0.95)');
-    ctx.fillStyle = bg; ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = accentColor + '44'; ctx.lineWidth = 1.5;
-    rr(ctx, x, y, w, h, 16); ctx.stroke();
-    ctx.restore();
+function drawColumn(ctx, x, y, w, h, items, title, accentColor, isSold) {
+    // خلفية العمود
+    ctx.fillStyle = 'rgba(10, 14, 25, 0.8)';
+    rr(ctx, x, y, w, h, 20); ctx.fill();
+    ctx.strokeStyle = hexToRgba(accentColor, 0.3); ctx.lineWidth = 2;
+    rr(ctx, x, y, w, h, 20); ctx.stroke();
 
-    ctx.save();
-    rr(ctx, x, y, w, 4, [16, 16, 0, 0]);
-    ctx.fillStyle = accentColor + '77'; ctx.fill();
-    ctx.restore();
+    // الترويسة الملونة
+    ctx.fillStyle = accentColor;
+    rr(ctx, x, y, w, 6, [20, 20, 0, 0]); ctx.fill();
+    
+    const titleBg = ctx.createLinearGradient(x, y, x, y + 50);
+    titleBg.addColorStop(0, hexToRgba(accentColor, 0.15));
+    titleBg.addColorStop(1, 'transparent');
+    ctx.fillStyle = titleBg; ctx.fillRect(x, y + 6, w, 50);
 
-    ctx.font = `bold 19px ${FA}`; ctx.direction = 'rtl';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = accentColor; ctx.shadowColor = accentColor + '33'; ctx.shadowBlur = 10;
-    ctx.fillText(title, x + w / 2, y + 26);
-    ctx.shadowBlur = 0;
-
-    divLine(ctx, x + 14, y + 48, w - 28, accentColor + '22');
+    drawText(ctx, title, x + w / 2, y + 35, `bold 22px ${FA}`, accentColor, 'center', 10);
+    divLine(ctx, x + 20, y + 65, w - 40, 'rgba(255,255,255,0.05)');
 
     if (!items || items.length === 0) {
-        ctx.font = `18px ${FA}`; ctx.direction = 'rtl';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = C.textD;
-        ctx.fillText('—', x + w / 2, y + h / 2);
+        drawText(ctx, isSold ? 'لم يتم بيع أي بضاعة' : 'تم بيع كل شيء بنجاح!', x + w / 2, y + h / 2, `18px ${FA}`, C.textD, 'center');
         return;
     }
 
-    const rowH = 48;
-    const maxRows = Math.max(1, Math.floor((h - 60) / rowH));
+    const rowH = 65;
+    const maxRows = Math.floor((h - 90) / rowH);
     const visible = items.slice(0, maxRows);
-    const startY = y + 58;
+    const startY = y + 80;
 
     for (let i = 0; i < visible.length; i++) {
-        const item  = visible[i];
-        const rowY  = startY + i * rowH;
-        const midY  = rowY + rowH / 2;
+        const item = visible[i];
+        const rowY = startY + i * rowH;
+        const midY = rowY + rowH / 2;
+
         const color = itemColor(item.rarity);
-        const sold  = Number(item.quantitySold || 0);
-        const avail = Number(item.quantity) - sold;
         const price = Number(item.pricePerUnit || 0);
-        const name  = truncate(item.itemName || item.itemId || '?', 18);
+        const sold = Number(item.quantitySold || 0);
+        const avail = Number(item.quantity) - sold;
+        const name = truncate(item.itemName || item.itemId || '?', 16);
         const emoji = item.itemEmoji || '📦';
 
+        // تظليل صفوف متبادل
         if (i % 2 === 0) {
-            ctx.fillStyle = hexToRgba(themeColor, 0.025);
-            ctx.fillRect(x + 4, rowY + 1, w - 8, rowH - 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.02)';
+            rr(ctx, x + 10, rowY, w - 20, rowH - 5, 10); ctx.fill();
         }
 
-        ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 6;
-        ctx.beginPath(); ctx.arc(x + 16, midY, 4, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
+        // 1. الإيموجي والاسم (مثبت على اليمين)
+        const rightEdge = x + w - 20;
+        drawText(ctx, emoji, rightEdge, midY, `24px ${FE}`, '#FFF', 'right');
+        drawText(ctx, name, rightEdge - 40, midY - 12, `bold 17px ${FA}`, '#FFF', 'right');
 
-        ctx.font = `18px ${FE}`; ctx.direction = 'ltr';
-        ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#FFF';
-        ctx.fillText(emoji, x + 26, midY);
+        // 2. تفاصيل الكمية تحت الاسم
+        const qtyText = isSold ? `الكمية المباعة: ${sold}` : `الباقي بالمخزن: ${avail}`;
+        drawText(ctx, qtyText, rightEdge - 40, midY + 12, `14px ${FA}`, C.textD, 'right');
 
-        ctx.font = `bold 15px ${FA}`; ctx.direction = 'rtl';
-        ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.text;
-        ctx.fillText(name, x + 48, midY - 9);
-
-        ctx.font = `12px ${FA}`; ctx.direction = 'rtl'; ctx.fillStyle = C.textD;
-        if (sold > 0) {
-            ctx.fillText(`×${sold} — ${(sold * price).toLocaleString()} مورا`, x + 48, midY + 10);
+        // 3. السعر الإجمالي (مثبت على اليسار) لمنع دخول الأرقام في الحروف
+        const leftEdge = x + 20;
+        if (isSold) {
+            const total = sold * price;
+            drawText(ctx, total.toLocaleString(), leftEdge, midY - 10, `bold 18px ${FA}`, '#A0D468', 'left');
+            drawText(ctx, "مورا", leftEdge, midY + 12, `13px ${FA}`, '#A0D468', 'left');
         } else {
-            ctx.fillText(`×${avail} مرتجعة`, x + 48, midY + 10);
+            drawText(ctx, "مُرتجع", leftEdge, midY, `16px ${FA}`, '#E74C3C', 'left');
         }
 
-        ctx.font = `bold 13px ${FA}`; ctx.direction = 'rtl';
-        ctx.textAlign = 'left'; ctx.fillStyle = accentColor;
-        ctx.fillText(`${price.toLocaleString()}/وحدة`, x + w - 14, midY);
+        // نقطة لون الندرة
+        ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(leftEdge + 60, midY, 5, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
     }
 
     if (items.length > maxRows) {
-        ctx.font = `13px ${FA}`; ctx.direction = 'rtl';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.textD;
-        ctx.fillText(`+ ${items.length - maxRows} عنصر آخر`, x + w / 2, y + h - 12);
+        drawText(ctx, `+ ${items.length - maxRows} بضائع أخرى...`, x + w / 2, y + h - 20, `14px ${FA}`, C.textD, 'center');
     }
 }
 
