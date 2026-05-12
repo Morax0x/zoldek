@@ -48,6 +48,24 @@ function drawTextExact(ctx, text, x, y, font, color, align = 'center', glow = 0)
     ctx.shadowBlur = 0;
 }
 
+function drawPanelWithHeader(ctx, x, y, w, h, radius, headerH, mainColor, headerColor, strokeColor) {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, radius);
+    ctx.fillStyle = mainColor;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, headerH, [radius, radius, 0, 0]);
+    ctx.fillStyle = headerColor;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, radius);
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
 async function generateMarketSummaryCanvas({
     destName, destId = null, destColor = '#FFD700', ownerName, avatarUrl = null,
     soldItems, unsoldItems, totalEarned, journeyRewards = [],
@@ -57,81 +75,72 @@ async function generateMarketSummaryCanvas({
     const TC = destColor || '#FFD700';
 
     await drawBg(ctx, 'marketbg');
-    ctx.fillStyle = 'rgba(7, 10, 20, 0.94)';
+    ctx.fillStyle = 'rgba(6, 9, 16, 0.94)';
     ctx.fillRect(0, 0, CW, CH);
 
     const destImg = await fetchImageSafe(destId || destName || '');
     if (destImg) {
         ctx.save();
-        ctx.globalAlpha = 0.30;
+        ctx.globalAlpha = 0.3;
         const scale = Math.max(CW / destImg.width, CH / destImg.height);
         const dx = (CW - destImg.width * scale) / 2;
         const dy = (CH - destImg.height * scale) / 2;
         ctx.drawImage(destImg, dx, dy, destImg.width * scale, destImg.height * scale);
-        
-        const maskG = ctx.createLinearGradient(0, 0, 0, CH);
-        maskG.addColorStop(0, 'rgba(7, 10, 20, 0.2)');
-        maskG.addColorStop(1, 'rgba(7, 10, 20, 1)');
-        ctx.globalAlpha = 1.0;
-        ctx.fillStyle = maskG;
-        ctx.fillRect(0, 0, CW, CH);
         ctx.restore();
     }
 
-    const glowC = ctx.createRadialGradient(CW / 2, CH / 3, 0, CW / 2, CH / 3, 1000);
-    glowC.addColorStop(0, hexToRgba(TC, 0.25));
+    const glowC = ctx.createRadialGradient(CW / 2, CH / 4, 0, CW / 2, CH / 4, 1000);
+    glowC.addColorStop(0, hexToRgba(TC, 0.2));
     glowC.addColorStop(1, 'transparent');
     ctx.fillStyle = glowC;
     ctx.fillRect(0, 0, CW, CH);
 
     const headG = ctx.createLinearGradient(0, 0, 0, 250);
-    headG.addColorStop(0, 'rgba(0,0,0,0.98)');
+    headG.addColorStop(0, 'rgba(0,0,0,1)');
     headG.addColorStop(1, 'transparent');
     ctx.fillStyle = headG;
     ctx.fillRect(0, 0, CW, 250);
 
-    drawTextExact(ctx, `عادت قافلتك من - ${destName}`, CW / 2, 70, `bold 60px ${FONT_WORD}`, TC, 'center', 30);
+    drawTextExact(ctx, `عادت قافلتك من - ${destName}`, CW / 2, 70, `bold 58px ${FONT_WORD}`, TC, 'center', 30);
 
-    const pillW = 600;
-    const pillH = 100;
-    const pillX = CW / 2 - pillW / 2;
-    const pillY = 140;
+    const pillW = 500;
+    const pillH = 90;
+    const pillX = (CW - pillW) / 2;
+    const pillY = 150;
 
     const lineY = pillY + pillH / 2;
     const lineG = ctx.createLinearGradient(0, 0, CW, 0);
     lineG.addColorStop(0, 'transparent');
-    lineG.addColorStop(0.1, hexToRgba(TC, 0.6));
-    lineG.addColorStop(pillX / CW, TC);
-    lineG.addColorStop((pillX + pillW) / CW, TC);
-    lineG.addColorStop(0.9, hexToRgba(TC, 0.6));
+    lineG.addColorStop(0.3, TC);
+    lineG.addColorStop(0.7, TC);
     lineG.addColorStop(1, 'transparent');
-    
     ctx.strokeStyle = lineG;
     ctx.lineWidth = 3;
+
     ctx.beginPath();
-    ctx.moveTo(0, lineY);
-    ctx.lineTo(pillX - 10, lineY);
+    ctx.moveTo(50, lineY);
+    ctx.lineTo(pillX - 20, lineY);
     ctx.stroke();
-    
+
     ctx.beginPath();
-    ctx.moveTo(pillX + pillW + 10, lineY);
-    ctx.lineTo(CW, lineY);
+    ctx.moveTo(pillX + pillW + 20, lineY);
+    ctx.lineTo(CW - 50, lineY);
     ctx.stroke();
 
     ctx.beginPath();
     ctx.roundRect(pillX, pillY, pillW, pillH, pillH / 2);
-    ctx.fillStyle = 'rgba(20, 25, 40, 0.95)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
     ctx.fill();
-    ctx.strokeStyle = hexToRgba(TC, 0.8);
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = hexToRgba(TC, 0.6);
+    ctx.lineWidth = 2;
     ctx.stroke();
-
-    const avR = 42;
-    const avX = pillX + avR + 12;
-    const avY = pillY + pillH / 2;
 
     let avatarImg = null;
     if (avatarUrl) { try { avatarImg = await loadImage(avatarUrl); } catch {} }
+
+    const avR = 36;
+    const avX = pillX + pillW - avR - 10;
+    const avY = pillY + pillH / 2;
 
     if (avatarImg) {
         ctx.save();
@@ -140,105 +149,92 @@ async function generateMarketSummaryCanvas({
         ctx.restore();
         ctx.beginPath(); ctx.arc(avX, avY, avR, 0, Math.PI * 2);
         ctx.strokeStyle = TC; ctx.lineWidth = 3; ctx.stroke();
-    } else {
-        ctx.beginPath(); ctx.arc(avX, avY, avR, 0, Math.PI * 2);
-        ctx.fillStyle = '#111'; ctx.fill();
-        ctx.strokeStyle = TC; ctx.lineWidth = 3; ctx.stroke();
-        drawTextExact(ctx, '👤', avX, avY, `45px ${FONT_EMOJI}`, '#FFF', 'center');
     }
 
-    let nameFontSize = 44;
-    ctx.font = `bold ${nameFontSize}px ${FONT_WORD}`;
-    const maxNameW = pillW - (avR * 2) - 60;
-    while (ctx.measureText(ownerName).width > maxNameW && nameFontSize > 24) {
-        nameFontSize--;
-        ctx.font = `bold ${nameFontSize}px ${FONT_WORD}`;
+    let fontSize = 42;
+    ctx.font = `${fontSize}px ${FONT_WORD}`;
+    while (ctx.measureText(ownerName).width > (pillW - 140) && fontSize > 20) {
+        fontSize -= 2;
+        ctx.font = `${fontSize}px ${FONT_WORD}`;
     }
-    drawTextExact(ctx, ownerName, pillX + pillW - 30, avY, `bold ${nameFontSize}px ${FONT_WORD}`, '#FFF', 'right');
+    drawTextExact(ctx, ownerName, pillX + 25, avY, ctx.font, '#FFF', 'left');
 
     const HAS_JOURNEY = journeyRewards && journeyRewards.length > 0;
-    let currentY = 275;
+    let currentY = 280;
     
     if (HAS_JOURNEY) {
-        const jHeight = 240;
+        const jHeight = 220;
         drawJourneySection(ctx, 100, currentY, CW - 200, jHeight, journeyRewards, TC);
-        currentY += jHeight + 50;
+        currentY += jHeight + 40;
     }
 
-    const earnW = 850, earnH = 130;
+    const earnW = 750, earnH = 110;
     const earnX = (CW - earnW) / 2;
     
     ctx.beginPath();
-    ctx.roundRect(earnX, currentY, earnW, earnH, 35);
-    const earnG = ctx.createLinearGradient(earnX, currentY, earnX, currentY + earnH);
-    earnG.addColorStop(0, hexToRgba(TC, 0.25));
-    earnG.addColorStop(1, hexToRgba(TC, 0.05));
-    ctx.fillStyle = earnG; ctx.fill();
-    ctx.strokeStyle = hexToRgba(TC, 1.0);
-    ctx.lineWidth = 4; ctx.stroke();
+    ctx.roundRect(earnX, currentY, earnW, earnH, 30);
+    ctx.fillStyle = hexToRgba(TC, 0.12);
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(TC, 0.8);
+    ctx.lineWidth = 3;
+    ctx.stroke();
     
-    drawTextExact(ctx, 'ايرادات بضاعة القافلة', earnX + earnW - 50, currentY + earnH / 2, `42px ${FONT_WORD}`, '#EEE', 'right', 10);
+    drawTextExact(ctx, 'إيرادات بضاعة القافلة', earnX + earnW - 40, currentY + earnH / 2, `34px ${FONT_WORD}`, '#EEE', 'right');
     
     const earnedStr = totalEarned.toLocaleString();
-    ctx.font = `bold 68px ${FONT_NUM}`;
+    ctx.font = `bold 64px ${FONT_NUM}`;
     const eW = ctx.measureText(earnedStr).width;
-    drawTextExact(ctx, earnedStr, earnX + 50, currentY + earnH / 2, `bold 68px ${FONT_NUM}`, TC, 'left', 25);
-    drawTextExact(ctx, 'مورا', earnX + 70 + eW, currentY + earnH / 2 + 8, `36px ${FONT_WORD}`, TC, 'left');
+    drawTextExact(ctx, earnedStr, earnX + 40, currentY + earnH / 2, `bold 64px ${FONT_NUM}`, TC, 'left', 20);
+    drawTextExact(ctx, 'مورا', earnX + 60 + eW, currentY + earnH / 2 + 6, `32px ${FONT_WORD}`, TC, 'left');
 
     currentY += earnH + 50;
 
     const colH = CH - currentY - 50;
-    const colW = 620;
+    const colW = 580;
     const gap = 60;
-    const leftColX = 100;
+    const leftColX = 90;
     const rightColX = leftColX + colW + gap;
 
-    drawColumnData(ctx, rightColX, currentY, colW, colH, soldItems, 'البضائع المباعة', '#2ECC71', true, TC);
-    drawColumnData(ctx, leftColX, currentY, colW, colH, unsoldItems, 'البضائع المرتجعة', '#E74C3C', false, TC);
+    drawColumnData(ctx, rightColX, currentY, colW, colH, soldItems, 'البضائع المباعة', '#2ECC71', true);
+    drawColumnData(ctx, leftColX, currentY, colW, colH, unsoldItems, 'البضائع المرتجعة', '#E74C3C', false);
 
     return toBuf(canvas);
 }
 
 function drawJourneySection(ctx, x, y, w, h, rewards, themeColor) {
-    const headH = 75;
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 35);
-    ctx.fillStyle = 'rgba(15, 25, 45, 0.85)'; ctx.fill();
+    const headH = 65;
+    drawPanelWithHeader(ctx, x, y, w, h, 30, headH, 'rgba(15, 22, 36, 0.88)', hexToRgba(themeColor, 0.3), hexToRgba(themeColor, 0.6));
     
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, headH, [35, 35, 0, 0]);
-    ctx.fillStyle = hexToRgba(themeColor, 0.3); ctx.fill();
-    
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 35);
-    ctx.strokeStyle = hexToRgba(themeColor, 0.6); ctx.lineWidth = 2.5; ctx.stroke();
-    
-    drawTextExact(ctx, 'الغنائم والمكافآت المكتسبة', x + w / 2, y + headH / 2, `38px ${FONT_WORD}`, themeColor, 'center', 20);
+    drawTextExact(ctx, 'غنائم الرحلة المكتسبة', x + w / 2, y + 32, `38px ${FONT_WORD}`, themeColor, 'center', 15);
     
     const cleaned = rewards.map(cleanStr).filter(Boolean);
     if (cleaned.length === 0) {
-        drawTextExact(ctx, 'لا توجد غنائم لهذه الرحلة', x + w / 2, y + headH + (h - headH) / 2, `34px ${FONT_WORD}`, '#888', 'center');
+        drawTextExact(ctx, 'لم يتم كسب موارد إضافية', x + w / 2, y + headH + (h - headH) / 2, `32px ${FONT_WORD}`, '#888', 'center');
         return;
     }
 
     const cols = 3;
-    const cellW = Math.floor((w - 80) / cols);
-    const cellH = 85;
-    const startY = y + headH + 40;
+    const cellW = Math.floor((w - 60) / cols);
+    const cellH = 80;
+    const startX = x + w - 30;
+    const startY = y + headH + 35;
 
     for (let i = 0; i < cleaned.length; i++) {
         const str = cleaned[i];
         const cRow = Math.floor(i / cols);
         const cCol = i % cols;
-        const bX = x + w - 40 - (cCol * cellW) - cellW;
+        const bX = startX - (cCol * cellW) - cellW;
         const bY = startY + cRow * (cellH + 20);
 
-        if (bY + cellH > y + h - 20) break; 
+        if (bY + cellH > y + h - 10) break; 
 
         ctx.beginPath();
-        ctx.roundRect(bX + 15, bY, cellW - 30, cellH, 22);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)'; ctx.fill();
-        ctx.strokeStyle = hexToRgba(themeColor, 0.5); ctx.lineWidth = 2; ctx.stroke();
+        ctx.roundRect(bX + 15, bY, cellW - 30, cellH, 20);
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fill();
+        ctx.strokeStyle = hexToRgba(themeColor, 0.5);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
         const firstSpace = str.indexOf(' ');
         let emoji = '🎁', text = str;
@@ -255,37 +251,27 @@ function drawJourneySection(ctx, x, y, w, h, rewards, themeColor) {
         }
 
         drawTextExact(ctx, emoji, bX + cellW - 40, bY + cellH / 2, `42px ${FONT_EMOJI}`, '#FFF', 'center');
-        drawTextExact(ctx, pText, bX + cellW - 85, bY + cellH / 2 - 2, `32px ${FONT_WORD}`, '#FFF', 'right');
+        drawTextExact(ctx, pText, bX + cellW - 85, bY + cellH / 2 - 2, `30px ${FONT_WORD}`, '#FFF', 'right');
         if (pNum) {
-            drawTextExact(ctx, pNum, bX + 45, bY + cellH / 2 + 2, `38px ${FONT_NUM}`, themeColor, 'left');
+            drawTextExact(ctx, pNum, bX + 40, bY + cellH / 2 + 2, `36px ${FONT_NUM}`, themeColor, 'left');
         }
     }
 }
 
-function drawColumnData(ctx, x, y, w, h, items, title, color, isSold, themeColor) {
-    const headH = 95;
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 35);
-    ctx.fillStyle = 'rgba(10, 15, 30, 0.92)'; ctx.fill();
+function drawColumnData(ctx, x, y, w, h, items, title, color, isSold) {
+    const headH = 85;
+    drawPanelWithHeader(ctx, x, y, w, h, 30, headH, 'rgba(12, 16, 26, 0.92)', hexToRgba(color, 0.25), hexToRgba(color, 0.7));
     
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, headH, [35, 35, 0, 0]);
-    ctx.fillStyle = hexToRgba(color, 0.3); ctx.fill();
-    
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 35);
-    ctx.strokeStyle = hexToRgba(color, 0.7); ctx.lineWidth = 3; ctx.stroke();
-    
-    drawTextExact(ctx, title, x + w / 2, y + headH / 2, `bold 42px ${FONT_WORD}`, color, 'center', 20);
+    drawTextExact(ctx, title, x + w / 2, y + 42, `bold 42px ${FONT_WORD}`, color, 'center', 15);
     
     if (!items || !items.length) {
-        drawTextExact(ctx, 'القائمة فارغة', x + w / 2, y + headH + (h - headH) / 2, `38px ${FONT_WORD}`, '#666', 'center');
+        drawTextExact(ctx, 'لا توجد بضائع', x + w / 2, y + headH + (h - headH) / 2, `34px ${FONT_WORD}`, '#666', 'center');
         return;
     }
 
-    const rH = 105;
+    const rH = 100;
     const startY = y + headH + 25;
-    const limit = Math.floor((h - headH - 60) / rH);
+    const limit = Math.floor((h - headH - 50) / rH);
     const vis = items.slice(0, limit);
 
     for (let i = 0; i < vis.length; i++) {
@@ -295,7 +281,8 @@ function drawColumnData(ctx, x, y, w, h, items, title, color, isSold, themeColor
         if (i % 2 === 0) {
             ctx.beginPath();
             ctx.roundRect(x + 20, cY - rH / 2, w - 40, rH - 10, 20);
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.05)'; ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            ctx.fill();
         }
 
         const e = it.itemEmoji || '📦';
@@ -303,28 +290,29 @@ function drawColumnData(ctx, x, y, w, h, items, title, color, isSold, themeColor
         const p = Number(it.pricePerUnit || 0);
         const q = isSold ? Number(it.quantitySold || 0) : (Number(it.quantity || 0) - Number(it.quantitySold || 0));
         
-        drawTextExact(ctx, e, x + w - 40, cY, `52px ${FONT_EMOJI}`, '#FFF', 'right');
+        drawTextExact(ctx, e, x + w - 35, cY, `52px ${FONT_EMOJI}`, '#FFF', 'right');
         drawTextExact(ctx, n, x + w - 110, cY - 18, `36px ${FONT_WORD}`, '#FFF', 'right');
         
         ctx.fillStyle = itemColor(it.rarity);
         ctx.beginPath(); 
-        ctx.arc(x + w - 125 - ctx.measureText(n).width - 15, cY - 18, 10, 0, Math.PI*2); ctx.fill();
+        ctx.arc(x + w - 120 - ctx.measureText(n).width - 15, cY - 18, 9, 0, Math.PI*2); 
+        ctx.fill();
 
-        drawTextExact(ctx, 'x', x + 280, cY, `32px ${FONT_WORD}`, '#999', 'right');
-        drawTextExact(ctx, q.toString(), x + 300, cY, `44px ${FONT_NUM}`, '#FFF', 'left');
+        drawTextExact(ctx, 'x', x + 260, cY, `32px ${FONT_WORD}`, '#888', 'right');
+        drawTextExact(ctx, q.toString(), x + 275, cY, `46px ${FONT_NUM}`, '#FFF', 'left');
 
         if (isSold) {
             const tot = (q * p).toLocaleString();
-            drawTextExact(ctx, tot, x + 40, cY, `40px ${FONT_NUM}`, color, 'left');
+            drawTextExact(ctx, tot, x + 35, cY, `42px ${FONT_NUM}`, color, 'left');
             const tw = ctx.measureText(tot).width;
-            drawTextExact(ctx, 'مورا', x + 55 + tw, cY + 8, `28px ${FONT_WORD}`, color, 'left');
+            drawTextExact(ctx, 'مورا', x + 45 + tw, cY + 8, `28px ${FONT_WORD}`, color, 'left');
         } else {
-            drawTextExact(ctx, 'لم تبع', x + 40, cY, `32px ${FONT_WORD}`, color, 'left');
+            drawTextExact(ctx, 'أُعيدت', x + 35, cY, `32px ${FONT_WORD}`, color, 'left');
         }
     }
 
     if (items.length > limit) {
-        drawTextExact(ctx, `... و ${items.length - limit} أصناف أخرى`, x + w / 2, y + h - 35, `30px ${FONT_WORD}`, '#999', 'center');
+        drawTextExact(ctx, `... و ${items.length - limit} أصناف إضافية`, x + w / 2, y + h - 30, `28px ${FONT_WORD}`, '#888', 'center');
     }
 }
 
