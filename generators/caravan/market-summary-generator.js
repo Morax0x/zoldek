@@ -20,20 +20,28 @@ function cleanForCanvas(str) {
         .replace(/<a?:[^:]+:\d+>/g, '');
 }
 
+function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
 async function generateMarketSummaryCanvas({
-    destName, ownerName, avatarUrl = null,
+    destName, destId = null, destColor = '#FFD700', ownerName, avatarUrl = null,
     soldItems, unsoldItems, totalEarned, journeyRewards = [],
 }) {
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
+
+    const TC = destColor;
 
     let avatarImg = null;
     if (avatarUrl) {
         try { avatarImg = await loadImage(avatarUrl); } catch {}
     }
 
-    // Background with destination image
-    const destImg = await fetchImageSafe(destName || '');
+    const destImg = await fetchImageSafe(destId || destName || '');
     await drawBg(ctx, 'marketbg');
     ctx.fillStyle = 'rgba(6,8,15,0.82)'; ctx.fillRect(0, 0, W, H);
 
@@ -48,7 +56,8 @@ async function generateMarketSummaryCanvas({
     }
 
     const glowG = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, 700);
-    glowG.addColorStop(0, 'rgba(245,197,24,0.06)'); glowG.addColorStop(1, 'transparent');
+    glowG.addColorStop(0, hexToRgba(TC, 0.06));
+    glowG.addColorStop(1, 'transparent');
     ctx.fillStyle = glowG; ctx.fillRect(0, 0, W, H);
 
     drawCornerAccents(ctx);
@@ -62,19 +71,19 @@ async function generateMarketSummaryCanvas({
 
     const lineG = ctx.createLinearGradient(0, 0, W, 0);
     lineG.addColorStop(0,    'transparent');
-    lineG.addColorStop(0.15, C.gold + '66');
-    lineG.addColorStop(0.35, C.gold);
-    lineG.addColorStop(0.65, C.gold);
-    lineG.addColorStop(0.85, C.gold + '66');
+    lineG.addColorStop(0.15, hexToRgba(TC, 0.4));
+    lineG.addColorStop(0.35, TC);
+    lineG.addColorStop(0.65, TC);
+    lineG.addColorStop(0.85, hexToRgba(TC, 0.4));
     lineG.addColorStop(1,    'transparent');
     ctx.fillStyle = lineG; ctx.fillRect(0, HEADER_H - 18, W, 2);
 
     ctx.save();
-    ctx.fillStyle = C.gold; ctx.shadowColor = C.gold; ctx.shadowBlur = 16;
+    ctx.fillStyle = TC; ctx.shadowColor = TC; ctx.shadowBlur = 16;
     ctx.translate(W / 2, HEADER_H - 17); ctx.rotate(Math.PI / 4); ctx.fillRect(-6, -6, 12, 12);
     ctx.restore();
 
-    ctx.shadowColor = C.gold + '55'; ctx.shadowBlur = 22;
+    ctx.shadowColor = hexToRgba(TC, 0.35); ctx.shadowBlur = 22;
     M(ctx, `📋 تقرير الرحلة النهائي — ${destName}`, W / 2, 46, 36, C.text);
     ctx.shadowBlur = 0;
 
@@ -85,21 +94,21 @@ async function generateMarketSummaryCanvas({
 
     if (avatarImg) {
         ctx.save();
-        ctx.shadowColor = C.gold + '99'; ctx.shadowBlur = 18;
+        ctx.shadowColor = hexToRgba(TC, 0.6); ctx.shadowBlur = 18;
         ctx.beginPath(); ctx.arc(AVT_CX, GRP_CY, AVT_R + 3, 0, Math.PI * 2);
-        ctx.strokeStyle = C.gold + '88'; ctx.lineWidth = 2.5; ctx.stroke();
+        ctx.strokeStyle = hexToRgba(TC, 0.55); ctx.lineWidth = 2.5; ctx.stroke();
         ctx.shadowBlur = 0;
         ctx.beginPath(); ctx.arc(AVT_CX, GRP_CY, AVT_R, 0, Math.PI * 2); ctx.clip();
         ctx.drawImage(avatarImg, AVT_CX - AVT_R, GRP_CY - AVT_R, AVT_R * 2, AVT_R * 2);
         ctx.restore();
         ctx.beginPath(); ctx.arc(AVT_CX, GRP_CY, AVT_R, 0, Math.PI * 2);
-        ctx.strokeStyle = C.gold + 'BB'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.strokeStyle = hexToRgba(TC, 0.75); ctx.lineWidth = 2; ctx.stroke();
     } else {
         ctx.beginPath(); ctx.arc(AVT_CX, GRP_CY, AVT_R, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,215,0,0.10)'; ctx.fill();
-        ctx.strokeStyle = C.gold + '55'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = hexToRgba(TC, 0.1); ctx.fill();
+        ctx.strokeStyle = hexToRgba(TC, 0.35); ctx.lineWidth = 2; ctx.stroke();
         ctx.font = `${AVT_R}px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = C.gold; ctx.fillText('👤', AVT_CX, GRP_CY);
+        ctx.fillStyle = TC; ctx.fillText('👤', AVT_CX, GRP_CY);
     }
 
     const pillX = AVT_CX + AVT_R + 18;
@@ -107,7 +116,7 @@ async function generateMarketSummaryCanvas({
     const pillH = 56;
     rr(ctx, pillX, GRP_CY - pillH / 2, pillW, pillH, 16);
     ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fill();
-    ctx.strokeStyle = C.gold + '33'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = hexToRgba(TC, 0.2); ctx.lineWidth = 1; ctx.stroke();
 
     ctx.font = `13px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
@@ -127,21 +136,21 @@ async function generateMarketSummaryCanvas({
     ctx.save();
     rr(ctx, earnX, earnY, earnW, earnH, 22);
     const earnGrad = ctx.createLinearGradient(earnX, earnY, earnX + earnW, earnY + earnH);
-    earnGrad.addColorStop(0,   'rgba(245,197,24,0.12)');
-    earnGrad.addColorStop(0.5, 'rgba(245,197,24,0.26)');
-    earnGrad.addColorStop(1,   'rgba(245,197,24,0.12)');
+    earnGrad.addColorStop(0,   hexToRgba(TC, 0.12));
+    earnGrad.addColorStop(0.5, hexToRgba(TC, 0.26));
+    earnGrad.addColorStop(1,   hexToRgba(TC, 0.12));
     ctx.fillStyle = earnGrad; ctx.fill();
-    ctx.shadowColor = C.gold + '44'; ctx.shadowBlur = 24;
+    ctx.shadowColor = hexToRgba(TC, 0.25); ctx.shadowBlur = 24;
     rr(ctx, earnX, earnY, earnW, earnH, 22);
-    ctx.strokeStyle = C.gold + '66'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = hexToRgba(TC, 0.4); ctx.lineWidth = 2; ctx.stroke();
     ctx.shadowBlur = 0;
     rr(ctx, earnX, earnY, earnW, 4, [22, 22, 0, 0]);
-    ctx.fillStyle = C.gold + '88'; ctx.fill();
+    ctx.fillStyle = hexToRgba(TC, 0.55); ctx.fill();
     ctx.restore();
 
     M(ctx, '💰 إجمالي ارباح السوق', W / 2, earnY + 28, 19, C.textD);
-    ctx.shadowColor = C.gold + 'AA'; ctx.shadowBlur = 20;
-    M(ctx, `${totalEarned.toLocaleString()} مورا`, W / 2, earnY + 68, 40, C.gold);
+    ctx.shadowColor = hexToRgba(TC, 0.65); ctx.shadowBlur = 20;
+    M(ctx, `${totalEarned.toLocaleString()} مورا`, W / 2, earnY + 68, 40, TC);
     ctx.shadowBlur = 0;
 
     // ── Columns ──
@@ -154,17 +163,17 @@ async function generateMarketSummaryCanvas({
     const RIGHT_X = W / 2 + 16;
     const RIGHT_W = W / 2 - 50;
 
-    drawColumn(ctx, RIGHT_X, COL_Y, RIGHT_W, COL_H, soldItems,   '✅ البضائع المباعة',   C.green);
-    drawColumn(ctx, LEFT_X,  COL_Y, LEFT_W,  COL_H, unsoldItems, '📦 البضائع المرتجعة', '#8A9AAA');
+    drawColumn(ctx, RIGHT_X, COL_Y, RIGHT_W, COL_H, soldItems,   '✅ البضائع المباعة',   '#2ECC71', TC);
+    drawColumn(ctx, LEFT_X,  COL_Y, LEFT_W,  COL_H, unsoldItems, '📦 البضائع المرتجعة', '#8A9AAA', TC);
 
     if (HAS_JOURNEY) {
-        drawJourneyRewards(ctx, LEFT_X, COL_Y + COL_H + 14, W - LEFT_X * 2, JRY_H, journeyRewards);
+        drawJourneyRewards(ctx, LEFT_X, COL_Y + COL_H + 14, W - LEFT_X * 2, JRY_H, journeyRewards, TC);
     }
 
     return toBuf(canvas);
 }
 
-function drawColumn(ctx, x, y, w, h, items, title, accentColor) {
+function drawColumn(ctx, x, y, w, h, items, title, accentColor, themeColor) {
     rr(ctx, x, y, w, h, 18);
     const panelBg = ctx.createLinearGradient(x, y, x, y + h);
     panelBg.addColorStop(0, 'rgba(12,16,32,0.78)');
@@ -215,7 +224,7 @@ function drawColumn(ctx, x, y, w, h, items, title, accentColor) {
         const emoji = item.itemEmoji || '📦';
 
         if (i % 2 === 0) {
-            ctx.fillStyle = 'rgba(255,255,255,0.028)';
+            ctx.fillStyle = hexToRgba(themeColor, 0.028);
             ctx.fillRect(x + 6, rowY + 2, w - 12, rowH - 4);
         }
 
@@ -250,28 +259,28 @@ function drawColumn(ctx, x, y, w, h, items, title, accentColor) {
     }
 }
 
-function drawJourneyRewards(ctx, x, y, w, h, rewards) {
+function drawJourneyRewards(ctx, x, y, w, h, rewards, themeColor) {
     rr(ctx, x, y, w, h, 16);
     const jg = ctx.createLinearGradient(x, y, x + w, y + h);
-    jg.addColorStop(0,   'rgba(80,40,190,0.18)');
-    jg.addColorStop(0.5, 'rgba(110,55,230,0.25)');
-    jg.addColorStop(1,   'rgba(80,40,190,0.18)');
+    jg.addColorStop(0,   hexToRgba(themeColor, 0.18));
+    jg.addColorStop(0.5, hexToRgba(themeColor, 0.25));
+    jg.addColorStop(1,   hexToRgba(themeColor, 0.18));
     ctx.fillStyle = jg; ctx.fill();
-    ctx.strokeStyle = '#8B5CF6' + '55'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = hexToRgba(themeColor, 0.35); ctx.lineWidth = 1.5; ctx.stroke();
 
     ctx.save();
     rr(ctx, x, y, w, 4, [16, 16, 0, 0]);
-    ctx.fillStyle = '#8B5CF6' + 'AA'; ctx.fill();
+    ctx.fillStyle = hexToRgba(themeColor, 0.65); ctx.fill();
     ctx.restore();
 
     ctx.font = `bold 18px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#C4B5FD';
-    ctx.shadowColor = '#8B5CF6'; ctx.shadowBlur = 10;
+    ctx.fillStyle = hexToRgba(themeColor, 0.9);
+    ctx.shadowColor = themeColor; ctx.shadowBlur = 10;
     ctx.fillText('🎒 مكافآت الرحلة', x + w - 18, y + 23);
     ctx.shadowBlur = 0;
 
-    divLine(ctx, x + 16, y + 42, w - 32, '#8B5CF6' + '44');
+    divLine(ctx, x + 16, y + 42, w - 32, hexToRgba(themeColor, 0.25));
 
     const cleaned  = rewards.map(cleanForCanvas).filter(Boolean);
     const COLS     = 3;
@@ -295,11 +304,11 @@ function drawJourneyRewards(ctx, x, y, w, h, rewards) {
         const px = cx + (cellW - pw) / 2;
 
         rr(ctx, px, cy, pw, ph, 9);
-        ctx.fillStyle = 'rgba(139,92,246,0.22)'; ctx.fill();
-        ctx.strokeStyle = '#8B5CF6' + '55'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = hexToRgba(themeColor, 0.22); ctx.fill();
+        ctx.strokeStyle = hexToRgba(themeColor, 0.35); ctx.lineWidth = 1; ctx.stroke();
 
         ctx.direction = 'ltr'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#EDE9FE';
+        ctx.fillStyle = hexToRgba(themeColor, 0.9);
         ctx.fillText(label, px + pw / 2, cy + ph / 2);
     }
 }

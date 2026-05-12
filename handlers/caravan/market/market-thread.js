@@ -186,12 +186,13 @@ async function closeMarketThread(client, db, threadId, guildId, journeyRewards =
         const destId   = session.destinationid || session.destinationId;
         const dest     = caravanConfig.destinations.find(d => d.id === destId);
         const destName = dest?.name || 'القافلة';
+        const destColor = dest?.color || '#FFD700';
 
         // Generate canvas summary report
         let reportBuf = null;
         try {
             reportBuf = await generateMarketSummaryCanvas({
-                destName, ownerName, avatarUrl,
+                destName, destId, destColor, ownerName, avatarUrl,
                 soldItems, unsoldItems, totalEarned,
                 journeyRewards: journeyRewards || [],
             });

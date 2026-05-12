@@ -2,6 +2,8 @@ const { AttachmentBuilder } = require('discord.js');
 
 let _generateCaravanEvent = null;
 try { ({ generateCaravanEvent: _generateCaravanEvent } = require('../../generators/caravan/event')); } catch {}
+let _generateMarketSummary = null;
+try { ({ generateMarketSummaryCanvas: _generateMarketSummary } = require('../../generators/caravan/market-summary-generator')); } catch {}
 const { safeQuery, safeExecute } = require('./db');
 const { caravanConfig, farmAnimals, seedsData, upgradeMats, EMOJI_MORA } = require('./config');
 const { getEquippedBuffs, calcDuration, calcRiskFactor } = require('./calculations');
@@ -305,39 +307,33 @@ async function processCaravanReturns(client, db) {
                 if (channel) {
                     const destId = caravan.destinationid || caravan.destinationId;
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
+                    const destName = dest?.name || 'القافلة';
+                    const destColor = dest?.color || '#FFD700';
 
-                    let arrivalMsg = null;
-                    if (_generateCaravanEvent) {
+                    let reportBuf = null;
+                    if (_generateMarketSummary) {
                         try {
-                            const member  = await guild.members.fetch(userId).catch(() => null);
-                            // Include displayName so event.js can show the guild nickname
-                            const userObj = member
-                                ? Object.assign({}, member.user, { displayName: member.displayName })
-                                : { username: String(userId), displayName: String(userId), displayAvatarURL: () => null };
+                            const member = await guild.members.fetch(userId).catch(() => null);
+                            const ownerName = member?.displayName || member?.user?.globalName || member?.user?.username || userId;
+                            const avatarUrl = member?.user?.displayAvatarURL({ extension: 'png', size: 128 }) || null;
 
-                            // Parse ALL reward types from the summary strings
-                            const rewardData = { mora: 0, xp: 0, reputation: 0, items: [] };
-                            for (const entry of (summary || [])) {
-                                // Strip Discord custom emoji notation before parsing
-                                const plain = String(entry).replace(/<a?:[^:]+:\d+>/g, '').trim();
-                                const num   = Number((plain.match(/[\d,]+/) || ['0'])[0].replace(/,/g, ''));
-                                if (plain.includes('مورا') || /mora/i.test(plain)) rewardData.mora = num;
-                                else if (/\bXP\b/i.test(plain))                    rewardData.xp   = num;
-                                else if (plain.includes('سمعة'))                   rewardData.reputation = num;
-                                else if (plain)                                     rewardData.items.push(plain);
-                            }
-
-                            const buf = await _generateCaravanEvent(userObj, dest, 'arrive', rewardData);
-                            arrivalMsg = await channel.send({
-                                content: `<@${userId}>`,
-                                files:   [new AttachmentBuilder(buf, { name: 'arrive.png' })],
-                                embeds:  [],
-                            }).catch(() => null);
-                        } catch {}
+                            reportBuf = await _generateMarketSummary({
+                                destName, destId, destColor, ownerName, avatarUrl,
+                                soldItems: [], unsoldItems: [], totalEarned: 0,
+                                journeyRewards: summary || [],
+                            });
+                        } catch (e) {
+                            console.error('[journey] summary canvas error:', e?.message);
+                        }
                     }
-                    if (!arrivalMsg) {
+                    if (reportBuf) {
                         await channel.send({
-                            content: `<@${userId}> ✅ **عادت قافلتك من ${dest?.emoji || ''} ${dest?.name || ''}!**\n**المكافآت:**\n${summary?.length ? summary.map(s => `✶ ${s}`).join('\n') : 'عادت القافلة بسلام.'}`,
+                            content: `<@${userId}>`,
+                            files: [new AttachmentBuilder(reportBuf, { name: 'journey-report.png' })],
+                        }).catch(() => {});
+                    } else {
+                        await channel.send({
+                            content: `<@${userId}> ✅ **عادت قافلتك من ${dest?.emoji || ''} ${destName}!**\n**المكافآت:**\n${summary?.length ? summary.map(s => `✶ ${s}`).join('\n') : 'عادت القافلة بسلام.'}`,
                         }).catch(() => {});
                     }
                 }
