@@ -1059,8 +1059,9 @@ function registerCombatListeners(client) {
 
 module.exports = {
     CARAVAN_HP_MAX,
-    WAVE_ENEMIES,
     WAVE_REWARD_DELTAS,
+    DESTINATION_ENEMIES,
+    DEFAULT_ENEMIES,
     selectEnemyTarget,
     processEnemyTurn,
     generateBattleEmbed,

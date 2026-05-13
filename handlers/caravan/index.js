@@ -51,8 +51,9 @@ module.exports = {
 
     // combat
     CARAVAN_HP_MAX:        combat.CARAVAN_HP_MAX,
-    WAVE_ENEMIES:          combat.WAVE_ENEMIES,
+    WAVE_ENEMIES:          combat.DEFAULT_ENEMIES,
     WAVE_REWARD_DELTAS:    combat.WAVE_REWARD_DELTAS,
+    DESTINATION_ENEMIES:   combat.DESTINATION_ENEMIES,
     selectEnemyTarget:     combat.selectEnemyTarget,
     processEnemyTurn:      combat.processEnemyTurn,
     generateBattleEmbed:   combat.generateBattleEmbed,
