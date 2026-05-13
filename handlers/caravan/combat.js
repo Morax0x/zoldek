@@ -19,8 +19,8 @@ async function buildBattlePayload(players, enemy, caravan, waveNum, log, actedId
     return { files: [], embeds: [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedIds, destId)] };
 }
 
-async function buildRestPayload(players, caravan, waveNum, guild) {
-    return { files: [], embeds: [generateRestEmbed(players, caravan, waveNum)] };
+async function buildRestPayload(players, caravan, waveNum, guild, destId = null) {
+    return { files: [], embeds: [generateRestEmbed(players, caravan, waveNum, destId)] };
 }
 
 async function buildResultPayload(result, players, caravan, wavesCleared, rewards, guild) {
@@ -304,21 +304,26 @@ function makeBattleRows(disabled = false, hostId = null, currentPlayerId = null)
     return rows;
 }
 
-function generateRestEmbed(players, caravan, waveNum) {
+function generateRestEmbed(players, caravan, waveNum, destId = null) {
+    const folderName = DEST_IMAGE_MAP[destId] || 'gold_city';
+    const destImageUrl = `${R2_BASE}/images/caravan/${folderName}/${waveNum}.png`;
+    const embedColor = DEST_COLOR_MAP[destId] || '#4CAF50';
+    
     const teamLines = players.map(p => {
         const hpBar = p.isDead ? '💀 سقط' : buildHpBar(p.hp, p.maxHp, p.shield);
         return `**${p.name}** [${CLASS_LABELS[p.class] || p.class}]\n${hpBar}`;
     }).join('\n\n');
 
     return new EmbedBuilder()
-        .setColor('#4CAF50')
+        .setColor(embedColor)
         .setTitle(`☕ استراحة — الموجة ${waveNum}/5 منتهية!`)
+        .setImage(destImageUrl)
         .setDescription(
             `**الموجة القادمة ستبدأ عند الضغط على "استمرار"**\n` +
             `⚠️ لو انتهى الوقت قبل الضغط ستُعتبر القافلة مفقودة!\n`
         )
         .addFields(
-            { name: '🐪 صحة القافلة', value: `${buildHpBar(caravan.hp, caravan.maxHp)} \`[${caravan.hp}/${caravan.maxHp}]\``, inline: false },
+            { name: '🐪 صحة القافلّة', value: `${buildHpBar(caravan.hp, caravan.maxHp)} \`[${caravan.hp}/${caravan.maxHp}]\``, inline: false },
             { name: '🛡️ حالة الفريق', value: teamLines || '—', inline: false }
         );
 }
@@ -382,8 +387,8 @@ function makeRestRows(isEscort = false) {
 
 // ─── Rest Phase ───────────────────────────────────────────────────────────────
 // Returns 'continue' | 'timeout' | 'escape'
-async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort = false) {
-    const restPayload = await buildRestPayload(players, caravan, waveNum, guild);
+async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort = false, destId = null) {
+    const restPayload = await buildRestPayload(players, caravan, waveNum, guild, destId);
     const restMsg = await thread.send({ ...restPayload, components: makeRestRows(isEscort) }).catch(() => null);
     if (!restMsg) return 'timeout';
 
@@ -443,7 +448,7 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                             await pSel.editReply({ content: '✅ استُخدمت الجرعة.', components: [] }).catch(() => {});
                         }
                         // Refresh rest embed with updated HP
-                        const updatedRestPayload = await buildRestPayload(players, caravan, waveNum, guild);
+                        const updatedRestPayload = await buildRestPayload(players, caravan, waveNum, guild, destId);
                         await restMsg.edit({ ...updatedRestPayload }).catch(() => {});
                     }
                 }
@@ -883,7 +888,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
         // ── Rest Phase (between waves, not after last) ────────────────────
         if (waveNum < WAVE_ENEMIES.length) {
-            const restResult = await doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort);
+            const restResult = await doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort, destId);
             if (restResult === 'escape') {
                 await thread.send('🐪 **القائد قرر استكمال الرحلة — المعركة توقفت والقافلة واصلة!**').catch(() => {});
                 return { result: 'escape', wavesCleared };

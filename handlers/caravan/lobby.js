@@ -60,9 +60,24 @@ function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guil
         return `\`${i+1}.\` <@${id}> — **${display}**`;
     }).join('\n');
 
-    const imageUrl = `${R2_BASE}/images/destinations/${destConfig.id}.png`;
-    const title = isAmbush ? `⚔️ الدفاع عن القافلة: ${destConfig.name}` : `🛡️ تأمين مسار القافلة: ${destConfig.name}`;
-    const color = isAmbush ? 0xFF4444 : (destConfig.color ? parseInt(destConfig.color.replace('#', ''), 16) : 0xFFD700);
+    const folderMap = {
+        'gold_city': 'gold_city',
+        'magic_academy': 'academy',
+        'imperial_capital': 'capital',
+        'ancient_ruins': 'ancient_ruins',
+        'nature_valley': 'nature_valley',
+    };
+    const folderName = folderMap[destConfig.id] || 'gold_city';
+    const imageUrl = `${R2_BASE}/images/caravan/${folderName}/1.png`;
+    const colorMap = {
+        'gold_city': '#FFD700',
+        'magic_academy': '#8A2BE2',
+        'imperial_capital': '#DC143C',
+        'ancient_ruins': '#CD853F',
+        'nature_valley': '#228B22',
+    };
+    const title = isAmbush ? `⚔️ الدفاع عن القافلّة: ${destConfig.name}` : `🛡️ تأمين مسار القافلّة: ${destConfig.name}`;
+    const color = isAmbush ? 0xFF4444 : (parseInt(colorMap[destConfig.id]?.replace('#', ''), 16) || 0xFFD700);
     const hostAvatar = guild?.members.cache.get(hostId)?.user.displayAvatarURL() || null;
 
     let desc = `**القائد:** <@${hostId}>\n**الوجهة:** ${destConfig.emoji || '📍'} ${destConfig.name}\n\n🔮 **تم فتح مسار القافلة!**\nاختر تخصصك واستعد للمعركة.\n\n👥 **الفريق:**\n${memberList}`;
