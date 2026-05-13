@@ -32,12 +32,12 @@ async function loadCachedImg(url) {
 }
 
 // Grid layout (4 cols × 2 rows, bigger cards, less empty space)
-const MARGIN_X   = 20;
+const MARGIN_X   = 15;
 const MARGIN_TOP  = 140;
-const CARD_W     = 378;
-const CARD_H     = 344;
-const GAP_X      = 16;
-const GAP_Y      = 12;
+const CARD_W     = 420;
+const CARD_H     = 380;
+const GAP_X      = 10;
+const GAP_Y      = 8;
 const FOOTER_H   = 60;
 
 function cardX(col) { return MARGIN_X + col * (CARD_W + GAP_X); }
@@ -91,8 +91,8 @@ async function drawItemCard(ctx, listing, info, x, y) {
     ctx.fillStyle = barG; ctx.fill();
     ctx.restore();
 
-    // ── Item image (130×130) ──
-    const imgSize = 130;
+    // ── Item image (150×150) ──
+    const imgSize = 150;
     const imgX = x + (CARD_W - imgSize) / 2;
     const imgY = y + 14;
 
@@ -133,7 +133,7 @@ async function drawItemCard(ctx, listing, info, x, y) {
     ctx.shadowBlur = 0;
 
     // Divider after image
-    divLine(ctx, x + 14, y + 152, CARD_W - 28, 'rgba(255,255,255,0.10)');
+    divLine(ctx, x + 14, y + 172, CARD_W - 28, 'rgba(255,255,255,0.10)');
 
     // ── Item name ──
     ctx.font = `bold 24px ${FA}`; ctx.direction = 'rtl';
@@ -141,11 +141,11 @@ async function drawItemCard(ctx, listing, info, x, y) {
     ctx.fillStyle = C.text;
     ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 8;
     const nameStr = truncate(info.name || (listing.itemid || listing.itemID || '?'), 18);
-    ctx.fillText(nameStr, x + CARD_W / 2, y + 178);
+    ctx.fillText(nameStr, x + CARD_W / 2, y + 198);
     ctx.shadowBlur = 0;
 
     // ── Quantity bar ──
-    const qtyBarX = x + 18, qtyBarY = y + 218, qtyBarW = CARD_W - 36, qtyBarH = 28;
+    const qtyBarX = x + 18, qtyBarY = y + 245, qtyBarW = CARD_W - 36, qtyBarH = 28;
     rr(ctx, qtyBarX, qtyBarY, qtyBarW, qtyBarH, 8);
     ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1; ctx.stroke();
@@ -172,7 +172,7 @@ async function drawItemCard(ctx, listing, info, x, y) {
     ctx.shadowBlur = 0;
 
     // ── Price ──
-    const priceLabelY = y + 260;
+    const priceLabelY = y + 290;
     ctx.font = `18px ${FA}`; ctx.direction = 'rtl';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textD;
@@ -244,7 +244,7 @@ async function generateMarketCanvas(listings, dest, page = 0) {
     rr(ctx, countBadgeX, countBadgeY, countBadgeW, countBadgeH, 12);
     ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fill();
     ctx.strokeStyle = destColor + '33'; ctx.lineWidth = 1; ctx.stroke();
-    M(ctx, `${activeListings.length} عنصر معروض في السوق`, W / 2, countBadgeY + 16, 18, C.textD);
+    M(ctx, `🛒 ${activeListings.length} بضاعة متاحة`, W / 2, countBadgeY + 16, 18, C.textD);
 
     if (activeListings.length === 0) {
         ctx.shadowColor = C.red + '88'; ctx.shadowBlur = 20;

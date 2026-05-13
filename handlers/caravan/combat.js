@@ -333,7 +333,7 @@ function generateResultEmbed(result, players, caravan, wavesCleared, rewards, gu
     const isEscape = result === 'escape';
     const color = isWin ? '#00FF88' : '#FF4444';
     const title = isWin
-        ? (isEscape ? '🐪 استكمال الرحلة — نجاة بصعوبة' : '🎉 انتصار! الطريق آمن!')
+        ? (isEscape ? '🐪 انسحاب — نجاة بصعوبة' : '🎉 انتصار! الطريق آمن!')
         : '💀 فشل الحراسة — القافلة نُهبت!';
 
     const embed = new EmbedBuilder()
@@ -371,7 +371,7 @@ function generateResultEmbed(result, players, caravan, wavesCleared, rewards, gu
     return embed;
 }
 
-// isEscort=true shows the [استكمال الرحلة] escape button (pre-emptive escort only)
+// isEscort=true shows the [انسحاب] escape button (pre-emptive escort only)
 function makeRestRows(isEscort = false) {
     const btns = [
         new ButtonBuilder().setCustomId('cvr_continue').setLabel('استمرار').setEmoji('▶️').setStyle(ButtonStyle.Success),
@@ -379,7 +379,7 @@ function makeRestRows(isEscort = false) {
     ];
     if (isEscort) {
         btns.push(
-            new ButtonBuilder().setCustomId('cvr_escape').setLabel('استكمال الرحلة').setEmoji('🐪').setStyle(ButtonStyle.Primary)
+            new ButtonBuilder().setCustomId('cvr_escape').setLabel('انسحاب').setEmoji('🏃').setStyle(ButtonStyle.Primary)
         );
     }
     return [new ActionRowBuilder().addComponents(...btns)];
@@ -402,7 +402,7 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
             try {
                 if (i.customId === 'cvr_escape') {
                     if (i.user.id !== hostId)
-                        return i.reply({ content: '⛔ القائد فقط يستطيع استكمال الرحلة.', flags: [MessageFlags.Ephemeral] });
+                        return i.reply({ content: '⛔ القائد فقط يستطيع الانسحاب.', flags: [MessageFlags.Ephemeral] });
                     await i.deferUpdate().catch(() => {});
                     collector.stop('escape');
 
@@ -890,7 +890,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         if (waveNum < WAVE_ENEMIES.length) {
             const restResult = await doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort, destId);
             if (restResult === 'escape') {
-                await thread.send('🐪 **القائد قرر استكمال الرحلة — المعركة توقفت والقافلة واصلة!**').catch(() => {});
+                await thread.send('🏃 **القائد قرر الانسحاب — المعركة توقفت والقافلة واصلة!**').catch(() => {});
                 return { result: 'escape', wavesCleared };
             }
             if (restResult === 'timeout') {
