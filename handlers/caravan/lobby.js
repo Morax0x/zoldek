@@ -9,12 +9,13 @@ const {
 const { safeQuery, safeExecute } = require('./db');
 const { caravanConfig } = require('./config');
 const { manageTickets } = require('../dungeon/utils.js');
+const { setCaravanCooldown } = require('./tables');
 
 const { generateAmbushAlertImage } = require('../../generators/caravan/lobby-generator');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LOBBY_TIMEOUT_MS = 5 * 60 * 1000;
-const AMBUSH_WINDOW_MS = 30 * 60 * 1000;
+const AMBUSH_WINDOW_MS = 10 * 60 * 1000;
 const MAX_PARTY        = 3;
 
 const CLASS_OPTIONS = [
@@ -223,7 +224,8 @@ async function sendAmbushNotification(client, db, caravan) {
 
         if (!lobbyResult.ready) {
             await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1`, [caravanId]);
-            await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** لم يُنظَّم دفاع في الوقت المحدد.`).catch(() => {});
+            await setCaravanCooldown(db, userId, guildId).catch(() => {});
+            await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** لم يُنظَّم دفاع في الوقت المحدد.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`).catch(() => {});
             collector.stop('user');
             return;
         }
@@ -240,7 +242,8 @@ async function sendAmbushNotification(client, db, caravan) {
         const { stagingLootItems } = require('./market/market-db');
         await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
         await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1 AND "attackResolved"=0`, [caravanId]);
-        await attackMsg.edit({ content: `💀 <@${userId}> انتهت المهلة! قطاع الطرق نهبوا قافلتك.`, embeds: [], files: [], components: [] }).catch(() => {});
+        await setCaravanCooldown(db, userId, guildId).catch(() => {});
+        await attackMsg.edit({ content: `💀 <@${userId}> انتهت المهلة! قطاع الطرق نهبوا قافلتك.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`, embeds: [], files: [], components: [] }).catch(() => {});
     });
 }
 
