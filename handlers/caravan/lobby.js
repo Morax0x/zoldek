@@ -3,15 +3,14 @@
 const {
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
-    ChannelType, ComponentType, MessageFlags, AttachmentBuilder
+    ChannelType, ComponentType, MessageFlags, AttachmentBuilder, EmbedBuilder
 } = require('discord.js');
 
 const { safeQuery, safeExecute } = require('./db');
 const { caravanConfig } = require('./config');
 const { manageTickets } = require('../dungeon/utils.js');
 
-// 👑 استدعاء دوال الرسم المنفصلة بشكل نظيف وهندسي 👑
-const { generateAmbushAlertImage, generateLobbyImage } = require('../../generators/caravan/lobby-generator');
+const { generateAmbushAlertImage } = require('../../generators/caravan/lobby-generator');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LOBBY_TIMEOUT_MS = 5 * 60 * 1000;
@@ -20,10 +19,12 @@ const MAX_PARTY        = 3;
 
 const CLASS_OPTIONS = [
     { v: 'Tank',     l: 'مدرع',  e: '🛡️' },
-    { v: 'Priest',   l: 'الكاهن',   e: '✨' },
-    { v: 'Mage',     l: 'الساحر',   e: '🔮' },
-    { v: 'Summoner', l: 'المستدعي', e: '🐺' },
+    { v: 'Priest',   l: 'كاهن',   e: '✨' },
+    { v: 'Mage',     l: 'ساحر',   e: '🔮' },
+    { v: 'Summoner', l: 'مستدع', e: '🐺' },
 ];
+
+const R2_BASE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
 async function hasGuardTicket(db, userId, guildId, member = null) {
     const r = await manageTickets(userId, guildId, db, 'check', member);
@@ -35,54 +36,47 @@ async function consumeGuardTicket(db, userId, guildId, member = null) {
     return r.success === true;
 }
 
-async function buildLobbyPayload(hostId, party, partyClasses, destConfig, isAmbush, guild) {
-    try {
-        const buffer = await generateLobbyImage(hostId, party, partyClasses, destConfig, isAmbush, guild);
-        if (buffer) {
-            return { files: [new AttachmentBuilder(buffer, { name: 'caravan_lobby.png' })], embeds: [] };
+// ─── Embed Builder (مثل شكل لوبي الدانجون) ────────────────────────────────────
+function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guild) {
+    const memberList = party.map((id, i) => {
+        const cls = partyClasses.get(id);
+        let display;
+        if (i === 0) display = 'قائد القافلة 👑';
+        else {
+            const obj = CLASS_OPTIONS.find(c => c.v === cls);
+            display = obj ? `${obj.e} ${obj.l}` : '❓';
         }
-    } catch (e) { console.error('[Lobby Generator Error]', e); }
-    return { content: `⚠️ جاري إعداد اللوبي... (تعذر رسم الصورة)`, embeds: [], files: [] };
+        return `\`${i+1}.\` <@${id}> — **${display}**`;
+    }).join('\n');
+
+    const imageUrl = `${R2_BASE}/images/destinations/${destConfig.id}.png`;
+    const title = isAmbush ? `⚔️ الدفاع عن القافلة: ${destConfig.name}` : `🛡️ تأمين مسار القافلة: ${destConfig.name}`;
+    const color = isAmbush ? 0xFF4444 : (destConfig.color ? parseInt(destConfig.color.replace('#', ''), 16) : 0xFFD700);
+    const hostAvatar = guild?.members.cache.get(hostId)?.user.displayAvatarURL() || null;
+
+    let desc = `**القائد:** <@${hostId}>\n**الوجهة:** ${destConfig.emoji || '📍'} ${destConfig.name}\n\n🔮 **تم فتح مسار القافلة!**\nاختر تخصصك واستعد للمعركة.\n\n👥 **الفريق:**\n${memberList}`;
+
+    return new EmbedBuilder()
+        .setTitle(title)
+        .setColor(color)
+        .setDescription(desc)
+        .setImage(imageUrl)
+        .setThumbnail(hostAvatar);
 }
 
 // ─── Shared Lobby Runner ──────────────────────────────────────────────────────
-function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush) {
-    const descLines = [
-        `**القائد:** <@${hostId}>`,
-        `**الوجهة:** ${destConfig.emoji} ${destConfig.name}`,
-        '',
-    ];
-    const partyList = party.map((uid, i) => {
-        const cls = partyClasses.get(uid);
-        if (i === 0) return `👑 <@${uid}> — قائد القافلة`;
-        const clsObj = CLASS_OPTIONS.find(c => c.v === cls);
-        return `**${i+1}.** <@${uid}> — ${clsObj ? `${clsObj.e} ${clsObj.l}` : '❓'}`;
-    }).join('\n');
-    descLines.push(`**الفريق:**\n${partyList}`);
-    descLines.push('', `**العدد:** ${party.length}/${MAX_PARTY}`);
-    const takenClasses = Array.from(partyClasses.values());
-    const availClasses = CLASS_OPTIONS.filter(o => !takenClasses.includes(o.v));
-    if (availClasses.length > 0) {
-        descLines.push(`**التخصصات المتاحة:** ${availClasses.map(o => `${o.e} ${o.l}`).join(' | ')}`);
-    }
-    return new EmbedBuilder()
-        .setTitle(isAmbush ? '⚔️ الدفاع عن القافلة' : '🛡️ تأمين مسار القافلة')
-        .setDescription(descLines.join('\n'))
-        .setColor(isAmbush ? '#FF4444' : '#FFD700');
-}
-
 async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush = false) {
     const partyClasses = new Map([[hostId, 'Leader']]);
     const party        = [hostId];
     const { joinId, startId, cancelId } = ids;
 
     const lobbyButtons = () => new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(joinId).setLabel('انضمام كحارس').setStyle(ButtonStyle.Success).setEmoji('➕'),
-        new ButtonBuilder().setCustomId(startId).setLabel('انطلاق للقتال').setStyle(ButtonStyle.Primary).setEmoji('⚔️'),
+        new ButtonBuilder().setCustomId(joinId).setLabel('انضمام').setStyle(ButtonStyle.Success).setEmoji('➕'),
+        new ButtonBuilder().setCustomId(startId).setLabel('انطلاق').setStyle(ButtonStyle.Primary).setEmoji('⚔️'),
         new ButtonBuilder().setCustomId(cancelId).setLabel('إلغاء').setStyle(ButtonStyle.Danger).setEmoji('✖️')
     );
 
-    const embed = buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush);
+    const embed = buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guild);
 
     const msg = await channel.send({
         embeds: [embed],
@@ -97,6 +91,7 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
 
     const stopReason = await new Promise(resolve => {
         collector.on('collect', async i => {
+            if (i.replied || i.deferred) return;
             try {
                 if (i.customId === joinId) {
                     if (i.user.id === hostId) return i.reply({ content: '👑 أنت القائد بالفعل.', flags: [MessageFlags.Ephemeral] });
@@ -114,31 +109,33 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
                         new StringSelectMenuBuilder().setCustomId(`${joinId}_cls`).setPlaceholder('اختر تخصصك...')
                         .addOptions(opts.map(o => new StringSelectMenuOptionBuilder().setLabel(o.l).setValue(o.v).setEmoji(o.e)))
                     );
-                    const ephMsg = await i.reply({ content: '🛡️ اختر تخصصك (ستُخصَم تذكرة زنزانة عند التأكيد):', components: [selRow], flags: [MessageFlags.Ephemeral], fetchReply: true });
+                    const ephMsg = await i.reply({ content: '🛡️ اختر تخصصك:', components: [selRow], flags: [MessageFlags.Ephemeral], fetchReply: true });
                     const sel = await ephMsg.awaitMessageComponent({ filter: x => x.user.id === i.user.id, time: 20000, componentType: ComponentType.StringSelect }).catch(() => null);
-                    if (!sel) return;
-                    await sel.deferUpdate().catch(() => {});
+                    if (!sel) {
+                        await i.editReply({ content: '⏰ انتهى الوقت.', components: [] }).catch(()=>{});
+                        return;
+                    }
 
+                    await sel.deferUpdate().catch(()=>{});
                     const chosen = sel.values[0];
-                    if (Array.from(partyClasses.values()).includes(chosen)) return sel.editReply({ content: '🚫 هذا التخصص أُخذ من شخص آخر!', components: [] }).catch(() => {});
+                    if (Array.from(partyClasses.values()).includes(chosen)) return sel.editReply({ content: '🚫 هذا التخصص أُخذ من شخص آخر!', components: [] }).catch(()=>{});
 
                     const consumed = await consumeGuardTicket(db, i.user.id, guild.id, i.member);
-                    if (!consumed) return sel.editReply({ content: '❌ فشل خصم التذكرة، يبدو أنك استخدمتها للتو!', components: [] }).catch(() => {});
+                    if (!consumed) return sel.editReply({ content: '❌ فشل خصم التذكرة!', components: [] }).catch(()=>{});
 
                     partyClasses.set(i.user.id, chosen);
                     party.push(i.user.id);
-                    await sel.editReply({ content: `✅ انضممت كـ **${chosen}** — خُصمت تذكرة زنزانة.`, components: [] }).catch(() => {});
-                    
-                    const updatedEmbed = buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush);
-                    await msg.edit({ embeds: [updatedEmbed] }).catch(() => {});
+                    await sel.editReply({ content: `✅ انضممت كـ **${chosen}**`, components: [] }).catch(()=>{});
+                    const updatedEmbed = buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guild);
+                    await msg.edit({ embeds: [updatedEmbed] }).catch(()=>{});
 
                 } else if (i.customId === startId) {
-                    if (i.user.id !== hostId) return i.reply({ content: '⛔ القائد فقط يستطيع البدء.', flags: [MessageFlags.Ephemeral] });
-                    await i.deferUpdate().catch(() => {});
+                    if (i.user.id !== hostId) return i.reply({ content: '⛔ القائد فقط.', flags: [MessageFlags.Ephemeral] });
+                    await i.deferUpdate().catch(()=>{});
                     collector.stop('start');
                 } else if (i.customId === cancelId) {
-                    if (i.user.id !== hostId) return i.reply({ content: '⛔ القائد فقط يستطيع الإلغاء.', flags: [MessageFlags.Ephemeral] });
-                    await i.deferUpdate().catch(() => {});
+                    if (i.user.id !== hostId) return i.reply({ content: '⛔ القائد فقط.', flags: [MessageFlags.Ephemeral] });
+                    await i.deferUpdate().catch(()=>{});
                     collector.stop('cancel');
                 }
             } catch (err) { console.error('[CaravanLobby collect]', err); }
@@ -238,7 +235,6 @@ async function sendAmbushNotification(client, db, caravan) {
     collector.on('end', async (_, reason) => {
         client.caravanAttackCollectors?.delete(String(caravanId));
         if (reason === 'user') return;
-        // Check if caravan was already resolved (bribed or guarded) via DB
         const cvCheck = await safeQuery(db, `SELECT "attackResolved","endTime" FROM user_caravans WHERE "id"=$1`, [caravanId]).catch(() => ({ rows: [] }));
         if (cvCheck?.rows?.[0]?.attackResolved === 1 || cvCheck?.rows?.[0]?.attackResolved === '1') return;
         const { stagingLootItems } = require('./market/market-db');
@@ -249,6 +245,6 @@ async function sendAmbushNotification(client, db, caravan) {
 }
 
 module.exports = {
-    startEscortLobby, sendAmbushNotification, buildLobbyPayload,
+    startEscortLobby, sendAmbushNotification, buildLobbyEmbed,
     CLASS_OPTIONS, LOBBY_TIMEOUT_MS, AMBUSH_WINDOW_MS, MAX_PARTY,
 };
