@@ -32,7 +32,45 @@ const CARAVAN_HP_MAX   = 1000;
 const TURN_TIMEOUT_MS  = 45_000;
 const REST_TIMEOUT_MS  = 90_000;   // 90 s between waves; timeout = loss
 
-const WAVE_ENEMIES = [
+const DESTINATION_ENEMIES = {
+    'gold_city': [
+        { name: 'صعلوك البيداء',        hp: 800,  atk: 30,  isBoss: false },
+        { name: 'مرتزق الرمال',         hp: 1200, atk: 50,  isBoss: false },
+        { name: 'عقرب الكثبان',        hp: 1800, atk: 75,  isBoss: false },
+        { name: 'سفاح القوافل',        hp: 2800, atk: 100, isBoss: false },
+        { name: 'طاغية الهجير',         hp: 5000, atk: 150, isBoss: true  },
+    ],
+    'magic_academy': [
+        { name: 'تلميذ مارق',          hp: 800,  atk: 30,  isBoss: false },
+        { name: 'ناثر الوهم',           hp: 1200, atk: 50,  isBoss: false },
+        { name: 'سالب الارواح',         hp: 1800, atk: 75,  isBoss: false },
+        { name: 'كاهن الخراب',          hp: 2800, atk: 100, isBoss: false },
+        { name: 'عراب الظلام',          hp: 5000, atk: 150, isBoss: true  },
+    ],
+    'imperial_capital': [
+        { name: 'لص الازقة',           hp: 800,  atk: 30,  isBoss: false },
+        { name: 'خنجر غادر',           hp: 1200, atk: 50,  isBoss: false },
+        { name: 'فارس ساقط',           hp: 1800, atk: 75,  isBoss: false },
+        { name: 'قاطع الطريق',         hp: 2800, atk: 100, isBoss: false },
+        { name: 'سيد الظلال',          hp: 5000, atk: 150, isBoss: true  },
+    ],
+    'ancient_ruins': [
+        { name: 'نباش القبور',         hp: 800,  atk: 30,  isBoss: false },
+        { name: 'طيف ملعون',           hp: 1200, atk: 50,  isBoss: false },
+        { name: 'حارس المقبرة',        hp: 1800, atk: 75,  isBoss: false },
+        { name: 'صدى الهاوية',         hp: 2800, atk: 100, isBoss: false },
+        { name: 'سيد اللعنات',         hp: 5000, atk: 150, isBoss: true  },
+    ],
+    'nature_valley': [
+        { name: 'صياد جشع',           hp: 800,  atk: 30,  isBoss: false },
+        { name: 'همجي الغابة',        hp: 1200, atk: 50,  isBoss: false },
+        { name: 'قناص الادغال',        hp: 1800, atk: 75,  isBoss: false },
+        { name: 'مروض الضواري',        hp: 2800, atk: 100, isBoss: false },
+        { name: 'طاغية الوادي',        hp: 5000, atk: 150, isBoss: true  },
+    ],
+};
+
+const DEFAULT_ENEMIES = [
     { name: 'لصوص الطريق',        hp: 800,  atk: 30,  isBoss: false },
     { name: 'سراق محترفون',       hp: 1200, atk: 50,  isBoss: false },
     { name: 'محاربون متمردون',    hp: 1800, atk: 75,  isBoss: false },
@@ -437,7 +475,9 @@ async function distributePartyRewards(db, party, guildId, wavesCleared, lootPena
 // ─── Core 5-Wave Battle ───────────────────────────────────────────────────────
 // result: 'win'|'escape'|'lose_players'|'lose_caravan'|'lose_timeout'|'error'
 // isEscort=true → shows escape button in rest phases (pre-emptive escort only)
-async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, isEscort = false) {
+async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, isEscort = false, destId = null) {
+    const WAVE_ENEMIES = (destId && DESTINATION_ENEMIES[destId]) ? DESTINATION_ENEMIES[destId] : DEFAULT_ENEMIES;
+    
     const players = await setupPlayers(guild, party, partyClasses, db, null, null);
     if (!players.length) {
         await thread.send('❌ فشل في تحميل بيانات اللاعبين.').catch(() => {});
@@ -841,7 +881,7 @@ async function handleEscortReady(data) {
     const { thread, party, partyClasses, guild, dest, destId, hostId, channel, hubMsg, db, getMora, showHub } = data;
     const guards = party.filter(id => id !== hostId);
 
-    const { result, wavesCleared, lootPenalty = 0 } = await runCaravanBattle(thread, party, partyClasses, db, guild, hostId, true).catch(err => {
+    const { result, wavesCleared, lootPenalty = 0 } = await runCaravanBattle(thread, party, partyClasses, db, guild, hostId, true, destId).catch(err => {
         console.error('[EscortCombat]', err);
         return { result: 'error', wavesCleared: 0, lootPenalty: 0 };
     });
@@ -939,7 +979,10 @@ async function handleAmbushReady(data) {
     const { thread, party, partyClasses, guild, guildId, userId, caravanId, channel, db } = data;
     const guards = party.filter(id => id !== userId);
 
-    const { result, wavesCleared, lootPenalty = 0 } = await runCaravanBattle(thread, party, partyClasses, db, guild, userId).catch(err => {
+    const cvRes = await safeQuery(db, `SELECT "destinationId" FROM user_caravans WHERE "id"=$1`, [caravanId]);
+    const destId = cvRes?.rows?.[0]?.destinationId || cvRes?.rows?.[0]?.destinationid || null;
+
+    const { result, wavesCleared, lootPenalty = 0 } = await runCaravanBattle(thread, party, partyClasses, db, guild, userId, false, destId).catch(err => {
         console.error('[AmbushCombat]', err);
         return { result: 'error', wavesCleared: 0, lootPenalty: 0 };
     });
