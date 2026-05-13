@@ -237,18 +237,14 @@ module.exports = {
             const payload   = await sendCanvas(GEN.generateEquipPanel, [user, equipped, validArtifacts, allItems, mora]);
 
             const slotLabels = ['سرعة', 'دفاع', 'حظ'];
-            const slotRow = new ActionRowBuilder().addComponents(
+            const allButtonsRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setLabel('رجوع').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('cv_eq_slot_0').setEmoji('⚡').setLabel(slotLabels[0]).setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId('cv_eq_slot_1').setEmoji('🛡️').setLabel(slotLabels[1]).setStyle(ButtonStyle.Success),
                 new ButtonBuilder().setCustomId('cv_eq_slot_2').setEmoji('🍀').setLabel(slotLabels[2]).setStyle(ButtonStyle.Secondary),
             );
             
-            payload.components = [
-                new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
-                ),
-                slotRow,
-            ];
+            payload.components = [allButtonsRow];
 
             if (actionCtx.deferred || actionCtx.replied) {
                 await actionCtx.editReply(payload).catch(() => {});
