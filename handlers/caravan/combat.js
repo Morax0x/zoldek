@@ -15,8 +15,8 @@ const { executeWeaponAttack } = require('../combat/weapon-calculator.js');
 const { buildSkillSelector, buildPotionSelector } = require('../dungeon/ui.js');
 const { refundGuardTickets } = require('./lobby');
 
-async function buildBattlePayload(players, enemy, caravan, waveNum, log, actedIds, hostId, guild) {
-    return { files: [], embeds: [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedIds)] };
+async function buildBattlePayload(players, enemy, caravan, waveNum, log, actedIds, hostId, guild, destId = null) {
+    return { files: [], embeds: [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedIds, destId)] };
 }
 
 async function buildRestPayload(players, caravan, waveNum, guild) {
@@ -234,10 +234,24 @@ const CLASS_LABELS = {
     Priest: '✨ كاهن', Mage: '🔮 ساحر', Summoner: '🐺 مستدعٍ',
 };
 
-function generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers = []) {
+const R2_BASE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
+
+const DEST_IMAGE_MAP = {
+    'gold_city': 'gold_city',
+    'magic_academy': 'academy',
+    'imperial_capital': 'capital',
+    'ancient_ruins': 'ancient_ruins',
+    'nature_valley': 'nature_valley',
+};
+
+function generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers = [], destId = null) {
+    const folderName = DEST_IMAGE_MAP[destId] || 'gold_city';
+    const enemyImageUrl = `${R2_BASE}/images/caravan/${folderName}/${waveNum}.png`;
+    
     const embed = new EmbedBuilder()
         .setColor('#FF6600')
-        .setTitle(`⚔️ كمين القافلة | الموجة ${waveNum}/5`);
+        .setTitle(`⚔️ كمين القافلّة | الموجة ${waveNum}/5`)
+        .setImage(enemyImageUrl);
 
     embed.addFields({
         name:   `👹 **${enemy.name}**`,
@@ -245,7 +259,7 @@ function generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers
         inline: false,
     });
     embed.addFields({
-        name:   '🐪 **صحة القافلة**',
+        name:   '🐪 **صحة القافلّة**',
         value:  `${buildHpBar(caravan.hp, caravan.maxHp)} \`[${caravan.hp}/${caravan.maxHp}]\``,
         inline: false,
     });
@@ -557,7 +571,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
         let battleMsg;
         try {
-            const initPayload = await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild);
+            const initPayload = await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild, destId);
             battleMsg = await thread.send({ ...initPayload, components: makeBattleRows() });
         } catch {
             await thread.send('❌ فشل إرسال رسالة المعركة. إلغاء...').catch(() => {});
@@ -593,7 +607,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                         }
                     }
                     if (players.every(p => p.isDead)) earlyEnd = 'all_dead';
-                    await battleMsg.edit({ ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild)), components: [] }).catch(() => {});
+                    await battleMsg.edit({ ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild, destId)), components: [] }).catch(() => {});
                     collector.stop('turn_end');
                 }, TURN_TIMEOUT_MS);
 
@@ -614,7 +628,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                                 log.push(`😰 **${p.name}** ذعر وأخطأ ضربته! (وضع الذعر)`);
                                 actedPlayers.push(pid); p.skipCount = 0;
                                 processingSet.delete(pid);
-                                await battleMsg.edit({ ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild)), components: makeBattleRows() }).catch(() => {});
+                                await battleMsg.edit({ ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild, destId)), components: makeBattleRows() }).catch(() => {});
                                 if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) { clearTimeout(turnTimer); collector.stop('turn_end'); }
                                 return;
                             }
@@ -735,7 +749,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                         if (enemy.hp <= 0) {
                             enemy.hp  = 0;
                             earlyEnd  = 'enemy_dead';
-                            const winPayload = await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild);
+                            const winPayload = await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild, destId);
                             await battleMsg.edit({ ...winPayload, content: `✅ **سقط ${enemy.name}!**`, components: [] }).catch(() => {});
                             clearTimeout(turnTimer);
                             collector.stop('enemy_dead');
@@ -750,7 +764,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                         }
 
                         await battleMsg.edit({
-                            ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild)),
+                            ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild, destId)),
                             components: makeBattleRows(),
                         }).catch(() => {});
 
@@ -836,7 +850,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
             // Refresh board with buttons re-enabled for next round
             await battleMsg.edit({
-                ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild)),
+                ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild, destId)),
                 components: makeBattleRows(),
             }).catch(() => {});
 
