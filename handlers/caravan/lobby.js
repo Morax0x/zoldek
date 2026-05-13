@@ -61,14 +61,14 @@ function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guil
     }).join('\n');
 
     const folderMap = {
-        'gold_city': 'gold_city',
-        'magic_academy': 'academy',
-        'imperial_capital': 'capital',
-        'ancient_ruins': 'ancient_ruins',
-        'nature_valley': 'nature_valley',
+        'gold_city': 'gold_city/gold_city.png',
+        'magic_academy': 'academy/academy.png',
+        'imperial_capital': 'capital/capital.png',
+        'ancient_ruins': 'ancient_ruins/ancient_ruins.png',
+        'nature_valley': 'nature_valley/nature_valley.png',
     };
-    const folderName = folderMap[destConfig.id] || 'gold_city';
-    const imageUrl = `${R2_BASE}/images/caravan/${folderName}.png`;
+    const folderName = folderMap[destConfig.id] || 'gold_city/gold_city.png';
+    const imageUrl = `${R2_BASE}/images/caravan/${folderName}`;
     const colorMap = {
         'gold_city': '#FFD700',
         'magic_academy': '#8A2BE2',

@@ -237,11 +237,11 @@ const CLASS_LABELS = {
 const R2_BASE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 
 const DEST_IMAGE_MAP = {
-    'gold_city': 'gold_city',
-    'magic_academy': 'academy',
-    'imperial_capital': 'capital',
-    'ancient_ruins': 'ancient_ruins',
-    'nature_valley': 'nature_valley',
+    'gold_city': 'gold_city/gold_city.png',
+    'magic_academy': 'academy/academy.png',
+    'imperial_capital': 'capital/capital.png',
+    'ancient_ruins': 'ancient_ruins/ancient_ruins.png',
+    'nature_valley': 'nature_valley/nature_valley.png',
 };
 
 const DEST_COLOR_MAP = {
@@ -253,8 +253,8 @@ const DEST_COLOR_MAP = {
 };
 
 function generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers = [], destId = null) {
-    const folderName = DEST_IMAGE_MAP[destId] || 'gold_city';
-    const enemyImageUrl = `${R2_BASE}/images/caravan/${folderName}.png`;
+    const folderName = DEST_IMAGE_MAP[destId] || 'gold_city/gold_city.png';
+    const enemyImageUrl = `${R2_BASE}/images/caravan/${folderName}`;
     const embedColor = DEST_COLOR_MAP[destId] || '#FF6600';
     
     const embed = new EmbedBuilder()
@@ -305,8 +305,8 @@ function makeBattleRows(disabled = false, hostId = null, currentPlayerId = null)
 }
 
 function generateRestEmbed(players, caravan, waveNum, destId = null) {
-    const folderName = DEST_IMAGE_MAP[destId] || 'gold_city';
-    const destImageUrl = `${R2_BASE}/images/caravan/${folderName}.png`;
+    const folderName = DEST_IMAGE_MAP[destId] || 'gold_city/gold_city.png';
+    const destImageUrl = `${R2_BASE}/images/caravan/${folderName}`;
     const embedColor = DEST_COLOR_MAP[destId] || '#4CAF50';
     
     const teamLines = players.map(p => {
