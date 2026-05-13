@@ -141,9 +141,7 @@ async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDe
 // ============================================================================
 async function getStagedItemsSafe(db, userId, guildId) {
     try {
-        await db.query(`CREATE TABLE IF NOT EXISTS caravan_staging_market (id SERIAL PRIMARY KEY, "userID" VARCHAR(50), "guildID" VARCHAR(50), "itemID" VARCHAR(100), "quantity" INTEGER, "pricePerUnit" INTEGER)`).catch(()=>{});
-        
-        // 👑 تنظيف الأشباح: مسح أي غرض رقمه 0 أو أقل من السلة قبل جلبها للواجهة 👑
+        // تنظيف الأشباح: مسح أي غرض رقمه 0 أو أقل من السلة قبل جلبها للواجهة
         await db.query(`DELETE FROM caravan_staging_market WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0`).catch(()=>{});
         await db.query(`DELETE FROM caravan_staging_market WHERE CAST(COALESCE(quantity, '0') AS INTEGER) <= 0`).catch(()=>{});
 
@@ -571,7 +569,7 @@ async function handleStagingInteraction(interaction, db, user, guild) {
     }
 
     if (id.startsWith('stg_ok_')) {
-        const activeRes = await safeQuery(db, `SELECT 1 FROM active_caravans WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]).catch(()=>null);
+        const activeRes = await safeQuery(db, `SELECT 1 FROM user_caravans WHERE "userID"=$1 AND "guildID"=$2 AND "status"!='completed'`, [user.id, guild.id]);
         if (activeRes && activeRes.rows && activeRes.rows.length > 0) {
             await interaction.deferUpdate().catch(()=>{});
             return interaction.followUp({ content: '❌ القافلة في رحلة حالياً! لا يمكنك إضافة أو إزالة البضائع حتى تعود.', flags: [MessageFlags.Ephemeral] });

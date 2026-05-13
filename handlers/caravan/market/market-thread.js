@@ -103,6 +103,10 @@ async function closeMarketThread(client, db, threadId, guildId, journeyRewards =
         const ownerId   = session.ownerid   || session.ownerID;
         const caravanId = session.caravanid || session.caravanId;
 
+        // Fetch all listings BEFORE closing the session — getListingsBySession filters
+        // on status='open', so it must run before closeSession changes that to 'closed'.
+        const listings = await getListingsBySession(db, threadId);
+
         await closeSession(db, threadId);
 
         // If journey rewards weren't passed (market timer fired before journey.js ran),
@@ -135,11 +139,8 @@ async function closeMarketThread(client, db, threadId, guildId, journeyRewards =
 
         const parentChannel = thread.parent;
 
-        // Fetch all listings and return unsold items to inventory in parallel
-        const [listings] = await Promise.all([
-            getListingsBySession(db, threadId),
-            returnUnsoldItems(db, ownerId, guildId),
-        ]);
+        // Return unsold items to inventory
+        await returnUnsoldItems(db, ownerId, guildId);
 
         // Build sold/unsold arrays with item metadata
         const soldItems   = [];

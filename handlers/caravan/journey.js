@@ -222,7 +222,8 @@ async function sendAttackNotification(client, db, caravan) {
     return sendAmbushNotification(client, db, caravan);
 }
 
-const pendingAttacks = new Set();
+const pendingAttacks  = new Set();
+const pendingReturns  = new Set(); // prevents double reward distribution if checker overlaps
 
 async function processCaravanReturns(client, db) {
     try {
@@ -242,6 +243,9 @@ async function processCaravanReturns(client, db) {
             const guildId        = caravan.guildid                  || caravan.guildID;
 
             if (now >= endTime) {
+                if (pendingReturns.has(caravanId)) continue;
+                pendingReturns.add(caravanId);
+
                 // Loot staging market for unresolved ambush
                 if (attackAt > 0 && attackResolved === 0) {
                     const { stagingLootItems } = require('./market/market-db');
@@ -250,6 +254,7 @@ async function processCaravanReturns(client, db) {
 
                 // Distribute rewards and mark caravan complete
                 const summary = await distributeRewards(client, db, caravan);
+                pendingReturns.delete(caravanId);
 
                 // If an open market session exists, delegate the arrival report to it
                 let handledByMarket = false;

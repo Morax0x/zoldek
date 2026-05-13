@@ -34,19 +34,36 @@ async function upgradeCaravan(db, userId, guildId, upgradeType) {
     if (current >= upgCfg.max_level) return { error: `وصلت للمستوى الأقصى (${upgCfg.max_level})!` };
 
     const cost = upgCfg.costs[current];
-    const userData = await safeQuery(db,
-        `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [userId, guildId]);
-    const mora = Number(userData.rows[0]?.mora || 0);
 
-    if (mora < cost) return { error: `تحتاج ${cost.toLocaleString()} ${EMOJI_MORA} للترقية. رصيدك: ${mora.toLocaleString()}` };
-
-    await safeExecute(db,
-        `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`,
+    // خصم الموارد بشكل ذري مشروط: يخصم فقط إذا كان الرصيد كافياً ومستوى الترقية لا يزال صحيحاً
+    const deductRes = await safeQuery(db,
+        `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1
+         WHERE "user"=$2 AND "guild"=$3
+           AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1
+         RETURNING "mora"`,
         [cost, userId, guildId]);
 
-    await safeExecute(db,
-        `UPDATE user_caravan_stats SET "${rankKey}"="${rankKey}"+1 WHERE "userID"=$1 AND "guildID"=$2`,
-        [userId, guildId]);
+    if (!deductRes?.rows?.length) {
+        const userData = await safeQuery(db,
+            `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [userId, guildId]);
+        const mora = Number(userData.rows[0]?.mora || 0);
+        return { error: `تحتاج ${cost.toLocaleString()} ${EMOJI_MORA} للترقية. رصيدك: ${mora.toLocaleString()}` };
+    }
+
+    // ترقية المستوى مشروطة بأن يكون المستوى الحالي لا يزال هو نفسه (يمنع الترقية المزدوجة)
+    const upgrRes = await safeQuery(db,
+        `UPDATE user_caravan_stats SET "${rankKey}"="${rankKey}"+1
+         WHERE "userID"=$1 AND "guildID"=$2 AND "${rankKey}"=$3
+         RETURNING "${rankKey}"`,
+        [userId, guildId, current]);
+
+    if (!upgrRes?.rows?.length) {
+        // المستوى تغيّر في النفس الوقت (race)؛ أعد الموارد
+        await safeExecute(db,
+            `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
+            [cost, userId, guildId]);
+        return { error: 'تمت الترقية بالفعل أو حدث خطأ. حاول مرة أخرى.' };
+    }
 
     return { ok: true, newLevel: current + 1, cost, upgCfg };
 }

@@ -42,8 +42,7 @@ function getEquippedBuffs(equippedArtifacts) {
 function calcDuration(destConfig, stats, equippedBuffs) {
     const speedRank = Number(stats.speed_rank || 1);
     const speedCfg  = caravanConfig.upgrades.speed;
-    // تركنا الحد الأقصى لتخفيض الوقت 70% كحد أقصى عشان ما يصير الوقت صفر ⏳
-    const reduction = Math.min((speedRank - 1) * speedCfg.time_reduction + equippedBuffs.speedBuff, 0.70);
+    const reduction = Math.min((speedRank - 1) * speedCfg.time_reduction + (equippedBuffs?.speedBuff || 0), 0.70);
     const baseMs    = destConfig.duration_hours * 3600 * 1000;
     return Math.floor(baseMs * (1 - reduction));
 }

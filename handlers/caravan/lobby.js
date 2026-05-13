@@ -237,6 +237,9 @@ async function sendAmbushNotification(client, db, caravan) {
 
         if (!lobbyResult.ready) {
             await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1`, [caravanId]);
+            // تنظيف بيانات السوق المرتبطة بالقافلة المدمرة
+            await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "caravanId"=$1 AND "status"='active'`, [caravanId]).catch(() => {});
+            await safeExecute(db, `UPDATE caravan_market_sessions SET "status"='closed' WHERE "caravanId"=$1 AND "status"='open'`, [caravanId]).catch(() => {});
             await setCaravanCooldown(db, userId, guildId).catch(() => {});
             await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** لم يُنظَّم دفاع في الوقت المحدد.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`).catch(() => {});
             collector.stop('user');
@@ -255,6 +258,9 @@ async function sendAmbushNotification(client, db, caravan) {
         const { stagingLootItems } = require('./market/market-db');
         await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
         await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1 AND "attackResolved"=0`, [caravanId]);
+        // تنظيف بيانات السوق المرتبطة بالقافلة المدمرة
+        await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "caravanId"=$1 AND "status"='active'`, [caravanId]).catch(() => {});
+        await safeExecute(db, `UPDATE caravan_market_sessions SET "status"='closed' WHERE "caravanId"=$1 AND "status"='open'`, [caravanId]).catch(() => {});
         await setCaravanCooldown(db, userId, guildId).catch(() => {});
         await attackMsg.edit({ content: `💀 <@${userId}> انتهت المهلة! قطاع الطرق نهبوا قافلتك.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`, embeds: [], files: [], components: [] }).catch(() => {});
     });

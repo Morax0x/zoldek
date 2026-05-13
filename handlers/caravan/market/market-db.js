@@ -341,7 +341,7 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
             if (r.rowCount > 0) dbUpdated = true;
         } catch(e) {}
         if (!dbUpdated) {
-            await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) - $1 WHERE userid=$2 AND guildid=$3`).catch(()=>{});
+            await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) - $1 WHERE userid=$2 AND guildid=$3`, [totalPrice, buyerId, guildId]).catch(()=>{});
         }
         
         if (client && typeof client.getLevel === 'function') {
@@ -358,7 +358,7 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
         if (r.rowCount > 0) sDbUpdated = true;
     } catch(e) {}
     if (!sDbUpdated) {
-        await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) + $1 WHERE userid=$2 AND guildid=$3`).catch(()=>{});
+        await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) + $1 WHERE userid=$2 AND guildid=$3`, [totalPrice, sellerId, guildId]).catch(()=>{});
     }
 
     if (client && typeof client.getLevel === 'function') {

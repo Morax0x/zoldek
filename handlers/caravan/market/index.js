@@ -63,8 +63,7 @@ module.exports = {
     spawnNpc: marketNpcAi.spawnNpc,
     scheduleNpcSpawn: marketNpcAi.scheduleNpcSpawn,
     handleNpcHaggle: marketNpcAi.handleNpcHaggle,
-    getNpcPersona: marketNpcAi.getNpcPersona,
+    handleNpcModalSubmit: marketNpcAi.handleNpcModalSubmit,
     parseNpcAction: marketNpcAi.parseNpcAction,
     NpcConversations: marketNpcAi.NpcConversations,
-    DESTINATION_PERSONAS: marketNpcAi.DESTINATION_PERSONAS,
 };

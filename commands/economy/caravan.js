@@ -469,13 +469,6 @@ module.exports = {
                         return;
                     }
 
-                    const newMora = await getMora(db, user.id, guild.id);
-                    if (newMora < dest.cost) {
-                        await i.followUp({ content: '❌ الرصيد غير كافٍ!', flags: [MessageFlags.Ephemeral] });
-                        activeProcesses.delete(user.id);
-                        return;
-                    }
-
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     const channelId = i.message ? i.message.channelId : i.channelId;

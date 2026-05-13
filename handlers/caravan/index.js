@@ -82,10 +82,10 @@ module.exports = {
     handlePriceChangeSelect:  market.handlePriceChangeSelect,
     handleNewPriceModalSubmit: market.handleNewPriceModalSubmit,
     spawnNpc:                 market.spawnNpc,
+    handleNpcModalSubmit:     market.handleNpcModalSubmit,
     getListingsBySession:     market.getListingsBySession,
     getSessionByThread:       market.getSessionByThread,
     returnUnsoldItems:        market.returnUnsoldItems,
     closeSession:             market.closeSession,
-    buildMarketEmbed:         market.buildMarketEmbed,
     buildMarketComponents:    market.buildMarketComponents,
 };
