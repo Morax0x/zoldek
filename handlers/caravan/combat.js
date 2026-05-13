@@ -244,12 +244,21 @@ const DEST_IMAGE_MAP = {
     'nature_valley': 'nature_valley',
 };
 
+const DEST_COLOR_MAP = {
+    'gold_city': '#FFD700',
+    'magic_academy': '#8A2BE2',
+    'imperial_capital': '#DC143C',
+    'ancient_ruins': '#CD853F',
+    'nature_valley': '#228B22',
+};
+
 function generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers = [], destId = null) {
     const folderName = DEST_IMAGE_MAP[destId] || 'gold_city';
     const enemyImageUrl = `${R2_BASE}/images/caravan/${folderName}/${waveNum}.png`;
+    const embedColor = DEST_COLOR_MAP[destId] || '#FF6600';
     
     const embed = new EmbedBuilder()
-        .setColor('#FF6600')
+        .setColor(embedColor)
         .setTitle(`⚔️ كمين القافلّة | الموجة ${waveNum}/5`)
         .setImage(enemyImageUrl);
 

@@ -520,7 +520,7 @@ module.exports = {
                     }
 
                     await hubMsg.edit({
-                        content: '🛡️ **لوبي التأمين قيد الإعداد...**',
+                        content: '🛡️ **جاري تجهيز فريق التأمين...**\n⏳ اختر المهام أنت ورفاقك',
                         embeds: [], files: [], components: []
                     }).catch(() => {});
 
