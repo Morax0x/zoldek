@@ -457,6 +457,8 @@ module.exports = {
                 else if (id.startsWith('cv_noprotect_')) {
                     const destId = id.replace('cv_noprotect_', '');
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
+                    if (!dest) { activeProcesses.delete(user.id); return; }
+
                     const mora   = await getMora(db, user.id, guild.id);
                     if (mora < dest.cost) {
                         await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA}. رصيدك: **${mora.toLocaleString()}**`, flags: [MessageFlags.Ephemeral] });
@@ -464,13 +466,23 @@ module.exports = {
                         return;
                     }
 
-                    await safeExecute(db, `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [dest.cost, user.id, guild.id]);
+                    const deductResult = await safeExecute(db, `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [dest.cost, user.id, guild.id]);
+                    if (!deductResult) {
+                        await i.followUp({ content: '❌ فشل خصم الرصيد!', flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+
+                    const newMora = await getMora(db, user.id, guild.id);
+                    if (newMora < dest.cost) {
+                        await i.followUp({ content: '❌ الرصيد غير كافٍ!', flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
 
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
-                    
                     const channelId = i.message ? i.message.channelId : i.channelId;
-                    
                     const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
 
                     if (result.error) {
