@@ -68,7 +68,7 @@ function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guil
         'nature_valley': 'nature_valley',
     };
     const folderName = folderMap[destConfig.id] || 'gold_city';
-    const imageUrl = `${R2_BASE}/images/caravan/${folderName}/1.png`;
+    const imageUrl = `${R2_BASE}/images/caravan/${folderName}.png`;
     const colorMap = {
         'gold_city': '#FFD700',
         'magic_academy': '#8A2BE2',

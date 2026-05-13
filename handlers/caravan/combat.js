@@ -254,7 +254,7 @@ const DEST_COLOR_MAP = {
 
 function generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers = [], destId = null) {
     const folderName = DEST_IMAGE_MAP[destId] || 'gold_city';
-    const enemyImageUrl = `${R2_BASE}/images/caravan/${folderName}/${waveNum}.png`;
+    const enemyImageUrl = `${R2_BASE}/images/caravan/${folderName}.png`;
     const embedColor = DEST_COLOR_MAP[destId] || '#FF6600';
     
     const embed = new EmbedBuilder()
@@ -306,7 +306,7 @@ function makeBattleRows(disabled = false, hostId = null, currentPlayerId = null)
 
 function generateRestEmbed(players, caravan, waveNum, destId = null) {
     const folderName = DEST_IMAGE_MAP[destId] || 'gold_city';
-    const destImageUrl = `${R2_BASE}/images/caravan/${folderName}/${waveNum}.png`;
+    const destImageUrl = `${R2_BASE}/images/caravan/${folderName}.png`;
     const embedColor = DEST_COLOR_MAP[destId] || '#4CAF50';
     
     const teamLines = players.map(p => {
