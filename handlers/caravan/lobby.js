@@ -37,6 +37,16 @@ async function consumeGuardTicket(db, userId, guildId, member = null) {
     return r.success === true;
 }
 
+async function refundGuardTickets(db, userId, guildId, member = null) {
+    const current = await manageTickets(userId, guildId, db, 'check', member);
+    if (current.tickets < current.max) {
+        const newCount = Math.min(current.max, current.tickets + 1);
+        await safeExecute(db,
+            `UPDATE dungeon_stats SET "tickets"=$1 WHERE "userID"=$2 AND "guildID"=$3`,
+            [newCount, userId, guildId]);
+    }
+}
+
 // ─── Embed Builder (مثل شكل لوبي الدانجون) ────────────────────────────────────
 function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guild) {
     const memberList = party.map((id, i) => {
@@ -146,6 +156,9 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
 
     if (stopReason !== 'start') {
         await msg.edit({ content: '❌ اللوبي انتهى أو أُلغي.', embeds: [], files: [], components: [] }).catch(() => {});
+        for (const uid of party) {
+            if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+        }
         return { ready: false, cancelled: stopReason === 'cancel', party, partyClasses };
     }
 
@@ -250,4 +263,5 @@ async function sendAmbushNotification(client, db, caravan) {
 module.exports = {
     startEscortLobby, sendAmbushNotification, buildLobbyEmbed,
     CLASS_OPTIONS, LOBBY_TIMEOUT_MS, AMBUSH_WINDOW_MS, MAX_PARTY,
+    refundGuardTickets,
 };

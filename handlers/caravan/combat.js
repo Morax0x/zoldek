@@ -13,6 +13,7 @@ const { buildHpBar, applyDamageToPlayer } = require('../dungeon/utils.js');
 const { handleSkillUsage }   = require('../dungeon/skills.js');
 const { executeWeaponAttack } = require('../combat/weapon-calculator.js');
 const { buildSkillSelector, buildPotionSelector } = require('../dungeon/ui.js');
+const { refundGuardTickets } = require('./lobby');
 
 async function buildBattlePayload(players, enemy, caravan, waveNum, log, actedIds, hostId, guild) {
     return { files: [], embeds: [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedIds)] };
@@ -855,7 +856,10 @@ async function handleEscortReady(data) {
         // Deduct cost and dispatch caravan
         const mora = await getMora(db, hostId, guild.id);
         if (mora < dest.cost) {
-            await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة!`).catch(() => {});
+            for (const uid of party) {
+                if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+            }
+            await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة!\n🎟️ تم إرجاع التذاكر للحراس.`).catch(() => {});
         } else {
             const { sendCaravan } = require('./journey');
             await safeExecute(db,
@@ -893,13 +897,16 @@ async function handleEscortReady(data) {
     } else {
         // Apply 1-hour cooldown to owner on any loss
         await setCaravanCooldown(db, hostId, guild.id).catch(() => {});
+        for (const uid of guards) {
+            await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+        }
         const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
                      : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
                      : '☠️ سقط كل الحراس!';
         const failEmbed = new EmbedBuilder()
             .setColor('#FF4444')
             .setTitle('💀 فشل التأمين!')
-            .setDescription(`${reason}\nلم تُرسَل القافلة. لم يُخصَم منك شيء.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
+            .setDescription(`${reason}\nلم تُرسَل القافلة. لم يُخصَم منك شيء.\n🎟️ تم إرجاع التذاكر للحراس.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
         await thread.send({ embeds: [failEmbed] }).catch(() => {});
     }
 
@@ -959,6 +966,9 @@ async function handleAmbushReady(data) {
         await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
     } else {
         // Battle lost → loot staging market, delete caravan + apply 1-hour cooldown to owner
+        for (const uid of guards) {
+            await refundGuardTickets(db, uid, guildId, null).catch(() => {});
+        }
         const { stagingLootItems } = require('./market/market-db');
         await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
         await setCaravanCooldown(db, userId, guildId).catch(() => {});
@@ -973,7 +983,7 @@ async function handleAmbushReady(data) {
         const loseEmbed = new EmbedBuilder()
             .setColor('#FF4444')
             .setTitle('💀 فشلت الحراسة — القافلة نُهبت!')
-            .setDescription(`${reason}\nضاعت جميع البضائع. انتهت الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
+            .setDescription(`${reason}\nضاعت جميع البضائع. انتهت الرحلة.\n🎟️ تم إرجاع التذاكر للحراس.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
         await thread.send({ embeds: [loseEmbed] }).catch(() => {});
         await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم الغاء الرحلة.`).catch(() => {});
     }
