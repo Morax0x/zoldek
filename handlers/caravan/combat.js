@@ -664,6 +664,9 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                             actedPlayers.push(pid); p.skipCount = 0;
 
                         } else if (cid === 'cvb_skill') {
+                            if (!p.skillCooldowns) p.skillCooldowns = {};
+                            if (!p.special_cooldown) p.special_cooldown = 0;
+                            
                             const skillRow = buildSkillSelector(p);
                             if (!skillRow) {
                                 await i.followUp({ content: '❌ لا توجد مهارات.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
@@ -679,6 +682,21 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                             const skillObj = p.skills?.[skillId]
                                 ? { ...p.skills[skillId] }
                                 : { id: skillId, name: 'مهارة', effectValue: 0, level: 1 };
+
+                            // Manual cooldown check for class skills and regular skills
+                            if (skillId === 'class_special_skill' && p.special_cooldown > 0) {
+                                await sel.followUp({ content: `⏳ المهارة في وقت انتظار (${p.special_cooldown} جولات)!`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                                processingSet.delete(pid); return;
+                            }
+                            if (skillId === 'hybrid_heal' && (p.skillCooldowns['hybrid_heal'] || 0) > 0) {
+                                await sel.followUp({ content: `⏳ مهارة الإرث في وقت انتظار (${p.skillCooldowns['hybrid_heal']} جولات)!`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                                processingSet.delete(pid); return;
+                            }
+                            // Check regular skills cooldown
+                            if (skillId !== 'class_special_skill' && skillId !== 'hybrid_heal' && (p.skillCooldowns[skillId] || 0) > 0) {
+                                await sel.followUp({ content: `⏳ المهارة "${skillObj.name}" في وقت انتظار (${p.skillCooldowns[skillId]} جولات)!`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                                processingSet.delete(pid); return;
+                            }
 
                             const hpBefore = enemy.hp;
                             const res = handleSkillUsage(p, { ...skillObj, id: skillId }, enemy, log, thread, players);
