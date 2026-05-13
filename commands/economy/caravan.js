@@ -102,7 +102,7 @@ function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
         row.addComponents(
             new ButtonBuilder().setCustomId('cv_send').setLabel('📤 إرسال رحلة').setStyle(ButtonStyle.Primary).setDisabled(disabled),
             new ButtonBuilder().setCustomId('cv_market_staging').setLabel('تجهيز البضاعة').setEmoji('🏪').setStyle(ButtonStyle.Success).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cv_equip').setLabel('🔮 التجهيز').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+            new ButtonBuilder().setCustomId('cv_equip').setEmoji('🔮').setLabel('عتاد').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
         );
     } else {
         row.addComponents(
@@ -245,7 +245,7 @@ module.exports = {
             
             payload.components = [
                 new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع للرئيسية').setStyle(ButtonStyle.Secondary)
+                    new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
                 ),
                 slotRow,
             ];
@@ -266,8 +266,7 @@ module.exports = {
 
         const collector = hubMsg.createMessageComponentCollector({
             filter: i => i.user.id === user.id,
-            time: 5 * 60 * 1000,
-            idle: 3 * 60 * 1000,
+            time: 10 * 60 * 1000,
         });
 
         collector.on('collect', async i => {
@@ -344,7 +343,7 @@ module.exports = {
                                 .addOptions(opts)
                         ),
                         new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ التراجع للرئيسية').setStyle(ButtonStyle.Danger)
+                            new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setStyle(ButtonStyle.Danger)
                         ),
                     ];
                     await hubMsg.edit(payload).catch(() => {});
@@ -364,14 +363,22 @@ module.exports = {
                     client.caravanTempDest = client.caravanTempDest || new Map();
                     client.caravanTempDest.set(user.id, dest);
 
-                    // 👑 استدعاء الصورة من مولد اللوبي بدلاً من رسمها هنا 👑
-                    const buffer = await LOBBY_GEN.generateDestChoiceImage(dest, mora);
-                    const attachment = new AttachmentBuilder(buffer, { name: 'dest_choice.png' });
+                    let imgPayload;
+                    try {
+                        const buffer = await LOBBY_GEN.generateDestChoiceImage(dest, mora);
+                        const attachment = new AttachmentBuilder(buffer, { name: 'dest_choice.png' });
+                        imgPayload = { content: `<@${user.id}>`, embeds: [], files: [attachment] };
+                    } catch (e) {
+                        const embed = new EmbedBuilder()
+                            .setColor(dest.color || 0x2ECC71)
+                            .setTitle(`${dest.emoji || '📍'} ${dest.name}`)
+                            .setDescription(`**المدة:** ${dest.duration_hours} ساعة\n**نسبة الخطر:** ${(dest.risk_factor * 100).toFixed(0)}%\n**التكلفة:** ${dest.cost.toLocaleString()} مورا`)
+                            .setFooter({ text: '™ Empire' });
+                        imgPayload = { content: `<@${user.id}>`, embeds: [embed], files: [] };
+                    }
 
                     await hubMsg.edit({
-                        content: `<@${user.id}>`,
-                        embeds: [],
-                        files: [attachment],
+                        ...imgPayload,
                         components: [
                             new ActionRowBuilder().addComponents(
                                 new ButtonBuilder()
@@ -384,7 +391,7 @@ module.exports = {
                                     .setStyle(ButtonStyle.Primary),
                                 new ButtonBuilder()
                                     .setCustomId('cv_back')
-                                    .setLabel('↩️ إلغاء')
+                                    .setEmoji('↩️')
                                     .setStyle(ButtonStyle.Secondary)
                             )
                         ]
@@ -575,7 +582,7 @@ module.exports = {
                     payload.components = [
                         new ActionRowBuilder().addComponents(
                             new ButtonBuilder().setCustomId('cv_status_toggle').setLabel(toggleLabel).setStyle(ButtonStyle.Primary),
-                            new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ العودة للرئيسية').setStyle(ButtonStyle.Secondary)
+                            new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
                         ),
                     ];
                     await hubMsg.edit(payload).catch(() => {});
@@ -604,7 +611,7 @@ module.exports = {
                             new StringSelectMenuBuilder().setCustomId('cv_upg_sel').setPlaceholder('🛠️ حدد العنصر لترقيته...').addOptions(opts)
                         ),
                         new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع للرئيسية').setStyle(ButtonStyle.Secondary)
+                            new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
                         ),
                     ];
                     await hubMsg.edit(payload).catch(() => {});
@@ -642,7 +649,7 @@ module.exports = {
                             new StringSelectMenuBuilder().setCustomId('cv_upg_sel').setPlaceholder('🛠️ حدد العنصر لترقيته...').addOptions(opts2)
                         ),
                         new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('cv_back').setLabel('↩️ رجوع للرئيسية').setStyle(ButtonStyle.Secondary)
+                            new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
                         ),
                     ];
                     await hubMsg.edit(payload2).catch(() => {});
@@ -670,7 +677,6 @@ module.exports = {
                     const sessionKey = `${user.id}-${guild.id}`;
                     const current = (client.caravanEquip?.get(sessionKey)) || [null, null, null];
                     
-                    // Unequip if slot is filled
                     if (current[slotIdx]) {
                         await i.deferUpdate().catch(() => {});
                         current[slotIdx] = null;
@@ -680,7 +686,6 @@ module.exports = {
                         return;
                     }
                     
-                    // Show item selection for this slot
                     await i.deferUpdate().catch(() => {});
                     const available = allItemsList();
                     const invCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]).catch(() => null);
@@ -711,90 +716,93 @@ module.exports = {
                     const selRow = new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder().setCustomId('cv_eq_sel').setPlaceholder('اختر أداة للتجهيز...').addOptions(opts)
                     );
-                    await i.followUp({ content: '📦 اختر الأداة التي تريد تجهيزها:', components: [selRow], flags: [MessageFlags.Ephemeral], fetchReply: true }).catch(() => {});
+                    
+                    const menuMsg = await i.followUp({ content: '📦 اختر الأداة التي تريد تجهيزها:', components: [selRow], flags: [MessageFlags.Ephemeral], fetchReply: true }).catch(() => {});
+                    if (!menuMsg) return;
+                    if (!client._caravanEquipMenus) client._caravanEquipMenus = new Map();
+                    client._caravanEquipMenus.set(user.id, menuMsg);
+                    
+                    try {
+                        const selI = await menuMsg.awaitMessageComponent({ filter: m => m.customId === 'cv_eq_sel' && m.user.id === user.id, time: 60000 });
+                        
+                        const itemId = selI.values[0];
+                        const equipped = (client.caravanEquip?.get(sessionKey)) || [null, null, null];
+                        
+                        const existingSlot = equipped.findIndex(x => x && x.id === itemId);
+                        if (existingSlot !== -1) {
+                            await selI.deferUpdate().catch(() => {});
+                            equipped[existingSlot] = null;
+                            if (!client.caravanEquip) client.caravanEquip = new Map();
+                            client.caravanEquip.set(sessionKey, equipped);
+                            await menuMsg.delete().catch(() => {});
+                            client._caravanEquipMenus.delete(user.id);
+                            await updateEquipUI(i, equipped);
+                            return;
+                        }
+                        
+                        const tSlot = client.caravanEquipTarget?.get(sessionKey) ?? equipped.findIndex(x => x === null);
+                        if (tSlot === -1 || equipped[tSlot] !== null) {
+                            await selI.reply({ content: '❌ تعذر تحديد الفتحة. جرب مرة أخرى.', flags: [MessageFlags.Ephemeral] });
+                            return;
+                        }
+                        
+                        let invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
+                        if (!invResCheck || !invResCheck.rows || invResCheck.rows.length === 0) {
+                            invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]);
+                        }
+                        const targetRow = (invResCheck?.rows || []).find(r => (r.itemid || r.itemID || r.ITEMID) === itemId);
+                        const availableQty = targetRow ? Number(targetRow.quantity || targetRow.QUANTITY || 0) : 0;
+                        
+                        if (availableQty <= 0) {
+                            await selI.reply({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
+                            return;
+                        }
+                        
+                        if (availableQty === 1) {
+                            await selI.deferUpdate().catch(() => {});
+                            equipped[tSlot] = { id: itemId, count: 1 };
+                            if (!client.caravanEquip) client.caravanEquip = new Map();
+                            client.caravanEquip.set(sessionKey, equipped);
+                            await menuMsg.delete().catch(() => {});
+                            client._caravanEquipMenus.delete(user.id);
+                            await updateEquipUI(i, equipped);
+                        } else {
+                            const modalId = `cv_eq_mod_${Date.now()}`;
+                            const modal = new ModalBuilder().setCustomId(modalId).setTitle('تحديد الكمية');
+                            const maxAllowed = Math.min(availableQty, 20);
+                            const qtyInput = new TextInputBuilder()
+                                .setCustomId('qty')
+                                .setLabel(`الكمية (1 إلى ${maxAllowed})`)
+                                .setPlaceholder(`المتوفر: ${availableQty}`)
+                                .setStyle(TextInputStyle.Short)
+                                .setRequired(true);
+                            modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
+                            await selI.showModal(modal);
+                            
+                            try {
+                                const modalSubmit = await selI.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
+                                await modalSubmit.deferUpdate().catch(() => {});
+                                
+                                const qtyStr = modalSubmit.fields.getTextInputValue('qty');
+                                let qty = parseInt(qtyStr);
+                                if (isNaN(qty) || qty < 1 || qty > maxAllowed) {
+                                    await modalSubmit.followUp({ content: `❌ كمية غير صالحة (1-${maxAllowed}).`, flags: [MessageFlags.Ephemeral] });
+                                    return;
+                                }
+                                
+                                equipped[tSlot] = { id: itemId, count: qty };
+                                if (!client.caravanEquip) client.caravanEquip = new Map();
+                                client.caravanEquip.set(sessionKey, equipped);
+                                await menuMsg.delete().catch(() => {});
+                                client._caravanEquipMenus.delete(user.id);
+                                await updateEquipUI(i, equipped);
+                            } catch (e) {}
+                        }
+                    } catch (e) {}
                 }
 
                 else if (id === 'cv_eq_sel') {
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    const current = (client.caravanEquip?.get(sessionKey)) || [null, null, null];
-                    const itemId = i.values[0];
-                    
-                    // Check if already equipped in any slot
-                    const existingSlot = current.findIndex(x => x && x.id === itemId);
-                    if (existingSlot !== -1) {
-                        await i.deferUpdate().catch(() => {});
-                        current[existingSlot] = null;
-                        if (!client.caravanEquip) client.caravanEquip = new Map();
-                        client.caravanEquip.set(sessionKey, current);
-                        if (i.message?.editable) await i.message.delete().catch(() => {});
-                        await updateEquipUI(i, current);
-                        return;
-                    }
-                    
-                    // Get target slot
-                    const targetSlot = client.caravanEquipTarget?.get(sessionKey) ?? current.findIndex(x => x === null);
-                    if (targetSlot === -1 || current[targetSlot] !== null) {
-                        await i.reply({ content: '❌ تعذر تحديد الفتحة. جرب مرة أخرى.', flags: [MessageFlags.Ephemeral] });
-                        return;
-                    }
-                    
-                    let invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
-                    if (!invResCheck || !invResCheck.rows || invResCheck.rows.length === 0) {
-                        invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]);
-                    }
-                    const targetRow = (invResCheck?.rows || []).find(r => (r.itemid || r.itemID || r.ITEMID) === itemId);
-                    const availableQty = targetRow ? Number(targetRow.quantity || targetRow.QUANTITY || 0) : 0;
-
-                    if (availableQty <= 0) {
-                        await i.reply({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
-                        activeProcesses.delete(user.id);
-                        return;
-                    }
-
-                    if (availableQty === 1) {
-                        await i.deferUpdate().catch(() => {});
-                        current[targetSlot] = { id: itemId, count: 1 };
-                        if (!client.caravanEquip) client.caravanEquip = new Map();
-                        client.caravanEquip.set(sessionKey, current);
-                        if (i.message?.editable) await i.message.delete().catch(() => {});
-                        await updateEquipUI(i, current);
-                    } else {
-                        const modalId = `cv_eq_mod_${Date.now()}`;
-                        const modal = new ModalBuilder().setCustomId(modalId).setTitle('تحديد الكمية');
-                        
-                        const maxAllowed = Math.min(availableQty, 20);
-                        const qtyInput = new TextInputBuilder()
-                            .setCustomId('qty')
-                            .setLabel(`الكمية (1 إلى ${maxAllowed})`)
-                            .setPlaceholder(`المتوفر: ${availableQty}`)
-                            .setStyle(TextInputStyle.Short)
-                            .setRequired(true);
-                            
-                        modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
-                        await i.showModal(modal);
-
-                        try {
-                            const modalSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
-                            await modalSubmit.deferUpdate().catch(() => {});
-
-                            const qtyStr = modalSubmit.fields.getTextInputValue('qty');
-                            let qty = parseInt(qtyStr);
-
-                            if (isNaN(qty) || qty < 1 || qty > maxAllowed) {
-                                await modalSubmit.followUp({ content: `❌ كمية غير صالحة (1-${maxAllowed}).`, flags: [MessageFlags.Ephemeral] });
-                                activeProcesses.delete(user.id);
-                                return;
-                            }
-
-                            current[targetSlot] = { id: itemId, count: qty };
-                            if (!client.caravanEquip) client.caravanEquip = new Map();
-                            client.caravanEquip.set(sessionKey, current);
-
-                            await updateEquipUI(modalSubmit, current, true);
-                        } catch (e) {
-                            activeProcesses.delete(user.id);
-                        }
-                    }
+                    await i.deferUpdate().catch(() => {});
                 }
 
                 else if (id === 'cv_back') {
