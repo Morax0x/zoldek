@@ -693,6 +693,7 @@ module.exports = {
                         const altCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]).catch(() => null);
                         if (altCheck) invCheck.rows = altCheck.rows;
                     }
+                    const allItems = allItemsList();
                     const invRows = (invCheck?.rows || []).filter(r => {
                         const rid = r.itemid || r.itemID || r.ITEMID;
                         return Number(r.quantity || r.QUANTITY || 0) > 0 && allItems.some(a => a.id === rid);
