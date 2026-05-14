@@ -124,8 +124,18 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
                     if (party.length >= MAX_PARTY) return i.reply({ content: '🚫 الفريق ممتلئ.', flags: [MessageFlags.Ephemeral] });
                     if (party.includes(i.user.id)) return i.reply({ content: '✅ أنت منضم بالفعل.', flags: [MessageFlags.Ephemeral] });
 
-                    const hasTicket = await hasGuardTicket(db, i.user.id, guild.id, i.member);
-                    if (!hasTicket) return i.reply({ content: '🎟️ لا تملك **تذكرة زنزانة**! احصل عليها من نظام الزنزانة أولاً.', flags: [MessageFlags.Ephemeral] });
+                    const limitCheck = await manageTickets(i.user.id, guild.id, db, 'check', i.member);
+                    if (limitCheck.tickets <= 0) {
+                        const now = new Date();
+                        const nextReset = new Date(now);
+                        nextReset.setUTCHours(21, 0, 0, 0);
+                        if (now > nextReset) nextReset.setDate(nextReset.getDate() + 1);
+                        const timestamp = Math.floor(nextReset.getTime() / 1000);
+                        return i.reply({
+                            content: `✶ **نفـذت تذاكـرك!** انتظر إلى أن تصرف نقابة المغامرين تذاكرك الجديدة.\n- **وقت تجديد التذاكر:** <t:${timestamp}:R>`,
+                            flags: [MessageFlags.Ephemeral]
+                        });
+                    }
 
                     const taken = Array.from(partyClasses.values()).filter(c => c !== 'Leader');
                     const opts  = CLASS_OPTIONS.filter(o => !taken.includes(o.v));
