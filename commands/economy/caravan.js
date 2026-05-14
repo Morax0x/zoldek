@@ -278,7 +278,8 @@ module.exports = {
                 new ButtonBuilder().setCustomId('cv_eqp_s2').setEmoji('🍀').setLabel('حظ').setStyle(equipped[2] ? ButtonStyle.Success : ButtonStyle.Secondary),
             );
 
-            const ephemMsg = await actionCtx.followUp({ content: desc, components: [slotBtnRow], flags: [MessageFlags.Ephemeral] }).catch(() => null);
+            await actionCtx.reply({ content: desc, components: [slotBtnRow], flags: [MessageFlags.Ephemeral] }).catch(() => {});
+            const ephemMsg = await actionCtx.fetchReply().catch(() => null);
             if (!ephemMsg) return;
 
             try {
