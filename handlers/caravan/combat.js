@@ -14,6 +14,7 @@ const { handleSkillUsage }   = require('../dungeon/skills.js');
 const { executeWeaponAttack } = require('../combat/weapon-calculator.js');
 const { buildSkillSelector, buildPotionSelector } = require('../dungeon/ui.js');
 const { refundGuardTickets } = require('./lobby');
+const { getBanditSkill, getRandomGenericSkill } = require('./bandit-skills');
 
 async function buildBattlePayload(players, enemy, caravan, waveNum, log, actedIds, hostId, guild, destId = null) {
     return { files: [], embeds: [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedIds, destId)] };
@@ -187,6 +188,25 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
         caravan.skipNextEnemyTurn = false;
         log.push(`🥩 العدو أُشغل بالبضاعة — أضاع دوره!`);
         return;
+    }
+
+    // ── Bandit Skill Check ───────────────────────────────────────────────
+    const banditSkill = getBanditSkill(enemy.name);
+    if (banditSkill) {
+        let skillChance = banditSkill.chance;
+        if (enemy.hp < enemy.maxHp * 0.5) skillChance += 0.15;
+        if (Math.random() < skillChance) {
+            banditSkill.execute(enemy, players, caravan, log, waveNum);
+            enemy.targetFocusId = null;
+            return;
+        }
+    } else if (Math.random() < 0.2) {
+        const genericSkill = getRandomGenericSkill();
+        if (genericSkill) {
+            genericSkill.execute(enemy, players, caravan, log, waveNum);
+            enemy.targetFocusId = null;
+            return;
+        }
     }
 
     const sel = selectEnemyTarget(enemy, players, caravan);
