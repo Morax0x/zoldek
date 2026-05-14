@@ -266,7 +266,7 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            const fastButtons = new Set(['cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2', 'cv_eq_sel']);
+            const fastButtons = new Set(['cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2', 'cv_eq_sel', 'cv_eq_sel_0', 'cv_eq_sel_1', 'cv_eq_sel_2']);
 
             if (!fastButtons.has(i.customId) && !i.customId.startsWith('stg_')) {
                 if (activeProcesses.has(user.id)) {
@@ -686,7 +686,7 @@ module.exports = {
                         return;
                     }
 
-await i.deferUpdate().catch(() => {});
+                    await i.deferReply({ ephemeral: true }).catch(() => {});
 
                     const invCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]).catch(() => null);
                     if (!invCheck || !invCheck.rows || invCheck.rows.length === 0) {
@@ -725,7 +725,7 @@ await i.deferUpdate().catch(() => {});
                             .addOptions(opts)
                     );
 
-                    const menuMsg = await i.followUp({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow], flags: [MessageFlags.Ephemeral], fetchReply: true }).catch(() => {});
+                    const menuMsg = await i.editReply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow] }).catch(() => {});
                     if (!menuMsg) return;
 
                     try {
