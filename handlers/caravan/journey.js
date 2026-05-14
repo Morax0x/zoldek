@@ -256,32 +256,115 @@ async function processCaravanReturns(client, db) {
                 const summary = await distributeRewards(client, db, caravan);
                 pendingReturns.delete(caravanId);
 
-                // Always notify the user via DM
-                try {
-                    const userObj = await client.users.fetch(userId).catch(() => null);
-                    if (userObj) {
-                        const destId = caravan.destinationid || caravan.destinationId;
-                        const dest   = caravanConfig.destinations.find(d => d.id === destId);
-                        const destName = dest?.name || 'القافلة';
-                        const destEmoji = dest?.emoji || '🐪';
-                        const destColor = dest?.color || '#FFD700';
+// Priority 1: channel stored at dispatch time (caravan/guild setting)
+                let targetChannelId = caravan.marketchannelid || caravan.marketChannelId || null;
 
-                        let reportBuf = null;
-                        if (_generateMarketSummary) {
-                            try {
-                                const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
-                                const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
-                                const ownerName = member?.displayName || member?.user?.globalName || member?.user?.username || 'تاجر';
-                                const avatarUrl = member?.user?.displayAvatarURL({ extension: 'png', size: 128 }) || null;
-                                reportBuf = await _generateMarketSummary({
-                                    destName: `${destEmoji} ${destName}`,
-                                    destId, destColor, ownerName, avatarUrl,
-                                    soldItems: [], unsoldItems: [], totalEarned: 0,
-                                    journeyRewards: summary || [],
-                                });
-                            } catch (e) {
-                                console.error('[journey] DM summary canvas error:', e?.message);
+                // Priority 2: check settings table
+                if (!targetChannelId) {
+                    const sRes = await db.query(
+                        `SELECT * FROM settings WHERE "guild"=$1 OR guild=$1`, [guildId]
+                    ).catch(() => ({ rows: [] }));
+                    const s = sRes.rows[0] || {};
+                    targetChannelId = s.casinochannelid || s.casinoChannelID
+                                   || s.caravanchannelid || s.caravanChannelID
+                                   || s.casinochannelid2 || s.casinoChannelID2
+                                   || s.channelid || s.channelID;
+                }
+
+                let guild = client.guilds.cache.get(guildId);
+                if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
+
+                let channel = null;
+                if (guild && targetChannelId) {
+                    channel = guild.channels.cache.get(targetChannelId)
+                           || await guild.channels.fetch(targetChannelId).catch(() => null);
+                }
+
+                // If no channel configured → send DM
+                let notifiedViaDM = false;
+                if (!channel) {
+                    try {
+                        const userObj = await client.users.fetch(userId).catch(() => null);
+                        if (userObj) {
+                            const destId = caravan.destinationid || caravan.destinationId;
+                            const dest   = caravanConfig.destinations.find(d => d.id === destId);
+                            const destName = dest?.name || 'القافلة';
+                            const destEmoji = dest?.emoji || '🐪';
+                            const destColor = dest?.color || '#FFD700';
+
+                            let reportBuf = null;
+                            if (_generateMarketSummary) {
+                                try {
+                                    const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+                                    const ownerName = member?.displayName || member?.user?.globalName || member?.user?.username || 'تاجر';
+                                    const avatarUrl = member?.user?.displayAvatarURL({ extension: 'png', size: 128 }) || null;
+                                    reportBuf = await _generateMarketSummary({
+                                        destName: `${destEmoji} ${destName}`,
+                                        destId, destColor, ownerName, avatarUrl,
+                                        soldItems: [], unsoldItems: [], totalEarned: 0,
+                                        journeyRewards: summary || [],
+                                    });
+                                } catch (e) {}
                             }
+
+                            const rewardText = summary?.length
+                                ? `**المكافآت:**\n${summary.map(s => `✶ ${s}`).join('\n')}`
+                                : '✅ **عادت القافلة بسلام!**';
+
+                            if (reportBuf) {
+                                await userObj.send({
+                                    content: `<@${userId}> ✅ **عادت قافلتك من ${destEmoji} ${destName}!**
+${rewardText}`,
+                                    files: [new AttachmentBuilder(reportBuf, { name: 'journey-report.png' })],
+                                }).catch(() => {});
+                            } else {
+                                await userObj.send({
+                                    content: `<@${userId}> ✅ **عادت قافلتك من ${destEmoji} ${destName}!**
+${rewardText}`,
+                                }).catch(() => {});
+                            }
+                            notifiedViaDM = true;
+                        }
+                    } catch (e) {
+                        console.error('[processCaravanReturns] DM notification error:', e?.message);
+                    }
+                }
+
+                if (channel) {
+                    const destId = caravan.destinationid || caravan.destinationId;
+                    const dest   = caravanConfig.destinations.find(d => d.id === destId);
+                    const destName = dest?.name || 'القافلة';
+                    const destColor = dest?.color || '#FFD700';
+
+                    let reportBuf = null;
+                    if (_generateMarketSummary) {
+                        try {
+                            const member = await guild.members.fetch(userId).catch(() => null);
+                            const ownerName = member?.displayName || member?.user?.globalName || member?.user?.username || userId;
+                            const avatarUrl = member?.user?.displayAvatarURL({ extension: 'png', size: 128 }) || null;
+
+                            reportBuf = await _generateMarketSummary({
+                                destName, destId, destColor, ownerName, avatarUrl,
+                                soldItems: [], unsoldItems: [], totalEarned: 0,
+                                journeyRewards: summary || [],
+                            });
+                        } catch (e) {
+                            console.error('[journey] summary canvas error:', e?.message);
+                        }
+                    }
+                    if (reportBuf) {
+                        await channel.send({
+                            content: `<@${userId}>`,
+                            files: [new AttachmentBuilder(reportBuf, { name: 'journey-report.png' })],
+                        }).catch(() => {});
+                    } else {
+                        await channel.send({
+                            content: `<@${userId}> ✅ **عادت قافلتك من ${dest?.emoji || ''} ${destName}!**
+**المكافآت:**
+${summary?.length ? summary.map(s => `✶ ${s}`).join('\n') : 'عادت القافلة بسلام.'}`,
+                        }).catch(() => {});
+                    }
+                }
                         }
 
                         const rewardText = summary?.length
