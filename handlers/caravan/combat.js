@@ -1123,9 +1123,8 @@ async function handleEscortReady(data) {
 
     // Open a separate market thread on the hub message if items were staged
     try {
-        const { client: _client } = data;
         const marketThread = require('./market/market-thread');
-        if (_client && hubMsg && escortListings && escortListings.length > 0 && cvResult?.caravanId) {
+        if (hubMsg && escortListings && escortListings.length > 0 && cvResult?.caravanId) {
             const dispatchNow = Date.now();
             const caravanObj = {
                 userid: hostId,     userID: hostId,
@@ -1135,7 +1134,7 @@ async function handleEscortReady(data) {
                 starttime: dispatchNow, startTime: dispatchNow,
                 endtime: cvResult.endTime, endTime: cvResult.endTime,
             };
-            await marketThread.createMarketThread(_client, db, caravanObj, channel?.id, hubMsg);
+            await marketThread.createMarketThread(this, db, caravanObj, channel?.id, hubMsg);
         }
     } catch(e) { console.error('[EscortMarketThread]', e); }
 }

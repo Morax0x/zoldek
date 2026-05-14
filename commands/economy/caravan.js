@@ -489,6 +489,8 @@ module.exports = {
                         ? await market.getListingsByCaravan(db, result.caravanId)
                         : [];
 
+                    console.log(`[DirectSend] caravanId=${result.caravanId} listings=${listings.length}`);
+
                     await showHub(hubMsg);
 
                     if (listings.length > 0 && result.caravanId) {
@@ -501,7 +503,10 @@ module.exports = {
                             starttime: dispatchNow, startTime: dispatchNow,
                             endtime: result.endTime, endTime: result.endTime,
                         };
-                        await market.createMarketThread(client, db, caravanObj, channelId, hubMsg);
+                        const mktResult = await market.createMarketThread(client, db, caravanObj, channelId, hubMsg);
+                        console.log(`[DirectSend] createMarketThread result=${!!mktResult}`);
+                    } else {
+                        console.log(`[DirectSend] skipped: listings=${listings.length} caravanId=${result.caravanId}`);
                     }
                 }
 

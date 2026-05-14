@@ -145,8 +145,9 @@ async function closeMarketThread(client, db, threadId, guildId, journeyRewards =
 
         const parentChannel = thread.parent;
 
-        // Return unsold items to inventory
-        await returnUnsoldItems(db, ownerId, guildId);
+        // Keep unsold items in staging for next trip — just mark listings as returned
+        await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "caravanId"=$1 AND "status" IN ('active','sold_out')`, [caravanId]).catch(() => {});
+        await safeExecute(db, `UPDATE caravan_market_listings SET status='returned' WHERE caravanid=$1 AND status IN ('active','sold_out')`, [caravanId]).catch(() => {});
 
         // Build sold/unsold arrays with item metadata
         const soldItems   = [];
