@@ -682,7 +682,6 @@ module.exports = {
                         current[slotIdx] = null;
                         if (!client.caravanEquip) client.caravanEquip = new Map();
                         client.caravanEquip.set(sessionKey, current);
-                        await updateEquipUI(i, current);
                         return;
                     }
 
@@ -708,7 +707,7 @@ module.exports = {
                     client.caravanEquipTarget.set(sessionKey, slotIdx);
 
                     const opts = invRows.slice(0, 25).map(row => {
-                        const id2 = row.itemid || row.itemID || r.ITEMID;
+                        const id2 = row.itemid || row.itemID || row.ITEMID;
                         const itm = allItems.find(x => x.id === id2) || {};
                         return {
                             label: (itm.name || id2).substring(0, 25),
@@ -740,7 +739,6 @@ module.exports = {
                             if (!client.caravanEquip) client.caravanEquip = new Map();
                             client.caravanEquip.set(sessionKey, equipped);
                             await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
-                            await updateEquipUI(i, equipped);
                             return;
                         }
 
@@ -750,11 +748,7 @@ module.exports = {
                             return;
                         }
 
-                        let invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
-                        if (!invResCheck || !invResCheck.rows || invResCheck.rows.length === 0) {
-                            invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]);
-                        }
-                        const targetRow = (invResCheck?.rows || []).find(r => (r.itemid || r.itemID || r.ITEMID) === itemId);
+                        const targetRow = invRows.find(r => (r.itemid || r.itemID || r.ITEMID) === itemId);
                         const availableQty = targetRow ? Number(targetRow.quantity || targetRow.QUANTITY || 0) : 0;
 
                         if (availableQty <= 0) {
@@ -767,7 +761,6 @@ module.exports = {
                             if (!client.caravanEquip) client.caravanEquip = new Map();
                             client.caravanEquip.set(sessionKey, equipped);
                             await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
-                            await updateEquipUI(i, equipped);
                         } else {
                             const modalId = `cv_eq_mod_${Date.now()}`;
                             const modal = new ModalBuilder().setCustomId(modalId).setTitle('تحديد الكمية');
@@ -794,8 +787,8 @@ module.exports = {
                                 equipped[tSlot] = { id: itemId, count: qty };
                                 if (!client.caravanEquip) client.caravanEquip = new Map();
                                 client.caravanEquip.set(sessionKey, equipped);
-                                await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
-                                await updateEquipUI(i, equipped);
+                                await i.editReply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
+                                await modalSubmit.deferUpdate().catch(() => {});
                             } catch (e) {}
                         }
 } catch (e) {}
