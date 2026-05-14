@@ -682,10 +682,9 @@ module.exports = {
                         current[slotIdx] = null;
                         if (!client.caravanEquip) client.caravanEquip = new Map();
                         client.caravanEquip.set(sessionKey, current);
+                        await i.followUp({ content: '✬ تم فك العتاد', flags: [MessageFlags.Ephemeral] }).catch(() => {});
                         return;
                     }
-
-                    await i.deferReply({ ephemeral: true }).catch(() => {});
 
                     const invCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]).catch(() => null);
                     if (!invCheck || !invCheck.rows || invCheck.rows.length === 0) {
@@ -724,11 +723,11 @@ module.exports = {
                             .addOptions(opts)
                     );
 
-                    const menuMsg = await i.editReply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow] }).catch(() => {});
-                    if (!menuMsg) return;
+                    const ephemMsg = await i.followUp({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow], flags: [MessageFlags.Ephemeral] }).catch(() => null);
+                    if (!ephemMsg) return;
 
                     try {
-                        const selI = await menuMsg.awaitMessageComponent({ filter: m => m.customId === `cv_eq_sel_${slotIdx}` && m.user.id === user.id, time: 60000 });
+                        const selI = await ephemMsg.awaitMessageComponent({ filter: m => m.customId === `cv_eq_sel_${slotIdx}` && m.user.id === user.id, time: 60000 });
 
                         const itemId = selI.values[0];
                         const equipped = (client.caravanEquip?.get(sessionKey)) || [null, null, null];
@@ -787,11 +786,10 @@ module.exports = {
                                 equipped[tSlot] = { id: itemId, count: qty };
                                 if (!client.caravanEquip) client.caravanEquip = new Map();
                                 client.caravanEquip.set(sessionKey, equipped);
-                                await i.editReply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
-                                await modalSubmit.deferUpdate().catch(() => {});
+                                await modalSubmit.reply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', flags: [MessageFlags.Ephemeral] }).catch(() => {});
                             } catch (e) {}
                         }
-} catch (e) {}
+                    } catch (e) {}
                 }
 
                 else if (id === 'cv_back') {
