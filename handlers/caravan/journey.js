@@ -256,6 +256,55 @@ async function processCaravanReturns(client, db) {
                 const summary = await distributeRewards(client, db, caravan);
                 pendingReturns.delete(caravanId);
 
+                // Always notify the user via DM
+                try {
+                    const userObj = await client.users.fetch(userId).catch(() => null);
+                    if (userObj) {
+                        const destId = caravan.destinationid || caravan.destinationId;
+                        const dest   = caravanConfig.destinations.find(d => d.id === destId);
+                        const destName = dest?.name || 'القافلة';
+                        const destEmoji = dest?.emoji || '🐪';
+                        const destColor = dest?.color || '#FFD700';
+
+                        let reportBuf = null;
+                        if (_generateMarketSummary) {
+                            try {
+                                const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
+                                const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+                                const ownerName = member?.displayName || member?.user?.globalName || member?.user?.username || 'تاجر';
+                                const avatarUrl = member?.user?.displayAvatarURL({ extension: 'png', size: 128 }) || null;
+                                reportBuf = await _generateMarketSummary({
+                                    destName: `${destEmoji} ${destName}`,
+                                    destId, destColor, ownerName, avatarUrl,
+                                    soldItems: [], unsoldItems: [], totalEarned: 0,
+                                    journeyRewards: summary || [],
+                                });
+                            } catch (e) {
+                                console.error('[journey] DM summary canvas error:', e?.message);
+                            }
+                        }
+
+                        const rewardText = summary?.length
+                            ? `**المكافآت:**\n${summary.map(s => `✶ ${s}`).join('\n')}`
+                            : '✅ **عادت القافلة بسلام!**';
+
+                        if (reportBuf) {
+                            await userObj.send({
+                                content: `<@${userId}> ✅ **عادت قافلتك من ${destEmoji} ${destName}!**
+${rewardText}`,
+                                files: [new AttachmentBuilder(reportBuf, { name: 'journey-report.png' })],
+                            }).catch(() => {});
+                        } else {
+                            await userObj.send({
+                                content: `<@${userId}> ✅ **عادت قافلتك من ${destEmoji} ${destName}!**
+${rewardText}`,
+                            }).catch(() => {});
+                        }
+                    }
+                } catch (e) {
+                    console.error('[processCaravanReturns] DM notification error:', e?.message);
+                }
+
                 // If an open market session exists, delegate the arrival report to it
                 let handledByMarket = false;
                 try {
