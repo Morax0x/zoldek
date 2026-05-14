@@ -91,7 +91,7 @@ function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guil
 }
 
 // ─── Shared Lobby Runner ──────────────────────────────────────────────────────
-async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush = false) {
+async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush = false, editMsg = null) {
     const partyClasses = new Map([[hostId, 'Leader']]);
     const party        = [hostId];
     const { joinId, startId, cancelId } = ids;
@@ -104,10 +104,9 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
 
     const embed = buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guild);
 
-    const msg = await channel.send({
-        embeds: [embed],
-        components: [lobbyButtons()],
-    }).catch(() => null);
+    const msg = editMsg
+        ? await editMsg.edit({ embeds: [embed], components: [lobbyButtons()], content: '' }).catch(() => null)
+        : await channel.send({ embeds: [embed], components: [lobbyButtons()] }).catch(() => null);
     if (!msg) return { ready: false, cancelled: true };
 
     const collector = msg.createMessageComponentCollector({
@@ -201,8 +200,8 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
 }
 
 // ─── Direct Escort Lobby ──────────────────────────────────────────────────────
-async function startEscortLobby(channel, host, guild, db, destConfig) {
-    return _runLobby(channel, host.id, guild, db, destConfig, { joinId: 'cvl_join', startId: 'cvl_start', cancelId: 'cvl_cancel' }, false);
+async function startEscortLobby(channel, host, guild, db, destConfig, hubMsg = null) {
+    return _runLobby(channel, host.id, guild, db, destConfig, { joinId: 'cvl_join', startId: 'cvl_start', cancelId: 'cvl_cancel' }, false, hubMsg);
 }
 
 // ─── Surprise Ambush Notification ────────────────────────────────────────────

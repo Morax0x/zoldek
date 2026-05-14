@@ -37,16 +37,17 @@ async function generateSendMap(user, stats, mora) {
     const startX = sideMargin;
     const cardY  = 180;
 
+    const destImgs = await Promise.all(DESTS.map(d => 
+        fetchImageSafe(d.id).catch(() => null)
+    ));
+
     for (let i=0; i<DESTS.length; i++) {
         const d = DESTS[i];
         const cx   = startX + i * (cw + cgap);
         const acc  = d.color || C.gold;
         const canAfford = Number(mora) >= d.cost;
 
-        let destImg = null;
-        try {
-            destImg = await fetchImageSafe(d.id).catch(() => null);
-        } catch(e) { destImg = null; }
+        const destImg = destImgs[i];
 
         rr(ctx, cx, cardY, cw, ch, 24);
         if(destImg) {

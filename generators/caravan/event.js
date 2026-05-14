@@ -66,7 +66,7 @@ async function generateCaravanEvent(user, dest, eventType, data = {}) {
     const imgW = 580, imgH = 500;
     const imgX = PX + 50, imgY = PY + 60;
     
-    const destImg = await fetchImageSafe(dest?.id || '');
+    const destImg = await fetchImageSafe(isGuardType ? 'banditattack' : (dest?.id || ''));
     ctx.save();
     rr(ctx, imgX, imgY, imgW, imgH, 24);
     ctx.clip();

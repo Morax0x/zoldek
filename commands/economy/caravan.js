@@ -261,7 +261,7 @@ module.exports = {
         let currentStatusMode = 'map'; 
 
         const collector = hubMsg.createMessageComponentCollector({
-            filter: i => i.user.id === user.id,
+            filter: i => i.user.id === user.id && !i.customId.startsWith('cvl_') && !i.customId.startsWith('cva_'),
             time: 10 * 60 * 1000,
         });
 
@@ -519,14 +519,9 @@ module.exports = {
                         return;
                     }
 
-                    await hubMsg.edit({
-                        content: '🛡️ **جاري تجهيز فريق التأمين...**\n⏳ اختر المهام أنت ورفاقك',
-                        embeds: [], files: [], components: []
-                    }).catch(() => {});
-
                     const currentChannel = i.message ? i.message.channel : i.channel;
 
-                    startEscortLobby(currentChannel, user, guild, db, dest)
+                    startEscortLobby(currentChannel, user, guild, db, dest, hubMsg)
                         .then(async lobbyResult => {
                             if (lobbyResult.ready) {
                                 client.emit('caravan_escort_ready', {
