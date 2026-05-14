@@ -683,6 +683,7 @@ module.exports = {
                         if (!client.caravanEquip) client.caravanEquip = new Map();
                         client.caravanEquip.set(sessionKey, current);
                         await i.followUp({ content: '✬ تم فك العتاد', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                        await updateEquipUI(i, current);
                         return;
                     }
 
@@ -735,14 +736,15 @@ module.exports = {
                         const existingSlot = equipped.findIndex(x => x && x.id === itemId);
                         if (existingSlot !== -1) {
                             equipped[existingSlot] = null;
+                            equipped[slotIdx] = { id: itemId, count: 1 };
+                            if (!client.caravanEquip) client.caravanEquip = new Map();
+                            client.caravanEquip.set(sessionKey, equipped);
+                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
+                            await updateEquipUI(i, equipped);
+                            return;
                         }
-                        equipped[slotIdx] = { id: itemId, count: 1 };
-                        if (!client.caravanEquip) client.caravanEquip = new Map();
-                        client.caravanEquip.set(sessionKey, equipped);
-                        await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
-                        await updateEquipUI(i, equipped);
-                        return;
-                        if (equipped[tSlot] !== null) {
+
+                        if (equipped[slotIdx] !== null) {
                             await selI.reply({ content: '❌ هذه الفتحة مشغولة. أزل العتاد الحالي أولاً.', flags: [MessageFlags.Ephemeral] });
                             return;
                         }
@@ -756,7 +758,7 @@ module.exports = {
                         }
 
                         if (availableQty === 1) {
-                            equipped[tSlot] = { id: itemId, count: 1 };
+                            equipped[slotIdx] = { id: itemId, count: 1 };
                             if (!client.caravanEquip) client.caravanEquip = new Map();
                             client.caravanEquip.set(sessionKey, equipped);
                             await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
@@ -784,7 +786,7 @@ module.exports = {
                                     return;
                                 }
 
-                                equipped[tSlot] = { id: itemId, count: qty };
+                                equipped[slotIdx] = { id: itemId, count: qty };
                                 if (!client.caravanEquip) client.caravanEquip = new Map();
                                 client.caravanEquip.set(sessionKey, equipped);
                                 await updateEquipUI(i, equipped);
