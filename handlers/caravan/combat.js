@@ -134,7 +134,19 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
     if (enemy.hp <= 0) return;
     if (!enemy.effects) enemy.effects = [];
 
-    // DoT ticks
+    // 1. Stun / freeze — checked BEFORE DoT so a stunned enemy skips damage too
+    if (enemy.frozen || enemy.effects.some(e => e.type === 'stun')) {
+        log.push(`😵 **${enemy.name}** مشلول، خسر دوره!`);
+        enemy.frozen = false;
+        // Decrement stun turns so it actually expires
+        enemy.effects = enemy.effects.filter(e => {
+            if (e.type === 'stun' && e.turns !== undefined) { e.turns--; return e.turns > 0; }
+            return true;
+        });
+        return;
+    }
+
+    // 2. DoT ticks (نفس منطق الدانجون)
     enemy.effects = enemy.effects.filter(e => {
         if (['burn', 'poison', 'bleed'].includes(e.type)) {
             const raw = e.val >= 1 ? e.val : Math.floor(enemy.maxHp * e.val);
@@ -142,20 +154,14 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
             if (dmg > 0) {
                 enemy.hp = Math.max(0, enemy.hp - dmg);
                 const icon = e.type === 'burn' ? '🔥' : e.type === 'poison' ? '☠️' : '🩸';
-                log.push(`${icon} **${enemy.name}** تأثر (-${dmg})`);
+                const txt = e.type === 'burn' ? 'يحترق' : e.type === 'poison' ? 'يتألم من السم' : 'ينزف بشدة';
+                log.push(`${icon} **${enemy.name}** ${txt}! (-${dmg})`);
             }
         }
         if (e.turns !== undefined) { e.turns--; return e.turns > 0; }
         return false;
     });
     if (enemy.hp <= 0) return;
-
-    // Stun / freeze
-    if (enemy.frozen || enemy.effects.some(e => e.type === 'stun')) {
-        log.push(`😵 **${enemy.name}** مشلول، خسر دوره!`);
-        enemy.frozen = false;
-        return;
-    }
 
     // Summon pet attacks
     for (const p of players) {
@@ -282,8 +288,19 @@ function generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers
         .setTitle(`⚔️ كمين القافلّة | الموجة ${waveNum}/5`)
         .setImage(enemyImageUrl);
 
+    let enemyStatus = '';
+    if (enemy.effects) {
+        if (enemy.effects.some(e => e.type === 'poison'))   enemyStatus += ' ☠️';
+        if (enemy.effects.some(e => e.type === 'burn'))     enemyStatus += ' 🔥';
+        if (enemy.effects.some(e => e.type === 'bleed'))    enemyStatus += ' 🩸';
+        if (enemy.effects.some(e => e.type === 'weakness')) enemyStatus += ' 📉';
+        if (enemy.effects.some(e => e.type === 'stun') || enemy.frozen) enemyStatus += ' 💫';
+        if (enemy.effects.some(e => e.type === 'confusion')) enemyStatus += ' 😵';
+        if (enemy.effects.some(e => e.type === 'blind'))    enemyStatus += ' 🕶️';
+        if (enemy.effects.some(e => e.type === 'evasion'))  enemyStatus += ' 💨';
+    }
     embed.addFields({
-        name:   `👹 **${enemy.name}**`,
+        name:   `👹 **${enemy.name}**${enemyStatus}`,
         value:  `${buildHpBar(enemy.hp, enemy.maxHp)} \`[${enemy.hp}/${enemy.maxHp}]\``,
         inline: false,
     });
@@ -464,6 +481,10 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                         } else if (potId === 'potion_time') {
                             p.special_cooldown = 0; p.skillCooldowns = {};
                             await pSel.editReply({ content: `✅ **${p.name}** أعاد شحن مهاراته!`, components: [] }).catch(() => {});
+                        } else if (potId === 'potion_titan') {
+                            p.maxHp *= 2; p.hp = p.maxHp;
+                            p.effects.push({ type: 'titan', floors: 5 });
+                            await pSel.editReply({ content: `🔥 **${p.name}** تحول لعملاق!`, components: [] }).catch(() => {});
                         } else {
                             await pSel.editReply({ content: '✅ استُخدمت الجرعة.', components: [] }).catch(() => {});
                         }

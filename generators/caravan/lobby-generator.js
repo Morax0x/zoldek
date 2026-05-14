@@ -257,7 +257,7 @@ async function generateDestChoiceImage(dest, mora) {
     M(ctx, '⚠️ تحذير: مسار محفوف بالمخاطر ⚠️', RX + RW / 2, RY + 80, 48, C.red);
     divLine(ctx, RX + 80, RY + 140, RW - 160, C.red + '55');
 
-    const banditCount = Math.max(2, Math.round(dest.risk_factor * 12));
+    const banditCount = 5;
     M(ctx, `تم رصد ${banditCount} أوكار لقطاع الطرق على هذا المسار.`, RX + RW / 2, RY + 220, 34, C.text);
     M(ctx, 'هل تفضل تأمين الطريق مسبقاً وتجميع حراس لحماية بضاعتك،', RX + RW / 2, RY + 280, 30, C.textD);
     M(ctx, 'أم أنك ستجازف وترسل القافلة دون حماية؟', RX + RW / 2, RY + 330, 30, C.textD);
