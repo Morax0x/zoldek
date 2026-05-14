@@ -790,8 +790,7 @@ module.exports = {
                                 equipped[slotIdx] = { id: itemId, count: qty };
                                 if (!client.caravanEquip) client.caravanEquip = new Map();
                                 client.caravanEquip.set(sessionKey, equipped);
-                                await modalSubmit.deferUpdate().catch(() => {});
-                                await ephemMsg.edit({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
+                                await modalSubmit.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
                                 await updateEquipUI(i, equipped);
                             } catch (e) {}
                         }
