@@ -686,7 +686,7 @@ module.exports = {
                         return;
                     }
 
-                    await i.deferUpdate().catch(() => {});
+await i.deferUpdate().catch(() => {});
 
                     const invCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]).catch(() => null);
                     if (!invCheck || !invCheck.rows || invCheck.rows.length === 0) {
@@ -708,7 +708,7 @@ module.exports = {
                     client.caravanEquipTarget.set(sessionKey, slotIdx);
 
                     const opts = invRows.slice(0, 25).map(row => {
-                        const id2 = row.itemid || row.itemID || row.ITEMID;
+                        const id2 = row.itemid || row.itemID || r.ITEMID;
                         const itm = allItems.find(x => x.id === id2) || {};
                         return {
                             label: (itm.name || id2).substring(0, 25),
@@ -720,16 +720,16 @@ module.exports = {
 
                     const selRow = new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder()
-                            .setCustomId('cv_eq_sel')
+                            .setCustomId(`cv_eq_sel_${slotIdx}`)
                             .setPlaceholder('اختر أداة للتجهيز...')
                             .addOptions(opts)
                     );
 
-                    const menuMsg = await i.editReply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow] }).catch(() => {});
+                    const menuMsg = await i.followUp({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow], flags: [MessageFlags.Ephemeral], fetchReply: true }).catch(() => {});
                     if (!menuMsg) return;
 
                     try {
-                        const selI = await menuMsg.awaitMessageComponent({ filter: m => m.customId === 'cv_eq_sel' && m.user.id === user.id, time: 60000 });
+                        const selI = await menuMsg.awaitMessageComponent({ filter: m => m.customId === `cv_eq_sel_${slotIdx}` && m.user.id === user.id, time: 60000 });
 
                         const itemId = selI.values[0];
                         const equipped = (client.caravanEquip?.get(sessionKey)) || [null, null, null];
@@ -739,14 +739,14 @@ module.exports = {
                             equipped[existingSlot] = null;
                             if (!client.caravanEquip) client.caravanEquip = new Map();
                             client.caravanEquip.set(sessionKey, equipped);
-                            await menuMsg.delete().catch(() => {});
+                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
                             await updateEquipUI(i, equipped);
                             return;
                         }
 
-                        const tSlot = client.caravanEquipTarget?.get(sessionKey) ?? equipped.findIndex(x => x === null);
-                        if (tSlot === -1 || equipped[tSlot] !== null) {
-                            await selI.reply({ content: '❌ تعذر تحديد الفتحة. جرب مرة أخرى.', flags: [MessageFlags.Ephemeral] });
+                        const tSlot = slotIdx;
+                        if (equipped[tSlot] !== null) {
+                            await selI.reply({ content: '❌ هذه الفتحة مشغولة. أزل العتاد الحالي أولاً.', flags: [MessageFlags.Ephemeral] });
                             return;
                         }
 
@@ -766,7 +766,7 @@ module.exports = {
                             equipped[tSlot] = { id: itemId, count: 1 };
                             if (!client.caravanEquip) client.caravanEquip = new Map();
                             client.caravanEquip.set(sessionKey, equipped);
-                            await menuMsg.delete().catch(() => {});
+                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
                             await updateEquipUI(i, equipped);
                         } else {
                             const modalId = `cv_eq_mod_${Date.now()}`;
@@ -794,14 +794,16 @@ module.exports = {
                                 equipped[tSlot] = { id: itemId, count: qty };
                                 if (!client.caravanEquip) client.caravanEquip = new Map();
                                 client.caravanEquip.set(sessionKey, equipped);
-                                await menuMsg.delete().catch(() => {});
+                                await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
                                 await updateEquipUI(i, equipped);
                             } catch (e) {}
                         }
                     } catch (e) {}
+                        }
+                    } catch (e) {}
                 }
 
-                else if (id === 'cv_eq_sel') {
+                else if (id === 'cv_eq_sel' || id.match(/^cv_eq_sel_\d+$/)) {
                     await i.deferUpdate().catch(() => {});
                 }
 
