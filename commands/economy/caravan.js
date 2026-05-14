@@ -266,7 +266,7 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            const fastButtons = new Set(['cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status']);
+            const fastButtons = new Set(['cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2', 'cv_eq_sel']);
 
             if (!fastButtons.has(i.customId) && !i.customId.startsWith('stg_')) {
                 if (activeProcesses.has(user.id)) {
@@ -724,7 +724,7 @@ module.exports = {
                             .addOptions(opts)
                     );
 
-                    const menuMsg = await i.followUp({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow], flags: [MessageFlags.Ephemeral], fetchReply: true }).catch(() => {});
+                    const menuMsg = await i.editReply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow] }).catch(() => {});
                     if (!menuMsg) return;
 
                     try {
