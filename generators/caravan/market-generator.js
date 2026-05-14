@@ -24,11 +24,13 @@ const imgCache = new Map();
 async function loadCachedImg(url) {
     if (!url) return null;
     if (imgCache.has(url)) return imgCache.get(url);
-    try {
-        const img = await loadImage(url);
-        imgCache.set(url, img);
-        return img;
-    } catch { console.error(`[MarketCanvas] Missing image: ${url}`); return null; }
+    const result = await Promise.race([
+        loadImage(url).then(img => ({ img })),
+        new Promise(res => setTimeout(() => res({ timeout: true }), 5000)),
+    ]);
+    if (result.timeout) { console.error(`[MarketCanvas] Timeout: ${url}`); return null; }
+    imgCache.set(url, result.img);
+    return result.img;
 }
 
 // Grid layout — dynamic, computed per page

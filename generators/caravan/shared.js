@@ -79,35 +79,34 @@ function rr(ctx, x, y, w, h, r = 24) {
     ctx.closePath();
 }
 
+function loadImageSafe(url, timeoutMs = 8000) {
+    return Promise.race([
+        loadImage(url).then(img => ({ ok: true, img })),
+        new Promise(res => setTimeout(() => res({ ok: false, timeout: true }), timeoutMs)),
+    ]).catch(() => ({ ok: false }));
+}
+
 const _imgCache = new Map();
 async function loadCached(url) {
     if (!url) return null;
     if (_imgCache.has(url)) return _imgCache.get(url);
-    try {
-        const img = await loadImage(url);
-        _imgCache.set(url, img);
-        return img;
-    } catch { return null; }
+    const result = await loadImageSafe(url);
+    if (!result.ok) { console.error(`[Canvas] Failed: ${url}`); return null; }
+    _imgCache.set(url, result.img);
+    return result.img;
 }
 
 async function fetchImageSafe(imgName) {
     if (!imgName) return null;
     const url = `${BASE_IMG_URL}${imgName}.png`;
     if (_imgCache.has(url)) return _imgCache.get(url);
-    try {
-        const img = await loadImage(url);
-        _imgCache.set(url, img);
-        return img;
-    } catch {}
+    const first = await loadImageSafe(url);
+    if (first.ok) { _imgCache.set(url, first.img); return first.img; }
     const alt = imgName.replace(/_/g, '');
     if (alt !== imgName) {
         const altUrl = `${BASE_IMG_URL}${alt}.png`;
-        try {
-            const img = await loadImage(altUrl);
-            _imgCache.set(url, img);
-            _imgCache.set(altUrl, img);
-            return img;
-        } catch {}
+        const second = await loadImageSafe(altUrl);
+        if (second.ok) { _imgCache.set(url, second.img); _imgCache.set(altUrl, second.img); return second.img; }
     }
     return null;
 }

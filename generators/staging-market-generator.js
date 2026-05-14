@@ -114,11 +114,13 @@ async function getCachedImage(url) {
     if (!url) return null;
     const encoded = encodeURI(url);
     if (imageCache.has(encoded)) return imageCache.get(encoded);
-    try {
-        const img = await loadImage(encoded);
-        imageCache.set(encoded, img);
-        return img;
-    } catch { console.error(`[StagingCanvas] Missing image: ${encoded}`); return null; }
+    const result = await Promise.race([
+        loadImage(encoded).then(img => ({ ok: true, img })),
+        new Promise(res => setTimeout(() => res({ ok: false, timeout: true }), 5000)),
+    ]).catch(() => ({ ok: false }));
+    if (!result.ok) { console.error(`[StagingCanvas] Failed: ${encoded}`); return null; }
+    imageCache.set(encoded, result.img);
+    return result.img;
 }
 
 function roundRect(ctx, x, y, w, h, r) {
