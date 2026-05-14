@@ -693,9 +693,10 @@ module.exports = {
                         if (altCheck) invCheck.rows = altCheck.rows;
                     }
                     const allItems = allItemsList();
+                    const equippedIds = (client.caravanEquip?.get(sessionKey) || [null, null, null]).filter(Boolean).map(x => x.id);
                     const invRows = (invCheck?.rows || []).filter(r => {
                         const rid = r.itemid || r.itemID || r.ITEMID;
-                        return Number(r.quantity || r.QUANTITY || 0) > 0 && allItems.some(a => a.id === rid);
+                        return Number(r.quantity || r.QUANTITY || 0) > 0 && allItems.some(a => a.id === rid) && !equippedIds.includes(rid);
                     });
 
                     if (!invRows.length) {
@@ -789,8 +790,9 @@ module.exports = {
                                 equipped[slotIdx] = { id: itemId, count: qty };
                                 if (!client.caravanEquip) client.caravanEquip = new Map();
                                 client.caravanEquip.set(sessionKey, equipped);
+                                await modalSubmit.deferUpdate().catch(() => {});
+                                await ephemMsg.edit({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
                                 await updateEquipUI(i, equipped);
-                                await modalSubmit.reply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', flags: [MessageFlags.Ephemeral] }).catch(() => {});
                             } catch (e) {}
                         }
                     } catch (e) {}
