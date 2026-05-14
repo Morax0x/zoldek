@@ -101,7 +101,7 @@ async function createMarketThread(client, db, caravan, channelId) {
     }
 }
 
-async function closeMarketThread(client, db, threadId, guildId, journeyRewards = null) {
+async function closeMarketThread(client, db, threadId, guildId, journeyRewards = null, skipReport = false) {
     try {
         const session = await getSessionByThread(db, threadId);
         if (!session || session.status === 'closed') return;
@@ -207,8 +207,8 @@ async function closeMarketThread(client, db, threadId, guildId, journeyRewards =
             console.error('[closeMarketThread] canvas error:', e?.message);
         }
 
-        // Send report to parent channel
-        if (parentChannel) {
+        // Send report to parent channel (skip if already sent by processCaravanReturns)
+        if (!skipReport && parentChannel) {
             const payload = { content: `<@${ownerId}> انتهت رحلتك إلى **${destName}** 🎉` };
             if (reportBuf) payload.files = [new AttachmentBuilder(reportBuf, { name: 'market-report.png' })];
             await parentChannel.send(payload).catch(() => {});

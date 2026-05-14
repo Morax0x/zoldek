@@ -378,11 +378,11 @@ function drawColumnData(ctx, x, y, w, h, items, title, color, isSold) {
         } else {
             let statusFontSize = Math.min(24, rH - 4);
             ctx.font = `${statusFontSize}px ${FONT_WORD}`;
-            while (ctx.measureText('أُعيدت').width > leftMaxW && statusFontSize > 7) {
+            while (ctx.measureText('أعيدت').width > leftMaxW && statusFontSize > 7) {
                 statusFontSize--;
                 ctx.font = `${statusFontSize}px ${FONT_WORD}`;
             }
-            drawTextExact(ctx, 'أُعيدت', leftX, cY, `${statusFontSize}px ${FONT_WORD}`, color, 'left');
+            drawTextExact(ctx, 'أعيدت', leftX, cY, `${statusFontSize}px ${FONT_WORD}`, color, 'left');
         }
     }
 }

@@ -380,7 +380,7 @@ ${summary?.length ? summary.map(s => `✶ ${s}`).join('\n') : 'عادت القا
                         const mktThreadId = mktSession.threadid || mktSession.threadId;
                         const mktGuildId  = mktSession.guildid  || mktSession.guildID;
                         if (mktThreadId) {
-                            await closeMarketThread(client, db, mktThreadId, mktGuildId, summary);
+                            await closeMarketThread(client, db, mktThreadId, mktGuildId, summary, true);
                         }
                     }
                 } catch (e) {
