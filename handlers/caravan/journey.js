@@ -281,7 +281,6 @@ async function processCaravanReturns(client, db) {
                 }
 
                 // If no channel configured → send DM
-                let notifiedViaDM = false;
                 if (!channel) {
                     try {
                         const userObj = await client.users.fetch(userId).catch(() => null);
@@ -323,7 +322,6 @@ ${rewardText}`,
 ${rewardText}`,
                                 }).catch(() => {});
                             }
-                            notifiedViaDM = true;
                         }
                     } catch (e) {
                         console.error('[processCaravanReturns] DM notification error:', e?.message);
@@ -365,31 +363,8 @@ ${summary?.length ? summary.map(s => `✶ ${s}`).join('\n') : 'عادت القا
                         }).catch(() => {});
                     }
                 }
-                        }
 
-                        const rewardText = summary?.length
-                            ? `**المكافآت:**\n${summary.map(s => `✶ ${s}`).join('\n')}`
-                            : '✅ **عادت القافلة بسلام!**';
-
-                        if (reportBuf) {
-                            await userObj.send({
-                                content: `<@${userId}> ✅ **عادت قافلتك من ${destEmoji} ${destName}!**
-${rewardText}`,
-                                files: [new AttachmentBuilder(reportBuf, { name: 'journey-report.png' })],
-                            }).catch(() => {});
-                        } else {
-                            await userObj.send({
-                                content: `<@${userId}> ✅ **عادت قافلتك من ${destEmoji} ${destName}!**
-${rewardText}`,
-                            }).catch(() => {});
-                        }
-                    }
-                } catch (e) {
-                    console.error('[processCaravanReturns] DM notification error:', e?.message);
-                }
-
-                // If an open market session exists, delegate the arrival report to it
-                let handledByMarket = false;
+                // Close open market thread if exists
                 try {
                     const { closeMarketThread, getSessionByCaravan: getMarketSession } = require('./market/market-thread');
                     const mktSession = await getMarketSession(db, caravanId);
@@ -398,81 +373,10 @@ ${rewardText}`,
                         const mktGuildId  = mktSession.guildid  || mktSession.guildID;
                         if (mktThreadId) {
                             await closeMarketThread(client, db, mktThreadId, mktGuildId, summary);
-                            handledByMarket = true;
                         }
                     }
                 } catch (e) {
                     console.error('[processCaravanReturns] market integration error:', e?.message);
-                }
-
-                if (handledByMarket) { continue; }
-
-                // --- Locate the announcement channel ---
-                // Priority 1: channel stored at dispatch time
-                let casinoId = caravan.marketchannelid || caravan.marketChannelId || null;
-
-                // Priority 2: fall back to settings table
-                if (!casinoId) {
-                    const sRes = await db.query(
-                        `SELECT * FROM settings WHERE guild=$1 OR "guild"=$1`, [guildId]
-                    ).catch(() => ({ rows: [] }));
-                    const s = sRes.rows[0] || {};
-                    casinoId = s.casinochannelid  || s.casinoChannelID
-                            || s.caravanchannelid || s.caravanChannelID
-                            || s.casinochannelid2 || s.casinoChannelID2;
-                }
-
-                let guild = client.guilds.cache.get(guildId);
-                if (!guild) guild = await client.guilds.fetch(guildId).catch(() => null);
-
-                let channel = null;
-                if (guild) {
-                    if (casinoId) {
-                        channel = guild.channels.cache.get(casinoId)
-                               || await guild.channels.fetch(casinoId).catch(() => null);
-                    }
-                    if (!channel) {
-                        await guild.channels.fetch().catch(() => {});
-                        const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
-                        channel = guild.channels.cache.find(c =>
-                            c.type === 0 &&
-                            me && me.permissionsIn(c).has(['SendMessages'])
-                        ) ?? null;
-                    }
-                }
-
-                if (channel) {
-                    const destId = caravan.destinationid || caravan.destinationId;
-                    const dest   = caravanConfig.destinations.find(d => d.id === destId);
-                    const destName = dest?.name || 'القافلة';
-                    const destColor = dest?.color || '#FFD700';
-
-                    let reportBuf = null;
-                    if (_generateMarketSummary) {
-                        try {
-                            const member = await guild.members.fetch(userId).catch(() => null);
-                            const ownerName = member?.displayName || member?.user?.globalName || member?.user?.username || userId;
-                            const avatarUrl = member?.user?.displayAvatarURL({ extension: 'png', size: 128 }) || null;
-
-                            reportBuf = await _generateMarketSummary({
-                                destName, destId, destColor, ownerName, avatarUrl,
-                                soldItems: [], unsoldItems: [], totalEarned: 0,
-                                journeyRewards: summary || [],
-                            });
-                        } catch (e) {
-                            console.error('[journey] summary canvas error:', e?.message);
-                        }
-                    }
-                    if (reportBuf) {
-                        await channel.send({
-                            content: `<@${userId}>`,
-                            files: [new AttachmentBuilder(reportBuf, { name: 'journey-report.png' })],
-                        }).catch(() => {});
-                    } else {
-                        await channel.send({
-                            content: `<@${userId}> ✅ **عادت قافلتك من ${dest?.emoji || ''} ${destName}!**\n**المكافآت:**\n${summary?.length ? summary.map(s => `✶ ${s}`).join('\n') : 'عادت القافلة بسلام.'}`,
-                        }).catch(() => {});
-                    }
                 }
 
                 continue;
