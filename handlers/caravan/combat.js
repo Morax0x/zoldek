@@ -279,7 +279,8 @@ const DEST_COLOR_MAP = {
 };
 
 function generateBattleEmbed(players, enemy, caravan, waveNum, log, actedPlayers = [], destId = null) {
-    const folderPrefix = destId || 'gold_city';
+    const folderPath = DEST_IMAGE_MAP[destId] || 'gold_city/gold_city.png';
+    const folderPrefix = folderPath.split('/')[0];
     const enemyImageUrl = `${R2_BASE}/images/caravan/${folderPrefix}/${waveNum}.png`;
     const embedColor = DEST_COLOR_MAP[destId] || '#FF6600';
     
