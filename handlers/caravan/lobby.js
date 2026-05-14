@@ -3,7 +3,7 @@
 const {
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
-    ChannelType, ComponentType, MessageFlags, AttachmentBuilder, EmbedBuilder
+    ComponentType, MessageFlags, AttachmentBuilder, EmbedBuilder
 } = require('discord.js');
 
 const { safeQuery, safeExecute } = require('./db');
@@ -96,8 +96,8 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
     const party        = [hostId];
     const { joinId, startId, cancelId } = ids;
 
-    const lobbyButtons = () => new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(joinId).setLabel('انضمام').setStyle(ButtonStyle.Success).setEmoji('➕'),
+    const lobbyButtons = (joinDisabled = false) => new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(joinId).setLabel('انضمام').setStyle(ButtonStyle.Success).setEmoji('➕').setDisabled(joinDisabled),
         new ButtonBuilder().setCustomId(startId).setLabel('انطلاق').setStyle(ButtonStyle.Primary).setEmoji('⚔️'),
         new ButtonBuilder().setCustomId(cancelId).setLabel('إلغاء').setStyle(ButtonStyle.Danger).setEmoji('✖️')
     );
@@ -153,7 +153,7 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
                     party.push(i.user.id);
                     await sel.editReply({ content: `✅ انضممت كـ **${chosen}**`, components: [] }).catch(()=>{});
                     const updatedEmbed = buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guild);
-                    await msg.edit({ embeds: [updatedEmbed] }).catch(()=>{});
+                    await msg.edit({ embeds: [updatedEmbed], components: [lobbyButtons(party.length >= MAX_PARTY)] }).catch(()=>{});
 
                 } else if (i.customId === startId) {
                     if (i.user.id !== hostId) return i.reply({ content: '⛔ القائد فقط.', flags: [MessageFlags.Ephemeral] });
@@ -177,12 +177,12 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
         return { ready: false, cancelled: stopReason === 'cancel', party, partyClasses };
     }
 
-    await msg.edit({ content: '✅ الفريق جاهز! جاري فتح ساحة المعركة...', embeds: [], files: [], components: [] }).catch(() => {});
+    await msg.edit({ components: [] }).catch(() => {});
 
     let thread;
     try {
         const threadName = isAmbush ? `⚔️-دفاع-عن-القافلة` : `🛡️-تأمين-${(destConfig?.name || 'رحلة').replace(/ /g, '-')}`;
-        thread = await channel.threads.create({ name: threadName, autoArchiveDuration: 60, type: ChannelType.PublicThread });
+        thread = await msg.startThread({ name: threadName, autoArchiveDuration: 60 });
         for (const uid of party) await thread.members.add(uid).catch(() => {});
         await thread.send(isAmbush ? '⚔️ **قطاع الطرق شنوا هجومهم! قاتلوا لإنقاذ القافلة!**' : '🔔 **الطريق محفوف بالمخاطر! صفّوا 5 موجات لإيصال القافلة بسلام.**').catch(() => {});
     } catch (err) { console.error('[CaravanLobby thread]', err); return { ready: false, cancelled: false, party, partyClasses }; }
