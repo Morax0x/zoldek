@@ -674,10 +674,10 @@ module.exports = {
                 else if (id.startsWith('cv_eq_slot_')) {
                     const slotIdx = parseInt(id.replace('cv_eq_slot_', ''));
                     if (isNaN(slotIdx) || slotIdx < 0 || slotIdx > 2) return;
-                    
+
                     const sessionKey = `${user.id}-${guild.id}`;
                     const current = (client.caravanEquip?.get(sessionKey)) || [null, null, null];
-                    
+
                     if (current[slotIdx]) {
                         current[slotIdx] = null;
                         if (!client.caravanEquip) client.caravanEquip = new Map();
@@ -685,8 +685,9 @@ module.exports = {
                         await updateEquipUI(i, current);
                         return;
                     }
-                    
-                    await i.deferReply({ ephemeral: true }).catch(() => {});
+
+                    await i.deferUpdate().catch(() => {});
+
                     const invCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]).catch(() => null);
                     if (!invCheck || !invCheck.rows || invCheck.rows.length === 0) {
                         const altCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]).catch(() => null);
@@ -696,15 +697,15 @@ module.exports = {
                         const rid = r.itemid || r.itemID || r.ITEMID;
                         return Number(r.quantity || r.QUANTITY || 0) > 0 && allItems.some(a => a.id === rid);
                     });
-                    
+
                     if (!invRows.length) {
-                        await i.editReply({ content: '📦 لا توجد أدوات متوفرة في المخزن.' }).catch(() => {});
+                        await i.followUp({ content: '📦 لا توجد أدوات متوفرة في المخزن.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
                         return;
                     }
-                    
+
                     if (!client.caravanEquipTarget) client.caravanEquipTarget = new Map();
                     client.caravanEquipTarget.set(sessionKey, slotIdx);
-                    
+
                     const opts = invRows.slice(0, 25).map(row => {
                         const id2 = row.itemid || row.itemID || row.ITEMID;
                         const itm = allItems.find(x => x.id === id2) || {};
@@ -715,55 +716,56 @@ module.exports = {
                             emoji: itm.emoji || '📦',
                         };
                     });
-                    
+
                     const selRow = new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder()
                             .setCustomId('cv_eq_sel')
                             .setPlaceholder('اختر أداة للتجهيز...')
                             .addOptions(opts)
                     );
-                    
-                    await i.editReply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow], attachments: [] }).catch(() => {});
-                    
+
+                    const menuMsg = await i.followUp({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow], flags: [MessageFlags.Ephemeral], fetchReply: true }).catch(() => {});
+                    if (!menuMsg) return;
+
                     try {
-                        const selI = await i.awaitMessageComponent({ filter: m => m.customId === 'cv_eq_sel' && m.user.id === user.id, time: 60000 });
-                        
+                        const selI = await menuMsg.awaitMessageComponent({ filter: m => m.customId === 'cv_eq_sel' && m.user.id === user.id, time: 60000 });
+
                         const itemId = selI.values[0];
                         const equipped = (client.caravanEquip?.get(sessionKey)) || [null, null, null];
-                        
+
                         const existingSlot = equipped.findIndex(x => x && x.id === itemId);
                         if (existingSlot !== -1) {
                             equipped[existingSlot] = null;
                             if (!client.caravanEquip) client.caravanEquip = new Map();
                             client.caravanEquip.set(sessionKey, equipped);
-                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
+                            await menuMsg.delete().catch(() => {});
                             await updateEquipUI(i, equipped);
                             return;
                         }
-                        
+
                         const tSlot = client.caravanEquipTarget?.get(sessionKey) ?? equipped.findIndex(x => x === null);
                         if (tSlot === -1 || equipped[tSlot] !== null) {
                             await selI.reply({ content: '❌ تعذر تحديد الفتحة. جرب مرة أخرى.', flags: [MessageFlags.Ephemeral] });
                             return;
                         }
-                        
+
                         let invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
                         if (!invResCheck || !invResCheck.rows || invResCheck.rows.length === 0) {
                             invResCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]);
                         }
                         const targetRow = (invResCheck?.rows || []).find(r => (r.itemid || r.itemID || r.ITEMID) === itemId);
                         const availableQty = targetRow ? Number(targetRow.quantity || targetRow.QUANTITY || 0) : 0;
-                        
+
                         if (availableQty <= 0) {
                             await selI.reply({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
                             return;
                         }
-                        
+
                         if (availableQty === 1) {
                             equipped[tSlot] = { id: itemId, count: 1 };
                             if (!client.caravanEquip) client.caravanEquip = new Map();
                             client.caravanEquip.set(sessionKey, equipped);
-                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
+                            await menuMsg.delete().catch(() => {});
                             await updateEquipUI(i, equipped);
                         } else {
                             const modalId = `cv_eq_mod_${Date.now()}`;
@@ -777,21 +779,21 @@ module.exports = {
                                 .setRequired(true);
                             modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
                             await selI.showModal(modal);
-                            
+
                             try {
                                 const modalSubmit = await selI.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
-                                
+
                                 const qtyStr = modalSubmit.fields.getTextInputValue('qty');
                                 let qty = parseInt(qtyStr);
                                 if (isNaN(qty) || qty < 1 || qty > maxAllowed) {
                                     await modalSubmit.reply({ content: `❌ كمية غير صالحة (1-${maxAllowed}).`, flags: [MessageFlags.Ephemeral] });
                                     return;
                                 }
-                                
+
                                 equipped[tSlot] = { id: itemId, count: qty };
                                 if (!client.caravanEquip) client.caravanEquip = new Map();
                                 client.caravanEquip.set(sessionKey, equipped);
-                                await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
+                                await menuMsg.delete().catch(() => {});
                                 await updateEquipUI(i, equipped);
                             } catch (e) {}
                         }
