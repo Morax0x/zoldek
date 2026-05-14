@@ -41,6 +41,7 @@ let farmSeeds = []; try { farmSeeds = require('../json/seeds.json'); } catch(e) 
 let farmFeeds = []; try { farmFeeds = require('../json/feed-items.json'); } catch(e) {}
 let potionItems = []; try { potionItems = require('../json/potions.json'); } catch(e) {}
 let marketItems = []; try { marketItems = require('../json/market-items.json'); } catch(e) {}
+let fishData = { fishItems: [], baits: [] }; try { fishData = require('../json/fishing-config.json'); } catch(e) {}
 
 const imageCache = new Map();
 const ITEM_DICTIONARY = new Map();
@@ -71,6 +72,24 @@ function buildItemDictionary() {
             ITEM_DICTIONARY.set(s.id, info);
         }
     }
+    if (farmFeeds?.length) {
+        for (const f of farmFeeds) {
+            const info = { name: f.name, emoji: f.emoji || '🌿', rarity: 'Common', imgPath: `${R2_URL}/images/feeds/${f.id}.png` };
+            ITEM_DICTIONARY.set(f.id, info);
+        }
+    }
+    if (fishData?.fishItems?.length) {
+        for (const fish of fishData.fishItems) {
+            const info = { name: fish.name, emoji: fish.emoji || '🐟', rarity: 'Common', imgPath: `${R2_URL}/images/fish/${fish.id}.png` };
+            ITEM_DICTIONARY.set(fish.id, info);
+        }
+    }
+    if (fishData?.baits?.length) {
+        for (const bait of fishData.baits) {
+            const info = { name: bait.name, emoji: bait.emoji || '🪱', rarity: 'Common', imgPath: `${R2_URL}/images/fish/baits/${bait.id}.png` };
+            ITEM_DICTIONARY.set(bait.id, info);
+        }
+    }
     if (potionItems?.length) {
         for (const p of potionItems) {
             const info = { name: p.name, emoji: p.emoji || '🧪', rarity: 'Rare', imgPath: `${R2_URL}/images/potions/${p.id}.png` };
@@ -99,7 +118,7 @@ async function getCachedImage(url) {
         const img = await loadImage(encoded);
         imageCache.set(encoded, img);
         return img;
-    } catch { return null; }
+    } catch { console.error(`[StagingCanvas] Missing image: ${encoded}`); return null; }
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -285,7 +304,7 @@ async function generateStagingCanvas(userName, items, page, totalPages, mora, st
                 if (item.fullImage) {
                     ctx.save();
                     ctx.beginPath();
-                    rr(ctx, x + 2, y + 2, slotSize - 4, slotSize - 4, 15);
+                    roundRect(ctx, x + 2, y + 2, slotSize - 4, slotSize - 4, 15);
                     ctx.clip();
                     ctx.drawImage(img, x + 2, y + 2, slotSize - 4, slotSize - 4);
                     ctx.restore();

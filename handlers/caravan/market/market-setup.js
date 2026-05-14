@@ -17,7 +17,7 @@ const getItemInfo = resolveItemInfo;
 
 const CATEGORY_NAMES = {
     'موارد': '💎 قسم الموارد والتطوير',
-    'صيد': '🪱 قسم طعوم الصيد',
+    'صيد': '🪱 قسم الصيد والطعوم',
     'مزرعة': '🌾 قسم المزرعة',
     'staged': '🛒 سلة البضائع (جاهزة للبيع)'
 };
@@ -71,7 +71,7 @@ async function getFilteredInventoryCategories(db, userId, guildId) {
     const rarityWeights = { 'Legendary': 5, 'Epic': 4, 'Rare': 3, 'Uncommon': 2, 'Common': 1 };
     const filtered = {
         'موارد': categories['موارد'] || [],
-        'صيد': (categories['صيد'] || []).filter(item => String(item.id).startsWith('bait_')),
+        'صيد': categories['صيد'] || [],
         'مزرعة': categories['مزرعة'] || []
     };
     

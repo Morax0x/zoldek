@@ -28,7 +28,7 @@ async function loadCachedImg(url) {
         const img = await loadImage(url);
         imgCache.set(url, img);
         return img;
-    } catch { return null; }
+    } catch { console.error(`[MarketCanvas] Missing image: ${url}`); return null; }
 }
 
 // Grid layout — dynamic, computed per page
