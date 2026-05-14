@@ -129,6 +129,28 @@ function selectEnemyTarget(enemy, players, caravan) {
     return { type: 'player', target: sorted[0] };
 }
 
+function processPlayerDoT(players, log) {
+    for (const p of players) {
+        if (p.isDead) continue;
+        if (!p.effects) p.effects = [];
+        p.effects = p.effects.filter(e => {
+            if (['poison', 'burn', 'bleed'].includes(e.type)) {
+                const raw = e.val >= 1 ? e.val : Math.floor(p.maxHp * e.val);
+                const dmg = Math.floor(raw);
+                if (dmg > 0) {
+                    p.hp = Math.max(0, p.hp - dmg);
+                    const icon = e.type === 'burn' ? '🔥' : e.type === 'poison' ? '☠️' : '🩸';
+                    const txt = e.type === 'burn' ? 'يحترق' : e.type === 'poison' ? 'يتألم من السم' : 'ينزف';
+                    log.push(`${icon} **${p.name}** ${txt}! (-${dmg})`);
+                }
+            }
+            if (e.turns !== undefined) { e.turns--; return e.turns > 0; }
+            return false;
+        });
+        if (p.hp <= 0) { p.hp = 0; p.isDead = true; log.push(`💀 **${p.name}** سقط من تأثير الحالة!`); }
+    }
+}
+
 // ─── Enemy Turn ───────────────────────────────────────────────────────────────
 async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
     if (enemy.hp <= 0) return;
@@ -675,6 +697,30 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                     processingSet.add(pid);
                     await i.deferUpdate().catch(() => {});
 
+                    // ── Player status checks ──────────────────────────────────
+                    if (p.effects && p.effects.some(e => e.type === 'stun')) {
+                        log.push(`😵 **${p.name}** مشلول، خسر دوره!`);
+                        p.effects = p.effects.filter(e => {
+                            if (e.type === 'stun' && e.turns !== undefined) { e.turns--; return e.turns > 0; }
+                            return true;
+                        });
+                        actedPlayers.push(pid); p.skipCount = 0;
+                        processingSet.delete(pid);
+                        await battleMsg.edit({ ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild, destId)), components: makeBattleRows() }).catch(() => {});
+                        if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) { clearTimeout(turnTimer); collector.stop('turn_end'); }
+                        return;
+                    }
+                    if (p.effects && p.effects.some(e => e.type === 'confusion')) {
+                        if (Math.random() < 0.5) {
+                            log.push(`😵 **${p.name}** مشوش ولا يستطيع التركيز!`);
+                            actedPlayers.push(pid); p.skipCount = 0;
+                            processingSet.delete(pid);
+                            await battleMsg.edit({ ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild, destId)), components: makeBattleRows() }).catch(() => {});
+                            if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) { clearTimeout(turnTimer); collector.stop('turn_end'); }
+                            return;
+                        }
+                    }
+
                     try {
                         const cid = i.customId;
 
@@ -690,6 +736,21 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                             }
                             const res  = executeWeaponAttack(p, enemy, false);
                             let   dmgD = Math.max(0, res.damage || 0);
+                            // Blind check
+                            if (p.effects && p.effects.some(e => e.type === 'blind')) {
+                                const blindVal = p.effects.find(e => e.type === 'blind').val || 0.3;
+                                if (Math.random() < blindVal) {
+                                    log.push(`🚫 **${p.name}** أخطأ الهدف! (أعمى)`);
+                                    actedPlayers.push(pid); p.skipCount = 0;
+                                    processingSet.delete(pid);
+                                    await battleMsg.edit({ ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, actedPlayers, hostId, guild, destId)), components: makeBattleRows() }).catch(() => {});
+                                    if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) { clearTimeout(turnTimer); collector.stop('turn_end'); }
+                                    return;
+                                }
+                            }
+                            // Weakness damage reduction
+                            const weaknessDE = p.effects && p.effects.find(e => e.type === 'weakness');
+                            if (weaknessDE) dmgD = Math.floor(dmgD * (1 - weaknessDE.val));
                             if (inPanic && pid !== hostId) {
                                 const bonusDmg = Math.floor(dmgD * 0.20);
                                 enemy.hp = Math.max(0, enemy.hp - bonusDmg);
@@ -742,7 +803,15 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
                             const hpBefore = enemy.hp;
                             const res = handleSkillUsage(p, { ...skillObj, id: skillId }, enemy, log, thread, players);
-                            const dmgD = Math.max(0, hpBefore - enemy.hp);
+                            let dmgD = Math.max(0, hpBefore - enemy.hp);
+                            // Weakness reduces skill damage too
+                            const weaknessSE = p.effects && p.effects.find(e => e.type === 'weakness');
+                            if (weaknessSE && dmgD > 0) {
+                                const reduction = Math.floor(dmgD * weaknessSE.val);
+                                enemy.hp = Math.min(enemy.maxHp, enemy.hp + reduction);
+                                dmgD = Math.max(0, hpBefore - enemy.hp);
+                                log.push(`📉 تأثير الضعف: خفّض ضرر **${p.name}** بمقدار ${reduction}`);
+                            }
                             if (dmgD > 0) p.totalDamage = (p.totalDamage || 0) + dmgD;
                             if (res?.error) {
                                 await sel.followUp({ content: res.error, flags: [MessageFlags.Ephemeral] }).catch(() => {});
@@ -864,6 +933,14 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
             if (earlyEnd === 'enemy_dead' || enemy.hp <= 0) {
                 waveWon = true;
                 break;
+            }
+
+            // ── Player DoT ticks ──────────────────────────────────────────
+            processPlayerDoT(players, log);
+            ensureDeadMarked(players);
+            if (players.every(p => p.isDead)) {
+                await battleMsg.edit({ content: '☠️ **سقط الفريق بالكامل!**', components: [] }).catch(() => {});
+                return { result: 'lose_players', wavesCleared };
             }
 
             // ── Enemy turn — buttons stay visible but disabled ────────────
