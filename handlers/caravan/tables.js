@@ -15,9 +15,13 @@ async function initCaravanTables(db) {
             "attackResolved"    INTEGER DEFAULT 0,
             "guardMessageId"    TEXT DEFAULT NULL,
             "attackChannelId"   TEXT DEFAULT NULL,
-            "rewardMultiplier"  REAL DEFAULT 1.0,
-            UNIQUE("userID","guildID")
+            "rewardMultiplier"  REAL DEFAULT 1.0
         )`, []);
+
+    await safeExecute(db,
+        `ALTER TABLE user_caravans DROP CONSTRAINT IF EXISTS user_caravans_userid_guildid_key`, []).catch(() => {});
+    await safeExecute(db,
+        `ALTER TABLE user_caravans DROP CONSTRAINT IF EXISTS "user_caravans_userID_guildID_key"`, []).catch(() => {});
 
     await safeExecute(db, `
         CREATE TABLE IF NOT EXISTS user_caravan_stats (

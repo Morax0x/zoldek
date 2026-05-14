@@ -995,9 +995,11 @@ async function handleEscortReady(data) {
             // Pass channel.id so the arrival checker knows where to open the market thread
             cvResult = await sendCaravan(db, hostId, guild.id, destId, [], channel?.id || null);
             // Mark route as permanently secured — no ambush will fire
-            await safeExecute(db,
-                `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "userID"=$1 AND "guildID"=$2`,
-                [hostId, guild.id]);
+            if (cvResult?.caravanId) {
+                await safeExecute(db,
+                    `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "id"=$1`,
+                    [cvResult.caravanId]);
+            }
 
             // Finalize staged market items into caravan listings
             try {

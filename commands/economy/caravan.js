@@ -287,11 +287,9 @@ module.exports = {
                     
                     const targetTime = Date.now() - 60000; 
                     
-                    const tables = ['user_caravans'];
-                    for (const table of tables) {
-                        await safeExecute(db, `UPDATE ${table} SET "endTime" = $1 WHERE "userID" = $2`, [targetTime, user.id]);
-                        await safeExecute(db, `UPDATE ${table} SET endtime = $1 WHERE userid = $2`, [targetTime, user.id]);
-                    }
+                    await safeExecute(db,
+                        `UPDATE user_caravans SET "endTime" = $1 WHERE "userID" = $2 AND "status" = 'traveling'`,
+                        [targetTime, user.id]);
                     
                     await i.followUp({ 
                         content: '⏩ ⏳ **تم التلاعب بالزمن!** قافلتك وصلت للتو. (انتظر ثواني قليلة ليقوم فاحص البوت بتوزيع الأرباح وبيع البضائع وإشعارك بالوصول).', 
