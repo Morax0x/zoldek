@@ -255,6 +255,168 @@ module.exports = {
             }
         }
 
+        async function handleEquipFlow(actionCtx, sessionKey) {
+            const equipped = client.caravanEquip?.get(sessionKey) || [null, null, null];
+            const allItems = allItemsList();
+            const equippedText = equipped.map(eq => {
+                if (!eq) return 'فارغ';
+                const itm = allItems.find(x => x.id === eq.id);
+                return itm ? `${itm.emoji || ''} ${itm.name || ''} (x${eq.count})` : 'فارغ';
+            });
+
+            const desc = [
+                '✬ **تجهيز عتاد القافلة**',
+                '',
+                `⚡ **سرعة**: ${equippedText[0]}`,
+                `🛡️ **دفاع**: ${equippedText[1]}`,
+                `🍀 **حظ**: ${equippedText[2]}`,
+            ].join('\n');
+
+            const slotBtnRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('cv_eqp_s0').setEmoji('⚡').setLabel('سرعة').setStyle(equipped[0] ? ButtonStyle.Success : ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('cv_eqp_s1').setEmoji('🛡️').setLabel('دفاع').setStyle(equipped[1] ? ButtonStyle.Success : ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('cv_eqp_s2').setEmoji('🍀').setLabel('حظ').setStyle(equipped[2] ? ButtonStyle.Success : ButtonStyle.Secondary),
+            );
+
+            const ephemMsg = await actionCtx.followUp({ content: desc, components: [slotBtnRow], flags: [MessageFlags.Ephemeral] }).catch(() => null);
+            if (!ephemMsg) return;
+
+            try {
+                while (true) {
+                    const slotClick = await ephemMsg.awaitMessageComponent({
+                        filter: ci => ci.user.id === user.id && ci.customId.startsWith('cv_eqp_s'),
+                        time: 60000,
+                    }).catch(() => null);
+                    if (!slotClick) break;
+
+                    const si = parseInt(slotClick.customId.replace('cv_eqp_s', ''));
+                    if (isNaN(si) || si < 0 || si > 2) continue;
+
+                    let curEquipped = client.caravanEquip?.get(sessionKey) || [null, null, null];
+
+                    // Unequip
+                    if (curEquipped[si]) {
+                        curEquipped[si] = null;
+                        if (!client.caravanEquip) client.caravanEquip = new Map();
+                        client.caravanEquip.set(sessionKey, curEquipped);
+                        await slotClick.update({ content: '✬ تم فك العتاد', components: [] }).catch(() => {});
+                        break;
+                    }
+
+                    // Empty slot → show select menu in same ephemeral
+                    const invCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]).catch(() => null);
+                    if (!invCheck || !invCheck.rows || invCheck.rows.length === 0) {
+                        const altCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]).catch(() => null);
+                        if (altCheck) invCheck.rows = altCheck.rows;
+                    }
+                    const invRows = (invCheck?.rows || []).filter(r => {
+                        const rid = r.itemid || r.itemID || r.ITEMID;
+                        return Number(r.quantity || r.QUANTITY || 0) > 0 && allItems.some(a => a.id === rid);
+                    });
+
+                    if (!invRows.length) {
+                        await slotClick.reply({ content: '📦 لا توجد أدوات متوفرة في المخزن.', flags: [MessageFlags.Ephemeral] });
+                        break;
+                    }
+
+                    if (!client.caravanEquipTarget) client.caravanEquipTarget = new Map();
+                    client.caravanEquipTarget.set(sessionKey, si);
+
+                    const opts = invRows.slice(0, 25).map(row => {
+                        const id2 = row.itemid || row.itemID || row.ITEMID;
+                        const itm = allItems.find(x => x.id === id2) || {};
+                        return {
+                            label: (itm.name || id2).substring(0, 25),
+                            value: id2,
+                            description: `المتوفر: ${Number(row.quantity || row.QUANTITY || 0)}`,
+                            emoji: itm.emoji || '📦',
+                        };
+                    });
+
+                    const selRow = new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId('cv_eqp_sel')
+                            .setPlaceholder('اختر أداة للتجهيز...')
+                            .addOptions(opts)
+                    );
+
+                    await slotClick.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow] }).catch(() => {});
+                    const menuMsg = await slotClick.fetchReply().catch(() => null);
+                    if (!menuMsg) break;
+
+                    try {
+                        const selI = await menuMsg.awaitMessageComponent({
+                            filter: m => m.customId === 'cv_eqp_sel' && m.user.id === user.id,
+                            time: 60000,
+                        });
+
+                        const itemId = selI.values[0];
+                        curEquipped = client.caravanEquip?.get(sessionKey) || [null, null, null];
+
+                        const existingSlot = curEquipped.findIndex(x => x && x.id === itemId);
+                        if (existingSlot !== -1) {
+                            curEquipped[existingSlot] = null;
+                            if (!client.caravanEquip) client.caravanEquip = new Map();
+                            client.caravanEquip.set(sessionKey, curEquipped);
+                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
+                            break;
+                        }
+
+                        if (curEquipped[si] !== null) {
+                            await selI.reply({ content: '❌ هذه الفتحة مشغولة. أزل العتاد الحالي أولاً.', flags: [MessageFlags.Ephemeral] });
+                            break;
+                        }
+
+                        const targetRow = invRows.find(r => (r.itemid || r.itemID || r.ITEMID) === itemId);
+                        const availableQty = targetRow ? Number(targetRow.quantity || targetRow.QUANTITY || 0) : 0;
+
+                        if (availableQty <= 0) {
+                            await selI.reply({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
+                            break;
+                        }
+
+                        if (availableQty === 1) {
+                            curEquipped[si] = { id: itemId, count: 1 };
+                            if (!client.caravanEquip) client.caravanEquip = new Map();
+                            client.caravanEquip.set(sessionKey, curEquipped);
+                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
+                            break;
+                        }
+
+                        const modalId = `cv_eqp_mod_${Date.now()}`;
+                        const modal = new ModalBuilder().setCustomId(modalId).setTitle('تحديد الكمية');
+                        const maxAllowed = Math.min(availableQty, 20);
+                        const qtyInput = new TextInputBuilder()
+                            .setCustomId('qty')
+                            .setLabel(`الكمية (1 إلى ${maxAllowed})`)
+                            .setPlaceholder(`المتوفر: ${availableQty}`)
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true);
+                        modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
+                        await selI.showModal(modal);
+
+                        try {
+                            const modalSubmit = await selI.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
+
+                            const qtyStr = modalSubmit.fields.getTextInputValue('qty');
+                            let qty = parseInt(qtyStr);
+                            if (isNaN(qty) || qty < 1 || qty > maxAllowed) {
+                                await modalSubmit.reply({ content: `❌ كمية غير صالحة (1-${maxAllowed}).`, flags: [MessageFlags.Ephemeral] });
+                                break;
+                            }
+
+                            curEquipped[si] = { id: itemId, count: qty };
+                            if (!client.caravanEquip) client.caravanEquip = new Map();
+                            client.caravanEquip.set(sessionKey, curEquipped);
+                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
+                            await modalSubmit.deferUpdate().catch(() => {});
+                        } catch (e) {}
+                    } catch (e) {}
+                    break;
+                }
+            } catch (e) {}
+        }
+
         const hubMsg = await showHub();
         if (!hubMsg) return;
 
@@ -266,7 +428,7 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            const fastButtons = new Set(['cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2', 'cv_eq_sel', 'cv_eq_sel_0', 'cv_eq_sel_1', 'cv_eq_sel_2']);
+            const fastButtons = new Set(['cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status']);
 
             if (!fastButtons.has(i.customId) && !i.customId.startsWith('stg_')) {
                 if (activeProcesses.has(user.id)) {
@@ -275,7 +437,7 @@ module.exports = {
                 activeProcesses.add(user.id);
             }
             
-            if (i.customId !== 'cv_eq_sel' && i.customId !== 'cv_market_staging' && !i.customId.startsWith('stg_')) {
+            if (i.customId !== 'cv_equip' && i.customId !== 'cv_market_staging' && !i.customId.startsWith('stg_')) {
                 await i.deferUpdate().catch(() => {});
             }
 
@@ -668,134 +830,8 @@ module.exports = {
                     if (!client.caravanEquip.has(sessionKey)) {
                         client.caravanEquip.set(sessionKey, [null, null, null]);
                     }
-                    await updateEquipUI(i);
-                }
 
-                else if (id.startsWith('cv_eq_slot_')) {
-                    const slotIdx = parseInt(id.replace('cv_eq_slot_', ''));
-                    if (isNaN(slotIdx) || slotIdx < 0 || slotIdx > 2) return;
-
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    const current = (client.caravanEquip?.get(sessionKey)) || [null, null, null];
-
-                    if (current[slotIdx]) {
-                        current[slotIdx] = null;
-                        if (!client.caravanEquip) client.caravanEquip = new Map();
-                        client.caravanEquip.set(sessionKey, current);
-                        return;
-                    }
-
-                    await i.deferReply({ ephemeral: true }).catch(() => {});
-
-                    const invCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]).catch(() => null);
-                    if (!invCheck || !invCheck.rows || invCheck.rows.length === 0) {
-                        const altCheck = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid=$1 AND guildid=$2`, [user.id, guild.id]).catch(() => null);
-                        if (altCheck) invCheck.rows = altCheck.rows;
-                    }
-                    const allItems = allItemsList();
-                    const invRows = (invCheck?.rows || []).filter(r => {
-                        const rid = r.itemid || r.itemID || r.ITEMID;
-                        return Number(r.quantity || r.QUANTITY || 0) > 0 && allItems.some(a => a.id === rid);
-                    });
-
-                    if (!invRows.length) {
-                        await i.followUp({ content: '📦 لا توجد أدوات متوفرة في المخزن.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
-                        return;
-                    }
-
-                    if (!client.caravanEquipTarget) client.caravanEquipTarget = new Map();
-                    client.caravanEquipTarget.set(sessionKey, slotIdx);
-
-                    const opts = invRows.slice(0, 25).map(row => {
-                        const id2 = row.itemid || row.itemID || row.ITEMID;
-                        const itm = allItems.find(x => x.id === id2) || {};
-                        return {
-                            label: (itm.name || id2).substring(0, 25),
-                            value: id2,
-                            description: `المتوفر: ${Number(row.quantity || row.QUANTITY || 0)}`,
-                            emoji: itm.emoji || '📦',
-                        };
-                    });
-
-                    const selRow = new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder()
-                            .setCustomId(`cv_eq_sel_${slotIdx}`)
-                            .setPlaceholder('اختر أداة للتجهيز...')
-                            .addOptions(opts)
-                    );
-
-                    const menuMsg = await i.editReply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [selRow] }).catch(() => {});
-                    if (!menuMsg) return;
-
-                    try {
-                        const selI = await menuMsg.awaitMessageComponent({ filter: m => m.customId === `cv_eq_sel_${slotIdx}` && m.user.id === user.id, time: 60000 });
-
-                        const itemId = selI.values[0];
-                        const equipped = (client.caravanEquip?.get(sessionKey)) || [null, null, null];
-
-                        const existingSlot = equipped.findIndex(x => x && x.id === itemId);
-                        if (existingSlot !== -1) {
-                            equipped[existingSlot] = null;
-                            if (!client.caravanEquip) client.caravanEquip = new Map();
-                            client.caravanEquip.set(sessionKey, equipped);
-                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
-                            return;
-                        }
-
-                        const tSlot = slotIdx;
-                        if (equipped[tSlot] !== null) {
-                            await selI.reply({ content: '❌ هذه الفتحة مشغولة. أزل العتاد الحالي أولاً.', flags: [MessageFlags.Ephemeral] });
-                            return;
-                        }
-
-                        const targetRow = invRows.find(r => (r.itemid || r.itemID || r.ITEMID) === itemId);
-                        const availableQty = targetRow ? Number(targetRow.quantity || targetRow.QUANTITY || 0) : 0;
-
-                        if (availableQty <= 0) {
-                            await selI.reply({ content: '❌ لا تملك هذه الأداة في المخزن.', flags: [MessageFlags.Ephemeral] });
-                            return;
-                        }
-
-                        if (availableQty === 1) {
-                            equipped[tSlot] = { id: itemId, count: 1 };
-                            if (!client.caravanEquip) client.caravanEquip = new Map();
-                            client.caravanEquip.set(sessionKey, equipped);
-                            await selI.update({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
-                        } else {
-                            const modalId = `cv_eq_mod_${Date.now()}`;
-                            const modal = new ModalBuilder().setCustomId(modalId).setTitle('تحديد الكمية');
-                            const maxAllowed = Math.min(availableQty, 20);
-                            const qtyInput = new TextInputBuilder()
-                                .setCustomId('qty')
-                                .setLabel(`الكمية (1 إلى ${maxAllowed})`)
-                                .setPlaceholder(`المتوفر: ${availableQty}`)
-                                .setStyle(TextInputStyle.Short)
-                                .setRequired(true);
-                            modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
-                            await selI.showModal(modal);
-
-                            try {
-                                const modalSubmit = await selI.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
-
-                                const qtyStr = modalSubmit.fields.getTextInputValue('qty');
-                                let qty = parseInt(qtyStr);
-                                if (isNaN(qty) || qty < 1 || qty > maxAllowed) {
-                                    await modalSubmit.reply({ content: `❌ كمية غير صالحة (1-${maxAllowed}).`, flags: [MessageFlags.Ephemeral] });
-                                    return;
-                                }
-
-                                equipped[tSlot] = { id: itemId, count: qty };
-                                if (!client.caravanEquip) client.caravanEquip = new Map();
-                                client.caravanEquip.set(sessionKey, equipped);
-                                await i.editReply({ content: '✬ جـاري اعداد عـتـاد القافـلـة ..', components: [] }).catch(() => {});
-                                await modalSubmit.deferUpdate().catch(() => {});
-                            } catch (e) {}
-                        }
-} catch (e) {}
-                }
-
-                else if (id === 'cv_eq_sel' || id.match(/^cv_eq_sel_\d+$/)) {
-                    await i.deferUpdate().catch(() => {});
+                    await handleEquipFlow(i, sessionKey);
                 }
 
                 else if (id === 'cv_back') {
