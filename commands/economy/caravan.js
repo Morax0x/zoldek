@@ -137,11 +137,11 @@ const activeProcesses = new Set();
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('caravan')
+        .setName('قافلة')
         .setDescription('🐪 نظام القوافل — مركز التحكم الكامل'),
 
     name:     'caravan',
-    aliases:  ['قافلة', 'قوافل', 'رحلة', 'تجارة'],
+    aliases:  ['قافلة', 'سفر', 'تجر', 'شحن', 'قاف'],
     category: 'Economy',
     description: 'نظام القوافل المتكامل',
 
@@ -798,9 +798,7 @@ module.exports = {
                                 await updateEquipUI(i, equipped);
                             } catch (e) {}
                         }
-                    } catch (e) {}
-                        }
-                    } catch (e) {}
+} catch (e) {}
                 }
 
                 else if (id === 'cv_eq_sel' || id.match(/^cv_eq_sel_\d+$/)) {
