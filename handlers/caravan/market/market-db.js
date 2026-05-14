@@ -432,6 +432,58 @@ async function closeSession(db, threadId) {
 }
 
 // 👑 تنظيف شامل للستيجينج عند العودة 👑
+async function getMarketReportData(db, caravanId) {
+    let result = await safeQuery(db, `
+        SELECT * FROM caravan_market_listings
+        WHERE "caravanId"=$1
+        ORDER BY "id" ASC
+    `, [caravanId]);
+    if (!result || !result.rows || result.rows.length === 0) {
+        result = await safeQuery(db, `
+            SELECT * FROM caravan_market_listings
+            WHERE caravanid=$1
+            ORDER BY id ASC
+        `, [caravanId]);
+    }
+
+    const rows = result?.rows || [];
+    const soldItems = [];
+    const unsoldItems = [];
+    let totalEarned = 0;
+
+    const { resolveItemInfo } = require('./market-setup');
+
+    for (const row of rows) {
+        const idKey       = Object.keys(row).find(k => k.toLowerCase() === 'itemid');
+        const nameKey     = Object.keys(row).find(k => k.toLowerCase() === 'itemname');
+        const emojiKey    = Object.keys(row).find(k => k.toLowerCase() === 'itememoji');
+        const qtyKey      = Object.keys(row).find(k => k.toLowerCase() === 'quantity');
+        const soldKey     = Object.keys(row).find(k => k.toLowerCase() === 'quantitysold');
+        const priceKey    = Object.keys(row).find(k => k.toLowerCase() === 'priceperunit');
+
+        const itemId       = idKey    ? row[idKey]            : '?';
+        const qty          = Number(qtyKey   ? row[qtyKey]   : 0);
+        const quantitySold = Number(soldKey  ? row[soldKey]  : 0);
+        const pricePerUnit = Number(priceKey ? row[priceKey] : 0);
+
+        const info  = resolveItemInfo(itemId);
+        const entry = {
+            itemId,
+            itemName:  nameKey  ? row[nameKey]  : (info.name  || itemId),
+            itemEmoji: emojiKey ? row[emojiKey] : (info.emoji || '📦'),
+            rarity:    info.rarity || 'Common',
+            quantity:  qty,
+            quantitySold,
+            pricePerUnit,
+        };
+
+        if (quantitySold > 0) { soldItems.push(entry); totalEarned += quantitySold * pricePerUnit; }
+        if (qty - quantitySold > 0) unsoldItems.push(entry);
+    }
+
+    return { soldItems, unsoldItems, totalEarned };
+}
+
 async function returnUnsoldItems(db, ownerId, guildId) {
     await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "ownerID"=$1 AND "guildID"=$2 AND "status" IN ('active','sold_out')`, [ownerId, guildId]);
     
@@ -576,4 +628,5 @@ module.exports = {
     getStagedItems,
     finalizeStagedItems,
     stagingLootItems,
+    getMarketReportData,
 };

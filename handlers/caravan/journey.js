@@ -211,8 +211,8 @@ async function distributeRewards(client, db, caravan) {
         [userId, guildId, destId, bestThisTrip.score, bestThisTrip.score, bestThisTrip.label]);
 
     await safeExecute(db,
-        `UPDATE user_caravans SET "status"='completed' WHERE "userID"=$1 AND "guildID"=$2`,
-        [userId, guildId]);
+        `UPDATE user_caravans SET "status"='completed' WHERE "id"=$1`,
+        [caravan.id]);
 
     return summary;
 }
@@ -255,6 +255,18 @@ async function processCaravanReturns(client, db) {
                 // Distribute rewards and mark caravan complete
                 const summary = await distributeRewards(client, db, caravan);
                 pendingReturns.delete(caravanId);
+
+                // Fetch actual market sales data for the report
+                let soldItems = [], unsoldItems = [], totalEarned = 0;
+                try {
+                    const { getMarketReportData } = require('./market/market-db');
+                    const marketData = await getMarketReportData(db, caravanId);
+                    soldItems    = marketData.soldItems    || [];
+                    unsoldItems  = marketData.unsoldItems  || [];
+                    totalEarned  = marketData.totalEarned  || 0;
+                } catch (e) {
+                    console.error('[journey] market report data error:', e?.message);
+                }
 
 // Priority 1: channel stored at dispatch time (caravan/guild setting)
                 let targetChannelId = caravan.marketchannelid || caravan.marketChannelId || null;
@@ -300,7 +312,7 @@ async function processCaravanReturns(client, db) {
                                     reportBuf = await _generateMarketSummary({
                                         destName: `${destEmoji} ${destName}`,
                                         destId, destColor, ownerName, avatarUrl,
-                                        soldItems: [], unsoldItems: [], totalEarned: 0,
+                                        soldItems, unsoldItems, totalEarned,
                                         journeyRewards: summary || [],
                                     });
                                 } catch (e) {}
@@ -343,7 +355,7 @@ ${rewardText}`,
 
                             reportBuf = await _generateMarketSummary({
                                 destName, destId, destColor, ownerName, avatarUrl,
-                                soldItems: [], unsoldItems: [], totalEarned: 0,
+                                soldItems, unsoldItems, totalEarned,
                                 journeyRewards: summary || [],
                             });
                         } catch (e) {
