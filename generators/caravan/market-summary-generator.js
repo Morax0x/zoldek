@@ -1,6 +1,6 @@
 const { loadImage } = require('@napi-rs/canvas');
 const {
-    createCanvas, drawBg, truncate, toBuf, fetchImageSafe
+    createCanvas, drawBg, toBuf, fetchImageSafe
 } = require('./shared');
 
 const CW = 1400;
@@ -269,50 +269,121 @@ function drawColumnData(ctx, x, y, w, h, items, title, color, isSold) {
         return;
     }
 
-    const rH = 100;
-    const startY = y + headH + 25;
-    const limit = Math.floor((h - headH - 50) / rH);
-    const vis = items.slice(0, limit);
+    const padY = 20;
+    const contentH = h - headH - padY * 2;
+    const rowCount = items.length;
+    const rH = Math.max(36, Math.min(86, Math.floor(contentH / rowCount)));
+    const totalRowsH = rowCount * rH;
+    const startY = y + headH + padY + Math.max(0, (contentH - totalRowsH) / 2) + rH / 2;
 
-    for (let i = 0; i < vis.length; i++) {
-        const it = vis[i];
-        const cY = startY + i * rH + rH / 2;
-        
+    for (let i = 0; i < rowCount; i++) {
+        const it = items[i];
+        const cY = startY + i * rH;
+
         if (i % 2 === 0) {
             ctx.beginPath();
-            ctx.roundRect(x + 20, cY - rH / 2, w - 40, rH - 10, 20);
+            ctx.roundRect(x + 12, cY - rH / 2 + 1, w - 24, rH - 2, 10);
             ctx.fillStyle = 'rgba(255,255,255,0.04)';
             ctx.fill();
         }
 
-        const e = it.itemEmoji || '📦';
-        const n = truncate(it.itemName || it.itemId || '?', 16);
-        const p = Number(it.pricePerUnit || 0);
-        const q = isSold ? Number(it.quantitySold || 0) : (Number(it.quantity || 0) - Number(it.quantitySold || 0));
-        
-        drawTextExact(ctx, e, x + w - 35, cY, `52px ${FONT_EMOJI}`, '#FFF', 'right');
-        drawTextExact(ctx, n, x + w - 110, cY - 18, `36px ${FONT_WORD}`, '#FFF', 'right');
-        
+        const emoji = it.itemEmoji || '📦';
+        const name = it.itemName || it.itemId || '?';
+        const price = Number(it.pricePerUnit || 0);
+        const qty = isSold ? Number(it.quantitySold || 0) : (Number(it.quantity || 0) - Number(it.quantitySold || 0));
+
+        // === ZONE LAYOUT (RTL visual order) ===
+        // Right:    emoji + name + dot   → 55%
+        // Middle:   × qty                → 20%
+        // Left:     price / status       → 25%
+        const marginX = 12;
+        const rightZoneW = w * 0.55;
+        const midZoneW = w * 0.20;
+        const leftZoneW = w * 0.25;
+
+        const emojiSize = Math.min(40, rH - 4);
+        const emojiX = x + w - marginX;
+
+        // — name (draw to the left of emoji) —
+        const nameEmojiGap = 8;
+        const dotGap = 8;
+        const dotR = Math.max(4, Math.min(7, rH / 8));
+        const nameMaxW = rightZoneW - marginX - emojiSize - nameEmojiGap - dotR * 2 - dotGap;
+
+        let nameFontSize = Math.min(28, rH - 4);
+        ctx.font = `${nameFontSize}px ${FONT_WORD}`;
+        let nameW = ctx.measureText(name).width;
+        while (nameW > nameMaxW && nameFontSize > 7) {
+            nameFontSize--;
+            ctx.font = `${nameFontSize}px ${FONT_WORD}`;
+            nameW = ctx.measureText(name).width;
+        }
+
+        // Draw emoji
+        drawTextExact(ctx, emoji, emojiX, cY, `${emojiSize}px ${FONT_EMOJI}`, '#FFF', 'right');
+
+        // Draw name
+        const nameX = emojiX - nameEmojiGap;
+        drawTextExact(ctx, name, nameX, cY, `${nameFontSize}px ${FONT_WORD}`, '#FFF', 'right');
+
+        // Draw rarity dot
+        const nameMeasured = ctx.measureText(name).width;
+        const dotX = nameX - nameMeasured - dotGap - dotR;
         ctx.fillStyle = itemColor(it.rarity);
-        ctx.beginPath(); 
-        ctx.arc(x + w - 120 - ctx.measureText(n).width - 15, cY - 18, 9, 0, Math.PI*2); 
+        ctx.beginPath();
+        ctx.arc(dotX, cY, dotR, 0, Math.PI * 2);
         ctx.fill();
 
-        drawTextExact(ctx, 'x', x + 260, cY, `32px ${FONT_WORD}`, '#888', 'right');
-        drawTextExact(ctx, q.toString(), x + 275, cY, `46px ${FONT_NUM}`, '#FFF', 'left');
+        // — quantity × —
+        const qtyStr = qty.toString();
+        let qtyFontSize = Math.min(30, rH - 4);
+        ctx.font = `${qtyFontSize}px ${FONT_NUM}`;
+        let qtyW = ctx.measureText(qtyStr).width;
+        const qtyMaxW = midZoneW - 8;
+        while (qtyW > qtyMaxW - 20 && qtyFontSize > 7) {
+            qtyFontSize--;
+            ctx.font = `${qtyFontSize}px ${FONT_NUM}`;
+            qtyW = ctx.measureText(qtyStr).width;
+        }
+        const xFontSize = Math.max(14, qtyFontSize - 6);
+
+        const midCX = x + leftZoneW + midZoneW / 2;
+        const qtyTotalW = qtyW + xFontSize * 0.6 + 4;
+        drawTextExact(ctx, qtyStr, midCX + qtyTotalW / 2 - 2, cY, `${qtyFontSize}px ${FONT_NUM}`, '#FFF', 'center');
+        drawTextExact(ctx, '×', midCX - qtyTotalW / 2 + 2, cY, `${xFontSize}px ${FONT_WORD}`, '#AAA', 'center');
+
+        // — price / status (left edge) —
+        const leftX = x + marginX;
+        const leftMaxW = leftZoneW - marginX * 2;
 
         if (isSold) {
-            const tot = (q * p).toLocaleString();
-            drawTextExact(ctx, tot, x + 35, cY, `42px ${FONT_NUM}`, color, 'left');
-            const tw = ctx.measureText(tot).width;
-            drawTextExact(ctx, 'مورا', x + 45 + tw, cY + 8, `28px ${FONT_WORD}`, color, 'left');
+            const totalStr = (qty * price).toLocaleString();
+            let priceFontSize = Math.min(26, rH - 4);
+            ctx.font = `bold ${priceFontSize}px ${FONT_NUM}`;
+            let pw = ctx.measureText(totalStr).width;
+            ctx.font = `${Math.min(17, priceFontSize - 2)}px ${FONT_WORD}`;
+            pw += ctx.measureText('مورا').width + 4;
+            while (pw > leftMaxW && priceFontSize > 7) {
+                priceFontSize--;
+                ctx.font = `bold ${priceFontSize}px ${FONT_NUM}`;
+                pw = ctx.measureText(totalStr).width;
+                const moraFs = Math.min(15, priceFontSize - 2);
+                ctx.font = `${moraFs}px ${FONT_WORD}`;
+                pw += ctx.measureText('مورا').width + 4;
+            }
+            const moraFs2 = Math.max(10, Math.min(17, priceFontSize - 2));
+            drawTextExact(ctx, totalStr, leftX, cY, `bold ${priceFontSize}px ${FONT_NUM}`, color, 'left');
+            const tw = ctx.measureText(totalStr).width;
+            drawTextExact(ctx, 'مورا', leftX + tw + 3, cY + 3, `${moraFs2}px ${FONT_WORD}`, color, 'left');
         } else {
-            drawTextExact(ctx, 'أُعيدت', x + 35, cY, `32px ${FONT_WORD}`, color, 'left');
+            let statusFontSize = Math.min(24, rH - 4);
+            ctx.font = `${statusFontSize}px ${FONT_WORD}`;
+            while (ctx.measureText('أُعيدت').width > leftMaxW && statusFontSize > 7) {
+                statusFontSize--;
+                ctx.font = `${statusFontSize}px ${FONT_WORD}`;
+            }
+            drawTextExact(ctx, 'أُعيدت', leftX, cY, `${statusFontSize}px ${FONT_WORD}`, color, 'left');
         }
-    }
-
-    if (items.length > limit) {
-        drawTextExact(ctx, `... و ${items.length - limit} أصناف إضافية`, x + w / 2, y + h - 30, `28px ${FONT_WORD}`, '#888', 'center');
     }
 }
 
