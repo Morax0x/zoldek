@@ -83,17 +83,28 @@ async function updateMarketMessage(channel, listings, dest, interaction = null) 
     try {
         const threadId = channel.id;
         const page     = marketPages.get(threadId) || 0;
-        const buffer   = await buildMarketImage(listings, dest, page);
+
+        let buffer;
+        try { buffer = await buildMarketImage(listings, dest, page); } catch (e) { console.error('[MarketCanvas Error]', e); }
+        if (!buffer) {
+            console.error('[MarketCanvas] buffer is null/undefined — skipping image');
+            return;
+        }
         const attachment = new AttachmentBuilder(buffer, { name: 'market.png' });
         const components = buildMarketComponents(listings, threadId, page);
+        const payload = { files: [attachment] };
+        if (components.length) payload.components = components;
 
         if (interaction && interaction.message) {
-            await interaction.message.edit({ embeds: [], files: [attachment], components }).catch(() => {});
+            await interaction.message.edit(payload).catch(() => {});
             return;
         }
 
         const msgs = await channel.messages.fetch({ limit: 20 }).catch(() => null);
-        if (!msgs) return;
+        if (!msgs) {
+            await channel.send(payload).catch(e => console.error('[Market Send1]', e));
+            return;
+        }
 
         const marketMsg = msgs.find(m =>
             m.author.id === channel.client.user.id &&
@@ -102,9 +113,9 @@ async function updateMarketMessage(channel, listings, dest, interaction = null) 
         );
 
         if (marketMsg) {
-            await marketMsg.edit({ embeds: [], files: [attachment], components }).catch(() => {});
+            await marketMsg.edit(payload).catch(() => {});
         } else {
-            await channel.send({ embeds: [], files: [attachment], components }).catch(() => {});
+            await channel.send(payload).catch(e => console.error('[Market Send2]', e));
         }
     } catch (e) {
         console.error('[Update Market Error]', e);

@@ -77,13 +77,19 @@ async function createMarketThread(client, db, caravan, channelId) {
             )
             .setFooter({ text: '™ Empire | الامبراطورية', iconURL: serverIconUrl });
 
+        console.log(`[createMarketThread] caravanId=${caravanId} thread=${thread.id} listings=${listings.length}`);
+
         const announcement = await thread.send({
             content: `✶ <@${ownerId}>`,
             embeds: [embed],
         }).catch(() => null);
 
         if (announcement) {
+            console.log(`[createMarketThread] announcement sent, calling updateMarketMessage...`);
             await updateMarketMessage(thread, listings, dest);
+            console.log(`[createMarketThread] updateMarketMessage done`);
+        } else {
+            console.error(`[createMarketThread] announcement send failed`);
         }
 
         scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDurationMs);
