@@ -13,6 +13,16 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const cfg = require('../../json/caravan-config.json');
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
+
+    // Preload ALL images in parallel (1.5s timeout each, max ~1.5s total instead of ~32s sequential)
+    const destId = active?.destinationid || active?.destinationId || '';
+    await Promise.allSettled([
+        fetchImageSafe('hubbg'),
+        fetchImageSafe('minimap'),
+        fetchImageSafe('camel'),
+        ...(destId ? [fetchImageSafe(destId)] : []),
+    ]);
+
     await drawBg(ctx, 'hubbg');
     await drawHeader(ctx, 'مركز القوافل');
     drawCornerAccents(ctx);

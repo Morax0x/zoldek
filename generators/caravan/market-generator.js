@@ -27,7 +27,7 @@ async function loadCachedImg(url) {
     if (pendingLoads.has(url)) return pendingLoads.get(url);
     const promise = Promise.race([
         loadImage(url).then(img => { imgCache.set(url, img); return img; }),
-        new Promise(res => setTimeout(() => { imgCache.set(url, null); res(null); }, 3000)),
+        new Promise(res => setTimeout(() => { imgCache.set(url, null); res(null); }, 1500)),
     ]).catch(() => { imgCache.set(url, null); return null; })
     .finally(() => pendingLoads.delete(url));
     pendingLoads.set(url, promise);
