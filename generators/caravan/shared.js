@@ -102,11 +102,14 @@ async function fetchImageSafe(imgName) {
     if (_imgCache.has(url)) return _imgCache.get(url);
     const first = await loadImageSafe(url);
     if (first.ok) { _imgCache.set(url, first.img); return first.img; }
+    _imgCache.set(url, null);
     const alt = imgName.replace(/_/g, '');
     if (alt !== imgName) {
         const altUrl = `${BASE_IMG_URL}${alt}.png`;
+        if (_imgCache.has(altUrl)) return _imgCache.get(altUrl);
         const second = await loadImageSafe(altUrl);
         if (second.ok) { _imgCache.set(url, second.img); _imgCache.set(altUrl, second.img); return second.img; }
+        _imgCache.set(altUrl, null);
     }
     return null;
 }

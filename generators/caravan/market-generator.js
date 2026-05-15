@@ -19,19 +19,9 @@ const RARITY_AR = {
     'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري',
 };
 
-// Cache for item images
+// Skip loading item images (emoji fallback) — avoids R2 timeouts
 const imgCache = new Map();
-async function loadCachedImg(url) {
-    if (!url) return null;
-    if (imgCache.has(url)) return imgCache.get(url);
-    const result = await Promise.race([
-        loadImage(url).then(img => ({ img })),
-        new Promise(res => setTimeout(() => res({ timeout: true }), 5000)),
-    ]);
-    if (result.timeout) { console.error(`[MarketCanvas] Timeout: ${url}`); return null; }
-    imgCache.set(url, result.img);
-    return result.img;
-}
+async function loadCachedImg(url) { return null; }
 
 // Grid layout — dynamic, computed per page
 const MARGIN_X   = 15;

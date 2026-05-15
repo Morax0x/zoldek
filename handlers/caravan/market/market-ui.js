@@ -42,11 +42,13 @@ function buildMarketComponents(listings, threadId, page = 0) {
         const info = getItemInfo(l.itemid || l.itemID);
         const available = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
         const price = Number(l.priceperunit || l.pricePerUnit);
+        const rawEmoji = info.emoji || '';
+        const isUnicode = rawEmoji.length > 0 && !rawEmoji.includes('<:') && !rawEmoji.includes('<a:');
         return {
             label: `${info.name?.substring(0, 25) || l.itemid} (x${available})`,
             value: `buy_${l.id}`,
             description: `${price.toLocaleString()} مورا / واحدة`,
-            emoji: info.emoji || '📦',
+            ...(isUnicode ? { emoji: rawEmoji } : {}),
         };
     });
 
