@@ -84,16 +84,29 @@ async function updateMarketMessage(channel, listings, dest, interaction = null) 
         const threadId = channel.id;
         const page     = marketPages.get(threadId) || 0;
 
-        let buffer;
-        try { buffer = await buildMarketImage(listings, dest, page); } catch (e) { console.error('[MarketCanvas Error]', e); }
-        if (!buffer) {
-            console.error('[MarketCanvas] buffer is null/undefined — skipping image');
-            return;
+        // Try canvas image; fallback embed if it fails
+        let buffer, components = [], canvasOk = false;
+        try {
+            buffer = await buildMarketImage(listings, dest, page);
+            if (buffer) {
+                components = buildMarketComponents(listings, threadId, page);
+                canvasOk = true;
+            }
+        } catch (e) { console.error('[MarketCanvas Error]', e); }
+
+        let payload;
+        if (canvasOk) {
+            const attachment = new AttachmentBuilder(buffer, { name: 'market.png' });
+            payload = { files: [attachment] };
+            if (components.length) payload.components = components;
+        } else {
+            // Fallback: build components safely, send simple embed
+            try { components = buildMarketComponents(listings, threadId, page); } catch (e) { console.error('[MarketComponents Error]', e); components = []; }
+            const mktName = `${dest.emoji || ''} سوق القافلة — ${dest.name || ''}`;
+            payload = { embeds: [new EmbedBuilder().setColor(dest.color || '#FFD700').setTitle(mktName).setDescription(`🛒 ${listings.length} عنصر في السوق`).setFooter({ text: '™ Empire' })] };
+            if (components.length) payload.components = components;
+            console.log(`[MarketUI] Fallback embed (listings=${listings.length} components=${components.length})`);
         }
-        const attachment = new AttachmentBuilder(buffer, { name: 'market.png' });
-        const components = buildMarketComponents(listings, threadId, page);
-        const payload = { files: [attachment] };
-        if (components.length) payload.components = components;
 
         if (interaction && interaction.message) {
             await interaction.message.edit(payload).catch(() => {});
@@ -106,10 +119,14 @@ async function updateMarketMessage(channel, listings, dest, interaction = null) 
             return;
         }
 
-        const marketMsg = msgs.find(m =>
+        const marketMsg = canvasOk ? msgs.find(m =>
             m.author.id === channel.client.user.id &&
             m.attachments.some(a => a.name === 'market.png') &&
             m.components.length > 0
+        ) : msgs.find(m =>
+            m.author.id === channel.client.user.id &&
+            m.embeds.length > 0 &&
+            m.embeds[0]?.title?.includes('سوق القافلة')
         );
 
         if (marketMsg) {
