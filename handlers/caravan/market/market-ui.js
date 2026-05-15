@@ -42,13 +42,10 @@ function buildMarketComponents(listings, threadId, page = 0) {
         const info = getItemInfo(l.itemid || l.itemID);
         const available = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
         const price = Number(l.priceperunit || l.pricePerUnit);
-        const rawEmoji = info.emoji || '';
-        const isUnicode = rawEmoji.length > 0 && !rawEmoji.includes('<:') && !rawEmoji.includes('<a:');
         return {
             label: `${info.name?.substring(0, 25) || l.itemid} (x${available})`,
             value: `buy_${l.id}`,
             description: `${price.toLocaleString()} مورا / واحدة`,
-            ...(isUnicode ? { emoji: rawEmoji } : {}),
         };
     });
 
@@ -134,7 +131,10 @@ async function updateMarketMessage(channel, listings, dest, interaction = null) 
         if (marketMsg) {
             await marketMsg.edit(payload).catch(() => {});
         } else {
-            await channel.send(payload).catch(e => console.error('[Market Send2]', e));
+            await channel.send(payload).catch(e => {
+                console.error('[Market Send2]', e?.message);
+                if (e?.rawError) console.error('[Market Send2 rawError]', JSON.stringify(e.rawError, null, 2));
+            });
         }
     } catch (e) {
         console.error('[Update Market Error]', e);
@@ -337,7 +337,6 @@ async function handleOwnerPriceChange(interaction, client, db, user) {
             label: `${info.name?.substring(0, 25) || l.itemid}`,
             value: `price_${l.id}`,
             description: `السعر الحالي: ${(l.priceperunit || l.pricePerUnit).toLocaleString()} ${EMOJI_MORA}`,
-            emoji: info.emoji || '📦',
         };
     });
 
