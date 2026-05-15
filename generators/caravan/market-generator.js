@@ -19,9 +19,20 @@ const RARITY_AR = {
     'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري',
 };
 
-// Skip loading item images (emoji fallback) — avoids R2 timeouts
 const imgCache = new Map();
-async function loadCachedImg(url) { return null; }
+const pendingLoads = new Map();
+async function loadCachedImg(url) {
+    if (!url) return null;
+    if (imgCache.has(url)) return imgCache.get(url);
+    if (pendingLoads.has(url)) return pendingLoads.get(url);
+    const promise = Promise.race([
+        loadImage(url).then(img => { imgCache.set(url, img); return img; }),
+        new Promise(res => setTimeout(() => { imgCache.set(url, null); res(null); }, 3000)),
+    ]).catch(() => { imgCache.set(url, null); return null; })
+    .finally(() => pendingLoads.delete(url));
+    pendingLoads.set(url, promise);
+    return promise;
+}
 
 // Grid layout — dynamic, computed per page
 const MARGIN_X   = 15;
@@ -256,20 +267,20 @@ async function generateMarketCanvas(listings, dest, page = 0) {
     const startX = (W - gridW) / 2;
     const startY = MARGIN_TOP + (availH - gridH) / 2;
 
+    // Preload all item images in parallel (3s timeout each) — avoids sequential hangs
+    const { getItemInfo } = require('../../handlers/caravan/market/market-setup');
+    const pageInfos = pageItems.map(listing => {
+        const info = getItemInfo(listing.itemid || listing.itemID);
+        return { listing, info };
+    });
+    await Promise.allSettled(pageInfos.map(({ info }) => loadCachedImg(info?.imgPath)));
+
     for (let i = 0; i < pageItems.length; i++) {
         const col  = i % cols;
         const row  = Math.floor(i / cols);
         const cx   = startX + col * (cardW + GAP_X);
         const cy   = startY + row * (cardH + GAP_Y);
-        const listing = pageItems[i];
-
-        let info;
-        try {
-            const { getItemInfo } = require('../../handlers/caravan/market/market-setup');
-            info = getItemInfo(listing.itemid || listing.itemID);
-        } catch {
-            info = { name: listing.itemname || listing.itemId || '?', emoji: '📦', rarity: 'Common', imgPath: null };
-        }
+        const { listing, info } = pageInfos[i];
 
         await drawItemCard(ctx, listing, info, cx, cy, cardW, cardH);
     }
