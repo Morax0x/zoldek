@@ -79,7 +79,7 @@ function rr(ctx, x, y, w, h, r = 24) {
     ctx.closePath();
 }
 
-function loadImageSafe(url, timeoutMs = 1500) {
+function loadImageSafe(url, timeoutMs = 5000) {
     return Promise.race([
         loadImage(url).then(img => ({ ok: true, img })),
         new Promise(res => setTimeout(() => res({ ok: false, timeout: true }), timeoutMs)),

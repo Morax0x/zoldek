@@ -116,7 +116,7 @@ async function getCachedImage(url) {
     if (imageCache.has(encoded)) return imageCache.get(encoded);
     const result = await Promise.race([
         loadImage(encoded).then(img => ({ ok: true, img })),
-        new Promise(res => setTimeout(() => res({ ok: false, timeout: true }), 1500)),
+        new Promise(res => setTimeout(() => res({ ok: false, timeout: true }), 5000)),
     ]).catch(() => ({ ok: false }));
     if (!result.ok) { console.error(`[StagingCanvas] Failed: ${encoded}`); return null; }
     imageCache.set(encoded, result.img);

@@ -12,7 +12,7 @@ const R2_BASE = 'https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev';
 const R2_PVP  = `${R2_BASE}/images/pvp`;
 const R2_VFX  = `${R2_BASE}/images/vfx`;
 
-const IMAGE_TIMEOUT = 1500;
+const IMAGE_TIMEOUT = 5000;
 const staticImageCache = new Map();
 
 async function loadImageSafe(url) {
