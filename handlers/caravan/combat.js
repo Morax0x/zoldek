@@ -305,12 +305,6 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
             }
         }
     }
-                    });
-                    if (thread) thread.send('✨ **سقط الكاهن — عالج الفريق (+20% HP)**').catch(() => {});
-                }
-            }
-        }
-    }
 
     enemy.targetFocusId = null;
 }
