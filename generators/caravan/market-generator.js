@@ -172,12 +172,6 @@ async function drawItemCard(ctx, listing, info, x, y, cardW, cardH) {
     ctx.shadowColor = C.green + '77'; ctx.shadowBlur = 14;
     ctx.fillText(`${price.toLocaleString()} مورا`, x + cardW / 2, priceLabelY + cardH * 0.095);
     ctx.shadowBlur = 0;
-
-    // Listing ID (small, bottom)
-    ctx.font = `13px ${FA}`; ctx.direction = 'ltr';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = C.textD + '77';
-    ctx.fillText(`#${listing.id}`, x + cardW / 2, y + cardH - 14);
 }
 
 // ── Main export ────────────────────────────────────────────────────────────────

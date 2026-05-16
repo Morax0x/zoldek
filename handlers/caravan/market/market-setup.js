@@ -1,10 +1,15 @@
 const {
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
     ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags, AttachmentBuilder
 } = require('discord.js');
 const { safeQuery, safeExecute } = require('../db');
 const { EMOJI_MORA } = require('../config');
 const { createListing, lockItemsFromInventory } = require('./market-db');
+const { buildPotionSelector } = require('../../dungeon/ui.js');
+
+let potionItems = [];
+try { potionItems = require('../../../json/potions.json'); } catch(e) {}
 
 let INVENTORY_GEN;
 try { INVENTORY_GEN = require('../../../generators/inventory-generator.js'); } catch (e) { INVENTORY_GEN = null; }
@@ -520,11 +525,15 @@ async function showStagingUI(interaction, db, user, guild, forceEdit = false) {
         new ButtonBuilder().setCustomId(`stg_next_${aId}`).setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(state.page >= totalPages)
     );
 
+    const row5 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`stg_potion_${aId}`).setLabel('🧪 الجرعات').setStyle(ButtonStyle.Secondary)
+    );
+
     const contentText = `**${CATEGORY_NAMES[state.category]}**`;
 
     const payload = { 
         embeds: buffer ? [] : [embed], 
-        components: [row1, row2, row3, row4], 
+        components: [row1, row2, row3, row4, row5], 
         files: buffer ? [new AttachmentBuilder(buffer, { name: 'market.png' })] : [], 
         content: buffer ? contentText : contentText + '\n(تعذر تحميل الصورة)' 
     };
@@ -600,6 +609,119 @@ async function handleStagingInteraction(interaction, db, user, guild) {
                 )
             );
             return await interaction.showModal(modal).catch(()=>{});
+        }
+    }
+
+    if (id.startsWith('stg_potion_')) {
+        await interaction.deferUpdate().catch(()=>{});
+
+        const potionRow = await buildPotionSelector(user, db, guild.id);
+        if (!potionRow) {
+            return interaction.followUp({ content: '❌ حدث خطأ في تحميل الجرعات.', flags: [MessageFlags.Ephemeral] });
+        }
+
+        const potionMsg = await interaction.followUp({ content: '🧪 **اختر الجرعة:**', components: [potionRow], flags: [MessageFlags.Ephemeral], fetchReply: true }).catch(() => null);
+        if (!potionMsg) return;
+
+        try {
+            const selection = await potionMsg.awaitMessageComponent({
+                filter: subI => subI.user.id === user.id,
+                time: 30000,
+            });
+            await selection.deferUpdate().catch(()=>{});
+            const selectedValue = selection.values[0];
+
+            if (selectedValue === 'buy_potions_action') {
+                let currentMora = 0;
+                try {
+                    const res = await safeQuery(db, `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [user.id, guild.id]);
+                    currentMora = res?.rows?.[0]?.mora || 0;
+                } catch { currentMora = 0; }
+
+                const shopOptions = potionItems.map(pot => ({
+                    label: `${pot.name} (${pot.price.toLocaleString()} مورا)`,
+                    value: pot.id,
+                    description: (pot.description || '').substring(0, 50),
+                    emoji: pot.emoji || '🧪',
+                }));
+
+                const shopRow = new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('potion_shop_select')
+                        .setPlaceholder('اختر الجرعة للشراء...')
+                        .addOptions(shopOptions.slice(0, 25))
+                );
+
+                const shopMsg = await selection.followUp({
+                    content: `🛒 **متجر الجرعات السريع**\n💰 رصيدك: **${currentMora.toLocaleString()}** ${EMOJI_MORA}`,
+                    components: [shopRow],
+                    flags: [MessageFlags.Ephemeral],
+                    fetchReply: true,
+                }).catch(() => null);
+                if (!shopMsg) return;
+
+                const shopSel = await shopMsg.awaitMessageComponent({
+                    filter: sI => sI.user.id === user.id,
+                    time: 30000,
+                });
+                await shopSel.deferUpdate().catch(()=>{});
+                const chosenPotionId = shopSel.values[0];
+
+                const potDef = potionItems.find(p => p.id === chosenPotionId);
+                if (!potDef) return;
+
+                if (currentMora < potDef.price) {
+                    return shopSel.followUp({ content: `❌ تحتاج **${potDef.price.toLocaleString()}** ${EMOJI_MORA}. رصيدك: **${currentMora.toLocaleString()}**`, flags: [MessageFlags.Ephemeral] });
+                }
+
+                const deductRes = await safeQuery(db,
+                    `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3 AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1 RETURNING "mora"`,
+                    [potDef.price, user.id, guild.id]
+                );
+                if (!deductRes?.rows?.length) {
+                    return shopSel.followUp({ content: '❌ فشل عملية الشراء. رصيد غير كافٍ.', flags: [MessageFlags.Ephemeral] });
+                }
+
+                const invRes = await safeQuery(db,
+                    `SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
+                    [user.id, guild.id, chosenPotionId]
+                );
+                if (invRes?.rows?.length) {
+                    await safeExecute(db,
+                        `UPDATE user_inventory SET "quantity"=CAST(COALESCE("quantity",'0') AS BIGINT)+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
+                        [user.id, guild.id, chosenPotionId]
+                    );
+                } else {
+                    await safeExecute(db,
+                        `INSERT INTO user_inventory ("userID","guildID","itemID","quantity") VALUES ($1,$2,$3,1)`,
+                        [user.id, guild.id, chosenPotionId]
+                    );
+                }
+
+                return shopSel.followUp({
+                    content: `✅ تم شراء ${potDef.emoji || '🧪'} **${potDef.name}** بمبلغ **${potDef.price.toLocaleString()}** ${EMOJI_MORA}`,
+                    flags: [MessageFlags.Ephemeral],
+                });
+
+            } else if (selectedValue === 'no_potions') {
+                return selection.followUp({ content: '🚫 ليس لديك جرعات. استخدم زر الشراء من القائمة.', flags: [MessageFlags.Ephemeral] });
+            } else {
+                const potId = selectedValue.replace('use_potion_', '');
+                const invCheck = await safeQuery(db,
+                    `SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
+                    [user.id, guild.id, potId]
+                );
+                const qty = invCheck?.rows?.[0]?.quantity || 0;
+                const potDef = potionItems.find(p => p.id === potId);
+                return selection.followUp({
+                    content: qty > 0
+                        ? `📦 لديك **${qty}x** من ${potDef?.emoji || '🧪'} **${potDef?.name || potId}** في المخزون.`
+                        : `❌ لم تعد تملك هذه الجرعة.`,
+                    flags: [MessageFlags.Ephemeral],
+                });
+            }
+        } catch {
+            return; // timeout or error
         }
     }
 
