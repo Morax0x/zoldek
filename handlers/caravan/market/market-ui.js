@@ -208,14 +208,14 @@ async function handleBuySelect(interaction, client, db, user, guild) {
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`mkt_buy_now_${listingId}`)
-                .setLabel('شراء 1')
+                .setLabel('شراء')
                 .setStyle(ButtonStyle.Success)
                 .setEmoji('🛒'),
-            new ButtonBuilder()
+            ...(available > 1 ? [new ButtonBuilder()
                 .setCustomId(`mkt_buy_qty_${listingId}`)
                 .setLabel('كمية محددة')
                 .setStyle(ButtonStyle.Primary)
-                .setEmoji('🔢'),
+                .setEmoji('🔢')] : []),
         );
 
         await interaction.reply({ embeds: [embed], components: [row], flags: [MessageFlags.Ephemeral] });
