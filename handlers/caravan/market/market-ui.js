@@ -14,7 +14,9 @@ const {
 } = require('./market-db');
 
 const { getItemInfo } = require('./market-setup');
-const { generateMarketCanvas, generateMarketItemCard, ITEMS_PER_PAGE } = require('../../../generators/caravan/market-generator');
+const { generateMarketCanvas, ITEMS_PER_PAGE } = require('../../../generators/caravan/market-generator');
+let generateItemDetailsCard;
+try { ({ generateItemDetailsCard } = require('../../../generators/inventory-generator')); } catch (e) { generateItemDetailsCard = null; }
 
 // Page state: sessionId (threadId) → page number
 const marketPages = new Map();
@@ -194,7 +196,23 @@ async function handleBuySelect(interaction, client, db, user, guild) {
             return await interaction.reply({ content: '❌ لا يمكنك شراء بضائع من سوقك الخاص!', flags: [MessageFlags.Ephemeral] });
         }
 
-        const buffer = await generateMarketItemCard(info, listing);
+        const marketItem = {
+            name: info.name,
+            emoji: info.emoji || '📦',
+            rarity: info.rarity || 'Common',
+            quantity: available,
+            description: `${info.description || ''}\n\n💰 السعر: ${price.toLocaleString()}  مورا  / للواحدة\n👤 البائع: ${listing.ownerid || listing.ownerID ? `<@${listing.ownerid || listing.ownerID}>` : 'غير معروف'}`,
+            imgPath: info.imgPath || null,
+            fullImage: info.fullImage || false,
+        };
+
+        let buffer;
+        if (generateItemDetailsCard) {
+            buffer = await generateItemDetailsCard(user.displayName || user.username, marketItem);
+        } else {
+            return await interaction.reply({ content: '❌ لا يمكن رسم البطاقة حالياً.', flags: [MessageFlags.Ephemeral] });
+        }
+
         const attachment = new AttachmentBuilder(buffer, { name: 'item.png' });
 
         const row = new ActionRowBuilder().addComponents(
