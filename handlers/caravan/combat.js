@@ -702,12 +702,28 @@ async function distributePartyRewards(db, party, guildId, wavesCleared, lootPena
 // isEscort=true → shows escape button in rest phases (pre-emptive escort only)
 async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, isEscort = false, destId = null, startWave = 1, resumeData = null, caravanId = null) {
     const WAVE_ENEMIES = (destId && DESTINATION_ENEMIES[destId]) ? DESTINATION_ENEMIES[destId] : DEFAULT_ENEMIES;
-    const applyAnomaly = !!resumeData;
-
     const players = await setupPlayers(guild, party, partyClasses, db, null, null);
     if (!players.length) {
         await thread.send('❌ فشل في تحميل بيانات اللاعبين.').catch(() => {});
         return { result: 'error', wavesCleared: 0 };
+    }
+
+    // Restore saved state when resuming (crash recovery — Za Warudo)
+    if (resumeData && resumeData.players) {
+        const savedMap = new Map(resumeData.players.map(p => [p.id, p]));
+        for (const p of players) {
+            const saved = savedMap.get(p.id);
+            if (saved) {
+                p.hp = saved.hp;
+                p.maxHp = saved.maxHp;
+                p.shield = saved.shield || 0;
+                p.atk = saved.atk || p.atk;
+                p.isDead = saved.isDead || false;
+                p.effects = (saved.effects || []).filter(e => !e.anomaly);
+                p.skillCooldowns = saved.skillCooldowns || {};
+                p.special_cooldown = saved.special_cooldown || 0;
+            }
+        }
     }
 
     // 👑 حساب قوة الفريق للموازنة الديناميكية (Dynamic Scaling) 👑
@@ -729,13 +745,24 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
     const hpBonus        = baseHP + (hpRank - 1) * hpPerLevel;
     const dynamicCaravanHP = Math.max(CARAVAN_HP_MAX, Math.floor(totalPlayerHP * 0.8)) + hpBonus;
 
-    const caravan = {
-        hp: dynamicCaravanHP, maxHp: dynamicCaravanHP,
-        lootPenalty: 0, skipNextEnemyTurn: false, pendingLootDrop: false,
-    };
+    let caravan;
+    if (resumeData && resumeData.caravan) {
+        caravan = {
+            hp: resumeData.caravan.hp,
+            maxHp: resumeData.caravan.maxHp || dynamicCaravanHP,
+            lootPenalty: resumeData.caravan.lootPenalty || 0,
+            skipNextEnemyTurn: false,
+            pendingLootDrop: false,
+        };
+    } else {
+        caravan = {
+            hp: dynamicCaravanHP, maxHp: dynamicCaravanHP,
+            lootPenalty: 0, skipNextEnemyTurn: false, pendingLootDrop: false,
+        };
+    }
     
     // Anomaly buffs for resumed battle (time rewind)
-    if (applyAnomaly) {
+    if (resumeData) {
         players.forEach(p => {
             if (!p.isDead) {
                 p.shield = (p.shield || 0) + Math.floor(p.maxHp * 0.5);
@@ -752,7 +779,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         try {
             const { saveCaravanBattle } = require('./caravan-state');
             const initState = {
-                wave: 1,
+                wave: resumeData ? startWave : 1,
                 guardIds: party.filter(id => id !== hostId),
                 players: players.map(p => ({
                     id: p.id, name: p.name, class: p.class,
@@ -1185,7 +1212,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                             const p = players.find(pl => pl.id === i.user.id);
                             return p && !p.isDead && party.includes(i.user.id);
                         },
-                        time: 15000, max: 1,
+                        time: 15000,
                     });
                     await new Promise(res => {
                         lootCollector.on('collect', async li => {

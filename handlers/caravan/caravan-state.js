@@ -63,7 +63,7 @@ async function resumeAmbushEncounters(client, db) {
                 if (p.class) partyClasses.set(p.id, p.class);
             }
 
-            runCaravanBattle(thread, party, partyClasses, db, guild, hostId, false, state.destId, state.wave || 1, true, caravanId)
+            runCaravanBattle(thread, party, partyClasses, db, guild, hostId, false, state.destId, state.wave || 1, state, caravanId)
                 .catch(async err => {
                     console.error(`[Caravan Resume Battle Error] caravanId=${caravanId}:`, err?.message);
                     await deleteCaravanBattle(db, caravanId);
