@@ -669,38 +669,48 @@ module.exports = {
                         )
                         .setFooter({ text: '™ Empire' });
 
-                    const components = [];
+                    const buttons = new ActionRowBuilder();
                     if (!maxed && mora >= cost) {
-                        components.push(
-                            new ActionRowBuilder().addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`cv_upg_confirm_${upgType}`)
-                                    .setLabel('تـرقـيـة 🚀')
-                                    .setStyle(ButtonStyle.Success)
-                            )
+                        buttons.addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`upg_do_${upgType}`)
+                                .setLabel('تـرقـيـة 🚀')
+                                .setStyle(ButtonStyle.Success)
                         );
                     }
-                    components.push(
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('cv_upg_back').setEmoji('↩️').setLabel('رجوع').setStyle(ButtonStyle.Secondary)
-                        ),
+                    buttons.addComponents(
+                        new ButtonBuilder().setCustomId('upg_cancel').setEmoji('↩️').setLabel('رجوع').setStyle(ButtonStyle.Secondary)
                     );
 
-                    await hubMsg.edit({ content: `<@${user.id}>`, embeds: [embed], files: [], components }).catch(() => {});
-                }
+                    const upgMsg = await i.followUp({ embeds: [embed], components: [buttons], flags: [MessageFlags.Ephemeral], fetchReply: true }).catch(() => null);
+                    if (!upgMsg) return;
 
-                else if (id.startsWith('cv_upg_confirm_')) {
-                    const upgType = id.replace('cv_upg_confirm_', '');
-                    await i.deferUpdate().catch(() => {});
+                    try {
+                        const sel = await upgMsg.awaitMessageComponent({
+                            filter: fI => fI.user.id === user.id,
+                            time: 60000,
+                        });
+                        await sel.deferUpdate().catch(() => {});
 
-                    const result = await upgradeCaravan(db, user.id, guild.id, upgType);
-                    if (result.error) {
-                        await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
-                    } else {
-                        await i.followUp({
-                            content: `✅ تمت ترقية ${result.upgCfg.emoji} **${result.upgCfg.name}** إلى مستوى **${result.newLevel}**\n💰 التكلفة: **${result.cost.toLocaleString()}** ${EMOJI_MORA}`,
-                            flags: [MessageFlags.Ephemeral],
-                        }).catch(() => {});
+                        if (sel.customId === 'upg_cancel') {
+                            await sel.editReply({ embeds: [], components: [], content: '↩️ تم الإلغاء.' }).catch(() => {});
+                            return;
+                        }
+
+                        const doType = sel.customId.replace('upg_do_', '');
+                        const result = await upgradeCaravan(db, user.id, guild.id, doType);
+                        if (result.error) {
+                            await sel.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                        } else {
+                            await sel.followUp({
+                                content: `✅ تمت ترقية ${result.upgCfg.emoji} **${result.upgCfg.name}** إلى مستوى **${result.newLevel}**\n💰 التكلفة: **${result.cost.toLocaleString()}** ${EMOJI_MORA}`,
+                                flags: [MessageFlags.Ephemeral],
+                            }).catch(() => {});
+                        }
+
+                        await sel.editReply({ embeds: [], components: [], content: '✅ تمت المعالجة.' }).catch(() => {});
+                    } catch {
+                        return;
                     }
 
                     const [stats2, mora2] = await Promise.all([
@@ -728,34 +738,6 @@ module.exports = {
                         ),
                     ];
                     await hubMsg.edit(payload2).catch(() => {});
-                }
-
-                else if (id === 'cv_upg_back') {
-                    const [stats, mora] = await Promise.all([
-                        getUserCaravanStats(db, user.id, guild.id),
-                        getMora(db, user.id, guild.id),
-                    ]);
-                    const payload = await sendCanvas(GEN.generateUpgradePanel, [user, stats, mora]);
-                    const opts = Object.entries(caravanConfig.upgrades).map(([key, cfg]) => {
-                        const rank  = Number(stats[`${key}_rank`] || stats[`${key}_RANK`] || 1);
-                        const maxed = rank >= cfg.max_level;
-                        const cost  = maxed ? 0 : cfg.costs[rank];
-                        return {
-                            label:       `${cfg.name} — مستوى ${rank}${maxed?' (MAX)':''}`,
-                            value:       key,
-                            description: maxed ? 'تأثير كامل ونشط' : `تكلفة الترقية: ${cost.toLocaleString()} مورا`,
-                            emoji:       cfg.emoji,
-                        };
-                    });
-                    payload.components = [
-                        new ActionRowBuilder().addComponents(
-                            new StringSelectMenuBuilder().setCustomId('cv_upg_sel').setPlaceholder('🛠️ حدد العنصر لترقيته...').addOptions(opts)
-                        ),
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
-                        ),
-                    ];
-                    await hubMsg.edit(payload).catch(() => {});
                 }
 
                 else if (id === 'cv_equip') {
