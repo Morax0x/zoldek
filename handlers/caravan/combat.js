@@ -478,6 +478,7 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                 } else if (i.customId === 'cvr_potion') {
                     const p = players.find(pl => pl.id === i.user.id);
                     if (!p) return i.deferUpdate().catch(() => {});
+
                     const potRow = await buildPotionSelector(p, db, guild.id).catch(() => null);
                     if (!potRow)
                         return i.reply({ content: '❌ لا توجد جرعات.', flags: [MessageFlags.Ephemeral] });
@@ -488,94 +489,89 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                         flags:      [MessageFlags.Ephemeral],
                         fetchReply: true,
                     });
-                    const pSel = await pMsg.awaitMessageComponent({
+                    const sel = await pMsg.awaitMessageComponent({
                         filter:        x => x.user.id === i.user.id,
                         time:          20000,
                         componentType: ComponentType.StringSelect,
                     }).catch(() => null);
-                    if (!pSel) return;
-                    await pSel.deferUpdate().catch(() => {});
+                    if (!sel) return;
+                    await sel.deferUpdate().catch(() => {});
 
-                    const selectedValue = pSel.values[0];
-
-                    if (selectedValue === 'buy_potions_action') {
+                    if (sel.values[0] === 'buy_potions_action') {
                         let currentMora = 0;
                         try {
                             const res = await safeQuery(db, `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [i.user.id, guild.id]);
                             currentMora = res?.rows?.[0]?.mora || 0;
-                        } catch { currentMora = 0; }
+                        } catch (e) {
+                            try {
+                                const res2 = await db.query(`SELECT mora FROM levels WHERE "user"=$1 AND "guild"=$2`, [i.user.id, guild.id]);
+                                currentMora = res2?.rows?.[0]?.mora || 0;
+                            } catch { currentMora = 0; }
+                        }
 
                         const shopOptions = potionItems.map(pot => ({
                             label: `${pot.name} (${pot.price.toLocaleString()} مورا)`,
                             value: pot.id,
                             description: pot.description ? pot.description.substring(0, 50) : 'جرعة مفيدة',
-                            emoji: pot.emoji || '🧪',
+                            emoji: pot.emoji,
                         }));
 
                         const shopRow = new ActionRowBuilder().addComponents(
                             new StringSelectMenuBuilder()
-                                .setCustomId('cvr_potion_buy')
+                                .setCustomId('shop_buy_select')
                                 .setPlaceholder('اختر الجرعة للشراء...')
                                 .addOptions(shopOptions)
                         );
 
-                        const shopMsg = await pSel.followUp({
-                            content: `🛒 **متجر الجرعات السريع**\n💰 رصيدك: **${Number(currentMora).toLocaleString()}** ${EMOJI_MORA}`,
-                            components: [shopRow],
-                            flags: [MessageFlags.Ephemeral],
-                            fetchReply: true,
-                        }).catch(() => null);
-                        if (!shopMsg) return;
-
                         try {
-                            const buyInt = await shopMsg.awaitMessageComponent({ time: 15000 });
-                            await buyInt.deferUpdate().catch(() => {});
-                            const itemID = buyInt.values[0];
+                            const shopMsg = await sel.followUp({
+                                content: `💰 **متجر الجرعات السريع**\nرصيدك الحالي: **${Number(currentMora).toLocaleString()}** ${EMOJI_MORA}\nاختر الجرعة التي تريد شراءها:`,
+                                components: [shopRow],
+                                ephemeral: true,
+                            });
+                            const buySel = await shopMsg.awaitMessageComponent({ time: 15000 });
+                            await buySel.deferUpdate().catch(() => {});
+                            const itemID = buySel.values[0];
                             const targetItem = potionItems.find(x => x.id === itemID);
                             if (!targetItem) return;
 
                             if (Number(currentMora) < targetItem.price) {
-                                await buyInt.followUp({ content: `❌ **لا تملك مورا كافية!** تحتاج ${targetItem.price.toLocaleString()} مورا.`, flags: [MessageFlags.Ephemeral] });
+                                await buySel.followUp({ content: `❌ **لا تملك مورا كافية!** تحتاج ${targetItem.price.toLocaleString()} مورا.`, ephemeral: true });
                             } else {
-                                // Atomic deduct
-                                const deductRes = await safeQuery(db,
-                                    `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3 AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1 RETURNING "mora"`,
-                                    [targetItem.price, i.user.id, guild.id]
-                                ).catch(() => null);
-                                if (!deductRes?.rows?.length) {
-                                    await buyInt.followUp({ content: '❌ فشلت عملية الشراء.', flags: [MessageFlags.Ephemeral] });
-                                } else {
-                                    // Add to inventory
-                                    const invCheck = await safeQuery(db,
-                                        `SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
-                                        [i.user.id, guild.id, itemID]
-                                    ).catch(() => null);
-                                    if (invCheck?.rows?.length) {
-                                        await safeExecute(db,
-                                            `UPDATE user_inventory SET "quantity"="quantity"+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
-                                            [i.user.id, guild.id, itemID]
-                                        );
-                                    } else {
-                                        await safeExecute(db,
-                                            `INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,$3,1)`,
-                                            [guild.id, i.user.id, itemID]
-                                        );
-                                    }
-                                    await buyInt.followUp({ content: `✅ **تم شراء ${targetItem.name}!**\nاضغط على 🧪 الجرعات مرة أخرى لاستخدامها.`, flags: [MessageFlags.Ephemeral] });
+                                try {
+                                    await db.query(`UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [targetItem.price, i.user.id, guild.id]);
+                                } catch (e) {
+                                    await db.query(`UPDATE levels SET mora=CAST(COALESCE(mora,'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [targetItem.price, i.user.id, guild.id]).catch(() => {});
                                 }
+                                try {
+                                    const check = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [i.user.id, guild.id, targetItem.id]);
+                                    if (check.rows.length > 0) {
+                                        await db.query(`UPDATE user_inventory SET "quantity"="quantity"+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [i.user.id, guild.id, targetItem.id]);
+                                    } else {
+                                        await db.query(`INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,$3,1)`, [guild.id, i.user.id, targetItem.id]);
+                                    }
+                                } catch (e) {
+                                    const check2 = await db.query(`SELECT quantity FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [i.user.id, guild.id, targetItem.id]).catch(() => ({ rows: [] }));
+                                    if (check2.rows.length > 0) {
+                                        await db.query(`UPDATE user_inventory SET quantity=quantity+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [i.user.id, guild.id, targetItem.id]).catch(() => {});
+                                    } else {
+                                        await db.query(`INSERT INTO user_inventory (guildid,userid,itemid,quantity) VALUES ($1,$2,$3,1)`, [guild.id, i.user.id, targetItem.id]).catch(() => {});
+                                    }
+                                }
+                                await buySel.followUp({ content: `✅ **تم شراء ${targetItem.name}!**\nاضغط على 🧪 الجرعات مرة أخرى لاستخدامها.`, ephemeral: true });
                             }
-                        } catch {
-                            await shopMsg.edit({ content: '⏰ انتهى وقت الشراء.', components: [] }).catch(() => {});
+                        } catch (e) {
+                            try { await sel.editReply({ content: '⏰ انتهى وقت الشراء.', components: [] }).catch(() => {}); } catch {}
                         }
+                    } else if (sel.values[0] === 'no_potions') {
+                        await sel.followUp({ content: '🚫 ليس لديك جرعات.', ephemeral: true });
                     } else {
-                        const potId = selectedValue.replace('use_potion_', '');
-                        if (potId === 'no_potions') return;
-
+                        const potId = sel.values[0].replace('use_potion_', '');
                         if (potId === 'potion_titan') {
                             const limit = 3;
                             p.titanPotionUses = p.titanPotionUses || 0;
                             if (p.titanPotionUses >= limit) {
-                                await pSel.followUp({ content: `🚫 **لقد استهلكت الحد الأقصى (${limit}) من جرعة العملاق في هذه الرحلة!**`, flags: [MessageFlags.Ephemeral] });
+                                await sel.followUp({ content: `🚫 **لقد استهلكت الحد الأقصى (${limit}) من جرعة العملاق في هذه الرحلة!**`, ephemeral: true });
                                 return;
                             }
                             p.titanPotionUses++;
@@ -587,18 +583,17 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
 
                         if (potId === 'potion_heal') {
                             p.hp = Math.min(p.maxHp, p.hp + Math.floor(p.maxHp * 0.5));
-                            await pSel.editReply({ content: `✅ **${p.name}** استعاد 50% HP!`, components: [] }).catch(() => {});
+                            await sel.editReply({ content: `✅ **${p.name}** استعاد 50% HP!`, components: [] }).catch(() => {});
                         } else if (potId === 'potion_time') {
                             p.special_cooldown = 0; p.skillCooldowns = {};
-                            await pSel.editReply({ content: `✅ **${p.name}** أعاد شحن مهاراته!`, components: [] }).catch(() => {});
+                            await sel.editReply({ content: `✅ **${p.name}** أعاد شحن مهاراته!`, components: [] }).catch(() => {});
                         } else if (potId === 'potion_titan') {
                             p.maxHp *= 2; p.hp = p.maxHp;
                             p.effects.push({ type: 'titan', floors: 5 });
-                            await pSel.editReply({ content: `🔥 **${p.name}** تحول لعملاق!`, components: [] }).catch(() => {});
+                            await sel.editReply({ content: `🔥 **${p.name}** تحول لعملاق!`, components: [] }).catch(() => {});
                         } else {
-                            await pSel.editReply({ content: '✅ استُخدمت الجرعة.', components: [] }).catch(() => {});
+                            await sel.editReply({ content: '✅ استُخدمت الجرعة.', components: [] }).catch(() => {});
                         }
-                        // Refresh rest embed with updated HP
                         const updatedRestPayload = await buildRestPayload(players, caravan, waveNum, guild, destId);
                         await restMsg.edit({ ...updatedRestPayload }).catch(() => {});
                     }
