@@ -170,11 +170,11 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
         const qtyKey = Object.keys(existingRow).find(k => k.toLowerCase() === 'quantity');
         const alreadyStaged = Number(existingRow[qtyKey] || 0);
         if (alreadyStaged + quantity > limits.sameType) {
-            return { ok: false, error: `تجاوزت حد الكمية! الحد الأقصى ${limits.sameType} وحدة من نفس النوع (لديك ${alreadyStaged}).` };
+            return { ok: false, error: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !` };
         }
     } else {
         if (currentStaged.length >= limits.general) {
-            return { ok: false, error: `وصلت للحد الأقصى من أنواع البضائع! يمكنك عرض ${limits.general} نوع كحد أقصى (لديك ${currentStaged.length}).` };
+            return { ok: false, error: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${Math.max(0, limits.general - currentStaged.length)}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !` };
         }
     }
 
