@@ -53,9 +53,9 @@ async function createMarketThread(client, db, caravan, channelId) {
 
         if (!thread) return null;
 
-        // Prevent chat with max slowmode (bot unaffected, can still send/edit)
+        // قفل الثريد — لا يمكن لأحد إرسال رسائل (البوت يستطيع الإرسال)
         await thread.members.add(ownerId).catch(() => {});
-        await thread.setRateLimitPerUser(21600).catch(() => {});
+        await thread.setLocked(true).catch(() => {});
 
         let durationMs = Number(caravan.endtime || caravan.endTime) - Number(caravan.starttime || caravan.startTime);
         if (isNaN(durationMs) || durationMs <= 0) durationMs = 30 * 60 * 1000; 
