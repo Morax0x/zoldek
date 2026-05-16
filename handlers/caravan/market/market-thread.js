@@ -53,6 +53,11 @@ async function createMarketThread(client, db, caravan, channelId) {
 
         if (!thread) return null;
 
+        // Lock thread to prevent chat clutter; add bot + owner as members
+        await thread.members.add(client.user.id).catch(() => {});
+        await thread.members.add(ownerId).catch(() => {});
+        await thread.setLocked(true).catch(() => {});
+
         let durationMs = Number(caravan.endtime || caravan.endTime) - Number(caravan.starttime || caravan.startTime);
         if (isNaN(durationMs) || durationMs <= 0) durationMs = 30 * 60 * 1000; 
         
