@@ -391,10 +391,49 @@ async function generateMarketItemCard(info, marketData) {
     ctx.lineWidth = 1;
     ctx.strokeRect(15, 15, width - 30, height - 30);
 
-    // ── Item Image ──
+    // ── Item Image with integrated price crest ──
     const imgSize = 350;
     const imgX = 100;
     const imgY = (height - imgSize) / 2;
+    const imgCx = imgX + imgSize / 2;
+
+    // Price crest sitting on top of the frame (integrated)
+    const crestW = 220, crestH = 40;
+    const cX = imgCx - crestW / 2;
+    const cY = imgY - crestH + 4;
+
+    const cGrad = ctx.createLinearGradient(cX, cY, cX, cY + crestH);
+    cGrad.addColorStop(0, 'rgba(15, 20, 30, 0.95)');
+    cGrad.addColorStop(1, 'rgba(5, 10, 15, 0.95)');
+    ctx.fillStyle = cGrad;
+    rr2(ctx, cX, cY, crestW, crestH, 8);
+    ctx.fill();
+    ctx.strokeStyle = rarityColor;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = rarityColor;
+    ctx.shadowBlur = 8;
+    rr2(ctx, cX, cY, crestW, crestH, 8);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Corner accents on the crest (matching frame style)
+    const cl2 = 12;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = rarityColor;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.moveTo(cX, cY + cl2); ctx.lineTo(cX, cY); ctx.lineTo(cX + cl2, cY);
+    ctx.moveTo(cX + crestW - cl2, cY); ctx.lineTo(cX + crestW, cY); ctx.lineTo(cX + crestW, cY + cl2);
+    ctx.moveTo(cX + crestW, cY + crestH - cl2); ctx.lineTo(cX + crestW, cY + crestH); ctx.lineTo(cX + crestW - cl2, cY + crestH);
+    ctx.moveTo(cX + cl2, cY + crestH); ctx.lineTo(cX, cY + crestH); ctx.lineTo(cX, cY + crestH - cl2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = rarityColor;
+    ctx.font = `bold 24px ${FA}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`💰 ${price.toLocaleString()}`, imgCx, cY + crestH / 2 + 1);
 
     drawOrnateFrame(ctx, imgX, imgY, imgSize, imgSize, rarityColor);
 
@@ -440,38 +479,9 @@ async function generateMarketItemCard(info, marketData) {
         ctx.shadowBlur = 0;
     }
 
-    // ── Price badge above image frame ──
-    const badgeW = 180, badgeH = 46;
-    const bCx = imgX + imgSize / 2;
-    const bCy = imgY - 30;
-    const bX = bCx - badgeW / 2;
-    const bY = bCy - badgeH / 2;
-
-    ctx.save();
-    ctx.shadowColor = rarityColor;
-    ctx.shadowBlur = 12;
-    const pGrad = ctx.createLinearGradient(bX, bY, bX, bY + badgeH);
-    pGrad.addColorStop(0, '#1a1a2e');
-    pGrad.addColorStop(1, '#0d0d1a');
-    ctx.fillStyle = pGrad;
-    rr2(ctx, bX, bY, badgeW, badgeH, 10);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = rarityColor;
-    ctx.lineWidth = 2;
-    rr2(ctx, bX, bY, badgeW, badgeH, 10);
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.fillStyle = rarityColor;
-    ctx.font = `bold 26px ${FA}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`💰 ${price.toLocaleString()}`, bCx, bCy + 1);
-
     // ── Text Section ──
     const textX = imgX + imgSize + 50;
-    let textY = 30;
+    let textY = 105;
 
     // Item name
     ctx.fillStyle = '#FFFFFF';
