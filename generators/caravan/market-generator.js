@@ -1,7 +1,7 @@
 const {
     createCanvas, W, H, FA, FE, C,
     rr, fetchImageSafe, loadCached, drawBg, drawPanel, drawHeader,
-    drawCornerAccents, divLine, M, R, L, truncate, toBuf,
+    drawCornerAccents, divLine, wrapText, M, R, L, truncate, toBuf,
 } = require('./shared');
 
 const ITEMS_PER_PAGE = 8; // 4 cols × 2 rows
