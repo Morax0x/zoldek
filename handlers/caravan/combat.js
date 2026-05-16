@@ -947,29 +947,80 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                             }
                             const pMsg = await i.followUp({ content: '🧪 اختر جرعة:', components: [potRow], flags: [MessageFlags.Ephemeral] }).catch(() => null);
                             if (!pMsg) { processingSet.delete(pid); return; }
-                            const pSel = await pMsg.awaitMessageComponent({ filter: x => x.user.id === pid, time: 15000 }).catch(() => null);
-                            if (!pSel) { processingSet.delete(pid); return; }
-                            await pSel.deferUpdate().catch(() => {});
+                            const sel = await pMsg.awaitMessageComponent({ filter: x => x.user.id === pid, time: 20000 }).catch(() => null);
+                            if (!sel) { processingSet.delete(pid); return; }
+                            await sel.deferUpdate().catch(() => {});
 
-                            const potId = pSel.values[0].replace('use_potion_', '');
-                            if (potId !== 'no_potions' && potId !== 'buy_potions_action') {
-                                await safeExecute(db,
-                                    `UPDATE user_inventory SET "quantity"="quantity"-1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3 AND "quantity">0`,
-                                    [pid, guild.id, potId]);
-                                if (potId === 'potion_heal') {
-                                    p.hp = Math.min(p.maxHp, p.hp + Math.floor(p.maxHp * 0.5));
-                                    log.push(`🧪 **${p.name}** شرب جرعة (+50% HP)`);
-                                } else if (potId === 'potion_time') {
-                                    p.special_cooldown = 0; p.skillCooldowns = {};
-                                    log.push(`⏳ **${p.name}** أعاد شحن مهاراته!`);
-                                } else if (potId === 'potion_titan') {
-                                    p.maxHp *= 2; p.hp = p.maxHp;
-                                    p.effects.push({ type: 'titan', floors: 5 });
-                                    enemy.targetFocusId = p.id;
-                                    log.push(`🔥 **${p.name}** تحول لعملاق!`);
-                                }
+                            if (sel.values[0] === 'buy_potions_action') {
+                                let currentMora = 0;
+                                try {
+                                    const res = await safeQuery(db, `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [pid, guild.id]);
+                                    currentMora = res?.rows?.[0]?.mora || 0;
+                                } catch { try { const r2 = await db.query(`SELECT mora FROM levels WHERE "user"=$1 AND "guild"=$2`, [pid, guild.id]); currentMora = r2?.rows?.[0]?.mora || 0; } catch { currentMora = 0; } }
+
+                                const shopOptions = potionItems.map(pot => ({
+                                    label: `${pot.name} (${pot.price.toLocaleString()} مورا)`,
+                                    value: pot.id,
+                                    description: (pot.description || '').substring(0, 50),
+                                    emoji: pot.emoji || '🧪',
+                                }));
+                                const shopRow = new ActionRowBuilder().addComponents(
+                                    new StringSelectMenuBuilder()
+                                        .setCustomId('cvb_potion_buy')
+                                        .setPlaceholder('اختر الجرعة للشراء...')
+                                        .addOptions(shopOptions)
+                                );
+                                try {
+                                    const shopMsg = await sel.followUp({
+                                        content: `💰 **متجر الجرعات السريع**\nرصيدك الحالي: **${Number(currentMora).toLocaleString()}** ${EMOJI_MORA}\nاختر الجرعة التي تريد شراءها:`,
+                                        components: [shopRow], ephemeral: true,
+                                    });
+                                    const buySel = await shopMsg.awaitMessageComponent({ time: 15000 });
+                                    await buySel.deferUpdate().catch(() => {});
+                                    const itemID = buySel.values[0];
+                                    const targetItem = potionItems.find(x => x.id === itemID);
+                                    if (targetItem) {
+                                        if (Number(currentMora) < targetItem.price) {
+                                            await buySel.followUp({ content: `❌ **لا تملك مورا كافية!** تحتاج ${targetItem.price.toLocaleString()} مورا.`, ephemeral: true });
+                                        } else {
+                                            try { await db.query(`UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [targetItem.price, pid, guild.id]); } catch (e) { await db.query(`UPDATE levels SET mora=CAST(COALESCE(mora,'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [targetItem.price, pid, guild.id]).catch(() => {}); }
+                                            try { const chk = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]); if (chk.rows.length > 0) { await db.query(`UPDATE user_inventory SET "quantity"="quantity"+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]); } else { await db.query(`INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,$3,1)`, [guild.id, pid, targetItem.id]); } } catch (e) { try { const chk2 = await db.query(`SELECT quantity FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]).catch(() => ({ rows: [] })); if (chk2.rows.length > 0) { await db.query(`UPDATE user_inventory SET quantity=quantity+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]).catch(() => {}); } else { await db.query(`INSERT INTO user_inventory (guildid,userid,itemid,quantity) VALUES ($1,$2,$3,1)`, [guild.id, pid, targetItem.id]).catch(() => {}); } } catch {} }
+                                            await buySel.followUp({ content: `✅ **تم شراء ${targetItem.name}!**\nاضغط على 🧪 الجرعات مرة أخرى لاستخدامها.`, ephemeral: true });
+                                        }
+                                    }
+                                } catch { try { await sel.editReply({ content: '⏰ انتهى وقت الشراء.', components: [] }).catch(() => {}); } catch {} }
+                                processingSet.delete(pid); return;
                             }
-                            await pSel.editReply({ content: '✅ تم', components: [] }).catch(() => {});
+
+                            const potId = sel.values[0].replace('use_potion_', '');
+                            if (potId === 'no_potions') { processingSet.delete(pid); return; }
+
+                            if (potId === 'potion_titan') {
+                                const limit = 3;
+                                p.titanPotionUses = p.titanPotionUses || 0;
+                                if (p.titanPotionUses >= limit) {
+                                    await sel.followUp({ content: `🚫 **لقد استهلكت الحد الأقصى (${limit}) من جرعة العملاق في هذه الرحلة!**`, ephemeral: true });
+                                    processingSet.delete(pid); return;
+                                }
+                                p.titanPotionUses++;
+                            }
+
+                            await safeExecute(db,
+                                `UPDATE user_inventory SET "quantity"="quantity"-1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3 AND "quantity">0`,
+                                [pid, guild.id, potId]);
+                            if (potId === 'potion_heal') {
+                                p.hp = Math.min(p.maxHp, p.hp + Math.floor(p.maxHp * 0.5));
+                                log.push(`🧪 **${p.name}** شرب جرعة (+50% HP)`);
+                            } else if (potId === 'potion_time') {
+                                p.special_cooldown = 0; p.skillCooldowns = {};
+                                log.push(`⏳ **${p.name}** أعاد شحن مهاراته!`);
+                            } else if (potId === 'potion_titan') {
+                                p.maxHp *= 2; p.hp = p.maxHp;
+                                p.effects.push({ type: 'titan', floors: 5 });
+                                enemy.targetFocusId = p.id;
+                                log.push(`🔥 **${p.name}** تحول لعملاق!`);
+                            }
+                            await sel.editReply({ content: `✅ استُخدمت ${potionItems.find(x => x.id === potId)?.name || 'الجرعة'}.`, components: [] }).catch(() => {});
                             actedPlayers.push(pid); p.skipCount = 0;
 
                         // ── Mechanic 1: Repair ────────────────────────────────
@@ -1062,10 +1113,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                 return { result: 'lose_players', wavesCleared };
             }
 
-            // ── Enemy turn — buttons stay visible but disabled ────────────
-            await battleMsg.edit({ components: makeBattleRows(true) }).catch(() => {});
-
-            // ── Enemy turn ────────────────────────────────────────────────
+            // ── Enemy turn — buttons stay active ────────────
             await processEnemyTurn(enemy, players, caravan, waveNum, log, thread);
             ensureDeadMarked(players);
 
