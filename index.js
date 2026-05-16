@@ -95,9 +95,9 @@ async function registerCommands() {
                 if (command.data) commands.push(command.data.toJSON());
                 if ('execute' in command) client.commands.set(cmdName, command);
             }
-        } catch (err) {}
+        } catch (err) { console.error(`[CommandLoadError] ${file}:`, err?.message); }
     }
-      
+       
     try { 
         await rest.put(Routes.applicationGuildCommands(client.user.id, MAIN_GUILD_ID), { body: [] });
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
@@ -206,7 +206,7 @@ async function bootstrap() {
         try { 
             const { resumeAmbushEncounters } = require('./handlers/caravan/caravan-state.js');
             if (resumeAmbushEncounters) await resumeAmbushEncounters(client, client.sql);
-        } catch(e) {}
+        } catch(e) { console.error('[ResumeAmbushError]', e?.message); }
 
         // تسجيل الأوامر في الخلفية لكي لا يعيق تشغيل البوت
         registerCommands().catch(e => console.error('[registerCommands Error]:', e));
