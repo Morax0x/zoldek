@@ -1,5 +1,5 @@
 const {
-    ChannelType, AttachmentBuilder, EmbedBuilder
+    ChannelType, AttachmentBuilder, EmbedBuilder, PermissionFlagsBits
 } = require('discord.js');
 const { safeQuery, safeExecute } = require('../db');
 const { caravanConfig } = require('../config');
@@ -53,9 +53,11 @@ async function createMarketThread(client, db, caravan, channelId) {
 
         if (!thread) return null;
 
-        // قفل الثريد — لا يمكن لأحد إرسال رسائل (البوت يستطيع الإرسال)
+        // قفل الكتابة للجميع — البوت يقدر يرسل والمستخدمين يقدرون يتفاعلون مع الأزرار
         await thread.members.add(ownerId).catch(() => {});
-        await thread.setLocked(true).catch(() => {});
+        await thread.permissionOverwrites.set([
+            { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.SendMessages] },
+        ]).catch(() => {});
 
         let durationMs = Number(caravan.endtime || caravan.endTime) - Number(caravan.starttime || caravan.startTime);
         if (isNaN(durationMs) || durationMs <= 0) durationMs = 30 * 60 * 1000; 

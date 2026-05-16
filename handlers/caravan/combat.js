@@ -1132,21 +1132,12 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
             await processEnemyTurn(enemy, players, caravan, waveNum, log, thread);
             ensureDeadMarked(players);
 
-            // ── Mechanic 3: Loot Drop — deduct from staging, then pickup window ──
+            // ── Mechanic 3: Loot Drop — pickup window, deduct only if unsaved ──
             if (caravan.pendingLootDrop) {
                 caravan.pendingLootDrop = false;
 
-                // Deduct real items from owner's staging area
-                const { stagingLootItems } = require('./market/market-db');
-                const looted = await stagingLootItems(db, hostId, guild.id, 0.10);
-                if (looted.length > 0) {
-                    log.push(`💀 سُرقت ${looted.length} بضاعة من سلّة التاجر!`);
-                }
-
                 const lootMsg = await thread.send({
-                    content: looted.length > 0
-                        ? `📦 **سقطت ${looted.length} بضاعة من القافلة!** أول حارس يضغط ينقذها (15 ثانية).`
-                        : '📦 **بضاعة تساقطت من القافلة!** أول حارس يضغط ينقذها (15 ثانية).',
+                    content: '📦 **بضاعة تساقطت من القافلة!** أول من يضغط ينقذها (15 ثانية).',
                     components: [new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('cvb_loot').setLabel('التقاط البضاعة').setEmoji('📦').setStyle(ButtonStyle.Success)
                     )],
@@ -1171,6 +1162,9 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                         });
                         lootCollector.on('end', async (_, r) => {
                             if (r !== 'saved') {
+                                const { stagingLootItems } = require('./market/market-db');
+                                const looted = await stagingLootItems(db, hostId, guild.id, 0.10);
+                                if (looted.length > 0) log.push(`💀 سُرقت ${looted.length} بضاعة من سلّة التاجر!`);
                                 caravan.lootPenalty = Math.min(1, (caravan.lootPenalty || 0) + 0.10);
                                 log.push(`❌ لم يلتقط أحد البضاعة! (-10% مكافآت المالك)`);
                             }
