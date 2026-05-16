@@ -301,13 +301,7 @@ async function generateMarketCanvas(listings, dest, page = 0) {
     return toBuf(canvas);
 }
 
-// ── Rarity colours (copy from inventory-generator for market card) ──
-const RARITY_COLORS_INV = {
-    'Common': '#A8B8D0', 'Uncommon': '#2ECC71', 'Rare': '#00C3FF', 'Epic': '#B968FF', 'Legendary': '#FFD700',
-};
-const RARITY_AR = {
-    'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري',
-};
+// (RARITY_AR, RARITY_COLORS defined at top of file)
 
 // ── getCachedImage ──
 const IMG_CACHE = new Map();
@@ -381,7 +375,7 @@ function wrapText(ctx, text, maxWidth) {
 async function generateMarketItemCard(info, marketData) {
     const { available, price } = marketData;
     const rarity = info.rarity || 'Common';
-    const rarityColor = RARITY_COLORS_INV[rarity] || '#A8B8D0';
+    const rarityColor = RARITY_COLORS[rarity] || C.textD;
     const RAR = RARITY_AR[rarity] || rarity;
 
     const width = 1000, height = 670;
