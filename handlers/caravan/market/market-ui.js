@@ -308,6 +308,63 @@ async function refreshMarketMessage(channel, db) {
     await updateMarketMessage(channel, listings, dest);
 }
 
+const pricePages = new Map(); // threadId → page
+
+async function showPriceMenu(interaction, db, user, threadId, listings, page = 0) {
+    const activeListings = listings.filter(l => {
+        const avail = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
+        return avail > 0;
+    });
+    if (activeListings.length === 0) return;
+
+    const totalPages = Math.ceil(activeListings.length / 25);
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const pageItems = activeListings.slice(safePage * 25, (safePage + 1) * 25);
+
+    const options = pageItems.map(l => {
+        const info = getItemInfo(l.itemid || l.itemID);
+        return {
+            label: `${info.name?.substring(0, 25) || l.itemid}`,
+            value: `price_${l.id}`,
+            description: `السعر الحالي: ${(l.priceperunit || l.pricePerUnit).toLocaleString()} ${EMOJI_MORA}`,
+        };
+    });
+
+    const components = [new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('mkt_price_change_select')
+            .setPlaceholder(`💰 اختر عنصراً... (صفحة ${safePage + 1}/${totalPages})`)
+            .addOptions(options)
+    )];
+
+    if (totalPages > 1) {
+        components.push(new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('mkt_price_prev')
+                .setLabel('◀ السابق')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(safePage === 0),
+            new ButtonBuilder()
+                .setCustomId('mkt_price_next')
+                .setLabel('التالي ▶')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(safePage >= totalPages - 1),
+        ));
+    }
+
+    const payload = {
+        content: `💰 اختر عنصراً لتغيير سعره (${activeListings.length} عنصر):`,
+        components,
+        flags: [MessageFlags.Ephemeral],
+    };
+
+    if (interaction.replied || interaction.deferred) {
+        await interaction.editReply(payload).catch(() => {});
+    } else {
+        await interaction.reply(payload).catch(() => {});
+    }
+}
+
 async function handleOwnerPriceChange(interaction, client, db, user) {
     const threadId = interaction.channel.id;
     const session = await getSessionByThread(db, threadId);
@@ -322,36 +379,26 @@ async function handleOwnerPriceChange(interaction, client, db, user) {
     }
 
     const listings = await getListingsBySession(db, threadId);
+    pricePages.set(threadId, 0);
+    await showPriceMenu(interaction, db, user, threadId, listings, 0);
+}
+
+async function handlePriceNav(interaction, client, db, direction) {
+    await interaction.deferUpdate().catch(() => {});
+    const threadId = interaction.channel.id;
+    const current = pricePages.get(threadId) || 0;
+    const listings = await getListingsBySession(db, threadId);
     const activeListings = listings.filter(l => {
         const avail = Number(l.quantity) - Number(l.quantitysold || l.quantitySold || 0);
         return avail > 0;
     });
-
-    if (activeListings.length === 0) {
-        return interaction.reply({ content: '❌ لا توجد بضائع قابلة للتعديل.', flags: [MessageFlags.Ephemeral] });
-    }
-
-    const options = activeListings.slice(0, 25).map(l => {
-        const info = getItemInfo(l.itemid || l.itemID);
-        return {
-            label: `${info.name?.substring(0, 25) || l.itemid}`,
-            value: `price_${l.id}`,
-            description: `السعر الحالي: ${(l.priceperunit || l.pricePerUnit).toLocaleString()} ${EMOJI_MORA}`,
-        };
-    });
-
-    await interaction.reply({
-        content: '💰 اختر عنصراً لتغيير سعره:',
-        components: [
-            new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('mkt_price_change_select')
-                    .setPlaceholder('💰 اختر عنصراً...')
-                    .addOptions(options)
-            )
-        ],
-        flags: [MessageFlags.Ephemeral],
-    });
+    const totalPages = Math.ceil(activeListings.length / 25);
+    const next = direction === 'next'
+        ? Math.min(current + 1, totalPages - 1)
+        : Math.max(current - 1, 0);
+    pricePages.set(threadId, next);
+    const user = interaction.user;
+    await showPriceMenu(interaction, db, user, threadId, listings, next);
 }
 
 async function handlePriceChangeSelect(interaction, client, db, user) {
@@ -427,6 +474,8 @@ module.exports = {
     refreshMarketMessage,
     handleOwnerPriceChange,
     handlePriceChangeSelect,
+    handlePriceNav,
     handleNewPriceModalSubmit,
     marketPages,
+    pricePages,
 };

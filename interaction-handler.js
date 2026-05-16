@@ -255,6 +255,12 @@ module.exports = (client, db, antiRolesCache) => {
                         await handlePageNav(i, client, db, 'next');
                     } else if (id === 'mkt_owner_price') {
                         await handleOwnerPriceChange(i, client, db, i.user);
+                    } else if (id === 'mkt_price_prev') {
+                        const { handlePriceNav } = require('./handlers/caravan/market/market-ui');
+                        await handlePriceNav(i, client, db, 'prev');
+                    } else if (id === 'mkt_price_next') {
+                        const { handlePriceNav } = require('./handlers/caravan/market/market-ui');
+                        await handlePriceNav(i, client, db, 'next');
                     } else if (id.startsWith('mkt_price_change_select')) {
                         await handlePriceChangeSelect(i, client, db, i.user);
                     }
