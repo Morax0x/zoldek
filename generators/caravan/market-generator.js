@@ -341,17 +341,32 @@ function drawOrnateFrame(ctx, x, y, w, h, color) {
     ctx.shadowBlur = 0;
 }
 
-// ── localWrap (like inventory-generator's wrapText but avoids name clash) ──
+// ── localWrap (word-aware wrapping for Arabic) ──
 function localWrap(ctx, text, maxWidth) {
-    const words = text.split('\n');
+    const paragraphs = text.split('\n');
     const lines = [];
-    for (const word of words) {
+    for (const para of paragraphs) {
+        const words = para.split(/(\s+)/);
         let line = '';
-        for (const ch of word) {
-            const test = line + ch;
-            if (ctx.measureText(test).width > maxWidth && line !== '') {
-                lines.push(line);
-                line = ch;
+        for (const w of words) {
+            const test = line + w;
+            if (ctx.measureText(test).width > maxWidth) {
+                if (line) lines.push(line);
+                // word itself exceeds width → split char by char
+                if (!line && ctx.measureText(w).width > maxWidth) {
+                    let chunk = '';
+                    for (const ch of w) {
+                        if (ctx.measureText(chunk + ch).width > maxWidth && chunk) {
+                            lines.push(chunk);
+                            chunk = ch;
+                        } else {
+                            chunk += ch;
+                        }
+                    }
+                    if (chunk) line = chunk;
+                } else {
+                    line = w;
+                }
             } else {
                 line = test;
             }
