@@ -483,12 +483,13 @@ async function generateMarketItemCard(info, marketData) {
     const textX = imgX + imgSize + 50;
     let textY = 105;
 
-    // Item name
+    // Item name (centered above the underline)
+    const nameCenter = (textX + width - 30) / 2;
     ctx.fillStyle = '#FFFFFF';
     ctx.font = `bold 34px ${FA}`;
-    ctx.textAlign = 'right';
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(info.name || 'عنصر غير معروف', width - 30, textY);
+    ctx.fillText(info.name || 'عنصر غير معروف', nameCenter, textY);
     textY += 55;
 
     // Name underline
