@@ -362,6 +362,7 @@ module.exports = {
                 }
 
                 else if (id === 'cv_dest_sel') {
+                    await i.deferUpdate().catch(() => {});
                     const destId = i.values[0];
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
                     const mora   = await getMora(db, user.id, guild.id);
