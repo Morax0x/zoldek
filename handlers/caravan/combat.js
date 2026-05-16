@@ -1,12 +1,15 @@
 'use strict';
 
+const path = require('path');
 const {
     ComponentType, MessageFlags,
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
 } = require('discord.js');
 
 const { safeExecute, safeQuery } = require('./db');
 const { caravanConfig, EMOJI_MORA } = require('./config');
+const potionItems = require(path.join(process.cwd(), 'json', 'potions.json'));
 const { setCaravanCooldown } = require('./tables');
 const { setupPlayers }       = require('../dungeon/core/setup.js');
 const { buildHpBar, applyDamageToPlayer } = require('../dungeon/utils.js');
@@ -393,8 +396,8 @@ function generateResultEmbed(result, players, caravan, wavesCleared, rewards, gu
     const isEscape = result === 'escape';
     const color = isWin ? '#00FF88' : '#FF4444';
     const title = isWin
-        ? (isEscape ? '🐪 انسحاب — نجاة بصعوبة' : '🎉 انتصار! الطريق آمن!')
-        : '💀 فشل الحراسة — القافلة نُهبت!';
+        ? (isEscape ? '❖ انسـحـاب - نصـف الطريـق مؤمـن' : '❖ تـم تـأمين الطريق بالكامـل')
+        : '💀 فشلت الحراسة — القافلة نُهبت!';
 
     const embed = new EmbedBuilder()
         .setColor(color)
@@ -487,17 +490,101 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                     });
                     const pSel = await pMsg.awaitMessageComponent({
                         filter:        x => x.user.id === i.user.id,
-                        time:          15000,
+                        time:          20000,
                         componentType: ComponentType.StringSelect,
                     }).catch(() => null);
                     if (!pSel) return;
                     await pSel.deferUpdate().catch(() => {});
 
-                    const potId = pSel.values[0].replace('use_potion_', '');
-                    if (potId !== 'no_potions' && potId !== 'buy_potions_action') {
+                    const selectedValue = pSel.values[0];
+
+                    if (selectedValue === 'buy_potions_action') {
+                        let currentMora = 0;
+                        try {
+                            const res = await safeQuery(db, `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [i.user.id, guild.id]);
+                            currentMora = res?.rows?.[0]?.mora || 0;
+                        } catch { currentMora = 0; }
+
+                        const shopOptions = potionItems.map(pot => ({
+                            label: `${pot.name} (${pot.price.toLocaleString()} مورا)`,
+                            value: pot.id,
+                            description: pot.description ? pot.description.substring(0, 50) : 'جرعة مفيدة',
+                            emoji: pot.emoji || '🧪',
+                        }));
+
+                        const shopRow = new ActionRowBuilder().addComponents(
+                            new StringSelectMenuBuilder()
+                                .setCustomId('cvr_potion_buy')
+                                .setPlaceholder('اختر الجرعة للشراء...')
+                                .addOptions(shopOptions)
+                        );
+
+                        const shopMsg = await pSel.followUp({
+                            content: `🛒 **متجر الجرعات السريع**\n💰 رصيدك: **${Number(currentMora).toLocaleString()}** ${EMOJI_MORA}`,
+                            components: [shopRow],
+                            flags: [MessageFlags.Ephemeral],
+                            fetchReply: true,
+                        }).catch(() => null);
+                        if (!shopMsg) return;
+
+                        try {
+                            const buyInt = await shopMsg.awaitMessageComponent({ time: 15000 });
+                            await buyInt.deferUpdate().catch(() => {});
+                            const itemID = buyInt.values[0];
+                            const targetItem = potionItems.find(x => x.id === itemID);
+                            if (!targetItem) return;
+
+                            if (Number(currentMora) < targetItem.price) {
+                                await buyInt.followUp({ content: `❌ **لا تملك مورا كافية!** تحتاج ${targetItem.price.toLocaleString()} مورا.`, flags: [MessageFlags.Ephemeral] });
+                            } else {
+                                // Atomic deduct
+                                const deductRes = await safeQuery(db,
+                                    `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3 AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1 RETURNING "mora"`,
+                                    [targetItem.price, i.user.id, guild.id]
+                                ).catch(() => null);
+                                if (!deductRes?.rows?.length) {
+                                    await buyInt.followUp({ content: '❌ فشلت عملية الشراء.', flags: [MessageFlags.Ephemeral] });
+                                } else {
+                                    // Add to inventory
+                                    const invCheck = await safeQuery(db,
+                                        `SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
+                                        [i.user.id, guild.id, itemID]
+                                    ).catch(() => null);
+                                    if (invCheck?.rows?.length) {
+                                        await safeExecute(db,
+                                            `UPDATE user_inventory SET "quantity"="quantity"+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`,
+                                            [i.user.id, guild.id, itemID]
+                                        );
+                                    } else {
+                                        await safeExecute(db,
+                                            `INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,$3,1)`,
+                                            [guild.id, i.user.id, itemID]
+                                        );
+                                    }
+                                    await buyInt.followUp({ content: `✅ **تم شراء ${targetItem.name}!**\nاضغط على 🧪 الجرعات مرة أخرى لاستخدامها.`, flags: [MessageFlags.Ephemeral] });
+                                }
+                            }
+                        } catch {
+                            await shopMsg.edit({ content: '⏰ انتهى وقت الشراء.', components: [] }).catch(() => {});
+                        }
+                    } else {
+                        const potId = selectedValue.replace('use_potion_', '');
+                        if (potId === 'no_potions') return;
+
+                        if (potId === 'potion_titan') {
+                            const limit = 3;
+                            p.titanPotionUses = p.titanPotionUses || 0;
+                            if (p.titanPotionUses >= limit) {
+                                await pSel.followUp({ content: `🚫 **لقد استهلكت الحد الأقصى (${limit}) من جرعة العملاق في هذه الرحلة!**`, flags: [MessageFlags.Ephemeral] });
+                                return;
+                            }
+                            p.titanPotionUses++;
+                        }
+
                         await safeExecute(db,
                             `UPDATE user_inventory SET "quantity"="quantity"-1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3 AND "quantity">0`,
                             [i.user.id, guild.id, potId]);
+
                         if (potId === 'potion_heal') {
                             p.hp = Math.min(p.maxHp, p.hp + Math.floor(p.maxHp * 0.5));
                             await pSel.editReply({ content: `✅ **${p.name}** استعاد 50% HP!`, components: [] }).catch(() => {});
@@ -1151,10 +1238,12 @@ async function handleEscortReady(data) {
 
             const eta = Math.floor((cvResult.endTime || 0) / 1000);
 
+            const destImgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${dest.id}.png`;
             const escortEmbed = new EmbedBuilder()
-                .setColor('#00FF88')
-                .setTitle('🎉 انتصار! الطريق آمن!')
+                .setColor(dest.color || '#00FF88')
+                .setTitle(result === 'escape' ? '❖ انسـحـاب - نصـف الطريـق مؤمـن' : '❖ تـم تـأمين الطريق بالكامـل')
                 .setDescription(`🐪 ستنطلق القافلة إلى **${dest.emoji} ${dest.name}**!\n📅 **وقت الوصول:** <t:${eta}:R>\n${result === 'escape' ? '⚠️ الطريق غير مؤمَّن تماماً — قد يحدث كمين.\n' : '✅ الطريق مؤمَّن!\n'}`)
+                .setImage(destImgUrl)
                 .addFields(
                     { name: '⚔️ الموجات', value: `${wavesCleared}/5`, inline: true },
                     { name: '🎁 المكافآت', value: rewardRes.summary.map(s => `✶ ${s}`).join('\n') || '—', inline: false }
@@ -1164,16 +1253,13 @@ async function handleEscortReady(data) {
     } else {
         // Apply 1-hour cooldown to owner on any loss
         await setCaravanCooldown(db, hostId, guild.id).catch(() => {});
-        for (const uid of guards) {
-            await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-        }
         const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
                      : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
                      : '☠️ سقط كل الحراس!';
         const failEmbed = new EmbedBuilder()
             .setColor('#FF4444')
             .setTitle('💀 فشل التأمين!')
-            .setDescription(`${reason}\nلم تُرسَل القافلة. لم يُخصَم منك شيء.\n🎟️ تم إرجاع التذاكر للحراس.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
+            .setDescription(`${reason}\nتم إنهاء الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
         await thread.send({ embeds: [failEmbed] }).catch(() => {});
     }
 
@@ -1225,10 +1311,13 @@ async function handleAmbushReady(data) {
         // Everyone (owner + guards) gets cumulative rewards
         const rewardRes = await distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty);
 
+        const ambDest = caravanConfig.destinations.find(d => d.id === destId) || {};
+        const ambDestImgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${destId}.png`;
         const winEmbed = new EmbedBuilder()
-            .setColor('#00FF88')
-            .setTitle('🎉 نجحت الحراسة! القافلة آمنة!')
-            .setDescription('🐪 ستكمل القافلة رحلتها بمكافآت كاملة!')
+            .setColor(ambDest.color || '#00FF88')
+            .setTitle('❖ تـم تـأمين الطريق بالكامـل')
+            .setDescription('🐪 ستكمل القافلة رحلتها!')
+            .setImage(ambDestImgUrl)
             .addFields(
                 { name: '⚔️ الموجات', value: `${wavesCleared}/5`, inline: true },
                 { name: '🎁 المكافآت', value: rewardRes.summary.map(s => `✶ ${s}`).join('\n') || '—', inline: false }
@@ -1237,12 +1326,7 @@ async function handleAmbushReady(data) {
 
         await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
     } else {
-        // Battle lost → loot staging market, delete caravan + apply 1-hour cooldown to owner
-        for (const uid of guards) {
-            await refundGuardTickets(db, uid, guildId, null).catch(() => {});
-        }
-        const { stagingLootItems } = require('./market/market-db');
-        await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
+        // Battle lost → apply 1-hour cooldown to owner
         await setCaravanCooldown(db, userId, guildId).catch(() => {});
         await safeExecute(db,
             `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1 WHERE "userID"=$1 AND "guildID"=$2`,
@@ -1255,9 +1339,9 @@ async function handleAmbushReady(data) {
         const loseEmbed = new EmbedBuilder()
             .setColor('#FF4444')
             .setTitle('💀 فشلت الحراسة — القافلة نُهبت!')
-            .setDescription(`${reason}\nضاعت جميع البضائع. انتهت الرحلة.\n🎟️ تم إرجاع التذاكر للحراس.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
+            .setDescription(`${reason}\nضاعت جميع البضائع. انتهت الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
         await thread.send({ embeds: [loseEmbed] }).catch(() => {});
-        await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم الغاء الرحلة.`).catch(() => {});
+        await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم إلغاء الرحلة.`).catch(() => {});
     }
 
     setTimeout(() => thread.delete().catch(() => {}), 30000);

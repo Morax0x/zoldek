@@ -109,7 +109,7 @@ function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
     }
 
     row.addComponents(
-        new ButtonBuilder().setCustomId('cv_menu_toggle').setEmoji('❗').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+        new ButtonBuilder().setCustomId('cv_menu_toggle').setEmoji('❗').setStyle(ButtonStyle.Danger).setDisabled(disabled)
     );
 
     return row;
