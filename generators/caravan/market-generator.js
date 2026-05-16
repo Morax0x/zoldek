@@ -367,7 +367,7 @@ async function generateMarketItemCard(info, marketData) {
     const rarityColor = RARITY_COLORS[rarity] || C.textD;
     const RAR = RARITY_AR[rarity] || rarity;
 
-    const width = 1000, height = 670;
+    const width = 1000, height = 600;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
@@ -391,53 +391,10 @@ async function generateMarketItemCard(info, marketData) {
     ctx.lineWidth = 1;
     ctx.strokeRect(15, 15, width - 30, height - 30);
 
-    // ── Top bar with badges ──
-    const TOP = 70;
-
-    // Price badge
-    const badgeX = 30, badgeY = 8, badgeW = 380, badgeH = 54;
-    const bGrad = ctx.createLinearGradient(badgeX, badgeY, badgeX, badgeY + badgeH);
-    bGrad.addColorStop(0, '#1a1a2e');
-    bGrad.addColorStop(1, '#0d0d1a');
-    ctx.fillStyle = bGrad;
-    rr2(ctx, badgeX, badgeY, badgeW, badgeH);
-    ctx.fill();
-    ctx.strokeStyle = '#FFD700';
-    ctx.lineWidth = 2;
-    rr2(ctx, badgeX, badgeY, badgeW, badgeH);
-    ctx.stroke();
-
-    ctx.fillStyle = '#FFD700';
-    ctx.font = `bold 24px ${FA}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`💰  ${price.toLocaleString()}  مورا  / للواحدة`, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1);
-
-    // Rarity badge
-    const rBadgeX = width - 170, rBadgeY = 8, rBadgeW = 140, rBadgeH = 54;
-    ctx.fillStyle = bGrad;
-    rr2(ctx, rBadgeX, rBadgeY, rBadgeW, rBadgeH);
-    ctx.fill();
-    ctx.strokeStyle = rarityColor;
-    ctx.lineWidth = 2;
-    rr2(ctx, rBadgeX, rBadgeY, rBadgeW, rBadgeH);
-    ctx.stroke();
-
-    ctx.fillStyle = rarityColor;
-    ctx.font = `bold 22px ${FA}`;
-    ctx.fillText(RAR, rBadgeX + rBadgeW / 2, rBadgeY + rBadgeH / 2 + 1);
-
-    // Separator line
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, TOP); ctx.lineTo(width, TOP);
-    ctx.stroke();
-
     // ── Item Image ──
     const imgSize = 350;
     const imgX = 100;
-    const imgY = TOP + (height - TOP - imgSize) / 2;
+    const imgY = (height - imgSize) / 2;
 
     drawOrnateFrame(ctx, imgX, imgY, imgSize, imgSize, rarityColor);
 
@@ -483,9 +440,38 @@ async function generateMarketItemCard(info, marketData) {
         ctx.shadowBlur = 0;
     }
 
+    // ── Price badge above image frame ──
+    const badgeW = 180, badgeH = 46;
+    const bCx = imgX + imgSize / 2;
+    const bCy = imgY - 30;
+    const bX = bCx - badgeW / 2;
+    const bY = bCy - badgeH / 2;
+
+    ctx.save();
+    ctx.shadowColor = rarityColor;
+    ctx.shadowBlur = 12;
+    const pGrad = ctx.createLinearGradient(bX, bY, bX, bY + badgeH);
+    pGrad.addColorStop(0, '#1a1a2e');
+    pGrad.addColorStop(1, '#0d0d1a');
+    ctx.fillStyle = pGrad;
+    rr2(ctx, bX, bY, badgeW, badgeH, 10);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = rarityColor;
+    ctx.lineWidth = 2;
+    rr2(ctx, bX, bY, badgeW, badgeH, 10);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = rarityColor;
+    ctx.font = `bold 26px ${FA}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`💰 ${price.toLocaleString()}`, bCx, bCy + 1);
+
     // ── Text Section ──
     const textX = imgX + imgSize + 50;
-    let textY = TOP + 60;
+    let textY = 30;
 
     // Item name
     ctx.fillStyle = '#FFFFFF';
