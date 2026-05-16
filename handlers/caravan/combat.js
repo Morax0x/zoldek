@@ -1299,10 +1299,12 @@ async function handleEscortReady(data) {
         const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
                      : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
                      : '☠️ سقط كل الحراس!';
+        const destImgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${dest.id}.png`;
         const failEmbed = new EmbedBuilder()
-            .setColor('#FF4444')
+            .setColor(dest.color || '#FF4444')
             .setTitle('💀 فشل التأمين!')
-            .setDescription(`${reason}\nتم إنهاء الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
+            .setDescription(`${reason}\nتم إنهاء الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`)
+            .setImage(destImgUrl);
         await thread.send({ embeds: [failEmbed] }).catch(() => {});
     }
 
@@ -1379,10 +1381,13 @@ async function handleAmbushReady(data) {
         const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
                      : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
                      : '☠️ سقط كل الحراس!';
+        const ambDest = caravanConfig.destinations.find(d => d.id === destId) || {};
+        const ambDestImgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${destId}.png`;
         const loseEmbed = new EmbedBuilder()
-            .setColor('#FF4444')
+            .setColor(ambDest.color || '#FF4444')
             .setTitle('💀 فشلت الحراسة — القافلة نُهبت!')
-            .setDescription(`${reason}\nضاعت جميع البضائع. انتهت الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`);
+            .setDescription(`${reason}\nضاعت جميع البضائع. انتهت الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`)
+            .setImage(ambDestImgUrl);
         await thread.send({ embeds: [loseEmbed] }).catch(() => {});
         await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم إلغاء الرحلة.`).catch(() => {});
     }
