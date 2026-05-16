@@ -1,9 +1,8 @@
 const {
     createCanvas, W, H, FA, FE, C,
-    rr, fetchImageSafe, drawBg, drawPanel, drawHeader,
+    rr, fetchImageSafe, loadCached, drawBg, drawPanel, drawHeader,
     drawCornerAccents, divLine, M, R, L, truncate, toBuf,
 } = require('./shared');
-const { loadImage } = require('@napi-rs/canvas');
 
 const ITEMS_PER_PAGE = 8; // 4 cols × 2 rows
 
@@ -19,20 +18,7 @@ const RARITY_AR = {
     'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري',
 };
 
-const imgCache = new Map();
-const pendingLoads = new Map();
-async function loadCachedImg(url) {
-    if (!url) return null;
-    if (imgCache.has(url)) return imgCache.get(url);
-    if (pendingLoads.has(url)) return pendingLoads.get(url);
-    const promise = Promise.race([
-        loadImage(url).then(img => { imgCache.set(url, img); return img; }),
-        new Promise(res => setTimeout(() => { imgCache.set(url, null); res(null); }, 5000)),
-    ]).catch(() => { imgCache.set(url, null); return null; })
-    .finally(() => pendingLoads.delete(url));
-    pendingLoads.set(url, promise);
-    return promise;
-}
+
 
 // Grid layout — dynamic, computed per page
 const MARGIN_X   = 15;
@@ -94,7 +80,7 @@ async function drawItemCard(ctx, listing, info, x, y, cardW, cardH) {
     const imgX = x + (cardW - imgSize) / 2;
     const imgY = y + cardH * 0.04;
 
-    const itemImg = await loadCachedImg(info.imgPath);
+    const itemImg = await loadCached(info.imgPath);
     if (itemImg) {
         ctx.save();
         ctx.shadowColor = rarityColor + '66'; ctx.shadowBlur = 20;
@@ -273,7 +259,7 @@ async function generateMarketCanvas(listings, dest, page = 0) {
         const info = getItemInfo(listing.itemid || listing.itemID);
         return { listing, info };
     });
-    await Promise.allSettled(pageInfos.map(({ info }) => loadCachedImg(info?.imgPath)));
+    await Promise.allSettled(pageInfos.map(({ info }) => loadCached(info?.imgPath)));
 
     for (let i = 0; i < pageItems.length; i++) {
         const col  = i % cols;
