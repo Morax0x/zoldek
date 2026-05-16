@@ -86,6 +86,7 @@ function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guil
         .setTitle(title)
         .setColor(color)
         .setDescription(desc)
+        .setImage(imageUrl)
         .setThumbnail(hostAvatar);
 }
 
@@ -104,7 +105,7 @@ async function _runLobby(channel, hostId, guild, db, destConfig, ids, isAmbush =
     const embed = buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guild);
 
     const msg = editMsg
-        ? await editMsg.edit({ embeds: [embed], components: [lobbyButtons()], content: '' }).catch(() => null)
+        ? await editMsg.edit({ embeds: [embed], components: [lobbyButtons()], content: '', files: [] }).catch(() => null)
         : await channel.send({ embeds: [embed], components: [lobbyButtons()] }).catch(() => null);
     if (!msg) return { ready: false, cancelled: true };
 
