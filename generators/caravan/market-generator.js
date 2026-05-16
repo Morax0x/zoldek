@@ -301,4 +301,262 @@ async function generateMarketCanvas(listings, dest, page = 0) {
     return toBuf(canvas);
 }
 
-module.exports = { generateMarketCanvas, ITEMS_PER_PAGE };
+// ── Rarity colours (copy from inventory-generator for market card) ──
+const RARITY_COLORS_INV = {
+    'Common': '#A8B8D0', 'Uncommon': '#2ECC71', 'Rare': '#00C3FF', 'Epic': '#B968FF', 'Legendary': '#FFD700',
+};
+const RARITY_AR = {
+    'Common': 'عادي', 'Uncommon': 'شائع', 'Rare': 'نادر', 'Epic': 'ملحمي', 'Legendary': 'أسطوري',
+};
+
+// ── getCachedImage ──
+const IMG_CACHE = new Map();
+async function getCachedImage(imageUrl) {
+    if (!imageUrl) return null;
+    if (IMG_CACHE.has(imageUrl)) return IMG_CACHE.get(imageUrl);
+    const result = await loadImageSafe(imageUrl);
+    if (result.ok) { IMG_CACHE.set(imageUrl, result.img); return result.img; }
+    IMG_CACHE.set(imageUrl, null);
+    return null;
+}
+
+// ── roundRect ──
+function rr2(ctx, x, y, width, height, radius = 0) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+}
+
+// ── drawOrnateFrame ──
+function drawOrnateFrame(ctx, x, y, w, h, color) {
+    const bgGrad = ctx.createLinearGradient(x, y, x, y + h);
+    bgGrad.addColorStop(0, 'rgba(15, 20, 30, 0.9)');
+    bgGrad.addColorStop(1, 'rgba(5, 10, 15, 0.95)');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
+    const cl = 20;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(x, y + cl); ctx.lineTo(x, y); ctx.lineTo(x + cl, y);
+    ctx.moveTo(x + w - cl, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cl);
+    ctx.moveTo(x + w, y + h - cl); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - cl, y + h);
+    ctx.moveTo(x + cl, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - cl);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+}
+
+// ── wrapText (exact copy from inventory-generator) ──
+function wrapText(ctx, text, maxWidth) {
+    const words = text.split('\n');
+    const lines = [];
+    for (const word of words) {
+        let line = '';
+        for (const ch of word) {
+            const test = line + ch;
+            if (ctx.measureText(test).width > maxWidth && line !== '') {
+                lines.push(line);
+                line = ch;
+            } else {
+                line = test;
+            }
+        }
+        if (line) lines.push(line);
+    }
+    return lines;
+}
+
+async function generateMarketItemCard(info, marketData) {
+    const { available, price } = marketData;
+    const rarity = info.rarity || 'Common';
+    const rarityColor = RARITY_COLORS_INV[rarity] || '#A8B8D0';
+    const RAR = RARITY_AR[rarity] || rarity;
+
+    const width = 1000, height = 670;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    // ── Background ──
+    const bgGrad = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 800);
+    bgGrad.addColorStop(0, '#151520');
+    bgGrad.addColorStop(1, '#05050A');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, width, height);
+
+    const auraGrad = ctx.createRadialGradient(300, height/2, 50, 300, height/2, 400);
+    auraGrad.addColorStop(0, `${rarityColor}40`);
+    auraGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = auraGrad;
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.strokeStyle = rarityColor;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(10, 10, width - 20, height - 20);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(15, 15, width - 30, height - 30);
+
+    // ── Top bar with badges ──
+    const TOP = 70;
+
+    // Price badge
+    const badgeX = 30, badgeY = 8, badgeW = 380, badgeH = 54;
+    const bGrad = ctx.createLinearGradient(badgeX, badgeY, badgeX, badgeY + badgeH);
+    bGrad.addColorStop(0, '#1a1a2e');
+    bGrad.addColorStop(1, '#0d0d1a');
+    ctx.fillStyle = bGrad;
+    rr2(ctx, badgeX, badgeY, badgeW, badgeH);
+    ctx.fill();
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 2;
+    rr2(ctx, badgeX, badgeY, badgeW, badgeH);
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFD700';
+    ctx.font = `bold 24px ${FA}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`💰  ${price.toLocaleString()}  مورا  / للواحدة`, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1);
+
+    // Rarity badge
+    const rBadgeX = width - 170, rBadgeY = 8, rBadgeW = 140, rBadgeH = 54;
+    ctx.fillStyle = bGrad;
+    rr2(ctx, rBadgeX, rBadgeY, rBadgeW, rBadgeH);
+    ctx.fill();
+    ctx.strokeStyle = rarityColor;
+    ctx.lineWidth = 2;
+    rr2(ctx, rBadgeX, rBadgeY, rBadgeW, rBadgeH);
+    ctx.stroke();
+
+    ctx.fillStyle = rarityColor;
+    ctx.font = `bold 22px ${FA}`;
+    ctx.fillText(RAR, rBadgeX + rBadgeW / 2, rBadgeY + rBadgeH / 2 + 1);
+
+    // Separator line
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, TOP); ctx.lineTo(width, TOP);
+    ctx.stroke();
+
+    // ── Item Image ──
+    const imgSize = 350;
+    const imgX = 100;
+    const imgY = TOP + (height - TOP - imgSize) / 2;
+
+    drawOrnateFrame(ctx, imgX, imgY, imgSize, imgSize, rarityColor);
+
+    const innerAura = ctx.createRadialGradient(imgX + imgSize/2, imgY + imgSize/2, 10, imgX + imgSize/2, imgY + imgSize/2, imgSize/1.5);
+    innerAura.addColorStop(0, `${rarityColor}80`);
+    innerAura.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = innerAura;
+    ctx.fillRect(imgX, imgY, imgSize, imgSize);
+
+    let imgDrawn = false;
+    if (info.imgPath) {
+        const img = await getCachedImage(info.imgPath);
+        if (img) {
+            if (info.fullImage) {
+                ctx.save();
+                ctx.beginPath();
+                rr2(ctx, imgX + 4, imgY + 4, imgSize - 8, imgSize - 8, 20);
+                ctx.clip();
+                ctx.drawImage(img, imgX + 4, imgY + 4, imgSize - 8, imgSize - 8);
+                ctx.restore();
+            } else {
+                const s = Math.min(imgSize - 16, 200);
+                const ox = imgX + (imgSize - s) / 2;
+                const oy = imgY + (imgSize - s) / 2;
+                ctx.save();
+                ctx.beginPath();
+                rr2(ctx, ox, oy, s, s, 20);
+                ctx.clip();
+                ctx.drawImage(img, ox, oy, s, s);
+                ctx.restore();
+            }
+            imgDrawn = true;
+        }
+    }
+    if (!imgDrawn && info.emoji) {
+        ctx.font = `100px ${FE}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.shadowColor = rarityColor;
+        ctx.shadowBlur = 15;
+        ctx.fillText(info.emoji, imgX + imgSize / 2, imgY + imgSize / 2);
+        ctx.shadowBlur = 0;
+    }
+
+    // ── Text Section ──
+    const textX = imgX + imgSize + 50;
+    let textY = TOP + 60;
+
+    // Item name
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = `bold 34px ${FA}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText(info.name || 'عنصر غير معروف', width - 30, textY);
+    textY += 55;
+
+    // Name underline
+    const nameGrad = ctx.createLinearGradient(textX, textY, width - 30, textY);
+    nameGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    nameGrad.addColorStop(0.3, rarityColor);
+    nameGrad.addColorStop(0.7, rarityColor);
+    nameGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.strokeStyle = nameGrad;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(width - 30, textY);
+    ctx.lineTo(textX, textY);
+    ctx.stroke();
+    textY += 30;
+
+    // Rarity line
+    ctx.fillStyle = '#E0E0E0';
+    ctx.font = '28px "Bein"';
+    ctx.fillText(`الـنـدرة:  ${RAR}`, width - 30, textY);
+    textY += 45;
+
+    // Quantity
+    ctx.fillStyle = '#FFD700';
+    ctx.fillText(`الـمـتـبـقـي:  ${available.toLocaleString()}`, width - 30, textY);
+    textY += 60;
+
+    // Description box
+    const descBoxX = textX;
+    const descBoxY = textY;
+    const descBoxW = width - 30 - descBoxX;
+    const descBoxH = height - textY - 30;
+
+    ctx.fillStyle = 'rgba(15, 20, 30, 0.7)';
+    ctx.beginPath(); rr2(ctx, descBoxX, descBoxY, descBoxW, descBoxH, 15); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1; ctx.stroke();
+
+    ctx.fillStyle = '#A8B8D0';
+    ctx.font = '24px "Bein", "Emoji"';
+    const description = info.description ? info.description.replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿🪙]/gu, '').trim() : "عنصر غامض لا يُعرف عنه الكثير.. قد يكون له استخدام سري في الإمبراطورية!";
+    const lines = wrapText(ctx, description, descBoxW - 40);
+
+    for (let j = 0; j < lines.length; j++) {
+        ctx.fillText(lines[j], width - 30 - 20, descBoxY + 20 + (j * 40));
+    }
+
+    return toBuf(canvas);
+}
+
+module.exports = { generateMarketCanvas, generateMarketItemCard, ITEMS_PER_PAGE };
