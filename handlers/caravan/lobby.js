@@ -86,7 +86,6 @@ function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guil
         .setTitle(title)
         .setColor(color)
         .setDescription(desc)
-        .setImage(imageUrl)
         .setThumbnail(hostAvatar);
 }
 
