@@ -160,7 +160,7 @@ module.exports = {
         .setDescription('🐪 نظام القوافل — مركز التحكم الكامل'),
 
     name:     'caravan',
-    aliases:  ['قافلة', 'سفر', 'تجر', 'شحن', 'قاف'],
+    aliases:  ['قافلة', 'رحلة', 'سفر', 'تجر', 'شحن', 'قاف'],
     category: 'Economy',
     description: 'نظام القوافل المتكامل',
 
