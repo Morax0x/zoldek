@@ -97,28 +97,47 @@ async function getMora(db, userId, guildId) {
 
 function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
     const row = new ActionRowBuilder();
-    
+
     if (!hasActiveCaravan) {
         row.addComponents(
-            new ButtonBuilder().setCustomId('cv_send').setLabel('📤 إرسال رحلة').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('تجهيز البضاعة').setEmoji('🏪').setStyle(ButtonStyle.Success).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cv_equip').setEmoji('🔮').setLabel('عتاد').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+            new ButtonBuilder().setCustomId('cv_send').setLabel('ارسـال رحـلـة').setEmoji('🐪').setStyle(ButtonStyle.Primary).setDisabled(disabled)
         );
     } else {
         row.addComponents(
             new ButtonBuilder().setCustomId('cv_status').setLabel('🗺️ متابعة الرحلة').setStyle(ButtonStyle.Success).setDisabled(disabled)
         );
-        
+    }
+
+    row.addComponents(
+        new ButtonBuilder().setCustomId('cv_menu_toggle').setEmoji('❗').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+    );
+
+    return row;
+}
+
+function secondaryRow(hasActiveCaravan = false, disabled = false, userId = null) {
+    const row = new ActionRowBuilder();
+
+    if (!hasActiveCaravan) {
+        row.addComponents(
+            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('تجهـيز البضاعـة').setEmoji('🏪').setStyle(ButtonStyle.Success).setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cv_equip').setLabel('عـتـاد القافلـة').setEmoji('🔮').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cv_upgrade').setLabel('الترقـيـات').setStyle(ButtonStyle.Secondary).setEmoji('❗').setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setLabel('رجوع').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+        );
+    } else {
+        row.addComponents(
+            new ButtonBuilder().setCustomId('cv_upgrade').setLabel('الترقـيـات').setStyle(ButtonStyle.Secondary).setEmoji('❗').setDisabled(disabled)
+        );
         if (userId === EMPEROR_ID) {
             row.addComponents(
                 new ButtonBuilder().setCustomId('cv_fastforward').setLabel('⏩ تسريع الرحلة').setStyle(ButtonStyle.Danger).setDisabled(disabled)
             );
         }
+        row.addComponents(
+            new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setLabel('رجوع').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+        );
     }
-    
-    row.addComponents(
-        new ButtonBuilder().setCustomId('cv_upgrade').setEmoji('❗').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
-    );
 
     return row;
 }
@@ -585,6 +604,11 @@ module.exports = {
                         ),
                     ];
                     await hubMsg.edit(payload).catch(() => {});
+                }
+
+                else if (id === 'cv_menu_toggle') {
+                    const activeCheck = await getActiveCaravan(db, user.id, guild.id);
+                    await hubMsg.edit({ components: [secondaryRow(!!activeCheck, false, user.id)] }).catch(() => {});
                 }
 
                 else if (id === 'cv_upgrade') {
