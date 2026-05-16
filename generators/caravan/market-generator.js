@@ -303,6 +303,44 @@ async function generateMarketCanvas(listings, dest, page = 0) {
 
 // (RARITY_AR, RARITY_COLORS defined at top of file)
 
+// ── roundRect ──
+function rr2(ctx, x, y, width, height, radius = 0) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+}
+
+// ── drawOrnateFrame ──
+function drawOrnateFrame(ctx, x, y, w, h, color) {
+    const bgGrad = ctx.createLinearGradient(x, y, x, y + h);
+    bgGrad.addColorStop(0, 'rgba(15, 20, 30, 0.9)');
+    bgGrad.addColorStop(1, 'rgba(5, 10, 15, 0.95)');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
+    const cl = 20;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(x, y + cl); ctx.lineTo(x, y); ctx.lineTo(x + cl, y);
+    ctx.moveTo(x + w - cl, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cl);
+    ctx.moveTo(x + w, y + h - cl); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - cl, y + h);
+    ctx.moveTo(x + cl, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - cl);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+}
+
 // ── localWrap (like inventory-generator's wrapText but avoids name clash) ──
 function localWrap(ctx, text, maxWidth) {
     const words = text.split('\n');
