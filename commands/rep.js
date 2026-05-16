@@ -276,7 +276,7 @@ module.exports = {
                 const emperorEmbed = new EmbedBuilder()
                     .setDescription('**✥ تقـبل الامبـراطـور تزكيتك وردهـا لـك**')
                     .setImage('https://i.postimg.cc/RFVYBqJx/repmorax.png')
-                    .setColor('#FFD700');
+                    .setColor('#8A2BE2'); // اللون البنفسجي الفخم
                 replyPayload.embeds = [emperorEmbed];
             }
 
@@ -297,7 +297,7 @@ module.exports = {
                 const emperorEmbed = new EmbedBuilder()
                     .setDescription('**✥ تقـبل الامبـراطـور تزكيتك وردهـا لـك**')
                     .setImage('https://i.postimg.cc/RFVYBqJx/repmorax.png')
-                    .setColor('#FFD700');
+                    .setColor('#8A2BE2'); // اللون البنفسجي الفخم
                 replyPayload.embeds.push(emperorEmbed);
             }
 
