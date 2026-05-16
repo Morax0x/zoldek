@@ -42,7 +42,7 @@ const DESTINATION_ENEMIES = {
         { name: 'مرتزق الرمال',         hp: 1200, atk: 50,  isBoss: false },
         { name: 'عقرب الكثبان',        hp: 1800, atk: 75,  isBoss: false },
         { name: 'سفاح القوافل',        hp: 2800, atk: 100, isBoss: false },
-        { name: 'طاغية الهجير',         hp: 5000, atk: 150, isBoss: true  },
+        { name: 'طاغية المهجر',         hp: 5000, atk: 150, isBoss: true  },
     ],
     'magic_academy': [
         { name: 'تلميذ مارق',          hp: 800,  atk: 30,  isBoss: false },
@@ -243,32 +243,68 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
     const sel = selectEnemyTarget(enemy, players, caravan);
     const dmg = Math.floor(enemy.atk * (1 + waveNum * 0.03));
 
+    // Calculate multi-target count based on wave number
+    const targetCounts = { 1: 1, 2: 2, 3: 2, 4: 2, 5: 3 };
+    const numTargets = targetCounts[waveNum] || 1;
+
     if (sel.type === 'caravan') {
-        // Mechanic 3: Boss/enemy can crit the caravan (20% chance)
+        // Hit the caravan AND also hit targetCount players simultaneously
         const isCritHit = Math.random() < 0.20;
         const finalDmg  = isCritHit ? Math.floor(dmg * 1.5) : dmg;
         caravan.hp = Math.max(0, caravan.hp - finalDmg);
         if (isCritHit) {
             log.push(`💥 **${enemy.name}** ضرب القافلة بضربة حاسمة! (-${finalDmg} HP) 📦 بضاعة تساقطت!`);
-            caravan.pendingLootDrop = true;   // flag picked up in battle loop
+            caravan.pendingLootDrop = true;
         } else {
             log.push(`🐪 **${enemy.name}** ضرب القافلة! (-${finalDmg} HP)`);
         }
+        // Also hit players (dual attack)
+        const aliveTargets = players.filter(p => !p.isDead);
+        const hitCount = Math.min(numTargets, aliveTargets.length);
+        const shuffled = [...aliveTargets].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < hitCount; i++) {
+            const t = shuffled[i];
+            if (t && !t.isDead) {
+                const playerDmg = Math.floor(dmg * 0.5);
+                const hpBefore = t.hp;
+                const taken    = applyDamageToPlayer(t, playerDmg);
+                if (hpBefore - taken <= 0) { t.hp = 0; t.isDead = true; }
+                log.push(`⚔️ **${enemy.name}** ضرب **${t.name}** (-${taken})`);
+                if (t.isDead) {
+                    log.push(`💀 **${t.name}** سقط مع القافلة!`);
+                    if (t.class === 'Priest') {
+                        players.forEach(a => {
+                            if (!a.isDead) a.hp = Math.min(a.maxHp, a.hp + Math.floor(a.maxHp * 0.20));
+                        });
+                        log.push(`✨ هالة الكاهن المميِّتة: +20% HP للفريق`);
+                    }
+                }
+            }
+        }
     } else {
-        const t = sel.target;
-        if (t && !t.isDead) {
-            const finalDmg = t.defending ? Math.floor(dmg * 0.5) : dmg;
-            const hpBefore = t.hp;
-            const taken    = applyDamageToPlayer(t, finalDmg);
-            // Force death — no 1 HP protection in caravan combat
-            if (hpBefore - taken <= 0) { t.hp = 0; t.isDead = true; }
-            log.push(`⚔️ **${enemy.name}** ضرب **${t.name}** (-${taken})`);
-            if (t.isDead) {
-                log.push(`💀 **${t.name}** سقط!`);
-                // Priest death aura
-                if (t.class === 'Priest') {
-                    players.forEach(a => {
-                        if (!a.isDead) a.hp = Math.min(a.maxHp, a.hp + Math.floor(a.maxHp * 0.20));
+        const aliveTargets = players.filter(p => !p.isDead);
+        const hitCount = Math.min(numTargets, aliveTargets.length);
+        const shuffled = [...aliveTargets].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < hitCount; i++) {
+            const t = shuffled[i];
+            if (t && !t.isDead) {
+                const finalDmg = t.defending ? Math.floor(dmg * 0.5) : dmg;
+                const hpBefore = t.hp;
+                const taken    = applyDamageToPlayer(t, finalDmg);
+                if (hpBefore - taken <= 0) { t.hp = 0; t.isDead = true; }
+                log.push(`⚔️ **${enemy.name}** ضرب **${t.name}** (-${taken})`);
+                if (t.isDead) {
+                    log.push(`💀 **${t.name}** سقط!`);
+                    if (t.class === 'Priest') {
+                        players.forEach(a => {
+                            if (!a.isDead) a.hp = Math.min(a.maxHp, a.hp + Math.floor(a.maxHp * 0.20));
+                        });
+                        log.push(`✨ هالة الكاهن المميِّتة: +20% HP للفريق`);
+                    }
+                }
+            }
+        }
+    }
                     });
                     if (thread) thread.send('✨ **سقط الكاهن — عالج الفريق (+20% HP)**').catch(() => {});
                 }
