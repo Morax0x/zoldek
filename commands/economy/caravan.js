@@ -157,7 +157,7 @@ const activeProcesses = new Set();
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('قافلة')
-        .setDescription('🐪 نظام القوافل — مركز التحكم الكامل'),
+        .setDescription('- مـركـز الـقوافـل 🐪'),
 
     name:     'caravan',
     aliases:  ['قافلة', 'رحلة', 'سفر', 'تجارة', 'caravan'],
