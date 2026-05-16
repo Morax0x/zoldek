@@ -353,27 +353,6 @@ async function finalizeStagedItems(db, caravanId, userId, guildId, member = null
     const staged = await getStagedItemsSafe(db, userId, guildId);
     console.log(`[finalizeStagedItems] caravanId=${caravanId} userId=${userId} staged items: ${staged.length}`);
 
-    // Apply limits if member is available
-    if (member) {
-        const limits = await getMarketSlotLimits(db, userId, guildId, member);
-        const uniqueItems = new Set(staged.map(s => {
-            const idKey = Object.keys(s).find(k => k.toLowerCase() === 'itemid');
-            return idKey ? String(s[idKey]).toLowerCase().trim() : null;
-        }).filter(Boolean));
-        if (uniqueItems.size > limits.general) {
-            return { ok: false, error: `تجاوزت الحد العام للبضائع! يمكنك عرض ${limits.general} نوع (لديك ${uniqueItems.size}).` };
-        }
-        for (const st of staged) {
-            const idKey = Object.keys(st).find(k => k.toLowerCase() === 'itemid');
-            const qtyKey = Object.keys(st).find(k => k.toLowerCase() === 'quantity');
-            const itemId = idKey ? st[idKey] : null;
-            const qty = qtyKey ? Number(st[qtyKey]) : 0;
-            if (itemId && qty > limits.sameType) {
-                return { ok: false, error: `الكمية للعنصر ${resolveItemInfo(itemId)?.name || itemId} (${qty}) تتجاوز الحد الأقصى ${limits.sameType}.` };
-            }
-        }
-    }
-
     let moved = 0;
     for (const st of staged) {
         const idKey    = Object.keys(st).find(k => k.toLowerCase() === 'itemid');

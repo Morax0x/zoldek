@@ -51,6 +51,8 @@ module.exports = {
     buildMarketImage: marketUi.buildMarketImage,
     buildMarketComponents: marketUi.buildMarketComponents,
     handleBuySelect: marketUi.handleBuySelect,
+    handleBuyNow: marketUi.handleBuyNow,
+    handleBuyQuantity: marketUi.handleBuyQuantity,
     handleBuyModalSubmit: marketUi.handleBuyModalSubmit,
     handleRefresh: marketUi.handleRefresh,
     handlePageNav: marketUi.handlePageNav,

@@ -184,6 +184,7 @@ async function handleBuySelect(interaction, client, db, user, guild) {
 
         const info = getItemInfo(listing.itemid || listing.itemID);
         const available = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
+        const price = Number(listing.priceperunit || listing.pricePerUnit);
 
         if (available <= 0) {
             return await interaction.reply({ content: '❌ نفذت الكمية المعروضة!', flags: [MessageFlags.Ephemeral] });
@@ -193,22 +194,131 @@ async function handleBuySelect(interaction, client, db, user, guild) {
             return await interaction.reply({ content: '❌ لا يمكنك شراء بضائع من سوقك الخاص!', flags: [MessageFlags.Ephemeral] });
         }
 
+        const desc = [
+            `**💰 السعر:** ${price.toLocaleString()} ${EMOJI_MORA} / للواحدة`,
+            `**📦 المتاح:** ${available} وحدة`,
+            info.description ? `\n${info.description}` : '',
+        ].join('\n');
+
+        const embed = new EmbedBuilder()
+            .setColor('#00C3FF')
+            .setTitle(`${info.emoji || '📦'} ${info.name}`)
+            .setDescription(desc)
+            .setFooter({ text: '™ Empire | سوق القافلة' });
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`mkt_buy_now_${listingId}`)
+                .setLabel('🛒 شراء 1')
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId(`mkt_buy_qty_${listingId}`)
+                .setLabel('🔢 كمية محددة')
+                .setStyle(ButtonStyle.Primary),
+        );
+
+        await interaction.reply({ embeds: [embed], components: [row], flags: [MessageFlags.Ephemeral] });
+    } catch (err) {
+        console.error('[Buy Select Error]', err);
+        await interaction.reply({ content: `❌ خطأ: ${err.message}`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+    }
+}
+
+async function processBuy(db, user, guild, listingId, qty, interaction) {
+    const listing = await getListingById(db, listingId);
+    if (!listing) {
+        return interaction.editReply({ content: '❌ العنصر لم يعد متوفراً.', embeds: [], components: [] });
+    }
+
+    const available = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
+    if (qty > available) {
+        return interaction.editReply({ content: `❌ الكمية المتبقية هي **${available}** فقط.`, embeds: [], components: [] });
+    }
+
+    if (listing.ownerid === user.id || listing.ownerID === user.id) {
+        return interaction.editReply({ content: '❌ لا يمكنك شراء بضائعك!', embeds: [], components: [] });
+    }
+
+    const pricePerUnit = Number(listing.priceperunit || listing.pricePerUnit);
+    const totalPrice = qty * pricePerUnit;
+
+    const buyerLevel = await safeQuery(db, `SELECT "mora" FROM levels WHERE "user"=$1 AND "guild"=$2`, [user.id, guild.id]);
+    const buyerMora = Number(buyerLevel.rows[0]?.mora || 0);
+
+    if (buyerMora < totalPrice) {
+        return interaction.editReply({
+            content: `❌ رصيدك غير كافٍ.\nالمطلوب: **${totalPrice.toLocaleString()}** ${EMOJI_MORA}\nرصيدك: **${buyerMora.toLocaleString()}** ${EMOJI_MORA}`,
+            embeds: [], components: [],
+        });
+    }
+
+    const ownerId = listing.ownerid || listing.ownerID;
+    const guildId = listing.guildid || listing.guildID;
+
+    const result = await buyItem(db, listingId, user.id, ownerId, guildId, listing.itemid || listing.itemID, qty, pricePerUnit, 'player', interaction.client);
+    if (result.error) {
+        return interaction.editReply({ content: `❌ ${result.error}`, embeds: [], components: [] });
+    }
+
+    const info = getItemInfo(listing.itemid || listing.itemID);
+    await interaction.editReply({
+        embeds: [new EmbedBuilder()
+            .setColor('#00FF88')
+            .setTitle('✅ عملية شراء ناجحة!')
+            .setDescription(
+                `اشتريت **${qty}x ${info.name}**\n` +
+                `السعر الإجمالي: **${totalPrice.toLocaleString()}** ${EMOJI_MORA}\n` +
+                `البائع: <@${ownerId}>`
+            )
+            .setTimestamp()],
+        components: [],
+    });
+
+    const session = await getSessionByThread(db, interaction.channel.id);
+    if (session) {
+        const updatedListings = await getListingsBySession(db, interaction.channel.id);
+        const dest = require('../config').caravanConfig.destinations.find(d => d.id === (session.destinationid || session.destinationId));
+        await updateMarketMessage(interaction.channel, updatedListings, dest);
+    }
+}
+
+async function handleBuyNow(interaction, client, db, user, guild) {
+    try {
+        const listingId = parseInt(interaction.customId.replace('mkt_buy_now_', ''));
+        await interaction.deferUpdate().catch(() => {});
+        await processBuy(db, user, guild, listingId, 1, interaction);
+    } catch (err) {
+        console.error('[Buy Now Error]', err);
+        await interaction.editReply({ content: `❌ خطأ: ${err.message}`, embeds: [], components: [] }).catch(() => {});
+    }
+}
+
+async function handleBuyQuantity(interaction, client, db, user, guild) {
+    try {
+        const listingId = parseInt(interaction.customId.replace('mkt_buy_qty_', ''));
+        const listing = await getListingById(db, listingId);
+        if (!listing) {
+            return interaction.update({ content: '❌ العنصر لم يعد متوفراً.', embeds: [], components: [] });
+        }
+        const info = getItemInfo(listing.itemid || listing.itemID);
+        const available = Number(listing.quantity) - Number(listing.quantitysold || listing.quantitySold || 0);
+
         const modal = new ModalBuilder()
             .setCustomId(`mkt_buy_modal_${listingId}`)
             .setTitle(`شراء: ${info.name}`.substring(0, 45));
 
         const qtyInput = new TextInputBuilder()
             .setCustomId('mkt_buy_qty')
-            .setLabel(`الكمية المطلوبة (المتاح: ${available})`.substring(0, 45))
-            .setPlaceholder(`أدخل الكمية من 1 إلى ${available}`)
+            .setLabel(`الكمية (المتاح: ${available})`.substring(0, 45))
+            .setPlaceholder(`من 1 إلى ${available}`)
             .setStyle(TextInputStyle.Short)
             .setRequired(true);
 
         modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
-
         await interaction.showModal(modal);
     } catch (err) {
-        console.error('[Buy Select Error]', err);
+        console.error('[Buy Quantity Error]', err);
+        await interaction.reply({ content: `❌ خطأ: ${err.message}`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
     }
 }
 
@@ -468,6 +578,8 @@ module.exports = {
     buildMarketComponents,
     updateMarketMessage,
     handleBuySelect,
+    handleBuyNow,
+    handleBuyQuantity,
     handleBuyModalSubmit,
     handleRefresh,
     handlePageNav,

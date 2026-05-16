@@ -17,6 +17,8 @@ const {
     handleBuyModalSubmit,
     handleNewPriceModalSubmit,
     handleBuySelect,
+    handleBuyNow,
+    handleBuyQuantity,
     handleRefresh,
     handlePriceChangeSelect,
 } = require('./handlers/caravan/market/index.js');
@@ -242,9 +244,13 @@ module.exports = (client, db, antiRolesCache) => {
                 } 
                 else if (id.startsWith('pvp_')) {
                     await handlePvpInteraction(i, client, db);
-                } else if (id.startsWith('mkt_buy_select') || id === 'mkt_refresh' || id === 'mkt_page_prev' || id === 'mkt_page_next' || id.startsWith('mkt_price_change_select') || id === 'mkt_owner_price') {
+                } else if (id.startsWith('mkt_buy_select') || id.startsWith('mkt_buy_now_') || id.startsWith('mkt_buy_qty_') || id === 'mkt_refresh' || id === 'mkt_page_prev' || id === 'mkt_page_next' || id.startsWith('mkt_price_change_select') || id === 'mkt_owner_price') {
                     if (id.startsWith('mkt_buy_select')) {
                         await handleBuySelect(i, client, db, i.user, i.guild);
+                    } else if (id.startsWith('mkt_buy_now_')) {
+                        await handleBuyNow(i, client, db, i.user, i.guild);
+                    } else if (id.startsWith('mkt_buy_qty_')) {
+                        await handleBuyQuantity(i, client, db, i.user, i.guild);
                     } else if (id === 'mkt_refresh') {
                         await handleRefresh(i, client, db);
                     } else if (id === 'mkt_page_prev') {
