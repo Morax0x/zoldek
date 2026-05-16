@@ -337,7 +337,6 @@ module.exports = {
                             });
                             activeProcesses.delete(user.id);
                             return;
-                        }
                     }
                     const payload = await sendCanvas(GEN.generateSendMap, [user, stats, mora]);
 
