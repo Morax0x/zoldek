@@ -651,15 +651,17 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
             const qtyKey = Object.keys(existingRow).find(k => k.toLowerCase() === 'quantity');
             const alreadyStaged = Number(existingRow[qtyKey] || 0);
             if (alreadyStaged + qty > limits.sameType) {
+                const free = Math.max(0, limits.sameType - alreadyStaged);
                 return modalSubmit.reply({
-                    content: `❌ تجاوزت حد الكمية لنفس النوع! الحد الأقصى **${limits.sameType}** وحدة (لديك ${alreadyStaged} محجوزة، تحاول إضافة ${qty} أخرى).`,
+                    content: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${free}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.sameType}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !`,
                     flags: [MessageFlags.Ephemeral],
                 });
             }
         } else {
             if (currentStaged.length >= limits.general) {
+                const free = Math.max(0, limits.general - currentStaged.length);
                 return modalSubmit.reply({
-                    content: `❌ وصلت للحد الأقصى من أنواع البضائع! يمكنك عرض **${limits.general}** نوع مختلف كحد أقصى (لديك ${currentStaged.length} نوع حالياً).`,
+                    content: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${free}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !`,
                     flags: [MessageFlags.Ephemeral],
                 });
             }
