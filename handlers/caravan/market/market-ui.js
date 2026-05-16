@@ -1,7 +1,7 @@
 const {
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
-    MessageFlags, AttachmentBuilder, EmbedBuilder
+    MessageFlags, AttachmentBuilder, EmbedBuilder, Colors
 } = require('discord.js');
 const { safeQuery } = require('../db');
 const { EMOJI_MORA } = require('../config');
@@ -194,27 +194,28 @@ async function handleBuySelect(interaction, client, db, user, guild) {
             return await interaction.reply({ content: '❌ لا يمكنك شراء بضائع من سوقك الخاص!', flags: [MessageFlags.Ephemeral] });
         }
 
-        const desc = [
-            `**💰 السعر:** ${price.toLocaleString()} ${EMOJI_MORA} / للواحدة`,
-            `**📦 المتاح:** ${available} وحدة`,
-            info.description ? `\n${info.description}` : '',
-        ].join('\n');
-
         const embed = new EmbedBuilder()
-            .setColor('#00C3FF')
             .setTitle(`${info.emoji || '📦'} ${info.name}`)
-            .setDescription(desc)
-            .setFooter({ text: '™ Empire | سوق القافلة' });
+            .setDescription(`**الوصف:**\n${info.description || 'لا يوجد وصف'}`)
+            .addFields(
+                { name: 'السعر', value: `**${price.toLocaleString()}** ${EMOJI_MORA} / للواحدة`, inline: true },
+                { name: 'المتبقي', value: `**${available}** وحدة`, inline: true }
+            )
+            .setColor(Colors.Gold);
+
+        if (info.imgPath) embed.setThumbnail(info.imgPath);
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`mkt_buy_now_${listingId}`)
-                .setLabel('🛒 شراء 1')
-                .setStyle(ButtonStyle.Success),
+                .setLabel('شراء 1')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('🛒'),
             new ButtonBuilder()
                 .setCustomId(`mkt_buy_qty_${listingId}`)
-                .setLabel('🔢 كمية محددة')
-                .setStyle(ButtonStyle.Primary),
+                .setLabel('كمية محددة')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🔢'),
         );
 
         await interaction.reply({ embeds: [embed], components: [row], flags: [MessageFlags.Ephemeral] });
