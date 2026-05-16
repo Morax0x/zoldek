@@ -80,7 +80,7 @@ function buildLobbyEmbed(hostId, party, partyClasses, destConfig, isAmbush, guil
     const color = isAmbush ? 0xFF4444 : (parseInt(colorMap[destConfig.id]?.replace('#', ''), 16) || 0xFFD700);
     const hostAvatar = guild?.members.cache.get(hostId)?.user.displayAvatarURL() || null;
 
-    let desc = `**القائد:** <@${hostId}>\n**الوجهة:** ${destConfig.emoji || '📍'} ${destConfig.name}\n\n🔮 **تم فتح مسار القافلة!**\nاختر تخصصك واستعد للمعركة.\n\n👥 **الفريق:**\n${memberList}`;
+    let desc = `**القائد:** <@${hostId}>\n**الوجهة:** ${destConfig.emoji || '📍'} ${destConfig.name}\n\nاختر تخصصك واستعد للمعركة.\n\n👥 **الفريق:**\n${memberList}`;
 
     return new EmbedBuilder()
         .setTitle(title)
