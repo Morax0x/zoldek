@@ -397,8 +397,8 @@ function generateRestEmbed(players, caravan, waveNum, destId = null, party = nul
         .setTitle(`☕ استراحة — الموجة ${waveNum}/5 منتهية!`)
         .setImage(destImageUrl)
         .setDescription(
-            `**الموجة القادمة ستبدأ عند الضغط على "استمرار"**\n` +
-            `⚠️ لو انتهى الوقت قبل الضغط ستُعتبر القافلة مفقودة!\n${rewardLine ? `\n${rewardLine}` : ''}`
+            `❖ استـراحـة قبل الانتقـال لوكـر قطاع الطـرق التـالي ..\n\n` +
+            `✦ القرار بيـد قـائد القافلـة الاستـمرار وتأمين الطريق او الانسحاب\n${rewardLine ? `\n${rewardLine}` : ''}`
         )
         .addFields(
             { name: '🐪 صحة القافلّة', value: `${buildHpBar(caravan.hp, caravan.maxHp)} \`[${caravan.hp}/${caravan.maxHp}]\``, inline: false },
