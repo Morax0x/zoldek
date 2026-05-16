@@ -120,14 +120,14 @@ function secondaryRow(hasActiveCaravan = false, disabled = false, userId = null)
 
     if (!hasActiveCaravan) {
         row.addComponents(
-            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('تجهـيز البضاعـة').setEmoji('🏪').setStyle(ButtonStyle.Success).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cv_equip').setLabel('عـتـاد القافلـة').setEmoji('🔮').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('cv_upgrade').setLabel('الترقـيـات').setStyle(ButtonStyle.Secondary).setEmoji('❗').setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cv_market_staging').setLabel('تجهـيز البضاعـة').setEmoji('🏪').setStyle(ButtonStyle.Primary).setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cv_equip').setLabel('عـتـاد القافلـة').setEmoji('🔮').setStyle(ButtonStyle.Success).setDisabled(disabled),
+            new ButtonBuilder().setCustomId('cv_upgrade').setLabel('الترقـيـات').setStyle(ButtonStyle.Secondary).setEmoji('🚀').setDisabled(disabled),
             new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setLabel('رجوع').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
         );
     } else {
         row.addComponents(
-            new ButtonBuilder().setCustomId('cv_upgrade').setLabel('الترقـيـات').setStyle(ButtonStyle.Secondary).setEmoji('❗').setDisabled(disabled)
+            new ButtonBuilder().setCustomId('cv_upgrade').setLabel('الترقـيـات').setStyle(ButtonStyle.Secondary).setEmoji('🚀').setDisabled(disabled)
         );
         if (userId === EMPEROR_ID) {
             row.addComponents(
