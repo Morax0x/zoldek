@@ -203,6 +203,10 @@ async function bootstrap() {
             const { resumeActiveDungeons } = require('./handlers/dungeon-handler.js');
             if (resumeActiveDungeons) await resumeActiveDungeons(client, client.sql);
         } catch(e) {}
+        try { 
+            const { resumeAmbushEncounters } = require('./handlers/caravan/caravan-state.js');
+            if (resumeAmbushEncounters) await resumeAmbushEncounters(client, client.sql);
+        } catch(e) {}
 
         // تسجيل الأوامر في الخلفية لكي لا يعيق تشغيل البوت
         registerCommands().catch(e => console.error('[registerCommands Error]:', e));

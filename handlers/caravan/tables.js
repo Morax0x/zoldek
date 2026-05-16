@@ -54,6 +54,15 @@ async function initCaravanTables(db) {
 
     await safeExecute(db,
         `CREATE INDEX IF NOT EXISTS idx_user_caravans_status ON user_caravans("status")`, []);
+
+    await safeExecute(db, `
+        CREATE TABLE IF NOT EXISTS caravan_battles (
+            "caravanId"  BIGINT PRIMARY KEY,
+            "guildID"    TEXT NOT NULL,
+            "hostID"     TEXT NOT NULL,
+            "threadId"   TEXT NOT NULL,
+            "data"       TEXT NOT NULL
+        )`, []);
 }
 
 async function checkCaravanCooldown(db, userId, guildId) {

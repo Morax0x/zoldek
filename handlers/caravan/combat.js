@@ -567,9 +567,10 @@ async function distributePartyRewards(db, party, guildId, wavesCleared, lootPena
 // ─── Core 5-Wave Battle ───────────────────────────────────────────────────────
 // result: 'win'|'escape'|'lose_players'|'lose_caravan'|'lose_timeout'|'error'
 // isEscort=true → shows escape button in rest phases (pre-emptive escort only)
-async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, isEscort = false, destId = null) {
+async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, isEscort = false, destId = null, startWave = 1, resumeData = null, caravanId = null) {
     const WAVE_ENEMIES = (destId && DESTINATION_ENEMIES[destId]) ? DESTINATION_ENEMIES[destId] : DEFAULT_ENEMIES;
-    
+    const applyAnomaly = !!resumeData;
+
     const players = await setupPlayers(guild, party, partyClasses, db, null, null);
     if (!players.length) {
         await thread.send('❌ فشل في تحميل بيانات اللاعبين.').catch(() => {});
@@ -600,11 +601,47 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         lootPenalty: 0, skipNextEnemyTurn: false, pendingLootDrop: false,
     };
     
+    // Anomaly buffs for resumed battle (time rewind)
+    if (applyAnomaly) {
+        players.forEach(p => {
+            if (!p.isDead) {
+                p.shield = (p.shield || 0) + Math.floor(p.maxHp * 0.5);
+                if (!p.effects) p.effects = [];
+                p.effects.push({ type: 'atk_buff', val: 0.50, turns: 99, anomaly: true });
+            }
+        });
+    }
+
     let wavesCleared = 0;
+
+    // Save initial state for crash recovery
+    if (caravanId) {
+        try {
+            const { saveCaravanBattle } = require('./caravan-state');
+            const initState = {
+                wave: 1,
+                guardIds: party.filter(id => id !== hostId),
+                players: players.map(p => ({
+                    id: p.id, name: p.name, class: p.class,
+                    hp: p.hp, maxHp: p.maxHp, shield: p.shield,
+                    atk: p.atk, isDead: p.isDead,
+                    effects: p.effects?.filter(e => !e.anomaly) || [],
+                    skillCooldowns: p.skillCooldowns || {},
+                    special_cooldown: p.special_cooldown || 0,
+                })),
+                caravan: { hp: caravan.hp, maxHp: caravan.maxHp, lootPenalty: caravan.lootPenalty || 0 },
+                destId,
+            };
+            await saveCaravanBattle(db, caravanId, guild.id, hostId, thread.id, initState);
+        } catch (_) {}
+    }
 
     for (let w = 0; w < WAVE_ENEMIES.length; w++) {
         const def     = WAVE_ENEMIES[w];
         const waveNum = w + 1;
+
+        // Skip waves already cleared (resume from checkpoint)
+        if (waveNum < startWave) { wavesCleared = waveNum; continue; }
         
         // 👑 تطبيق الموازنة الذكية على الأعداء 👑
         const waveDifficulty = 1 + (w * 0.25); // الصعوبة تزيد مع كل موجة
@@ -1023,6 +1060,28 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
         wavesCleared = waveNum;
 
+        // Save state after each wave for crash recovery
+        if (caravanId) {
+            try {
+                const { saveCaravanBattle } = require('./caravan-state');
+                const state = {
+                    wave: waveNum + 1,
+                    guardIds: party.filter(id => id !== hostId),
+                    players: players.map(p => ({
+                        id: p.id, name: p.name, class: p.class,
+                        hp: p.hp, maxHp: p.maxHp, shield: p.shield,
+                        atk: p.atk, isDead: p.isDead,
+                        effects: p.effects?.filter(e => !e.anomaly) || [],
+                        skillCooldowns: p.skillCooldowns || {},
+                        special_cooldown: p.special_cooldown || 0,
+                    })),
+                    caravan: { hp: caravan.hp, maxHp: caravan.maxHp, lootPenalty: caravan.lootPenalty || 0 },
+                    destId,
+                };
+                await saveCaravanBattle(db, caravanId, guild.id, hostId, thread.id, state);
+            } catch (_) {}
+        }
+
         // ── Rest Phase (between waves, not after last) ────────────────────
         if (waveNum < WAVE_ENEMIES.length) {
             const restResult = await doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort, destId);
@@ -1149,10 +1208,13 @@ async function handleAmbushReady(data) {
     const cvRes = await safeQuery(db, `SELECT "destinationId" FROM user_caravans WHERE "id"=$1`, [caravanId]);
     const destId = cvRes?.rows?.[0]?.destinationId || cvRes?.rows?.[0]?.destinationid || null;
 
-    const { result, wavesCleared, lootPenalty = 0 } = await runCaravanBattle(thread, party, partyClasses, db, guild, userId, false, destId).catch(err => {
+    const { result, wavesCleared, lootPenalty = 0 } = await runCaravanBattle(thread, party, partyClasses, db, guild, userId, false, destId, 1, null, caravanId).catch(err => {
         console.error('[AmbushCombat]', err);
         return { result: 'error', wavesCleared: 0, lootPenalty: 0 };
     });
+
+    // Delete saved battle state regardless of outcome
+    try { require('./caravan-state').deleteCaravanBattle(db, caravanId); } catch (_) {}
 
     if (result === 'win') {
         // Mark caravan as survived — trip continues with full rewards
