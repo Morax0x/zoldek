@@ -1,7 +1,7 @@
 const {
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
-    MessageFlags, AttachmentBuilder, EmbedBuilder, Colors
+    MessageFlags, AttachmentBuilder, EmbedBuilder
 } = require('discord.js');
 const { safeQuery } = require('../db');
 const { EMOJI_MORA } = require('../config');
@@ -14,7 +14,7 @@ const {
 } = require('./market-db');
 
 const { getItemInfo } = require('./market-setup');
-const { generateMarketCanvas, ITEMS_PER_PAGE } = require('../../../generators/caravan/market-generator');
+const { generateMarketCanvas, generateMarketItemCard, ITEMS_PER_PAGE } = require('../../../generators/caravan/market-generator');
 
 // Page state: sessionId (threadId) → page number
 const marketPages = new Map();
@@ -194,16 +194,8 @@ async function handleBuySelect(interaction, client, db, user, guild) {
             return await interaction.reply({ content: '❌ لا يمكنك شراء بضائع من سوقك الخاص!', flags: [MessageFlags.Ephemeral] });
         }
 
-        const embed = new EmbedBuilder()
-            .setTitle(`${info.emoji || '📦'} ${info.name}`)
-            .setDescription(`**الوصف:**\n${info.description || 'لا يوجد وصف'}`)
-            .addFields(
-                { name: 'السعر', value: `**${price.toLocaleString()}** ${EMOJI_MORA} / للواحدة`, inline: true },
-                { name: 'المتبقي', value: `**${available}** وحدة`, inline: true }
-            )
-            .setColor(Colors.Gold);
-
-        if (info.imgPath) embed.setThumbnail(info.imgPath);
+        const buffer = await generateMarketItemCard(info, listing);
+        const attachment = new AttachmentBuilder(buffer, { name: 'item.png' });
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -218,7 +210,7 @@ async function handleBuySelect(interaction, client, db, user, guild) {
                 .setEmoji('🔢')] : []),
         );
 
-        await interaction.reply({ embeds: [embed], components: [row], flags: [MessageFlags.Ephemeral] });
+        await interaction.reply({ files: [attachment], components: [row], flags: [MessageFlags.Ephemeral] });
     } catch (err) {
         console.error('[Buy Select Error]', err);
         await interaction.reply({ content: `❌ خطأ: ${err.message}`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
