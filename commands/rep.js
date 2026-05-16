@@ -226,9 +226,21 @@ module.exports = {
             try {
                 await db.query(`UPDATE user_reputation SET "rep_points" = "rep_points" + $1 WHERE "userID" = $2 AND "guildID" = $3`, [repToAdd, targetId, guildId]);
                 await db.query(`UPDATE user_reputation SET "last_rep_given" = $1, "daily_reps_given" = $2, "weekly_reps_given" = "weekly_reps_given" + 1 WHERE "userID" = $3 AND "guildID" = $4`, [todayStr, newDailyRepsGiven, senderId, guildId]);
+                
+                if (targetId === OWNER_ID) {
+                    const empBonus = 1;
+                    await db.query(`UPDATE user_reputation SET "rep_points" = "rep_points" + $1 WHERE "userID" = $2 AND "guildID" = $3`, [empBonus, senderId, guildId]).catch(async () => {
+                        await db.query(`UPDATE user_reputation SET rep_points = rep_points + $1 WHERE userid = $2 AND guildid = $3`, [empBonus, senderId, guildId]).catch(()=>{});
+                    });
+                }
             } catch(e) {
                 await db.query(`UPDATE user_reputation SET rep_points = rep_points + $1 WHERE userid = $2 AND guildid = $3`, [repToAdd, targetId, guildId]);
                 await db.query(`UPDATE user_reputation SET last_rep_given = $1, daily_reps_given = $2, weekly_reps_given = weekly_reps_given + 1 WHERE userid = $3 AND guildid = $4`, [todayStr, newDailyRepsGiven, senderId, guildId]);
+                
+                if (targetId === OWNER_ID) {
+                    const empBonus = 1;
+                    await db.query(`UPDATE user_reputation SET rep_points = rep_points + $1 WHERE userid = $2 AND guildid = $3`, [empBonus, senderId, guildId]).catch(()=>{});
+                }
             }
             await db.query("COMMIT");
         } catch (e) {
@@ -258,17 +270,38 @@ module.exports = {
                 extraMsg = `\n👑 **تزكية النخبة!** لأنك مغامر من الرتبة المرموقة (**${senderRankData.rank}**)، تزكيتك تعادل شهادتين! (+2 🌟)`;
             }
 
-            await message.reply({ content: `<@${targetId}>${extraMsg}`, files: [attachment] });
+            const replyPayload = { content: `<@${targetId}>${extraMsg}`, files: [attachment] };
+
+            if (targetId === OWNER_ID) {
+                const emperorEmbed = new EmbedBuilder()
+                    .setDescription('**✥ تقـبل الامبـراطـور تزكيتك وردهـا لـك**')
+                    .setImage('https://i.postimg.cc/RFVYBqJx/repmorax.png')
+                    .setColor('#FFD700');
+                replyPayload.embeds = [emperorEmbed];
+            }
+
+            await message.reply(replyPayload);
             
         } catch (error) {
             let extraMsg = '';
             if (isMythicVouch) extraMsg = `\n✨ **تزكية أسطورية!** شهادتك تعادل 3 أصوات (+3 🌟)`;
             else if (isEliteVouch) extraMsg = `\n👑 **تزكية النخبة!** شهادتك تعادل صوتين (+2 🌟)`;
             
+            const replyPayload = { embeds: [] };
             const errorEmbed = new EmbedBuilder()
                 .setDescription(`✅ **تم منح السمعة بنجاح!**${extraMsg}`)
                 .setColor(getRandomColor());
-            message.reply({ embeds: [errorEmbed] });
+            replyPayload.embeds.push(errorEmbed);
+
+            if (targetId === OWNER_ID) {
+                const emperorEmbed = new EmbedBuilder()
+                    .setDescription('**✥ تقـبل الامبـراطـور تزكيتك وردهـا لـك**')
+                    .setImage('https://i.postimg.cc/RFVYBqJx/repmorax.png')
+                    .setColor('#FFD700');
+                replyPayload.embeds.push(emperorEmbed);
+            }
+
+            message.reply(replyPayload);
         }
     }
 };
