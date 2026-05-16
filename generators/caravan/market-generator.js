@@ -504,6 +504,7 @@ async function generateMarketItemCard(info, marketData) {
     ctx.moveTo(width - 30, textY);
     ctx.lineTo(textX, textY);
     ctx.stroke();
+    ctx.textAlign = 'right';
     textY += 30;
 
     // Rarity line
@@ -513,7 +514,7 @@ async function generateMarketItemCard(info, marketData) {
     textY += 45;
 
     // Quantity
-    ctx.fillStyle = '#FFD700';
+    ctx.fillStyle = rarityColor;
     ctx.fillText(`الـمـتـبـقـي:  ${available.toLocaleString()}`, width - 30, textY);
     textY += 60;
 
