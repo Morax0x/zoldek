@@ -480,7 +480,7 @@ module.exports = {
 
                     if (result.caravanId) {
                         await finalizeListings(client, db, result.caravanId, user.id, guild.id);
-                        await market.finalizeStagedItems(db, result.caravanId, user.id, guild.id);
+                        await market.finalizeStagedItems(db, result.caravanId, user.id, guild.id, i.member);
                     }
 
                     if (client.caravanEquip) client.caravanEquip.delete(sessionKey);

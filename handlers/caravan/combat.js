@@ -1084,7 +1084,8 @@ async function handleEscortReady(data) {
                 const marketSetup = require('./market/market-setup');
                 const marketDb    = require('./market/market-db');
                 if (cvResult?.caravanId) {
-                    await marketSetup.finalizeStagedItems(db, cvResult.caravanId, hostId, guild.id);
+                    const hostMember = await guild.members.fetch(hostId).catch(() => null);
+                    await marketSetup.finalizeStagedItems(db, cvResult.caravanId, hostId, guild.id, hostMember);
                     escortListings = await marketDb.getListingsByCaravan(db, cvResult.caravanId);
                 }
             } catch(e) { console.error('[FinalizeStagedEscort]', e); }
