@@ -23,8 +23,8 @@ async function buildBattlePayload(players, enemy, caravan, waveNum, log, actedId
     return { files: [], embeds: [generateBattleEmbed(players, enemy, caravan, waveNum, log, actedIds, destId)] };
 }
 
-async function buildRestPayload(players, caravan, waveNum, guild, destId = null) {
-    return { files: [], embeds: [generateRestEmbed(players, caravan, waveNum, destId)] };
+async function buildRestPayload(players, caravan, waveNum, guild, destId = null, party = null) {
+    return { files: [], embeds: [generateRestEmbed(players, caravan, waveNum, destId, party)] };
 }
 
 async function buildResultPayload(result, players, caravan, wavesCleared, rewards, guild) {
@@ -367,7 +367,7 @@ function makeBattleRows(disabled = false, hostId = null, currentPlayerId = null)
     return rows;
 }
 
-function generateRestEmbed(players, caravan, waveNum, destId = null) {
+function generateRestEmbed(players, caravan, waveNum, destId = null, party = null) {
     const folderName = DEST_IMAGE_MAP[destId] || 'gold_city/gold_city.png';
     const destImageUrl = `${R2_BASE}/images/caravan/${folderName}`;
     const embedColor = DEST_COLOR_MAP[destId] || '#4CAF50';
@@ -377,13 +377,28 @@ function generateRestEmbed(players, caravan, waveNum, destId = null) {
         return `**${p.name}** [${CLASS_LABELS[p.class] || p.class}]\n${hpBar}`;
     }).join('\n\n');
 
+    let rewardLine = '';
+    if (party && waveNum > 0) {
+        let totalMora = 0, totalChests = 0, totalRep = 0;
+        for (let w = 0; w < Math.min(waveNum, WAVE_REWARD_DELTAS.length); w++) {
+            totalMora   += WAVE_REWARD_DELTAS[w].mora;
+            totalChests += WAVE_REWARD_DELTAS[w].chests;
+            totalRep    += WAVE_REWARD_DELTAS[w].rep;
+        }
+        const parts = [];
+        if (totalMora   > 0) parts.push(`${totalMora.toLocaleString()} ${EMOJI_MORA}`);
+        if (totalChests > 0) parts.push(`${totalChests} 🎁`);
+        if (totalRep    > 0) parts.push(`${totalRep} ✨ سمعة`);
+        if (parts.length) rewardLine = `🎯 المكافآت المتراكمة: ${parts.join(' | ')}`;
+    }
+
     return new EmbedBuilder()
         .setColor(embedColor)
         .setTitle(`☕ استراحة — الموجة ${waveNum}/5 منتهية!`)
         .setImage(destImageUrl)
         .setDescription(
             `**الموجة القادمة ستبدأ عند الضغط على "استمرار"**\n` +
-            `⚠️ لو انتهى الوقت قبل الضغط ستُعتبر القافلة مفقودة!\n`
+            `⚠️ لو انتهى الوقت قبل الضغط ستُعتبر القافلة مفقودة!\n${rewardLine ? `\n${rewardLine}` : ''}`
         )
         .addFields(
             { name: '🐪 صحة القافلّة', value: `${buildHpBar(caravan.hp, caravan.maxHp)} \`[${caravan.hp}/${caravan.maxHp}]\``, inline: false },
@@ -450,8 +465,8 @@ function makeRestRows(isEscort = false) {
 
 // ─── Rest Phase ───────────────────────────────────────────────────────────────
 // Returns 'continue' | 'timeout' | 'escape'
-async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort = false, destId = null) {
-    const restPayload = await buildRestPayload(players, caravan, waveNum, guild, destId);
+async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort = false, destId = null, party = null) {
+    const restPayload = await buildRestPayload(players, caravan, waveNum, guild, destId, party);
     const restMsg = await thread.send({ ...restPayload, components: makeRestRows(isEscort) }).catch(() => null);
     if (!restMsg) return 'timeout';
 
@@ -594,7 +609,7 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                         } else {
                             await sel.editReply({ content: '✅ استُخدمت الجرعة.', components: [] }).catch(() => {});
                         }
-                        const updatedRestPayload = await buildRestPayload(players, caravan, waveNum, guild, destId);
+                        const updatedRestPayload = await buildRestPayload(players, caravan, waveNum, guild, destId, party);
                         await restMsg.edit({ ...updatedRestPayload }).catch(() => {});
                     }
                 }
@@ -1214,7 +1229,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 
         // ── Rest Phase (between waves, not after last) ────────────────────
         if (waveNum < WAVE_ENEMIES.length) {
-            const restResult = await doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort, destId);
+            const restResult = await doRestPhase(thread, players, caravan, waveNum, hostId, db, guild, isEscort, destId, party);
             if (restResult === 'escape') {
                 await thread.send('🏃 **القائد قرر الانسحاب — المعركة توقفت والقافلة واصلة!**').catch(() => {});
                 return { result: 'escape', wavesCleared };
@@ -1281,7 +1296,8 @@ async function handleEscortReady(data) {
 
             const eta = Math.floor((cvResult.endTime || 0) / 1000);
 
-            const destImgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${dest.id}.png`;
+            const folderName = DEST_IMAGE_MAP[dest.id] || 'gold_city/gold_city.png';
+            const destImgUrl = `${R2_BASE}/images/caravan/${folderName}`;
             const escortEmbed = new EmbedBuilder()
                 .setColor(dest.color || '#00FF88')
                 .setTitle(result === 'escape' ? '❖ انسـحـاب - نصـف الطريـق مؤمـن' : '❖ تـم تـأمين الطريق بالكامـل')
@@ -1299,7 +1315,8 @@ async function handleEscortReady(data) {
         const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
                      : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
                      : '☠️ سقط كل الحراس!';
-        const destImgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${dest.id}.png`;
+        const folderName2 = DEST_IMAGE_MAP[dest.id] || 'gold_city/gold_city.png';
+        const destImgUrl = `${R2_BASE}/images/caravan/${folderName2}`;
         const failEmbed = new EmbedBuilder()
             .setColor(dest.color || '#FF4444')
             .setTitle('💀 فشل التأمين!')
@@ -1357,7 +1374,8 @@ async function handleAmbushReady(data) {
         const rewardRes = await distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty);
 
         const ambDest = caravanConfig.destinations.find(d => d.id === destId) || {};
-        const ambDestImgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${destId}.png`;
+        const ambFolderName = DEST_IMAGE_MAP[destId] || 'gold_city/gold_city.png';
+        const ambDestImgUrl = `${R2_BASE}/images/caravan/${ambFolderName}`;
         const winEmbed = new EmbedBuilder()
             .setColor(ambDest.color || '#00FF88')
             .setTitle('❖ تـم تـأمين الطريق بالكامـل')
@@ -1382,7 +1400,8 @@ async function handleAmbushReady(data) {
                      : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
                      : '☠️ سقط كل الحراس!';
         const ambDest = caravanConfig.destinations.find(d => d.id === destId) || {};
-        const ambDestImgUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${destId}.png`;
+        const ambFolderName2 = DEST_IMAGE_MAP[destId] || 'gold_city/gold_city.png';
+        const ambDestImgUrl = `${R2_BASE}/images/caravan/${ambFolderName2}`;
         const loseEmbed = new EmbedBuilder()
             .setColor(ambDest.color || '#FF4444')
             .setTitle('💀 فشلت الحراسة — القافلة نُهبت!')
