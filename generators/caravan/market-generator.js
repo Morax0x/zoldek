@@ -352,8 +352,8 @@ function drawOrnateFrame(ctx, x, y, w, h, color) {
     ctx.shadowBlur = 0;
 }
 
-// ── wrapText (exact copy from inventory-generator) ──
-function wrapText(ctx, text, maxWidth) {
+// ── localWrap (like inventory-generator's wrapText but avoids name clash) ──
+function localWrap(ctx, text, maxWidth) {
     const words = text.split('\n');
     const lines = [];
     for (const word of words) {
@@ -544,7 +544,7 @@ async function generateMarketItemCard(info, marketData) {
     ctx.fillStyle = '#A8B8D0';
     ctx.font = '24px "Bein", "Emoji"';
     const description = info.description ? info.description.replace(/[\u{1F600}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FADF}\u{1F004}-\u{1F0CF}\u{2B00}-\u{2BFF}₿🪙]/gu, '').trim() : "عنصر غامض لا يُعرف عنه الكثير.. قد يكون له استخدام سري في الإمبراطورية!";
-    const lines = wrapText(ctx, description, descBoxW - 40);
+    const lines = localWrap(ctx, description, descBoxW - 40);
 
     for (let j = 0; j < lines.length; j++) {
         ctx.fillText(lines[j], width - 30 - 20, descBoxY + 20 + (j * 40));
