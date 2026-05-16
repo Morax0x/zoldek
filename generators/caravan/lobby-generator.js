@@ -1,17 +1,21 @@
 const {
     createCanvas, loadImage, W, H, C, FA, FE,
     drawBg, drawHeader, drawCornerAccents, drawPanel,
-    toBuf, R, M, L, rr, divLine
+    fetchImageSafe, toBuf, R, M, L, rr, divLine
 } = require('./shared');
 
-// دالة مساعدة لجلب الصور الخارجية (مثل الأفاتار وصور المدن)
+const _absImgCache = new Map();
 async function fetchAbsoluteImage(url) {
+    if (!url) return null;
+    if (_absImgCache.has(url)) return _absImgCache.get(url);
     try {
         const res = await fetch(url);
-        if (!res.ok) return null;
+        if (!res.ok) { _absImgCache.set(url, null); return null; }
         const buf = await res.arrayBuffer();
-        return await loadImage(Buffer.from(buf));
-    } catch { return null; }
+        const img = await loadImage(Buffer.from(buf));
+        _absImgCache.set(url, img);
+        return img;
+    } catch { _absImgCache.set(url, null); return null; }
 }
 
 // ============================================================================
@@ -100,6 +104,11 @@ async function generateLobbyImage(hostId, party, partyClasses, destConfig, isAmb
 
     const members = await Promise.all(party.map(uid => guild.members.fetch(uid).catch(() => null)));
 
+    // Preload all avatar images in parallel
+    const avatarImgs = await Promise.allSettled(members.map(mem =>
+        mem ? fetchAbsoluteImage(mem.user.displayAvatarURL({ extension: 'png', size: 256 })) : Promise.resolve(null)
+    ));
+
     for (let i = 0; i < 3; i++) {
         const cx = startX + i * (boxW + gap);
         const isFilled = i < party.length;
@@ -117,8 +126,8 @@ async function generateLobbyImage(hostId, party, partyClasses, destConfig, isAmb
 
             let avatarImg = null;
             if (mem) {
-                const avaUrl = mem.user.displayAvatarURL({ extension: 'png', size: 256 });
-                avatarImg = await fetchAbsoluteImage(avaUrl);
+                const avaResult = avatarImgs[i];
+                if (avaResult.status === 'fulfilled') avatarImg = avaResult.value;
             }
 
             const avaSize = 160;
@@ -174,8 +183,15 @@ async function generateDestChoiceImage(dest, mora) {
     const canvas = createCanvas(W, H); // 1600x900
     const ctx = canvas.getContext('2d');
 
+    // Parallel preload: bg + destination image at the same time
+    const destUrl = `https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${dest.id}.png`;
+    await Promise.allSettled([
+        fetchImageSafe('journeymap'),
+        fetchAbsoluteImage(destUrl),
+    ]);
+
     try {
-        await drawBg(ctx, 'journeymap'); 
+        await drawBg(ctx, 'journeymap');
     } catch(e) {
         ctx.fillStyle = '#05050A'; ctx.fillRect(0, 0, W, H);
     }
@@ -189,7 +205,7 @@ async function generateDestChoiceImage(dest, mora) {
     const LX = 80, LY = 180, LW = 650, LH = 640;
     drawPanel(ctx, LX, LY, LW, LH, acc, { radius: 32 });
 
-    const destImg = await fetchAbsoluteImage(`https://pub-d042f26f54cd4b60889caff0b496a614.r2.dev/images/destinations/${dest.id}.png`);
+    const destImg = await fetchAbsoluteImage(destUrl);
 
     if (destImg) {
         ctx.save();

@@ -317,10 +317,11 @@ module.exports = {
                 }
                 
                 else if (id === 'cv_send') {
-                    const [active, mora, stats] = await Promise.all([
+                    const [active, mora, stats, cd] = await Promise.all([
                         getActiveCaravan(db, user.id, guild.id),
                         getMora(db, user.id, guild.id),
                         getUserCaravanStats(db, user.id, guild.id),
+                        user.id !== EMPEROR_ID ? checkCaravanCooldown(db, user.id, guild.id) : Promise.resolve(null),
                     ]);
                     if (active) {
                         await i.followUp({ content: '❌ لديك رحلة نشطة بالفعل!', flags: [MessageFlags.Ephemeral] });
@@ -328,9 +329,7 @@ module.exports = {
                         return;
                     }
 
-                    if (user.id !== EMPEROR_ID) {
-                        const cd = await checkCaravanCooldown(db, user.id, guild.id);
-                        if (cd.onCooldown) {
+                    if (user.id !== EMPEROR_ID && cd?.onCooldown) {
                             const ts = Math.floor(cd.expiresAt / 1000);
                             await i.followUp({
                                 content: `⏳ قافلتك دُمِّرت مؤخراً!\nيمكنك إرسال قافلة جديدة <t:${ts}:R>.`,
@@ -479,17 +478,20 @@ module.exports = {
                         return;
                     }
 
-                    const deductResult = await safeExecute(db, `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [dest.cost, user.id, guild.id]);
+                    const sessionKey = `${user.id}-${guild.id}`;
+                    const savedArts  = client.caravanEquip?.get(sessionKey) || [];
+                    const channelId = i.message ? i.message.channelId : i.channelId;
+
+                    const [deductResult, result] = await Promise.all([
+                        safeExecute(db, `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [dest.cost, user.id, guild.id]),
+                        sendCaravan(db, user.id, guild.id, destId, savedArts, channelId),
+                    ]);
+
                     if (!deductResult) {
                         await i.followUp({ content: '❌ فشل خصم الرصيد!', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
-
-                    const sessionKey = `${user.id}-${guild.id}`;
-                    const savedArts  = client.caravanEquip?.get(sessionKey) || [];
-                    const channelId = i.message ? i.message.channelId : i.channelId;
-                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
 
                     if (result.error) {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
@@ -497,12 +499,12 @@ module.exports = {
                         return;
                     }
 
+                    if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
+
                     if (result.caravanId) {
                         await finalizeListings(client, db, result.caravanId, user.id, guild.id);
                         await market.finalizeStagedItems(db, result.caravanId, user.id, guild.id, i.member);
                     }
-
-                    if (client.caravanEquip) client.caravanEquip.delete(sessionKey);
 
                     const listings = result.caravanId
                         ? await market.getListingsByCaravan(db, result.caravanId)

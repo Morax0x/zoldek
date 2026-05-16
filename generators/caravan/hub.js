@@ -14,14 +14,17 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
 
-    // Preload ALL images in parallel (1.5s timeout each, max ~1.5s total instead of ~32s sequential)
+    // Preload ALL images in parallel (avatar, bg, minimap, camel, destination)
     const destId = active?.destinationid || active?.destinationId || '';
-    await Promise.allSettled([
+    const avUrl = user.displayAvatarURL({ extension: 'png', size: 256 });
+    const preloaded = await Promise.allSettled([
         fetchImageSafe('hubbg'),
         fetchImageSafe('minimap'),
         fetchImageSafe('camel'),
         ...(destId ? [fetchImageSafe(destId)] : []),
+        loadImage(avUrl).catch(() => null),
     ]);
+    const preloadedAvatar = preloaded[preloaded.length - 1].status === 'fulfilled' ? preloaded[preloaded.length - 1].value : null;
 
     await drawBg(ctx, 'hubbg');
     await drawHeader(ctx, 'مركز القوافل');
@@ -44,13 +47,15 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     drawPanel(ctx, LX, LY, LW, LH, rank.color);
 
     try {
-        const av = await loadImage(user.displayAvatarURL({ extension: 'png', size: 256 }));
-        ctx.save();
-        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 90, 65, 0, Math.PI * 2); ctx.clip();
-        ctx.drawImage(av, LX + LW / 2 - 65, LY + 25, 130, 130);
-        ctx.restore();
-        ctx.strokeStyle = rank.color; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 90, 65, 0, Math.PI * 2); ctx.stroke();
+        const av = preloadedAvatar || await loadImage(avUrl).catch(() => null);
+        if (av) {
+            ctx.save();
+            ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 90, 65, 0, Math.PI * 2); ctx.clip();
+            ctx.drawImage(av, LX + LW / 2 - 65, LY + 25, 130, 130);
+            ctx.restore();
+            ctx.strokeStyle = rank.color; ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.arc(LX + LW / 2, LY + 90, 65, 0, Math.PI * 2); ctx.stroke();
+        }
     } catch {}
 
     rr(ctx, LX + 20, LY + 20, 80, 40, 12);
