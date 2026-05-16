@@ -267,6 +267,25 @@ async function processBuy(db, user, guild, listingId, qty, interaction) {
         components: [],
     });
 
+    // Notify seller
+    try {
+        const seller = await interaction.client.users.fetch(ownerId);
+        await seller.send({
+            embeds: [new EmbedBuilder()
+                .setColor('#FFA500')
+                .setTitle('📦 تم شراء منتجك!')
+                .setDescription(
+                    `المشتري: <@${user.id}>\n` +
+                    `المنتج: **${qty}x ${info.name}**\n` +
+                    `الإجمالي: **${totalPrice.toLocaleString()}** ${EMOJI_MORA}\n` +
+                    `السوق: <#${interaction.channel.id}>`
+                )
+                .setTimestamp()]
+        });
+    } catch (_) {
+        // seller has DMs disabled, ignore
+    }
+
     const session = await getSessionByThread(db, interaction.channel.id);
     if (session) {
         const updatedListings = await getListingsBySession(db, interaction.channel.id);
