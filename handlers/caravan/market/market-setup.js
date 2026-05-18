@@ -208,9 +208,9 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
     if (updated) return { ok: true };
 
     try {
-        await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]);
+        await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userID","guildID","itemID") DO UPDATE SET "quantity" = EXCLUDED."quantity"`, [userId, guildId, itemId, quantity, price]);
     } catch(e) {
-        await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5)`, [userId, guildId, itemId, quantity, price]).catch(()=>{});
+        await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (userid, guildid, itemid) DO UPDATE SET quantity = EXCLUDED.quantity`, [userId, guildId, itemId, quantity, price]).catch(()=>{});
     }
     return { ok: true };
 }
@@ -383,6 +383,10 @@ async function finalizeStagedItems(db, caravanId, userId, guildId, member = null
         console.log(`[finalizeStagedItems] INSERT itemId=${itemId} qty=${qty} price=${price} ok=${ok}`);
         if (ok !== false) moved++;
     }
+
+    // 🧹 مسح البضائع من سلة التجهيز بعد نقلها للسوق
+    await db.query(`DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]).catch(()=>{});
+    await db.query(`DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]).catch(()=>{});
 
     return { ok: true, moved };
 }

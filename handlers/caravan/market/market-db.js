@@ -150,14 +150,15 @@ async function stagingRemoveItem(db, userId, guildId, itemId, quantity) {
         VALUES ($1,$2,$3,$4)
         ON CONFLICT ("userID","guildID","itemID")
         DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $4
-    `, [userId, guildId, itemId, quantity]);
-
-    await safeExecute(db, `
-        INSERT INTO user_inventory (userid, guildid, itemid, quantity)
-        VALUES ($1,$2,$3,$4)
-        ON CONFLICT (userid, guildid, itemid)
-        DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $4
-    `, [userId, guildId, itemId, quantity]).catch(()=>{});
+    `, [userId, guildId, itemId, quantity]).catch(() => {
+        // Fallback if quoted columns fail
+        return safeExecute(db, `
+            INSERT INTO user_inventory (userid, guildid, itemid, quantity)
+            VALUES ($1,$2,$3,$4)
+            ON CONFLICT (userid, guildid, itemid)
+            DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $4
+        `, [userId, guildId, itemId, quantity]);
+    });
 
     return { ok: true };
 }
@@ -507,20 +508,21 @@ async function returnUnsoldItems(db, ownerId, guildId) {
                 VALUES ($1,$2,$3,$4)
                 ON CONFLICT ("guildID","userID","itemID")
                 DO UPDATE SET "quantity" = COALESCE(user_inventory."quantity", 0) + $4
-            `, [guildId, ownerId, itemId, qty]);
-            
-            await safeExecute(db, `
-                INSERT INTO user_inventory (guildid, userid, itemid, quantity)
-                VALUES ($1,$2,$3,$4)
-                ON CONFLICT (guildid, userid, itemid)
-                DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $4
-            `, [guildId, ownerId, itemId, qty]).catch(()=>{});
+            `, [guildId, ownerId, itemId, qty]).catch(() => {
+                return safeExecute(db, `
+                    INSERT INTO user_inventory (guildid, userid, itemid, quantity)
+                    VALUES ($1,$2,$3,$4)
+                    ON CONFLICT (guildid, userid, itemid)
+                    DO UPDATE SET quantity = COALESCE(user_inventory.quantity, 0) + $4
+                `, [guildId, ownerId, itemId, qty]);
+            });
         }
     }
 
     // فورمات كامل للسلة حقته 
-    await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [ownerId, guildId]);
-    await safeExecute(db, `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [ownerId, guildId]).catch(()=>{});
+    await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [ownerId, guildId]).catch(() => {
+        return safeExecute(db, `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [ownerId, guildId]);
+    });
 
     return returned;
 }

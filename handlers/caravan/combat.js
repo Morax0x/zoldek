@@ -1294,7 +1294,9 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
 // ─── Escort Event Handler ─────────────────────────────────────────────────────
 // Fires after caravan-lobby emits 'caravan_escort_ready'
 async function handleEscortReady(data) {
-    const { thread, party, partyClasses, guild, dest, destId, hostId, channel, hubMsg, db, getMora, showHub } = data;
+    const { thread, party, partyClasses, guild, dest, destId, hostId, channel, hubMsg, db, getMora, showHub, client } = data;
+    const sessionKey = `${hostId}-${guild.id}`;
+    const savedArts  = client?.caravanEquip?.get(sessionKey) || [];
     const guards = party.filter(id => id !== hostId);
 
     const { result, wavesCleared, lootPenalty = 0 } = await runCaravanBattle(thread, party, partyClasses, db, guild, hostId, true, destId).catch(err => {
@@ -1322,7 +1324,7 @@ async function handleEscortReady(data) {
                 `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`,
                 [dest.cost, hostId, guild.id]);
             // Pass channel.id so the arrival checker knows where to open the market thread
-            cvResult = await sendCaravan(db, hostId, guild.id, destId, [], channel?.id || null);
+            cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
             // Mark route as permanently secured — no ambush will fire
             if (cvResult?.caravanId) {
                 await safeExecute(db,
