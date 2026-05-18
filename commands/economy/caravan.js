@@ -572,6 +572,13 @@ module.exports = {
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
                     if (!dest) { activeProcesses.delete(user.id); return; }
 
+                    const alreadyActive = await getActiveCaravan(db, user.id, guild.id);
+                    if (alreadyActive) {
+                        await i.followUp({ content: '❌ لديك رحلة نشطة بالفعل!', flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+
                     const sessionKey = `${user.id}-${guild.id}`;
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     const channelId = i.message ? i.message.channelId : i.channelId;

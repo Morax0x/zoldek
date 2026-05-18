@@ -550,7 +550,7 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                                 components: [shopRow],
                                 ephemeral: true,
                             });
-                            const buySel = await shopMsg.awaitMessageComponent({ time: 15000 });
+                            const buySel = await shopMsg.awaitMessageComponent({ filter: x => x.user.id === i.user.id, time: 15000 });
                             await buySel.deferUpdate().catch(() => {});
                             const itemID = buySel.values[0];
                             const targetItem = potionItems.find(x => x.id === itemID);
@@ -1037,7 +1037,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                                         content: `💰 **متجر الجرعات السريع**\nرصيدك الحالي: **${Number(currentMora).toLocaleString()}** ${EMOJI_MORA}\nاختر الجرعة التي تريد شراءها:`,
                                         components: [shopRow], ephemeral: true,
                                     });
-                                    const buySel = await shopMsg.awaitMessageComponent({ time: 15000 });
+                                    const buySel = await shopMsg.awaitMessageComponent({ filter: x => x.user.id === pid, time: 15000 });
                                     await buySel.deferUpdate().catch(() => {});
                                     const itemID = buySel.values[0];
                                     const targetItem = potionItems.find(x => x.id === itemID);

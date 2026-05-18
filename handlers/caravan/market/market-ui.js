@@ -229,7 +229,7 @@ async function handleBuySelect(interaction, client, db, user, guild) {
         await interaction.reply({ files: [attachment], components: [row], flags: [MessageFlags.Ephemeral] });
     } catch (err) {
         console.error('[Buy Select Error]', err);
-        await interaction.reply({ content: `❌ خطأ: ${err.message}`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+        await interaction.reply({ content: '❌ حدث خطأ أثناء معالجة الطلب.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
     }
 }
 
@@ -318,7 +318,7 @@ async function handleBuyNow(interaction, client, db, user, guild) {
         await processBuy(db, user, guild, listingId, 1, interaction);
     } catch (err) {
         console.error('[Buy Now Error]', err);
-        await interaction.editReply({ content: `❌ خطأ: ${err.message}`, embeds: [], components: [] }).catch(() => {});
+        await interaction.editReply({ content: '❌ حدث خطأ أثناء معالجة الطلب.', embeds: [], components: [] }).catch(() => {});
     }
 }
 
@@ -347,7 +347,7 @@ async function handleBuyQuantity(interaction, client, db, user, guild) {
         await interaction.showModal(modal);
     } catch (err) {
         console.error('[Buy Quantity Error]', err);
-        await interaction.reply({ content: `❌ خطأ: ${err.message}`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
+        await interaction.reply({ content: '❌ حدث خطأ أثناء معالجة الطلب.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
     }
 }
 
