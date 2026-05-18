@@ -3,7 +3,7 @@
 const path = require('path');
 const {
     ComponentType, MessageFlags,
-    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder,
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
 } = require('discord.js');
 
@@ -1454,7 +1454,18 @@ async function handleAmbushReady(data) {
             );
         await thread.send({ embeds: [winEmbed] }).catch(() => {});
 
-        await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
+        try {
+            const { generateDefenseSuccessImage } = require('../../generators/caravan/lobby-generator');
+            const defenseImg = await generateDefenseSuccessImage(ambDest, wavesCleared, rewardRes, party, guild);
+            if (defenseImg) {
+                const attach = [new AttachmentBuilder(defenseImg, { name: 'defense_success.png' })];
+                await channel.send({ content: `<@${userId}>`, files: attach }).catch(() => {});
+            } else {
+                await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
+            }
+        } catch {
+            await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
+        }
     } else {
         // Battle lost → apply 1-hour cooldown to owner
         await setCaravanCooldown(db, userId, guildId).catch(() => {});
