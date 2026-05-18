@@ -9,7 +9,7 @@ const {
 const { safeQuery, safeExecute } = require('./db');
 const { caravanConfig } = require('./config');
 const { manageTickets } = require('../dungeon/utils.js');
-const { setCaravanCooldown } = require('./tables');
+
 
 const { generateAmbushAlertImage } = require('../../generators/caravan/lobby-generator');
 
@@ -265,7 +265,6 @@ async function sendAmbushNotification(client, db, caravan) {
             await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1`, [caravanId]);
             await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "caravanId"=$1 AND "status"='active'`, [caravanId]).catch(() => {});
             await safeExecute(db, `UPDATE caravan_market_sessions SET "status"='closed' WHERE "caravanId"=$1 AND "status"='open'`, [caravanId]).catch(() => {});
-            await setCaravanCooldown(db, userId, guildId).catch(() => {});
             lobbyResult.thread?.delete('فشل الدفاع').catch(() => {});
             let resultImg;
             try {
@@ -293,7 +292,6 @@ async function sendAmbushNotification(client, db, caravan) {
         // تنظيف بيانات السوق المرتبطة بالقافلة المدمرة
         await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "caravanId"=$1 AND "status"='active'`, [caravanId]).catch(() => {});
         await safeExecute(db, `UPDATE caravan_market_sessions SET "status"='closed' WHERE "caravanId"=$1 AND "status"='open'`, [caravanId]).catch(() => {});
-        await setCaravanCooldown(db, userId, guildId).catch(() => {});
         let resultImg;
         try {
             const { generateAmbushResultImage } = require('../../generators/caravan/lobby-generator');

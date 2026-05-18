@@ -11,7 +11,7 @@ const fs   = require('fs');
 const {
     caravanConfig, getUserCaravanStats,
     getActiveCaravan, sendCaravan, upgradeCaravan, setupCaravanChecker,
-    checkCaravanCooldown, safeQuery, safeExecute, EMOJI_MORA,
+    safeQuery, safeExecute, EMOJI_MORA,
     startEscortLobby, registerCombatListeners,
     finalizeListings,
     } = require('../../handlers/caravan/index.js');
@@ -125,7 +125,7 @@ function adminRow(disabled = false) {
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('cv_adm_ff').setLabel('⏩ تسريع الرحلة').setStyle(ButtonStyle.Primary).setDisabled(disabled),
         new ButtonBuilder().setCustomId('cv_adm_ambush').setLabel('⚔️ فرض كمين').setStyle(ButtonStyle.Danger).setDisabled(disabled),
-        new ButtonBuilder().setCustomId('cv_adm_cooldown').setLabel('🔄 مسح الكولداون').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+
         new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
     );
 }
@@ -399,38 +399,16 @@ module.exports = {
                     await showHub(hubMsg);
                 }
 
-                else if (id === 'cv_adm_cooldown') {
-                    await safeExecute(db,
-                        `UPDATE user_caravan_stats SET "cooldown_until" = 0 WHERE "userID" = $1 AND "guildID" = $2`,
-                        [user.id, guild.id]);
-                    await i.followUp({
-                        content: '🔄 **تم مسح الكولداون!** يمكنك إرسال قافلة جديدة فوراً.',
-                        flags: [MessageFlags.Ephemeral]
-                    });
-                    await showHub(hubMsg);
-                }
-                
                 else if (id === 'cv_send') {
-                    const [active, mora, stats, cd] = await Promise.all([
+                    const [active, mora, stats] = await Promise.all([
                         getActiveCaravan(db, user.id, guild.id),
                         getMora(db, user.id, guild.id),
                         getUserCaravanStats(db, user.id, guild.id),
-                        user.id !== EMPEROR_ID ? checkCaravanCooldown(db, user.id, guild.id) : Promise.resolve(null),
                     ]);
                     if (active) {
                         await i.followUp({ content: '❌ لديك رحلة نشطة بالفعل!', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
-                    }
-
-                    if (user.id !== EMPEROR_ID && cd?.onCooldown) {
-                            const ts = Math.floor(cd.expiresAt / 1000);
-                            await i.followUp({
-                                content: `⏳ قافلتك دُمِّرت مؤخراً!\nيمكنك إرسال قافلة جديدة <t:${ts}:R>.`,
-                                flags: [MessageFlags.Ephemeral],
-                            });
-                            activeProcesses.delete(user.id);
-                            return;
                     }
                     const payload = await sendCanvas(GEN.generateSendMap, [user, stats, mora]);
 

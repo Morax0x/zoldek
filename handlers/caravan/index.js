@@ -25,8 +25,6 @@ module.exports = {
 
     // tables
     initCaravanTables:    tables.initCaravanTables,
-    checkCaravanCooldown: tables.checkCaravanCooldown,
-    setCaravanCooldown:   tables.setCaravanCooldown,
 
     // stats
     getUserCaravanStats: stats.getUserCaravanStats,
