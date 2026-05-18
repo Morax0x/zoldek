@@ -15,7 +15,7 @@ const { generateAmbushAlertImage } = require('../../generators/caravan/lobby-gen
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LOBBY_TIMEOUT_MS = 5 * 60 * 1000;
-const AMBUSH_WINDOW_MS = 10 * 60 * 1000;
+const AMBUSH_WINDOW_MS = 15 * 60 * 1000;
 const MAX_PARTY        = 3;
 
 const CLASS_OPTIONS = [

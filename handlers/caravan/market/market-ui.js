@@ -296,7 +296,8 @@ async function processBuy(db, user, guild, listingId, qty, interaction) {
                     `الإجمالي: **${totalPrice.toLocaleString()}** ${EMOJI_MORA}\n` +
                     `السوق: <#${interaction.channel.id}>`
                 )
-                .setTimestamp()]
+                .setTimestamp()
+                .setThumbnail(user.displayAvatarURL())]
         });
     } catch (_) {
         // seller has DMs disabled, ignore

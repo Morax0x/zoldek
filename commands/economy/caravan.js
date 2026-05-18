@@ -154,6 +154,37 @@ function secondaryRow(hasActiveCaravan = false, disabled = false, userId = null)
     return row;
 }
 
+async function buildActiveCaravanPage(rows, page, totalPages) {
+    const PER_PAGE = 8;
+    const start = (page - 1) * PER_PAGE;
+    const end = start + PER_PAGE;
+    const pageRows = rows.slice(start, end);
+    const fields = await Promise.all(pageRows.map(async r => {
+        const dest = caravanConfig.destinations.find(d => d.id === (r.destinationid || r.destinationId));
+        const remaining = Math.max(0, r.endTime - Date.now());
+        const total = r.endTime - r.startTime;
+        const pct = total > 0 ? ((1 - remaining / total) * 100).toFixed(0) : 0;
+        const eta = `<t:${Math.floor(r.endTime / 1000)}:R>`;
+        const underAttack = Number(r.attackResolved ?? 0) === 0
+            && r.attackScheduledAt
+            && Number(r.attackScheduledAt) > 0
+            && r.attackScheduledAt <= Date.now();
+        const status = underAttack ? '⚔️ تحت الهجوم' : `✅ ${pct}%`;
+        const threadLink = r.marketChannelId ? ` (<#${r.marketChannelId}>)` : '';
+        return {
+            name: `${dest?.emoji || '🐪'} ${dest?.name || 'غير معروفة'}`,
+            value: `<@${r.userID}> — ${status} — ${eta}${threadLink}\n`,
+            inline: false,
+        };
+    }));
+    return new EmbedBuilder()
+        .setColor('#F5C518')
+        .setTitle(`🐪 القوافل النشطة — ${rows.length}`)
+        .addFields(fields)
+        .setFooter({ text: `™ Empire — الصفحة ${page}/${totalPages}` })
+        .setTimestamp();
+}
+
 async function sendCanvas(fn, args, content = '') {
     try {
         if (typeof fn !== 'function') throw new Error('no fn');
@@ -298,7 +329,7 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            const fastButtons = new Set(['cv_admin_toggle', 'cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2', 'cv_active']);
+            const fastButtons = new Set(['cv_admin_toggle', 'cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2', 'cv_active', 'cv_active_prev', 'cv_active_next']);
 
             if (!fastButtons.has(i.customId) && !i.customId.startsWith('stg_')) {
                 if (activeProcesses.has(user.id)) {
@@ -954,32 +985,35 @@ module.exports = {
                         await i.followUp({ content: '📭 لا توجد قوافل نشطة حالياً.', flags: [MessageFlags.Ephemeral] });
                         return;
                     }
-                    const fields = await Promise.all(rows.map(async r => {
-                        const dest = caravanConfig.destinations.find(d => d.id === (r.destinationid || r.destinationId));
-                        const remaining = Math.max(0, r.endTime - Date.now());
-                        const total = r.endTime - r.startTime;
-                        const pct = total > 0 ? ((1 - remaining / total) * 100).toFixed(0) : 0;
-                        const eta = `<t:${Math.floor(r.endTime / 1000)}:R>`;
-                        const underAttack = Number(r.attackResolved ?? 0) === 0
-                            && r.attackScheduledAt
-                            && Number(r.attackScheduledAt) > 0
-                            && r.attackScheduledAt <= Date.now();
-                        const status = underAttack ? '⚔️ تحت الهجوم' : `✅ ${pct}%`;
-                        return {
-                            name: `${dest?.emoji || '🐪'} ${dest?.name || 'غير معروفة'}`,
-                            value: `<@${r.userID}> — ${status} — ${eta}`,
-                            inline: false,
-                        };
-                    }));
-                    await i.followUp({
-                        embeds: [new EmbedBuilder()
-                            .setColor('#F5C518')
-                            .setTitle(`🐪 القوافل النشطة — ${rows.length}`)
-                            .addFields(fields)
-                            .setFooter({ text: '™ Empire' })
-                            .setTimestamp()],
-                        flags: [MessageFlags.Ephemeral],
-                    });
+                    if (!client.caravanActiveCache) client.caravanActiveCache = new Map();
+                    const cacheKey = `${user.id}-${guild.id}`;
+                    const PER_PAGE = 8;
+                    const totalPages = Math.ceil(rows.length / PER_PAGE);
+                    const state = { rows, page: 1, totalPages };
+                    client.caravanActiveCache.set(cacheKey, state);
+                    const embed = await buildActiveCaravanPage(rows, 1, totalPages);
+                    const pageRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('cv_active_prev').setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(true),
+                        new ButtonBuilder().setCustomId('cv_active_next').setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(totalPages <= 1)
+                    );
+                    const ephemMsg = await i.followUp({ embeds: [embed], components: [pageRow], flags: [MessageFlags.Ephemeral], fetchReply: true }).catch(() => null);
+                    state.ephemMsgId = ephemMsg?.id;
+                }
+
+                else if (id === 'cv_active_prev' || id === 'cv_active_next') {
+                    if (!client.caravanActiveCache) return;
+                    const cacheKey = `${user.id}-${guild.id}`;
+                    const state = client.caravanActiveCache.get(cacheKey);
+                    if (!state) return;
+                    state.page += id === 'cv_active_next' ? 1 : -1;
+                    state.page = Math.max(1, Math.min(state.page, state.totalPages));
+                    const embed = await buildActiveCaravanPage(state.rows, state.page, state.totalPages);
+                    const pageRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('cv_active_prev').setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(state.page <= 1),
+                        new ButtonBuilder().setCustomId('cv_active_next').setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(state.page >= state.totalPages)
+                    );
+                    await i.editReply({ embeds: [embed], components: [pageRow] }).catch(() => {});
+                    return;
                 }
 
                 else if (id === 'cv_back') {
