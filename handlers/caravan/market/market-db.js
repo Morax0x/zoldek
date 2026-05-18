@@ -187,22 +187,16 @@ async function getStagedItems(db, userId, guildId) {
 async function finalizeStagedItems(db, caravanId, userId, guildId) {
     if (!caravanId) return { ok: false, error: 'caravanId is null' };
 
-    console.log(`[MarketDB] Finalizing staged items for caravan ${caravanId}, user ${userId}...`);
-
     const existing = await getListingsByCaravan(db, caravanId);
     if (existing.length > 0) return { ok: true, moved: existing.length };
 
-    // 👑 التأكد من جلب البضائع اللي كميتها أكبر من الصفر فقط
     let stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "quantity" > 0`, [userId, guildId]);
     if (!stagedRes || !stagedRes.rows || stagedRes.rows.length === 0) {
         stagedRes = await safeQuery(db, `SELECT * FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND quantity > 0`, [userId, guildId]);
     }
     const staged = stagedRes?.rows || [];
 
-    if (staged.length === 0) {
-        console.log(`[MarketDB] No staged items found for user ${userId}.`);
-        return { ok: true, moved: 0 };
-    }
+    if (staged.length === 0) return { ok: true, moved: 0 };
 
     const { resolveItemInfo } = require('./market-setup');
 
@@ -230,7 +224,9 @@ async function finalizeStagedItems(db, caravanId, userId, guildId) {
         if (listingId) moved++;
     }
 
-    console.log(`[MarketDB] Successfully created ${moved} listings for caravan ${caravanId}.`);
+    if (moved > 0) {
+        await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
+    }
     return { ok: true, moved };
 }
 
