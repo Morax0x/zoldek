@@ -170,7 +170,7 @@ async function buildActiveCaravanPage(rows, page, totalPages) {
             && Number(r.attackScheduledAt) > 0
             && r.attackScheduledAt <= Date.now();
         const status = underAttack ? '⚔️ تحت الهجوم' : `✅ ${pct}%`;
-        const threadLink = r.marketChannelId ? ` (<#${r.marketChannelId}>)` : '';
+        const threadLink = r.marketThreadId ? ` (<#${r.marketThreadId}>)` : '';
         return {
             name: `${dest?.emoji || '🐪'} ${dest?.name || 'غير معروفة'}`,
             value: `<@${r.userID}> — ${status} — ${eta}${threadLink}\n`,
@@ -978,7 +978,9 @@ module.exports = {
 
                 else if (id === 'cv_active') {
                     const caravansRes = await safeQuery(db,
-                        `SELECT * FROM user_caravans WHERE "guildID"=$1 AND "status"!='completed' ORDER BY "startTime" DESC`,
+                        `SELECT c.*, s."threadId" as "marketThreadId" FROM user_caravans c
+                         LEFT JOIN caravan_market_sessions s ON c."id" = s."caravanId" AND s."status"='open'
+                         WHERE c."guildID"=$1 AND c."status"!='completed' ORDER BY c."startTime" DESC`,
                         [guild.id]);
                     const rows = caravansRes?.rows || [];
                     if (rows.length === 0) {
