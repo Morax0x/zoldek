@@ -336,13 +336,17 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
 
         if (buyerMora < totalPrice) return { error: 'رصيدك من المورا غير كافٍ لإتمام الشراء.' };
 
-        let dbUpdated = false;
         try {
-            let r = await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) - $1 WHERE "user"=$2 AND "guild"=$3 RETURNING *`, [totalPrice, buyerId, guildId]);
-            if (r.rowCount > 0) dbUpdated = true;
-        } catch(e) {}
-        if (!dbUpdated) {
-            await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) - $1 WHERE userid=$2 AND guildid=$3`, [totalPrice, buyerId, guildId]).catch(()=>{});
+            const r = await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) - $1 WHERE "user"=$2 AND "guild"=$3 AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1 RETURNING *`, [totalPrice, buyerId, guildId]);
+            if (!r?.rows?.length) {
+                const r2 = await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) - $1 WHERE userid=$2 AND guildid=$3 AND CAST(COALESCE(mora,'0') AS BIGINT) >= $1 RETURNING *`, [totalPrice, buyerId, guildId]).catch(() => ({ rows: [] }));
+                if (!r2?.rows?.length) return { error: 'فشل خصم المورا — رصيد غير كافٍ.' };
+            }
+        } catch(e) {
+            try {
+                const r2 = await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) - $1 WHERE userid=$2 AND guildid=$3 AND CAST(COALESCE(mora,'0') AS BIGINT) >= $1 RETURNING *`, [totalPrice, buyerId, guildId]).catch(() => ({ rows: [] }));
+                if (!r2?.rows?.length) return { error: 'فشل خصم المورا — رصيد غير كافٍ.' };
+            } catch { return { error: 'فشل خصم المورا.' }; }
         }
         
         if (client && typeof client.getLevel === 'function') {

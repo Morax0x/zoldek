@@ -1320,9 +1320,14 @@ async function handleEscortReady(data) {
             await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة!\n🎟️ تم إرجاع التذاكر للحراس.`).catch(() => {});
         } else {
             const { sendCaravan } = require('./journey');
-            await safeExecute(db,
-                `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`,
-                [dest.cost, hostId, guild.id]);
+            const deductRes = await db.query(
+                `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3 AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1 RETURNING "mora"`,
+                [dest.cost, hostId, guild.id]).catch(() => ({ rows: [] }));
+            if (!deductRes?.rows?.length) {
+                for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+                await thread.send(`❌ <@${hostId}> فشل خصم ${dest.cost.toLocaleString()} مورا!`).catch(() => {});
+                return;
+            }
             // Pass channel.id so the arrival checker knows where to open the market thread
             cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
             // Mark route as permanently secured — no ambush will fire

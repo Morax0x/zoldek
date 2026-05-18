@@ -576,16 +576,20 @@ module.exports = {
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     const channelId = i.message ? i.message.channelId : i.channelId;
 
-                    const [deductResult, result] = await Promise.all([
-                        safeExecute(db, `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [dest.cost, user.id, guild.id]),
-                        sendCaravan(db, user.id, guild.id, destId, savedArts, channelId),
-                    ]);
+                    let deductResult;
+                    try {
+                        const dr = await db.query(`UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3 AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1 RETURNING "mora"`,
+                            [dest.cost, user.id, guild.id]);
+                        deductResult = dr?.rows?.length > 0;
+                    } catch { deductResult = false; }
 
                     if (!deductResult) {
-                        await i.followUp({ content: '❌ فشل خصم الرصيد!', flags: [MessageFlags.Ephemeral] });
+                        await i.followUp({ content: `❌ فشل خصم ${dest.cost.toLocaleString()} مورا!`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
+
+                    const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
 
                     if (result.error) {
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
