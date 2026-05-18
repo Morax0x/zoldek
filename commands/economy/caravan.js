@@ -112,7 +112,22 @@ function navRow(hasActiveCaravan = false, disabled = false, userId = null) {
         new ButtonBuilder().setCustomId('cv_menu_toggle').setEmoji('❗').setStyle(ButtonStyle.Danger).setDisabled(disabled)
     );
 
+    if (userId === EMPEROR_ID) {
+        row.addComponents(
+            new ButtonBuilder().setCustomId('cv_admin_toggle').setEmoji('👑').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+        );
+    }
+
     return row;
+}
+
+function adminRow(disabled = false) {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('cv_adm_ff').setLabel('⏩ تسريع الرحلة').setStyle(ButtonStyle.Primary).setDisabled(disabled),
+        new ButtonBuilder().setCustomId('cv_adm_ambush').setLabel('⚔️ فرض كمين').setStyle(ButtonStyle.Danger).setDisabled(disabled),
+        new ButtonBuilder().setCustomId('cv_adm_cooldown').setLabel('🔄 مسح الكولداون').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+        new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
+    );
 }
 
 function secondaryRow(hasActiveCaravan = false, disabled = false, userId = null) {
@@ -129,11 +144,6 @@ function secondaryRow(hasActiveCaravan = false, disabled = false, userId = null)
         row.addComponents(
             new ButtonBuilder().setCustomId('cv_upgrade').setLabel('الترقـيـات').setStyle(ButtonStyle.Danger).setEmoji('🚀').setDisabled(disabled)
         );
-        if (userId === EMPEROR_ID) {
-            row.addComponents(
-                new ButtonBuilder().setCustomId('cv_fastforward').setLabel('⏩ تسريع الرحلة').setStyle(ButtonStyle.Danger).setDisabled(disabled)
-            );
-        }
         row.addComponents(
             new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setLabel('رجوع').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
         );
@@ -286,7 +296,7 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            const fastButtons = new Set(['cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2']);
+            const fastButtons = new Set(['cv_admin_toggle', 'cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2']);
 
             if (!fastButtons.has(i.customId) && !i.customId.startsWith('stg_')) {
                 if (activeProcesses.has(user.id)) {
@@ -315,6 +325,56 @@ module.exports = {
                         content: '⏩ ⏳ **تم التلاعب بالزمن!** قافلتك وصلت للتو. (انتظر ثواني قليلة ليقوم فاحص البوت بتوزيع الأرباح وبيع البضائع وإشعارك بالوصول).', 
                         flags: [MessageFlags.Ephemeral] 
                     });
+                }
+
+                else if (id === 'cv_admin_toggle') {
+                    await hubMsg.edit({ components: [adminRow(false)] }).catch(() => {});
+                }
+
+                else if (id === 'cv_adm_ff') {
+                    const targetTime = Date.now() - 60000;
+                    await safeExecute(db,
+                        `UPDATE user_caravans SET "endTime" = $1 WHERE "userID" = $2 AND "status" = 'traveling'`,
+                        [targetTime, user.id]);
+                    await i.followUp({
+                        content: '⏩ ⏳ **تم تسريع الرحلة!** قافلتك في انتظار وصولها.',
+                        flags: [MessageFlags.Ephemeral]
+                    });
+                    await showHub(hubMsg);
+                }
+
+                else if (id === 'cv_adm_ambush') {
+                    const activeCv = await getActiveCaravan(db, user.id, guild.id);
+                    if (!activeCv) {
+                        await i.followUp({ content: '❌ لا توجد رحلة نشطة.', flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+                    const hasGuard = activeCv.guardmessageid || activeCv.guardMessageId;
+                    if (hasGuard) {
+                        await i.followUp({ content: '❌ الكمين قد بدأ بالفعل عبر قاعة الحراسة.', flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+                    await safeExecute(db,
+                        `UPDATE user_caravans SET "attackScheduledAt" = $1, "attackResolved" = 0 WHERE "userID" = $2 AND "status" = 'traveling'`,
+                        [Date.now() - 1000, user.id]);
+                    await i.followUp({
+                        content: '⚔️ **تم فرض الكمين!** سيتم الهجوم على قافلتك حالاً.',
+                        flags: [MessageFlags.Ephemeral]
+                    });
+                    await showHub(hubMsg);
+                }
+
+                else if (id === 'cv_adm_cooldown') {
+                    await safeExecute(db,
+                        `UPDATE user_caravan_stats SET "cooldown_until" = 0 WHERE "userID" = $1 AND "guildID" = $2`,
+                        [user.id, guild.id]);
+                    await i.followUp({
+                        content: '🔄 **تم مسح الكولداون!** يمكنك إرسال قافلة جديدة فوراً.',
+                        flags: [MessageFlags.Ephemeral]
+                    });
+                    await showHub(hubMsg);
                 }
                 
                 else if (id === 'cv_send') {
