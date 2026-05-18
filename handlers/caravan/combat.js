@@ -1320,12 +1320,20 @@ async function handleEscortReady(data) {
             await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة!\n🎟️ تم إرجاع التذاكر للحراس.`).catch(() => {});
         } else {
             const { sendCaravan } = require('./journey');
-            const deductRes = await db.query(
-                `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3 AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1 RETURNING "mora"`,
-                [dest.cost, hostId, guild.id]).catch(() => ({ rows: [] }));
-            if (!deductRes?.rows?.length) {
+            const currentMora = await getMora(db, hostId, guild.id);
+            if (currentMora < dest.cost) {
                 for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-                await thread.send(`❌ <@${hostId}> فشل خصم ${dest.cost.toLocaleString()} مورا!`).catch(() => {});
+                await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة! (تحتاج ${dest.cost.toLocaleString()} مورا)`).catch(() => {});
+                return;
+            }
+            const newBalance = currentMora - dest.cost;
+            await safeExecute(db, `UPDATE levels SET "mora"=$1 WHERE "user"=$2 AND "guild"=$3`, [newBalance, hostId, guild.id]);
+            // تأكيد الخصم
+            const confirmMora = await getMora(db, hostId, guild.id);
+            if (confirmMora > newBalance) {
+                console.error(`[Escort] Mora deduction FAILED for ${hostId}: expected ${newBalance} got ${confirmMora}`);
+                for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+                await thread.send(`❌ <@${hostId}> فشل تأكيد خصم الرصيد!`).catch(() => {});
                 return;
             }
             // Pass channel.id so the arrival checker knows where to open the market thread

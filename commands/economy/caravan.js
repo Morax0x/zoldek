@@ -576,15 +576,26 @@ module.exports = {
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     const channelId = i.message ? i.message.channelId : i.channelId;
 
-                    let deductResult;
-                    try {
-                        const dr = await db.query(`UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3 AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1 RETURNING "mora"`,
-                            [dest.cost, user.id, guild.id]);
-                        deductResult = dr?.rows?.length > 0;
-                    } catch { deductResult = false; }
-
-                    if (!deductResult) {
-                        await i.followUp({ content: `❌ فشل خصم ${dest.cost.toLocaleString()} مورا!`, flags: [MessageFlags.Ephemeral] });
+                    // قراءة الرصيد الحالي والتحقق منه
+                    const currentMora = await getMora(db, user.id, guild.id);
+                    if (currentMora < dest.cost) {
+                        await i.followUp({ content: `❌ لا تملك ${dest.cost.toLocaleString()} مورا للإرسال! (رصيدك: ${currentMora.toLocaleString()})`, flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+                    // خصم الرصيد بشكل مباشر
+                    const newBalance = currentMora - dest.cost;
+                    const deductDone = await safeExecute(db, `UPDATE levels SET "mora"=$1 WHERE "user"=$2 AND "guild"=$3`, [newBalance, user.id, guild.id]);
+                    if (!deductDone) {
+                        await i.followUp({ content: `❌ فشل خصم الرصيد!`, flags: [MessageFlags.Ephemeral] });
+                        activeProcesses.delete(user.id);
+                        return;
+                    }
+                    // تأكيد الخصم بقراءة الرصيد بعد التحديث
+                    const confirmMora = await getMora(db, user.id, guild.id);
+                    if (confirmMora > currentMora - dest.cost) {
+                        console.error(`[Caravan] Mora deduction FAILED for ${user.id}: expected ${currentMora - dest.cost} got ${confirmMora}`);
+                        await i.followUp({ content: `❌ فشل تأكيد خصم الرصيد!`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }

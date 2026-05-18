@@ -336,23 +336,14 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
 
         if (buyerMora < totalPrice) return { error: 'رصيدك من المورا غير كافٍ لإتمام الشراء.' };
 
-        try {
-            const r = await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) - $1 WHERE "user"=$2 AND "guild"=$3 AND CAST(COALESCE("mora",'0') AS BIGINT) >= $1 RETURNING *`, [totalPrice, buyerId, guildId]);
-            if (!r?.rows?.length) {
-                const r2 = await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) - $1 WHERE userid=$2 AND guildid=$3 AND CAST(COALESCE(mora,'0') AS BIGINT) >= $1 RETURNING *`, [totalPrice, buyerId, guildId]).catch(() => ({ rows: [] }));
-                if (!r2?.rows?.length) return { error: 'فشل خصم المورا — رصيد غير كافٍ.' };
-            }
-        } catch(e) {
-            try {
-                const r2 = await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) - $1 WHERE userid=$2 AND guildid=$3 AND CAST(COALESCE(mora,'0') AS BIGINT) >= $1 RETURNING *`, [totalPrice, buyerId, guildId]).catch(() => ({ rows: [] }));
-                if (!r2?.rows?.length) return { error: 'فشل خصم المورا — رصيد غير كافٍ.' };
-            } catch { return { error: 'فشل خصم المورا.' }; }
-        }
-        
+        const newBuyerBalance = buyerMora - totalPrice;
+        const buyerDeducted = await safeExecute(db, `UPDATE levels SET "mora"=$1 WHERE "user"=$2 AND "guild"=$3`, [newBuyerBalance, buyerId, guildId]);
+        if (!buyerDeducted) return { error: 'فشل خصم المورا.' };
+
         if (client && typeof client.getLevel === 'function') {
             try {
                 let u = await client.getLevel(buyerId, guildId);
-                if (u) { u.mora = String(Number(u.mora || 0) - totalPrice); await client.setLevel(u); }
+                if (u) { u.mora = String(newBuyerBalance); await client.setLevel(u); }
             } catch(e) {}
         }
     }
