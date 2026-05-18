@@ -87,54 +87,62 @@ async function getFilteredInventoryCategories(db, userId, guildId) {
 // [2] الخصم الذكي من المخزون (بالضبط كما طلبته من الكود الخاص بك)
 // ============================================================================
 async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDeduct) {
-    let res = await safeQuery(db, `SELECT * FROM user_inventory WHERE "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
-    if (!res || !res.rows || res.rows.length === 0) {
-        res = await safeQuery(db, `SELECT * FROM user_inventory WHERE userid = $1 AND guildid = $2`, [userId, guildId]);
-        if (!res || !res.rows) return false;
-    }
-
     const targetId = String(itemId).toLowerCase().trim();
-    
-    let itemRows = res.rows.filter(r => {
-        const idKey = Object.keys(r).find(k => k.toLowerCase() === 'itemid');
-        return idKey && String(r[idKey]).toLowerCase().trim() === targetId;
-    });
+    try {
+        await db.query('BEGIN');
+        const lockRes = await db.query(`SELECT "id","itemID","quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 FOR UPDATE`, [userId, guildId]);
+        if (!lockRes?.rows?.length) { await db.query('ROLLBACK'); return false; }
 
-    let totalAvailable = itemRows.reduce((sum, r) => {
-        const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
-        return sum + (qtyKey ? Number(r[qtyKey]) : 0);
-    }, 0);
-
-    if (totalAvailable < quantityToDeduct) return false;
-
-    let remaining = quantityToDeduct;
-
-    for (let r of itemRows) {
-        if (remaining <= 0) break;
-        const qtyKey = Object.keys(r).find(k => k.toLowerCase() === 'quantity');
-        const rowIdKey = Object.keys(r).find(k => k.toLowerCase() === 'id');
-        const q = qtyKey ? Number(r[qtyKey]) : 0;
-        if (q <= 0) continue;
-        
-        const deduct = Math.min(q, remaining);
-        const rowId = rowIdKey ? r[rowIdKey] : null;
-        
-        if (rowId) {
-            try { 
-                await db.query(`UPDATE user_inventory SET "quantity" = CAST(COALESCE("quantity", '0') AS INTEGER) - $1 WHERE "id" = $2`, [deduct, rowId]); 
-            } catch(e) { 
-                await db.query(`UPDATE user_inventory SET quantity = CAST(COALESCE(quantity, '0') AS INTEGER) - $1 WHERE id = $2`, [deduct, rowId]).catch(()=>{}); 
-            }
-        } else {
-            await safeExecute(db, `UPDATE user_inventory SET quantity = quantity - $1 WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4`, [deduct, userId, guildId, itemId]);
+        let itemRows = [];
+        for (const r of lockRes.rows) {
+            const idStr = String(r.itemid ?? r.itemID ?? '').toLowerCase().trim();
+            if (idStr === targetId) itemRows.push(r);
         }
-        remaining -= deduct;
-    }
+        let totalAvailable = itemRows.reduce((s, r) => s + Number(r.quantity ?? 0), 0);
+        if (totalAvailable < quantityToDeduct) { await db.query('ROLLBACK'); return false; }
 
-    try { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE("quantity", '0') AS INTEGER) <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]); } 
-    catch(e) { await db.query(`DELETE FROM user_inventory WHERE CAST(COALESCE(quantity, '0') AS INTEGER) <= 0 AND userid = $1 AND guildid = $2`, [userId, guildId]).catch(()=>{}); }
-    
-    return remaining === 0;
+        let remaining = quantityToDeduct;
+        for (const r of itemRows) {
+            if (remaining <= 0) break;
+            const q = Number(r.quantity ?? 0);
+            if (q <= 0) continue;
+            const deduct = Math.min(q, remaining);
+            await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [deduct, r.id]);
+            remaining -= deduct;
+        }
+        await db.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        await db.query('COMMIT');
+        return remaining === 0;
+    } catch(e) {
+        await db.query('ROLLBACK').catch(() => {});
+        const fallback = await tryFallbackDeduct(db, userId, guildId, itemId, targetId, quantityToDeduct);
+        return fallback;
+    }
+}
+
+// Fallback for legacy DB with lowercase/case-sensitive columns
+async function tryFallbackDeduct(db, userId, guildId, itemId, targetId, quantityToDeduct) {
+    try {
+        const lockRes = await db.query(`SELECT id,itemid,quantity FROM user_inventory WHERE userid=$1 AND guildid=$2 FOR UPDATE`, [userId, guildId]);
+        if (!lockRes?.rows?.length) return false;
+        let itemRows = lockRes.rows.filter(r => String(r.itemid ?? '').toLowerCase().trim() === targetId);
+        let totalAvailable = itemRows.reduce((s, r) => s + Number(r.quantity ?? 0), 0);
+        if (totalAvailable < quantityToDeduct) return false;
+        let remaining = quantityToDeduct;
+        for (const r of itemRows) {
+            if (remaining <= 0) break;
+            const q = Number(r.quantity ?? 0);
+            if (q <= 0) continue;
+            const deduct = Math.min(q, remaining);
+            await db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [deduct, r.id]);
+            remaining -= deduct;
+        }
+        await db.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1 AND guildid = $2`, [userId, guildId]);
+        return remaining === 0;
+    } catch(e) {
+        console.error('[safeDeductFromInventory] fallback failed:', e?.message);
+        return false;
+    }
 }
 
 // ============================================================================
@@ -181,6 +189,10 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
         if (stagedCount >= limits.general) {
             console.log(`[stagingAddItemSafe] BLOCKED by general: ${stagedCount} >= ${limits.general}`);
             return { ok: false, error: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${Math.max(0, limits.general - stagedCount)}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !` };
+        }
+        if (quantity > limits.sameType) {
+            console.log(`[stagingAddItemSafe] BLOCKED by sameType (new item): ${quantity} > ${limits.sameType}`);
+            return { ok: false, error: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !` };
         }
     }
     console.log(`[stagingAddItemSafe] PASSED limit check`);
@@ -376,14 +388,30 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
     const listings = getMarketListingsCache(client, userId, guildId);
     if (!listings || listings.length === 0) return { ok: true, listings: [] };
 
-    const dbListings = [];
-    for (const listing of listings) {
-        const listingId = await createListing(db, caravanId, userId, guildId, listing);
-        if (listingId) dbListings.push({ ...listing, listingId });
+    try {
+        await db.query('BEGIN');
+        const exist = await db.query(`SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1 FOR UPDATE`, [caravanId]);
+        if (exist.rows.length > 0) {
+            console.log(`[finalizeListings] caravanId=${caravanId} already has listings — skipped`);
+            clearMarketListingsCache(client, userId, guildId);
+            await db.query('COMMIT');
+            return { ok: true, listings: [], skipped: true };
+        }
+        const dbListings = [];
+        for (const listing of listings) {
+            const listingId = await createListing(db, caravanId, userId, guildId, listing);
+            if (listingId) dbListings.push({ ...listing, listingId });
+        }
+        await db.query('COMMIT');
+        if (dbListings.length > 0) await lockItemsFromInventory(db, guildId, userId, dbListings);
+        clearMarketListingsCache(client, userId, guildId);
+        return { ok: true, listings: dbListings };
+    } catch(e) {
+        await db.query('ROLLBACK').catch(() => {});
+        clearMarketListingsCache(client, userId, guildId);
+        console.error('[finalizeListings] transaction failed:', e?.message);
+        return { ok: false, listings: [] };
     }
-    if (dbListings.length > 0) await lockItemsFromInventory(db, guildId, userId, dbListings);
-    clearMarketListingsCache(client, userId, guildId);
-    return { ok: true, listings: dbListings };
 }
 
 async function finalizeStagedItems(db, caravanId, userId, guildId, member = null) {
@@ -392,44 +420,53 @@ async function finalizeStagedItems(db, caravanId, userId, guildId, member = null
         return { ok: false, moved: 0 };
     }
 
-    const existCheck = await safeQuery(db,
-        `SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1`,
-        [caravanId]);
-    if (existCheck.rows.length > 0) {
-        console.log(`[finalizeStagedItems] caravanId=${caravanId} already has listings — skipped`);
-        return { ok: true, moved: 0, skipped: true };
+    // Transaction with lock to prevent concurrent finalization
+    try {
+        await db.query('BEGIN');
+        const exist = await db.query(`SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1 FOR UPDATE`, [caravanId]);
+        if (exist.rows.length > 0) {
+            console.log(`[finalizeStagedItems] caravanId=${caravanId} already has listings — skipped`);
+            await db.query('COMMIT');
+            return { ok: true, moved: 0, skipped: true };
+        }
+
+        const staged = await getStagedItemsSafe(db, userId, guildId);
+        console.log(`[finalizeStagedItems] caravanId=${caravanId} userId=${userId} staged items: ${staged.length}`);
+
+        let moved = 0;
+        for (const st of staged) {
+            const idKey    = Object.keys(st).find(k => k.toLowerCase() === 'itemid');
+            const qtyKey   = Object.keys(st).find(k => k.toLowerCase() === 'quantity');
+            const priceKey = Object.keys(st).find(k => k.toLowerCase() === 'priceperunit');
+
+            const itemId = idKey    ? st[idKey]            : null;
+            const qty    = qtyKey   ? Number(st[qtyKey])   : 0;
+            const price  = priceKey ? Number(st[priceKey]) : 0;
+
+            if (!itemId || qty <= 0) continue;
+
+            const itemInfo = resolveItemInfo(itemId);
+            const now = Date.now();
+
+            try {
+                await db.query(`INSERT INTO caravan_market_listings
+                    ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji",
+                     "quantity","pricePerUnit","quantitySold","status","createdAt")
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`,
+                [caravanId, userId, guildId, itemId, itemInfo.name || itemId, itemInfo.emoji || '📦', qty, price, now]);
+                moved++;
+            } catch(e) {
+                console.error(`[finalizeStagedItems] INSERT failed for itemId=${itemId}:`, e?.message);
+            }
+        }
+
+        await db.query('COMMIT');
+        return { ok: true, moved };
+    } catch(e) {
+        await db.query('ROLLBACK').catch(() => {});
+        console.error('[finalizeStagedItems] transaction failed:', e?.message);
+        return { ok: false, moved: 0 };
     }
-
-    const staged = await getStagedItemsSafe(db, userId, guildId);
-    console.log(`[finalizeStagedItems] caravanId=${caravanId} userId=${userId} staged items: ${staged.length}`);
-
-    let moved = 0;
-    for (const st of staged) {
-        const idKey    = Object.keys(st).find(k => k.toLowerCase() === 'itemid');
-        const qtyKey   = Object.keys(st).find(k => k.toLowerCase() === 'quantity');
-        const priceKey = Object.keys(st).find(k => k.toLowerCase() === 'priceperunit');
-
-        const itemId = idKey    ? st[idKey]            : null;
-        const qty    = qtyKey   ? Number(st[qtyKey])   : 0;
-        const price  = priceKey ? Number(st[priceKey]) : 0;
-
-        if (!itemId || qty <= 0) continue;
-
-        const itemInfo = resolveItemInfo(itemId);
-        const now = Date.now();
-
-        const ok = await safeExecute(db,
-            `INSERT INTO caravan_market_listings
-                ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji",
-                 "quantity","pricePerUnit","quantitySold","status","createdAt")
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`,
-            [caravanId, userId, guildId, itemId, itemInfo.name || itemId, itemInfo.emoji || '📦', qty, price, now]);
-
-        console.log(`[finalizeStagedItems] INSERT itemId=${itemId} qty=${qty} price=${price} ok=${ok}`);
-        if (ok !== false) moved++;
-    }
-
-    return { ok: true, moved };
 }
 
 // ============================================================================
@@ -714,6 +751,13 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
                 const free = Math.max(0, limits.general - stagedCount);
                 return modalSubmit.reply({
                     content: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${free}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !`,
+                    flags: [MessageFlags.Ephemeral],
+                });
+            }
+            if (qty > limits.sameType) {
+                console.log(`[handleStageModalSubmit] BLOCKED by sameType (new item): ${qty} > ${limits.sameType}`);
+                return modalSubmit.reply({
+                    content: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !`,
                     flags: [MessageFlags.Ephemeral],
                 });
             }

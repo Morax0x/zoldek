@@ -572,9 +572,9 @@ module.exports = {
                     const dest   = caravanConfig.destinations.find(d => d.id === destId);
                     if (!dest) { activeProcesses.delete(user.id); return; }
 
-                    const mora   = await getMora(db, user.id, guild.id);
-                    if (mora < dest.cost) {
-                        await i.followUp({ content: `❌ تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA}. رصيدك: **${mora.toLocaleString()}**`, flags: [MessageFlags.Ephemeral] });
+                    const alreadyActive = await getActiveCaravan(db, user.id, guild.id);
+                    if (alreadyActive) {
+                        await i.followUp({ content: '❌ لديك رحلة نشطة بالفعل!', flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
@@ -583,32 +583,38 @@ module.exports = {
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     const channelId = i.message ? i.message.channelId : i.channelId;
 
-                    // قراءة الرصيد الحالي والتحقق منه
-                    const currentMora = await getMora(db, user.id, guild.id);
-                    if (currentMora < dest.cost) {
-                        await i.followUp({ content: `❌ لا تملك ${dest.cost.toLocaleString()} مورا للإرسال! (رصيدك: ${currentMora.toLocaleString()})`, flags: [MessageFlags.Ephemeral] });
-                        activeProcesses.delete(user.id);
-                        return;
-                    }
-                    // خصم الرصيد بشكل مباشر مع تأكيد RETURNING
-                    const newBalance = currentMora - dest.cost;
+                    // خصم الرصيد بشكل ذري مع التحقق من كفايته
                     let deductRes = null;
                     try {
-                        deductRes = await db.query(`UPDATE levels SET "mora"=$1 WHERE "user"=$2 AND "guild"=$3 RETURNING "mora"`, [newBalance, user.id, guild.id]);
+                        deductRes = await db.query(
+                            `UPDATE levels SET "mora"="mora"-$1 WHERE "user"=$2 AND "guild"=$3 AND "mora">=$1 RETURNING "mora"`,
+                            [dest.cost, user.id, guild.id]);
                     } catch(e) {
-                        deductRes = await db.query(`UPDATE levels SET mora=$1 WHERE userid=$2 AND guildid=$3 RETURNING mora`, [newBalance, user.id, guild.id]).catch(()=>null);
+                        deductRes = await db.query(
+                            `UPDATE levels SET mora=mora-$1 WHERE userid=$2 AND guildid=$3 AND mora>=$1 RETURNING mora`,
+                            [dest.cost, user.id, guild.id]).catch(()=>null);
                     }
-                    const confirmedBalance = Number(deductRes?.rows?.[0]?.mora ?? -1);
-                    if (confirmedBalance !== newBalance) {
-                        console.error(`[Caravan] Mora deduction FAILED for ${user.id}: expected ${newBalance} got ${confirmedBalance}`);
-                        await i.followUp({ content: `❌ فشل خصم الرصيد!`, flags: [MessageFlags.Ephemeral] });
+                    if (!deductRes?.rows?.length) {
+                        console.error(`[Caravan] Mora deduction FAILED for ${user.id}: cost=${dest.cost}`);
+                        await i.followUp({ content: `❌ فشل خصم ${dest.cost.toLocaleString()} مورا! الرصيد غير كافٍ.`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
+                    if (client.updateLevelField && deductRes.rows[0]) {
+                        client.updateLevelField(user.id, guild.id, { mora: Number(deductRes.rows[0].mora) });
+                    }
+                    console.log(`[DirectSend] mora deducted ${dest.cost} for ${user.id}`);
 
                     const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
 
                     if (result.error) {
+                        // استرداد الرصيد لأن القافلة لم تنطلق
+                        let refundRes = null;
+                        try { refundRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [dest.cost, user.id, guild.id]); }
+                        catch(e) { refundRes = await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3 RETURNING mora`, [dest.cost, user.id, guild.id]).catch(() => null); }
+                        if (client.updateLevelField && refundRes?.rows?.[0]) {
+                            client.updateLevelField(user.id, guild.id, { mora: Number(refundRes.rows[0].mora) });
+                        }
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;

@@ -3,7 +3,7 @@
 const path = require('path');
 const {
     ComponentType, MessageFlags,
-    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder,
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
 } = require('discord.js');
 
@@ -550,7 +550,7 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                                 components: [shopRow],
                                 ephemeral: true,
                             });
-                            const buySel = await shopMsg.awaitMessageComponent({ time: 15000 });
+                            const buySel = await shopMsg.awaitMessageComponent({ filter: x => x.user.id === i.user.id, time: 15000 });
                             await buySel.deferUpdate().catch(() => {});
                             const itemID = buySel.values[0];
                             const targetItem = potionItems.find(x => x.id === itemID);
@@ -559,11 +559,17 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                             if (Number(currentMora) < targetItem.price) {
                                 await buySel.followUp({ content: `❌ **لا تملك مورا كافية!** تحتاج ${targetItem.price.toLocaleString()} مورا.`, ephemeral: true });
                             } else {
+                                let deductRest = null;
                                 try {
-                                    await db.query(`UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [targetItem.price, i.user.id, guild.id]);
+                                    deductRest = await db.query(`UPDATE levels SET "mora"="mora"-$1 WHERE "user"=$2 AND "guild"=$3 AND "mora">=$1 RETURNING "mora"`, [targetItem.price, i.user.id, guild.id]);
                                 } catch (e) {
-                                    await db.query(`UPDATE levels SET mora=CAST(COALESCE(mora,'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [targetItem.price, i.user.id, guild.id]).catch(() => {});
+                                    deductRest = await db.query(`UPDATE levels SET mora=mora-$1 WHERE userid=$2 AND guildid=$3 AND mora>=$1 RETURNING mora`, [targetItem.price, i.user.id, guild.id]).catch(() => null);
                                 }
+                                if (!deductRest?.rows?.length) {
+                                    await buySel.followUp({ content: `❌ **لا تملك مورا كافية!**`, ephemeral: true });
+                                    return;
+                                }
+                                if (buySel.client?.updateLevelField && deductRest.rows[0]) buySel.client.updateLevelField(i.user.id, guild.id, { mora: Number(deductRest.rows[0].mora) });
                                 try {
                                     const check = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [i.user.id, guild.id, targetItem.id]);
                                     if (check.rows.length > 0) {
@@ -630,7 +636,7 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
 
 // ─── Party Rewards (owner + guards all receive same cumulative rewards) ───────
 // lootPenalty: 0.0–1.0 fraction lost (from Sacrifice + uncollected loot drops)
-async function distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty = 0) {
+async function distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty = 0, client = null) {
     const multiplier = Math.max(0, 1 - lootPenalty);
     let totalMora = 0, totalChests = 0, totalRep = 0;
     for (let w = 0; w < Math.min(wavesCleared, WAVE_REWARD_DELTAS.length); w++) {
@@ -643,10 +649,12 @@ async function distributePartyRewards(db, party, guildId, wavesCleared, lootPena
 
     const summary = [];
     for (const uid of party) {
-        if (totalMora > 0)
-            await safeExecute(db,
-                `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
-                [totalMora, uid, guildId]);
+        if (totalMora > 0) {
+            let r = null;
+            try { r = await db.query(`UPDATE levels SET "mora"="mora"+$1 WHERE "user"=$2 AND "guild"=$3 RETURNING "mora"`, [totalMora, uid, guildId]); }
+            catch(e) { r = await db.query(`UPDATE levels SET mora=mora+$1 WHERE userid=$2 AND guildid=$3 RETURNING mora`, [totalMora, uid, guildId]).catch(() => null); }
+            if (client?.updateLevelField && r?.rows?.[0]) client.updateLevelField(uid, guildId, { mora: Number(r.rows[0].mora) });
+        }
         if (totalChests > 0)
             await safeExecute(db,
                 `INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,'gacha_chest',$3)
@@ -1029,7 +1037,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                                         content: `💰 **متجر الجرعات السريع**\nرصيدك الحالي: **${Number(currentMora).toLocaleString()}** ${EMOJI_MORA}\nاختر الجرعة التي تريد شراءها:`,
                                         components: [shopRow], ephemeral: true,
                                     });
-                                    const buySel = await shopMsg.awaitMessageComponent({ time: 15000 });
+                                    const buySel = await shopMsg.awaitMessageComponent({ filter: x => x.user.id === pid, time: 15000 });
                                     await buySel.deferUpdate().catch(() => {});
                                     const itemID = buySel.values[0];
                                     const targetItem = potionItems.find(x => x.id === itemID);
@@ -1037,9 +1045,16 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                                         if (Number(currentMora) < targetItem.price) {
                                             await buySel.followUp({ content: `❌ **لا تملك مورا كافية!** تحتاج ${targetItem.price.toLocaleString()} مورا.`, ephemeral: true });
                                         } else {
-                                            try { await db.query(`UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [targetItem.price, pid, guild.id]); } catch (e) { await db.query(`UPDATE levels SET mora=CAST(COALESCE(mora,'0') AS BIGINT)-$1 WHERE "user"=$2 AND "guild"=$3`, [targetItem.price, pid, guild.id]).catch(() => {}); }
-                                            try { const chk = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]); if (chk.rows.length > 0) { await db.query(`UPDATE user_inventory SET "quantity"="quantity"+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]); } else { await db.query(`INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,$3,1)`, [guild.id, pid, targetItem.id]); } } catch (e) { try { const chk2 = await db.query(`SELECT quantity FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]).catch(() => ({ rows: [] })); if (chk2.rows.length > 0) { await db.query(`UPDATE user_inventory SET quantity=quantity+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]).catch(() => {}); } else { await db.query(`INSERT INTO user_inventory (guildid,userid,itemid,quantity) VALUES ($1,$2,$3,1)`, [guild.id, pid, targetItem.id]).catch(() => {}); } } catch {} }
-                                            await buySel.followUp({ content: `✅ **تم شراء ${targetItem.name}!**\nاضغط على 🧪 الجرعات مرة أخرى لاستخدامها.`, ephemeral: true });
+                                            let deductBat = null;
+                                            try { deductBat = await db.query(`UPDATE levels SET "mora"="mora"-$1 WHERE "user"=$2 AND "guild"=$3 AND "mora">=$1 RETURNING "mora"`, [targetItem.price, pid, guild.id]); }
+                                            catch(e) { deductBat = await db.query(`UPDATE levels SET mora=mora-$1 WHERE userid=$2 AND guildid=$3 AND mora>=$1 RETURNING mora`, [targetItem.price, pid, guild.id]).catch(() => null); }
+                                            if (!deductBat?.rows?.length) {
+                                                await buySel.followUp({ content: `❌ **لا تملك مورا كافية!**`, ephemeral: true });
+                                            } else {
+                                                if (buySel.client?.updateLevelField && deductBat.rows[0]) buySel.client.updateLevelField(pid, guild.id, { mora: Number(deductBat.rows[0].mora) });
+                                                try { const chk = await db.query(`SELECT "quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]); if (chk.rows.length > 0) { await db.query(`UPDATE user_inventory SET "quantity"="quantity"+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]); } else { await db.query(`INSERT INTO user_inventory ("guildID","userID","itemID","quantity") VALUES ($1,$2,$3,1)`, [guild.id, pid, targetItem.id]); } } catch (e) { try { const chk2 = await db.query(`SELECT quantity FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]).catch(() => ({ rows: [] })); if (chk2.rows.length > 0) { await db.query(`UPDATE user_inventory SET quantity=quantity+1 WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [pid, guild.id, targetItem.id]).catch(() => {}); } else { await db.query(`INSERT INTO user_inventory (guildid,userid,itemid,quantity) VALUES ($1,$2,$3,1)`, [guild.id, pid, targetItem.id]).catch(() => {}); } } catch {} }
+                                                await buySel.followUp({ content: `✅ **تم شراء ${targetItem.name}!**`, ephemeral: true });
+                                            }
                                         }
                                     }
                                 } catch { try { await sel.editReply({ content: '⏰ انتهى وقت الشراء.', components: [] }).catch(() => {}); } catch {} }
@@ -1309,68 +1324,76 @@ async function handleEscortReady(data) {
 
     if (result === 'win' || result === 'escape') {
         // Everyone in the party (owner + guards) gets cumulative rewards
-        const rewardRes = await distributePartyRewards(db, party, guild.id, wavesCleared, lootPenalty);
+        const rewardRes = await distributePartyRewards(db, party, guild.id, wavesCleared, lootPenalty, client);
 
-        // Deduct cost and dispatch caravan
-        const mora = await getMora(db, hostId, guild.id);
-        if (mora < dest.cost) {
-            for (const uid of party) {
-                if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-            }
-            await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة!\n🎟️ تم إرجاع التذاكر للحراس.`).catch(() => {});
-        } else {
-            const { sendCaravan } = require('./journey');
-            const currentMora = await getMora(db, hostId, guild.id);
-            if (currentMora < dest.cost) {
-                for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-                await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة! (تحتاج ${dest.cost.toLocaleString()} مورا)`).catch(() => {});
-                return;
-            }
-            const newBalance = currentMora - dest.cost;
-            await safeExecute(db, `UPDATE levels SET "mora"=$1 WHERE "user"=$2 AND "guild"=$3`, [newBalance, hostId, guild.id]);
-            // تأكيد الخصم
-            const confirmMora = await getMora(db, hostId, guild.id);
-            if (confirmMora > newBalance) {
-                console.error(`[Escort] Mora deduction FAILED for ${hostId}: expected ${newBalance} got ${confirmMora}`);
-                for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-                await thread.send(`❌ <@${hostId}> فشل تأكيد خصم الرصيد!`).catch(() => {});
-                return;
-            }
-            // Pass channel.id so the arrival checker knows where to open the market thread
-            cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
-            // Mark route as permanently secured — no ambush will fire
-            if (cvResult?.caravanId) {
-                await safeExecute(db,
-                    `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "id"=$1`,
-                    [cvResult.caravanId]);
-            }
-
-            // Finalize staged market items into caravan listings
-            try {
-                const marketSetup = require('./market/market-setup');
-                const marketDb    = require('./market/market-db');
-                if (cvResult?.caravanId) {
-                    const hostMember = await guild.members.fetch(hostId).catch(() => null);
-                    await marketSetup.finalizeStagedItems(db, cvResult.caravanId, hostId, guild.id, hostMember);
-                    escortListings = await marketDb.getListingsByCaravan(db, cvResult.caravanId);
-                }
-            } catch(e) { console.error('[FinalizeStagedEscort]', e); }
-
-            const eta = Math.floor((cvResult.endTime || 0) / 1000);
-
-            const folderName = DEST_IMAGE_MAP[dest.id] || 'gold_city/gold_city.png';
-            const destImgUrl = `${R2_BASE}/images/caravan/${folderName}`;
-            const escortEmbed = new EmbedBuilder()
-                .setColor(dest.color || '#00FF88')
-                .setTitle(result === 'escape' ? '❖ انسـحـاب - نصـف الطريـق مؤمـن' : '❖ تـم تـأمين الطريق بالكامـل')
-                .setDescription(`🐪 ستنطلق القافلة إلى **${dest.emoji} ${dest.name}**!\n📅 **وقت الوصول:** <t:${eta}:R>\n${result === 'escape' ? '⚠️ الطريق غير مؤمَّن تماماً — قد يحدث كمين.\n' : '✅ الطريق مؤمَّن!\n'}`)
-                .setImage(destImgUrl)
-                .addFields(
-                    { name: '⚔️ الموجات', value: `${wavesCleared}/5`, inline: true },
-                    { name: '🎁 المكافآت', value: rewardRes.summary.map(s => `✶ ${s}`).join('\n') || '—', inline: false }
-                );
-            await thread.send({ embeds: [escortEmbed] }).catch(() => {});
+        // خصم رسوم الرحلة ذرياً مع التأكيد وإلغاء الخصم عند فشل الإرسال
+        const { sendCaravan } = require('./journey');
+        let deductRes = null;
+        try {
+            deductRes = await db.query(
+                `UPDATE levels SET "mora"="mora"-$1 WHERE "user"=$2 AND "guild"=$3 AND "mora">=$1 RETURNING "mora"`,
+                [dest.cost, hostId, guild.id]);
+        } catch(e) {
+            deductRes = await db.query(
+                `UPDATE levels SET mora=mora-$1 WHERE userid=$2 AND guildid=$3 AND mora>=$1 RETURNING mora`,
+                [dest.cost, hostId, guild.id]).catch(() => null);
         }
+        if (!deductRes?.rows?.length) {
+            console.error(`[Escort] Mora deduction FAILED for ${hostId}: cost=${dest.cost}`);
+            for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+            await thread.send(`❌ <@${hostId}> فشل خصم ${dest.cost.toLocaleString()} مورا! الرصيد غير كافٍ.`).catch(() => {});
+            return;
+        }
+        if (client.updateLevelField && deductRes.rows[0]) {
+            client.updateLevelField(hostId, guild.id, { mora: Number(deductRes.rows[0].mora) });
+        }
+        console.log(`[Escort] mora deducted ${dest.cost} for ${hostId}`);
+        // Pass channel.id so the arrival checker knows where to open the market thread
+        cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
+        if (cvResult?.error) {
+            // استرداد الرصيد لأن القافلة لم تنطلق
+            let refundRes = null;
+            try { refundRes = await db.query(`UPDATE levels SET "mora"="mora"+$1 WHERE "user"=$2 AND "guild"=$3 RETURNING "mora"`, [dest.cost, hostId, guild.id]); }
+            catch(e) { refundRes = await db.query(`UPDATE levels SET mora=mora+$1 WHERE userid=$2 AND guildid=$3 RETURNING mora`, [dest.cost, hostId, guild.id]).catch(() => null); }
+            if (client.updateLevelField && refundRes?.rows?.[0]) {
+                client.updateLevelField(hostId, guild.id, { mora: Number(refundRes.rows[0].mora) });
+            }
+            for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+            await thread.send(`❌ <@${hostId}> فشل إنشاء القافلة — تم استرداد رصيدك.`).catch(() => {});
+            return;
+        }
+        // Mark route as permanently secured — no ambush will fire
+        if (cvResult?.caravanId) {
+            await safeExecute(db,
+                `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "id"=$1`,
+                [cvResult.caravanId]);
+        }
+
+        // Finalize staged market items into caravan listings
+        try {
+            const marketSetup = require('./market/market-setup');
+            const marketDb    = require('./market/market-db');
+            if (cvResult?.caravanId) {
+                const hostMember = await guild.members.fetch(hostId).catch(() => null);
+                await marketSetup.finalizeStagedItems(db, cvResult.caravanId, hostId, guild.id, hostMember);
+                escortListings = await marketDb.getListingsByCaravan(db, cvResult.caravanId);
+            }
+        } catch(e) { console.error('[FinalizeStagedEscort]', e); }
+
+        const eta = Math.floor((cvResult.endTime || 0) / 1000);
+
+        const folderName = DEST_IMAGE_MAP[dest.id] || 'gold_city/gold_city.png';
+        const destImgUrl = `${R2_BASE}/images/caravan/${folderName}`;
+        const escortEmbed = new EmbedBuilder()
+            .setColor(dest.color || '#00FF88')
+            .setTitle(result === 'escape' ? '❖ انسـحـاب - نصـف الطريـق مؤمـن' : '❖ تـم تـأمين الطريق بالكامـل')
+            .setDescription(`🐪 ستنطلق القافلة إلى **${dest.emoji} ${dest.name}**!\n📅 **وقت الوصول:** <t:${eta}:R>\n${result === 'escape' ? '⚠️ الطريق غير مؤمَّن تماماً — قد يحدث كمين.\n' : '✅ الطريق مؤمَّن!\n'}`)
+            .setImage(destImgUrl)
+            .addFields(
+                { name: '⚔️ الموجات', value: `${wavesCleared}/5`, inline: true },
+                { name: '🎁 المكافآت', value: rewardRes.summary.map(s => `✶ ${s}`).join('\n') || '—', inline: false }
+            );
+        await thread.send({ embeds: [escortEmbed] }).catch(() => {});
     } else {
         // Apply 1-hour cooldown to owner on any loss
         await setCaravanCooldown(db, hostId, guild.id).catch(() => {});
@@ -1434,7 +1457,7 @@ async function handleAmbushReady(data) {
             `UPDATE user_caravan_stats SET "ambush_survived"="ambush_survived"+1 WHERE "userID"=$1 AND "guildID"=$2`,
             [userId, guildId]);
         // Everyone (owner + guards) gets cumulative rewards
-        const rewardRes = await distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty);
+        const rewardRes = await distributePartyRewards(db, party, guildId, wavesCleared, lootPenalty, guild?.client);
 
         const ambDest = caravanConfig.destinations.find(d => d.id === destId) || {};
         const ambFolderName = DEST_IMAGE_MAP[destId] || 'gold_city/gold_city.png';
@@ -1450,7 +1473,18 @@ async function handleAmbushReady(data) {
             );
         await thread.send({ embeds: [winEmbed] }).catch(() => {});
 
-        await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
+        try {
+            const { generateDefenseSuccessImage } = require('../../generators/caravan/lobby-generator');
+            const defenseImg = await generateDefenseSuccessImage(ambDest, wavesCleared, rewardRes, party, guild);
+            if (defenseImg) {
+                const attach = [new AttachmentBuilder(defenseImg, { name: 'defense_success.png' })];
+                await channel.send({ content: `<@${userId}>`, files: attach }).catch(() => {});
+            } else {
+                await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
+            }
+        } catch {
+            await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
+        }
     } else {
         // Battle lost → apply 1-hour cooldown to owner
         await setCaravanCooldown(db, userId, guildId).catch(() => {});

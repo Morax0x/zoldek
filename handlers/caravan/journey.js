@@ -101,9 +101,13 @@ async function distributeRewards(client, db, caravan) {
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus) * rewardMult);
             if (amount > bestThisTrip.score) bestThisTrip = { score: amount, label: 'مورا' };
-            await safeExecute(db,
-                `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
-                [amount, userId, guildId]);
+            try {
+                const r = await db.query(`UPDATE levels SET "mora"="mora"+$1 WHERE "user"=$2 AND "guild"=$3 RETURNING "mora"`, [amount, userId, guildId]);
+                if (client.updateLevelField && r.rows[0]) client.updateLevelField(userId, guildId, { mora: Number(r.rows[0].mora) });
+            } catch(e) {
+                const r = await db.query(`UPDATE levels SET mora=mora+$1 WHERE userid=$2 AND guildid=$3 RETURNING mora`, [amount, userId, guildId]).catch(() => null);
+                if (client.updateLevelField && r?.rows?.[0]) client.updateLevelField(userId, guildId, { mora: Number(r.rows[0].mora) });
+            }
             summary.push(`💰 ${amount.toLocaleString()} ${EMOJI_MORA}`);
 
         } else if (dest.reward_type === 'xp') {
@@ -111,9 +115,13 @@ async function distributeRewards(client, db, caravan) {
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
             const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus) * rewardMult);
             if (amount > bestThisTrip.score) bestThisTrip = { score: amount, label: 'خبرة' };
-            await safeExecute(db,
-                `UPDATE levels SET "xp"=CAST(COALESCE("xp",'0') AS BIGINT)+$1,"totalXP"=CAST(COALESCE("totalXP",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
-                [amount, userId, guildId]);
+            try {
+                const r = await db.query(`UPDATE levels SET "xp"="xp"+$1,"totalXP"="totalXP"+$1 WHERE "user"=$2 AND "guild"=$3 RETURNING "xp","totalXP"`, [amount, userId, guildId]);
+                if (client.updateLevelField && r.rows[0]) client.updateLevelField(userId, guildId, { xp: Number(r.rows[0].xp), totalXP: Number(r.rows[0].totalxp ?? r.rows[0].totalXP) });
+            } catch(e) {
+                const r = await db.query(`UPDATE levels SET xp=xp+$1,totalxp=totalxp+$1 WHERE userid=$2 AND guildid=$3 RETURNING xp,totalxp`, [amount, userId, guildId]).catch(() => null);
+                if (client.updateLevelField && r?.rows?.[0]) client.updateLevelField(userId, guildId, { xp: Number(r.rows[0].xp), totalXP: Number(r.rows[0].totalxp ?? r.rows[0].totalXP) });
+            }
             summary.push(`✨ ${amount.toLocaleString()} XP`);
 
         } else if (dest.reward_type === 'reputation') {
@@ -403,6 +411,7 @@ ${summary?.length ? summary.map(s => `✶ ${s}`).join('\n') : 'عادت القا
                 if (!pendingAttacks.has(caravanId)) {
                     pendingAttacks.add(caravanId);
                     sendAttackNotification(client, db, caravan)
+                        .catch(err => console.error('[AttackNotify]', err))
                         .finally(() => pendingAttacks.delete(caravanId));
                 }
             }

@@ -426,4 +426,74 @@ async function generateBribeSuccessImage(dest, looted, remainingMin) {
     return toBuf(canvas);
 }
 
-module.exports = { generateAmbushAlertImage, generateLobbyImage, generateDestChoiceImage, generateAmbushResultImage, generateBribeSuccessImage };
+// ============================================================================
+// 6. مولد صورة نجاح الدفاع عن القافلة
+// ============================================================================
+async function generateDefenseSuccessImage(dest, wavesCleared, rewards, party, guild) {
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext('2d');
+
+    try {
+        await drawBg(ctx, 'banditattack');
+    } catch {
+        ctx.fillStyle = '#05050A'; ctx.fillRect(0, 0, W, H);
+    }
+
+    await drawHeader(ctx, '✅ نجح الدفاع عن القافلة', `تم تطهير الطريق إلى ${dest.name}`);
+    drawCornerAccents(ctx);
+
+    const PX = 80, PY = 180, PW = W - 160, PH = H - 280;
+    drawPanel(ctx, PX, PY, PW, PH, C.green, { radius: 32 });
+    rr(ctx, PX, PY, PW, PH, 32);
+    ctx.fillStyle = 'rgba(46,204,113,0.08)'; ctx.fill();
+
+    ctx.font = `90px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🛡️', W / 2, PY + 70);
+
+    M(ctx, `قام الحراس بتأمين الطريق إلى ${dest.emoji} ${dest.name}`, W / 2, PY + 160, 36, C.green);
+    M(ctx, `تم اجتياز ${wavesCleared}/5 موجات بنجاح`, W / 2, PY + 210, 30, C.text);
+
+    divLine(ctx, PX + 60, PY + 255, PW - 120, C.green + '44');
+
+    let currentY = PY + 300;
+
+    // عرض أسماء الحراس
+    if (party && party.length > 0) {
+        M(ctx, '👥 الحراس المشاركون:', W / 2, currentY, 28, C.gold);
+        currentY += 45;
+        for (const uid of party) {
+            let name = uid;
+            try {
+                const mem = await guild.members.fetch(uid).catch(() => null);
+                if (mem) name = mem.displayName || mem.user.username;
+            } catch {}
+            M(ctx, `✦ ${name}`, W / 2, currentY, 26, C.text);
+            currentY += 35;
+        }
+        currentY += 10;
+    }
+
+    // عرض المكافآت
+    if (rewards) {
+        divLine(ctx, PX + 60, currentY, PW - 120, C.green + '44');
+        currentY += 30;
+        M(ctx, '🎁 المكافآت:', W / 2, currentY, 28, C.gold);
+        currentY += 45;
+        const parts = [];
+        if (rewards.totalMora > 0) parts.push(`${rewards.totalMora.toLocaleString()} 💰`);
+        if (rewards.totalChests > 0) parts.push(`${rewards.totalChests} 🎁`);
+        if (rewards.totalRep > 0) parts.push(`${rewards.totalRep} 🌟`);
+        if (parts.length > 0) {
+            M(ctx, parts.join(' | '), W / 2, currentY, 32, C.text);
+            currentY += 50;
+        }
+    }
+
+    currentY = Math.max(currentY + 20, PY + PH - 70);
+    divLine(ctx, PX + 60, currentY - 10, PW - 120, C.green + '44');
+    M(ctx, '🐪 القافلة تواصل رحلتها بسلام!', W / 2, currentY + 35, 30, C.green);
+
+    return toBuf(canvas);
+}
+
+module.exports = { generateAmbushAlertImage, generateLobbyImage, generateDestChoiceImage, generateAmbushResultImage, generateBribeSuccessImage, generateDefenseSuccessImage };
