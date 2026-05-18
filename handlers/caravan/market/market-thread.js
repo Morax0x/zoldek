@@ -29,8 +29,15 @@ async function createMarketThread(client, db, caravan, channelId) {
         const dest = caravanConfig.destinations.find(d => d.id === destId);
         if (!dest) { console.error('[CreateThread] Invalid destination:', destId); return null; }
 
+        if (!client?.guilds) { console.error('[CreateThread] Invalid client object (no guilds property)'); return null; }
+
         let guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
         if (!guild) { console.error('[CreateThread] Guild not found:', guildId); return null; }
+
+        // Ensure roles cache is populated
+        if (!guild.roles?.everyone) {
+            await guild.roles.fetch().catch(() => {});
+        }
 
         let channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
         if (!channel) { console.error('[CreateThread] Channel not found:', channelId); return null; }
@@ -63,11 +70,18 @@ async function createMarketThread(client, db, caravan, channelId) {
 
         if (!thread) return null;
 
-        // Set permissions
+        // Set permissions safely
         await thread.members.add(ownerId).catch(() => {});
-        await thread.permissionOverwrites.set([
-            { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.SendMessages] },
-        ]).catch(() => {});
+        try {
+            const everyoneRole = guild.roles?.everyone;
+            if (everyoneRole?.id && thread.permissionOverwrites?.set) {
+                await thread.permissionOverwrites.set([
+                    { id: everyoneRole.id, deny: [PermissionFlagsBits.SendMessages] },
+                ]);
+            }
+        } catch (permErr) {
+            console.error('[CreateThread] Permission overwrite failed:', permErr?.message);
+        }
 
         // Step 3: Create market session (with thread.id now available)
         try {

@@ -1,8 +1,10 @@
 const { AttachmentBuilder } = require('discord.js');
-const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 
-const OWNER_ID = "1145327691772481577"; // أيديك كمالك للبوت
+let sqlite3;
+try { sqlite3 = require('sqlite3').verbose(); } catch {}
+
+const OWNER_ID = "1145327691772481577";
 
 module.exports = {
     name: 'get-schema',
@@ -12,6 +14,7 @@ module.exports = {
 
     async execute(message, args) {
         if (message.author.id !== OWNER_ID) return;
+        if (!sqlite3) return message.reply("❌ مكتبة `sqlite3` غير مثبتة.");
 
         const msg = await message.reply("⏳ **جاري فحص ملف `mainDB.sqlite` واستخراج الهيكل...**");
 
