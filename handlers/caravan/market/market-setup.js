@@ -380,10 +380,6 @@ async function finalizeStagedItems(db, caravanId, userId, guildId, member = null
         if (ok !== false) moved++;
     }
 
-    // 🧹 مسح البضائع من سلة التجهيز بعد نقلها للسوق
-    await db.query(`DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]).catch(()=>{});
-    await db.query(`DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2`, [userId, guildId]).catch(()=>{});
-
     return { ok: true, moved };
 }
 

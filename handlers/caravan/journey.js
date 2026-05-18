@@ -84,6 +84,8 @@ async function distributeRewards(client, db, caravan) {
     const dest    = caravanConfig.destinations.find(d => d.id === destId);
     if (!dest) return [];
 
+    const rewardMult = Number(caravan.rewardmultiplier || caravan.rewardMultiplier || 1.0);
+
     const stats     = await getUserCaravanStats(db, userId, guildId);
     const artifacts = JSON.parse(caravan.equippedartifacts || caravan.equippedArtifacts || '[]');
     const buffs     = getEquippedBuffs(artifacts);
@@ -97,7 +99,7 @@ async function distributeRewards(client, db, caravan) {
         if (dest.reward_type === 'mora') {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
-            const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
+            const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus) * rewardMult);
             if (amount > bestThisTrip.score) bestThisTrip = { score: amount, label: 'مورا' };
             await safeExecute(db,
                 `UPDATE levels SET "mora"=CAST(COALESCE("mora",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
@@ -107,7 +109,7 @@ async function distributeRewards(client, db, caravan) {
         } else if (dest.reward_type === 'xp') {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
-            const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
+            const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus) * rewardMult);
             if (amount > bestThisTrip.score) bestThisTrip = { score: amount, label: 'خبرة' };
             await safeExecute(db,
                 `UPDATE levels SET "xp"=CAST(COALESCE("xp",'0') AS BIGINT)+$1,"totalXP"=CAST(COALESCE("totalXP",'0') AS BIGINT)+$1 WHERE "user"=$2 AND "guild"=$3`,
@@ -117,7 +119,7 @@ async function distributeRewards(client, db, caravan) {
         } else if (dest.reward_type === 'reputation') {
             const base = dest.reward_min + Math.random() * (dest.reward_max - dest.reward_min);
             const luckBonus = (dest.reward_max - dest.reward_min) * (luckFactor - 1) * luckCoeff;
-            const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus));
+            const amount = Math.floor(Math.min(dest.reward_max, base + luckBonus) * rewardMult);
             if (amount * 100 > bestThisTrip.score) bestThisTrip = { score: amount * 100, label: 'سمعة' };
             await safeExecute(db,
                 `INSERT INTO user_reputation ("userID","guildID","rep_points") VALUES ($1,$2,$3)
@@ -126,8 +128,8 @@ async function distributeRewards(client, db, caravan) {
             summary.push(`🌟 ${amount} نقطة سمعة`);
 
         } else if (dest.reward_type === 'artifact') {
-            const pullsMin = dest.reward_pulls_min || 2;
-            const pullsMax = dest.reward_pulls_max || 20;
+            const pullsMin = Math.max(1, Math.floor((dest.reward_pulls_min || 2) * rewardMult));
+            const pullsMax = Math.max(1, Math.floor((dest.reward_pulls_max || 20) * rewardMult));
             const pulls = pullsMin + Math.floor(Math.random() * (pullsMax - pullsMin + 1));
             const allItems = [];
             if (upgradeMats?.weapon_materials)
@@ -155,8 +157,8 @@ async function distributeRewards(client, db, caravan) {
             }
 
         } else if (dest.reward_type === 'nature') {
-            const seedMin = dest.reward_seeds_min || 10;
-            const seedMax = dest.reward_seeds_max || 30;
+            const seedMin = Math.max(1, Math.floor((dest.reward_seeds_min || 10) * rewardMult));
+            const seedMax = Math.max(1, Math.floor((dest.reward_seeds_max || 30) * rewardMult));
             const seedCount = seedMin + Math.floor(Math.random() * (seedMax - seedMin + 1));
             const seed = seedsData[Math.floor(Math.random() * seedsData.length)];
             if (seed) {

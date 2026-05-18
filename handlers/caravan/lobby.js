@@ -253,7 +253,7 @@ async function sendAmbushNotification(client, db, caravan) {
                 const bribeAttach = bribeImg ? [new AttachmentBuilder(bribeImg, { name: 'bribe.png' })] : [];
                 await attackMsg.edit({ content: `<@${userId}>`, files: bribeAttach, embeds: [], components: [] }).catch(() => {});
             } catch (e) { console.error('[BribeError]', e); }
-            await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1 WHERE "id"=$1`, [caravanId]);
+            await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1,"rewardMultiplier"=0.15 WHERE "id"=$1`, [caravanId]);
             collector.stop('bribed');
             return;
         }
