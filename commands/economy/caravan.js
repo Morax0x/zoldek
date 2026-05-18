@@ -593,14 +593,21 @@ module.exports = {
                         activeProcesses.delete(user.id);
                         return;
                     }
+                    if (client.updateLevelField && deductRes.rows[0]) {
+                        client.updateLevelField(user.id, guild.id, { mora: Number(deductRes.rows[0].mora) });
+                    }
                     console.log(`[DirectSend] mora deducted ${dest.cost} for ${user.id}`);
 
                     const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
 
                     if (result.error) {
                         // استرداد الرصيد لأن القافلة لم تنطلق
-                        try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [dest.cost, user.id, guild.id]); }
-                        catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [dest.cost, user.id, guild.id]).catch(() => {}); }
+                        let refundRes = null;
+                        try { refundRes = await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3 RETURNING "mora"`, [dest.cost, user.id, guild.id]); }
+                        catch(e) { refundRes = await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3 RETURNING mora`, [dest.cost, user.id, guild.id]).catch(() => null); }
+                        if (client.updateLevelField && refundRes?.rows?.[0]) {
+                            client.updateLevelField(user.id, guild.id, { mora: Number(refundRes.rows[0].mora) });
+                        }
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;

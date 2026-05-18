@@ -1329,14 +1329,20 @@ async function handleEscortReady(data) {
             await thread.send(`❌ <@${hostId}> فشل خصم ${dest.cost.toLocaleString()} مورا! الرصيد غير كافٍ.`).catch(() => {});
             return;
         }
+        if (client.updateLevelField && deductRes.rows[0]) {
+            client.updateLevelField(hostId, guild.id, { mora: Number(deductRes.rows[0].mora) });
+        }
         console.log(`[Escort] mora deducted ${dest.cost} for ${hostId}`);
         // Pass channel.id so the arrival checker knows where to open the market thread
         cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
         if (cvResult?.error) {
             // استرداد الرصيد لأن القافلة لم تنطلق
-            await db.query(`UPDATE levels SET "mora"="mora"+$1 WHERE "user"=$2 AND "guild"=$3`, [dest.cost, hostId, guild.id]).catch(() =>
-                db.query(`UPDATE levels SET mora=mora+$1 WHERE userid=$2 AND guildid=$3`, [dest.cost, hostId, guild.id]).catch(() => {})
-            );
+            let refundRes = null;
+            try { refundRes = await db.query(`UPDATE levels SET "mora"="mora"+$1 WHERE "user"=$2 AND "guild"=$3 RETURNING "mora"`, [dest.cost, hostId, guild.id]); }
+            catch(e) { refundRes = await db.query(`UPDATE levels SET mora=mora+$1 WHERE userid=$2 AND guildid=$3 RETURNING mora`, [dest.cost, hostId, guild.id]).catch(() => null); }
+            if (client.updateLevelField && refundRes?.rows?.[0]) {
+                client.updateLevelField(hostId, guild.id, { mora: Number(refundRes.rows[0].mora) });
+            }
             for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
             await thread.send(`❌ <@${hostId}> فشل إنشاء القافلة — تم استرداد رصيدك.`).catch(() => {});
             return;
