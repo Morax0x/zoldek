@@ -761,6 +761,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                 })),
                 caravan: { hp: caravan.hp, maxHp: caravan.maxHp, lootPenalty: caravan.lootPenalty || 0 },
                 destId,
+                messageId: resumeData?.messageId || null,
             };
             await saveCaravanBattle(db, caravanId, guild.id, hostId, thread.id, initState);
         } catch (_) {}
@@ -820,6 +821,9 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         try {
             const initPayload = await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild, destId);
             battleMsg = await thread.send({ ...initPayload, components: makeBattleRows() });
+            if (caravanId) {
+                try { const { updateBattleMessageId } = require('./caravan-state'); await updateBattleMessageId(db, caravanId, battleMsg.id); } catch {}
+            }
         } catch {
             await thread.send('❌ فشل إرسال رسالة المعركة. إلغاء...').catch(() => {});
             return { result: 'error', wavesCleared };
@@ -1219,6 +1223,9 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                     components: makeBattleRows(),
                 }).catch(() => null);
                 if (!battleMsg) return { result: 'error', wavesCleared };
+                if (caravanId) {
+                    try { const { updateBattleMessageId } = require('./caravan-state'); await updateBattleMessageId(db, caravanId, battleMsg.id); } catch {}
+                }
             } else {
                 await battleMsg.edit({
                     ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild, destId)),
@@ -1261,6 +1268,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                     })),
                     caravan: { hp: caravan.hp, maxHp: caravan.maxHp, lootPenalty: caravan.lootPenalty || 0 },
                     destId,
+                    messageId: battleMsg?.id || null,
                 };
                 await saveCaravanBattle(db, caravanId, guild.id, hostId, thread.id, state);
             } catch (_) {}

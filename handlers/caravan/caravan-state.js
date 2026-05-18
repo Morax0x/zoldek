@@ -14,6 +14,12 @@ async function saveCaravanBattle(db, caravanId, guildId, hostId, threadId, state
     `, [caravanId, guildId, hostId, threadId, data]).catch(() => {});
 }
 
+async function updateBattleMessageId(db, caravanId, messageId) {
+    await safeExecute(db, `
+        UPDATE caravan_battles SET "data" = CAST(jsonb_set(CAST("data" AS jsonb), '{messageId}', to_jsonb($1::text)) AS text) WHERE "caravanId"=$2
+    `, [messageId, caravanId]).catch(() => {});
+}
+
 async function deleteCaravanBattle(db, caravanId) {
     await safeExecute(db, `DELETE FROM caravan_battles WHERE "caravanId"=$1`, [caravanId]).catch(() => {});
 }
@@ -47,6 +53,14 @@ async function resumeAmbushEncounters(client, db) {
                 [caravanId]).catch(() => ({ rows: [] }));
             if (!cvRow?.rows?.length) { await deleteCaravanBattle(db, caravanId); continue; }
 
+            // ⛔ تعطيل الإيمبد القديم (الأزرار الميتة) قبل الاستئناف
+            if (state.messageId) {
+                try {
+                    const oldMsg = await thread.messages.fetch(state.messageId).catch(() => null);
+                    if (oldMsg) await oldMsg.edit({ components: [], content: '⏳ **تم استئناف المعركة — هذه الرسالة ملغية.**' }).catch(() => {});
+                } catch {}
+            }
+
             // ── Za Warudo — time rewind ──
             const dioEmbed = new EmbedBuilder()
                 .setDescription(`**زا واردوو!** ديو اعـاد الزمن جاري استكمال الدفاع عن القافلة من الموجة: **${state.wave || 1}**\n\n✶ خـلل زمكـانـي ادى الى مضاعفـة قوتـكم في هـذه المعـركـة`)
@@ -74,4 +88,4 @@ async function resumeAmbushEncounters(client, db) {
     }
 }
 
-module.exports = { saveCaravanBattle, deleteCaravanBattle, resumeAmbushEncounters };
+module.exports = { saveCaravanBattle, updateBattleMessageId, deleteCaravanBattle, resumeAmbushEncounters };
