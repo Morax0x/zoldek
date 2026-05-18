@@ -241,7 +241,7 @@ async function processEnemyTurn(enemy, players, caravan, waveNum, log, thread) {
     }
 
     // ── Default Attack: Always hits caravan + players ─────────────────────
-    const dmg = Math.floor(enemy.atk * (1 + waveNum * 0.03));
+    const dmg = Math.floor(enemy.atk * (1 + waveNum * 0.02));
 
     // Multi-target count based on wave
     const targetCounts = { 1: 1, 2: 1, 3: 2, 4: 2, 5: 3 };
@@ -775,12 +775,13 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         if (waveNum < startWave) { wavesCleared = waveNum; continue; }
         
         // 👑 تطبيق الموازنة الذكية على الأعداء 👑
-        const waveDifficulty = 1 + (w * 0.25); // الصعوبة تزيد مع كل موجة
-        const roundsToSurvive = def.isBoss ? 10 : 5; // عدد الضربات الجماعية التقريبية المطلوبة لهزيمته
-        const hitsToKillPlayer = def.isBoss ? 4 : 7; // عدد ضربات الخصم المطلوبة لقتل لاعب متوسط
+        const waveDifficulty = 1 + (w * 0.12); // الصعوبة تزيد مع كل موجة (خفيفة)
+        const totalAtkCap = Math.min(totalPlayerATK, 2500); // كاب لأقصى مساهمة ATK في زيادة HP العدو
+        const roundsToSurvive = def.isBoss ? 5 : 3; // عدد الضربات الجماعية التقريبية المطلوبة لهزيمته
+        const hitsToKillPlayer = def.isBoss ? 7 : 10; // عدد ضربات الخصم المطلوبة لقتل لاعب متوسط
 
         // حساب الدم والضرر بناءً على قوة الفريق
-        let dynamicHP = Math.floor(totalPlayerATK * roundsToSurvive * waveDifficulty);
+        let dynamicHP = Math.floor(totalAtkCap * roundsToSurvive * waveDifficulty);
         let dynamicATK = Math.floor(averageHP / hitsToKillPlayer * waveDifficulty);
 
         // إضافة عامل المفاجأة (RNG ±15%)
