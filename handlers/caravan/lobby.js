@@ -246,7 +246,7 @@ async function sendAmbushNotification(client, db, caravan) {
             await interaction.deferUpdate().catch(() => {});
             try {
                 const { stagingLootItems } = require('./market/market-db');
-                const looted = await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_bribe || 0.50);
+                const looted = await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_bribe || 0.50, caravanId);
                 const remaining = Math.ceil((Number(caravan.endtime || caravan.endTime || 0) - Date.now()) / 60000);
                 const { generateBribeSuccessImage } = require('../../generators/caravan/lobby-generator');
                 const bribeImg = await generateBribeSuccessImage(dest, looted, remaining);
@@ -290,7 +290,7 @@ async function sendAmbushNotification(client, db, caravan) {
         const cvCheck = await safeQuery(db, `SELECT "attackResolved","endTime" FROM user_caravans WHERE "id"=$1`, [caravanId]).catch(() => ({ rows: [] }));
         if (cvCheck?.rows?.[0]?.attackResolved === 1 || cvCheck?.rows?.[0]?.attackResolved === '1') return;
         const { stagingLootItems } = require('./market/market-db');
-        await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
+        await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05, caravanId);
         await safeExecute(db, `DELETE FROM user_caravans WHERE "id"=$1 AND "attackResolved"=0`, [caravanId]);
         // تنظيف بيانات السوق المرتبطة بالقافلة المدمرة
         await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "caravanId"=$1 AND "status"='active'`, [caravanId]).catch(() => {});

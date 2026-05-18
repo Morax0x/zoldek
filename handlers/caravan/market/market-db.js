@@ -562,7 +562,7 @@ async function getListingById(db, listingId) {
     return result?.rows?.[0] || null;
 }
 
-async function stagingLootItems(db, userId, guildId, lootPercent) {
+async function stagingLootItems(db, userId, guildId, lootPercent, caravanId = null) {
     try {
         let staged = await safeQuery(db,
             `SELECT * FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "quantity" > 0`,
@@ -596,6 +596,18 @@ async function stagingLootItems(db, userId, guildId, lootPercent) {
                     ? `DELETE FROM caravan_staging_market WHERE userid=$1 AND guildid=$2 AND itemid=$3`
                     : `UPDATE caravan_staging_market SET quantity=$1 WHERE userid=$2 AND guildid=$3 AND itemid=$4`,
                 remaining <= 0 ? [userId, guildId, itemId] : [remaining, userId, guildId, itemId]).catch(()=>{});
+
+            // Also reduce from active market listings so buyers can't purchase stolen stock
+            if (caravanId) {
+                await safeExecute(db,
+                    `UPDATE caravan_market_listings SET "quantity"=GREATEST(0,"quantity"-$1)
+                     WHERE "caravanId"=$2 AND "itemID"=$3 AND "status"='active'`,
+                    [lootedQty, caravanId, itemId]).catch(() => {});
+                await safeExecute(db,
+                    `UPDATE caravan_market_listings SET quantity=GREATEST(0,quantity-$1)
+                     WHERE caravanid=$2 AND itemid=$3 AND status='active'`,
+                    [lootedQty, caravanId, itemId]).catch(() => {});
+            }
 
             looted.push({ itemId, quantity: lootedQty });
         }

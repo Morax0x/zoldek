@@ -251,7 +251,7 @@ async function processCaravanReturns(client, db) {
                 // Loot staging market for unresolved ambush
                 if (attackAt > 0 && attackResolved === 0) {
                     const { stagingLootItems } = require('./market/market-db');
-                    await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05);
+                    await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_defeat || 0.05, caravanId);
                 }
 
                 // Distribute rewards and mark caravan complete
