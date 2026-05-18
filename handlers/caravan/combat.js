@@ -1311,65 +1311,68 @@ async function handleEscortReady(data) {
         // Everyone in the party (owner + guards) gets cumulative rewards
         const rewardRes = await distributePartyRewards(db, party, guild.id, wavesCleared, lootPenalty);
 
-        // خصم رسوم الرحلة وإرسال القافلة
-        {
-            const { sendCaravan } = require('./journey');
-            const hostMora = await getMora(db, hostId, guild.id);
-            if (hostMora < dest.cost) {
-                for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-                await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة! (تحتاج ${dest.cost.toLocaleString()} مورا)\n🎟️ تم إرجاع التذاكر للحراس.`).catch(() => {});
-            } else {
-                try {
-                    await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [dest.cost, hostId, guild.id]);
-                } catch(e) {
-                    await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [dest.cost, hostId, guild.id]).catch(() => {});
-                }
-                console.log(`[Escort] mora deducted ${dest.cost} for ${hostId}`);
-                // Pass channel.id so the arrival checker knows where to open the market thread
-                cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
-                if (cvResult?.error) {
-                    // استرداد الرصيد لأن القافلة لم تنطلق
-                    await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [dest.cost, hostId, guild.id]).catch(() =>
-                        db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [dest.cost, hostId, guild.id]).catch(() => {})
-                    );
-                    for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-                    await thread.send(`❌ <@${hostId}> فشل إنشاء القافلة — تم استرداد رصيدك.`).catch(() => {});
-                    return;
-                }
-            // Mark route as permanently secured — no ambush will fire
+        // خصم رسوم الرحلة ذرياً مع التأكيد وإلغاء الخصم عند فشل الإرسال
+        const { sendCaravan } = require('./journey');
+        let deductRes = null;
+        try {
+            deductRes = await db.query(
+                `UPDATE levels SET "mora"="mora"-$1 WHERE "user"=$2 AND "guild"=$3 AND "mora">=$1 RETURNING "mora"`,
+                [dest.cost, hostId, guild.id]);
+        } catch(e) {
+            deductRes = await db.query(
+                `UPDATE levels SET mora=mora-$1 WHERE userid=$2 AND guildid=$3 AND mora>=$1 RETURNING mora`,
+                [dest.cost, hostId, guild.id]).catch(() => null);
+        }
+        if (!deductRes?.rows?.length) {
+            console.error(`[Escort] Mora deduction FAILED for ${hostId}: cost=${dest.cost}`);
+            for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+            await thread.send(`❌ <@${hostId}> فشل خصم ${dest.cost.toLocaleString()} مورا! الرصيد غير كافٍ.`).catch(() => {});
+            return;
+        }
+        console.log(`[Escort] mora deducted ${dest.cost} for ${hostId}`);
+        // Pass channel.id so the arrival checker knows where to open the market thread
+        cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
+        if (cvResult?.error) {
+            // استرداد الرصيد لأن القافلة لم تنطلق
+            await db.query(`UPDATE levels SET "mora"="mora"+$1 WHERE "user"=$2 AND "guild"=$3`, [dest.cost, hostId, guild.id]).catch(() =>
+                db.query(`UPDATE levels SET mora=mora+$1 WHERE userid=$2 AND guildid=$3`, [dest.cost, hostId, guild.id]).catch(() => {})
+            );
+            for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+            await thread.send(`❌ <@${hostId}> فشل إنشاء القافلة — تم استرداد رصيدك.`).catch(() => {});
+            return;
+        }
+        // Mark route as permanently secured — no ambush will fire
+        if (cvResult?.caravanId) {
+            await safeExecute(db,
+                `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "id"=$1`,
+                [cvResult.caravanId]);
+        }
+
+        // Finalize staged market items into caravan listings
+        try {
+            const marketSetup = require('./market/market-setup');
+            const marketDb    = require('./market/market-db');
             if (cvResult?.caravanId) {
-                await safeExecute(db,
-                    `UPDATE user_caravans SET "attackScheduledAt"=0,"attackResolved"=1 WHERE "id"=$1`,
-                    [cvResult.caravanId]);
+                const hostMember = await guild.members.fetch(hostId).catch(() => null);
+                await marketSetup.finalizeStagedItems(db, cvResult.caravanId, hostId, guild.id, hostMember);
+                escortListings = await marketDb.getListingsByCaravan(db, cvResult.caravanId);
             }
+        } catch(e) { console.error('[FinalizeStagedEscort]', e); }
 
-            // Finalize staged market items into caravan listings
-            try {
-                const marketSetup = require('./market/market-setup');
-                const marketDb    = require('./market/market-db');
-                if (cvResult?.caravanId) {
-                    const hostMember = await guild.members.fetch(hostId).catch(() => null);
-                    await marketSetup.finalizeStagedItems(db, cvResult.caravanId, hostId, guild.id, hostMember);
-                    escortListings = await marketDb.getListingsByCaravan(db, cvResult.caravanId);
-                }
-            } catch(e) { console.error('[FinalizeStagedEscort]', e); }
+        const eta = Math.floor((cvResult.endTime || 0) / 1000);
 
-            const eta = Math.floor((cvResult.endTime || 0) / 1000);
-
-            const folderName = DEST_IMAGE_MAP[dest.id] || 'gold_city/gold_city.png';
-            const destImgUrl = `${R2_BASE}/images/caravan/${folderName}`;
-            const escortEmbed = new EmbedBuilder()
-                .setColor(dest.color || '#00FF88')
-                .setTitle(result === 'escape' ? '❖ انسـحـاب - نصـف الطريـق مؤمـن' : '❖ تـم تـأمين الطريق بالكامـل')
-                .setDescription(`🐪 ستنطلق القافلة إلى **${dest.emoji} ${dest.name}**!\n📅 **وقت الوصول:** <t:${eta}:R>\n${result === 'escape' ? '⚠️ الطريق غير مؤمَّن تماماً — قد يحدث كمين.\n' : '✅ الطريق مؤمَّن!\n'}`)
-                .setImage(destImgUrl)
-                .addFields(
-                    { name: '⚔️ الموجات', value: `${wavesCleared}/5`, inline: true },
-                    { name: '🎁 المكافآت', value: rewardRes.summary.map(s => `✶ ${s}`).join('\n') || '—', inline: false }
-                );
-            await thread.send({ embeds: [escortEmbed] }).catch(() => {});
-            }  // else: deductRes success
-        }  // block: deduct + dispatch
+        const folderName = DEST_IMAGE_MAP[dest.id] || 'gold_city/gold_city.png';
+        const destImgUrl = `${R2_BASE}/images/caravan/${folderName}`;
+        const escortEmbed = new EmbedBuilder()
+            .setColor(dest.color || '#00FF88')
+            .setTitle(result === 'escape' ? '❖ انسـحـاب - نصـف الطريـق مؤمـن' : '❖ تـم تـأمين الطريق بالكامـل')
+            .setDescription(`🐪 ستنطلق القافلة إلى **${dest.emoji} ${dest.name}**!\n📅 **وقت الوصول:** <t:${eta}:R>\n${result === 'escape' ? '⚠️ الطريق غير مؤمَّن تماماً — قد يحدث كمين.\n' : '✅ الطريق مؤمَّن!\n'}`)
+            .setImage(destImgUrl)
+            .addFields(
+                { name: '⚔️ الموجات', value: `${wavesCleared}/5`, inline: true },
+                { name: '🎁 المكافآت', value: rewardRes.summary.map(s => `✶ ${s}`).join('\n') || '—', inline: false }
+            );
+        await thread.send({ embeds: [escortEmbed] }).catch(() => {});
     } else {
         // Apply 1-hour cooldown to owner on any loss
         await setCaravanCooldown(db, hostId, guild.id).catch(() => {});

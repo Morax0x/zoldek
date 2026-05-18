@@ -576,17 +576,22 @@ module.exports = {
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     const channelId = i.message ? i.message.channelId : i.channelId;
 
-                    // التحقق من الرصيد ثم الخصم
-                    const currentMora = await getMora(db, user.id, guild.id);
-                    if (currentMora < dest.cost) {
-                        await i.followUp({ content: `❌ رصيدك غير كافٍ! تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA} (رصيدك: **${currentMora.toLocaleString()}**)`, flags: [MessageFlags.Ephemeral] });
+                    // خصم الرصيد بشكل ذري مع التحقق من كفايته
+                    let deductRes = null;
+                    try {
+                        deductRes = await db.query(
+                            `UPDATE levels SET "mora"="mora"-$1 WHERE "user"=$2 AND "guild"=$3 AND "mora">=$1 RETURNING "mora"`,
+                            [dest.cost, user.id, guild.id]);
+                    } catch(e) {
+                        deductRes = await db.query(
+                            `UPDATE levels SET mora=mora-$1 WHERE userid=$2 AND guildid=$3 AND mora>=$1 RETURNING mora`,
+                            [dest.cost, user.id, guild.id]).catch(()=>null);
+                    }
+                    if (!deductRes?.rows?.length) {
+                        console.error(`[Caravan] Mora deduction FAILED for ${user.id}: cost=${dest.cost}`);
+                        await i.followUp({ content: `❌ فشل خصم ${dest.cost.toLocaleString()} مورا! الرصيد غير كافٍ.`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
-                    }
-                    try {
-                        await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [dest.cost, user.id, guild.id]);
-                    } catch(e) {
-                        await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [dest.cost, user.id, guild.id]).catch(() => {});
                     }
                     console.log(`[DirectSend] mora deducted ${dest.cost} for ${user.id}`);
 
