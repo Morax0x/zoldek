@@ -237,19 +237,21 @@ async function sendAmbushNotification(client, db, caravan) {
     await safeExecute(db, `UPDATE user_caravans SET "guardMessageId"=$1,"attackChannelId"=$2 WHERE "id"=$3`, [attackMsg.id, casinoId, caravanId]);
     if (!client.caravanAttackCollectors) client.caravanAttackCollectors = new Map();
 
-    const collector = attackMsg.createMessageComponentCollector({ filter: i => i.customId === `cv_amb_guard_${caravanId}` || i.customId === `cv_amb_bribe_${caravanId}`, time: AMBUSH_WINDOW_MS, max: 1 });
+    const collector = attackMsg.createMessageComponentCollector({ filter: i => i.customId === `cv_amb_guard_${caravanId}` || i.customId === `cv_amb_bribe_${caravanId}`, time: AMBUSH_WINDOW_MS });
     client.caravanAttackCollectors.set(String(caravanId), collector);
 
     collector.on('collect', async interaction => {
         if (interaction.customId === `cv_amb_bribe_${caravanId}`) {
             if (interaction.user.id !== userId) return interaction.reply({ content: '⛔ فقط مالك القافلة يستطيع الرشوة!', flags: [MessageFlags.Ephemeral] });
             await interaction.deferUpdate().catch(() => {});
-            const { stagingLootItems } = require('./market/market-db');
-            const looted = await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_bribe || 0.50);
-            const lootNotice = looted.length ? `\n💀 نُهبت ${looted.length} بضاعة من سلتك!` : '';
+            try {
+                const { stagingLootItems } = require('./market/market-db');
+                const looted = await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_bribe || 0.50);
+                const lootNotice = looted.length ? `\n💀 نُهبت ${looted.length} بضاعة من سلتك!` : '';
+                const remaining = Math.ceil((Number(caravan.endtime || caravan.endTime || 0) - Date.now()) / 60000);
+                await attackMsg.edit({ content: `💰 <@${userId}> دفعت الرشوة! قطاع الطرق أخذوا حصتهم من بضائعك.${lootNotice}\n✅ تستمر رحلتك إلى **${dest?.name || 'الوجهة'}** وستصل بعد ${Math.max(1, remaining)} دقيقة.`, embeds: [], files: [], components: [] }).catch(() => {});
+            } catch (e) { console.error('[BribeError]', e); }
             await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1 WHERE "id"=$1`, [caravanId]);
-            const remaining = Math.ceil((Number(caravan.endtime || caravan.endTime || 0) - Date.now()) / 60000);
-            await attackMsg.edit({ content: `💰 <@${userId}> دفعت الرشوة! قطاع الطرق أخذوا حصتهم من بضائعك.${lootNotice}\n✅ تستمر رحلتك إلى **${dest?.name || 'الوجهة'}** وستصل بعد ${Math.max(1, remaining)} دقيقة.`, embeds: [], files: [], components: [] }).catch(() => {});
             collector.stop('bribed');
             return;
         }

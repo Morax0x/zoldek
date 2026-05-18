@@ -51,43 +51,10 @@ async function generateAmbushAlertImage(dest) {
 
     divLine(ctx, PX + 60, PY + 255, PW - 120, C.red + '44');
 
-    // Enemy list
-    const enemies = (dest.id && DESTINATION_ENEMIES[dest.id]) ? DESTINATION_ENEMIES[dest.id] : DEFAULT_ENEMIES;
-    const enemyStartY = PY + 290;
-    const enemyBoxH = 50;
-    const enemyGap = 8;
+    M(ctx, 'قطاع الطرق يتربصون بالقافلة في انتظار قرارك.', W / 2, PY + 310, 32, C.textD);
+    M(ctx, 'اختر أحد الخيارات أدناه:', W / 2, PY + 360, 28, C.text);
 
-    for (let i = 0; i < enemies.length; i++) {
-        const enemy = enemies[i];
-        const ey = enemyStartY + i * (enemyBoxH + enemyGap);
-        const skill = BANDIT_SKILLS[enemy.name];
-        const skillStr = skill ? `${skill.emoji} ${skill.name}` : '';
-        const isBoss = enemy.isBoss;
-
-        rr(ctx, PX + 30, ey, PW - 60, enemyBoxH, 10);
-        ctx.fillStyle = isBoss ? 'rgba(231,76,60,0.25)' : 'rgba(0,0,0,0.5)';
-        ctx.fill();
-        ctx.strokeStyle = isBoss ? C.red + '66' : 'rgba(255,255,255,0.08)';
-        ctx.lineWidth = 1;
-        rr(ctx, PX + 30, ey, PW - 60, enemyBoxH, 10);
-        ctx.stroke();
-
-        ctx.font = isBoss ? `bold 22px ${FA}` : `18px ${FA}`;
-        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        ctx.direction = 'rtl';
-        ctx.fillStyle = isBoss ? C.red : C.text;
-        ctx.fillText(isBoss ? `👑 الموجة ${i + 1}: ${enemy.name}` : `الموجة ${i + 1}: ${enemy.name}`, PX + PW - 45, ey + enemyBoxH / 2);
-
-        if (skillStr) {
-            ctx.font = `16px ${FA}`;
-            ctx.textAlign = 'left';
-            ctx.direction = 'ltr';
-            ctx.fillStyle = C.textD;
-            ctx.fillText(skillStr, PX + 45, ey + enemyBoxH / 2);
-        }
-    }
-
-    const by = PY + PH - 120;
+    const by = PY + PH - 130;
     const bx1 = PX + 50, bx2 = PX + PW / 2 + 10, bw = PW / 2 - 60, bh = 80;
 
     rr(ctx, bx1, by, bw, bh, 16); ctx.fillStyle = 'rgba(46,204,113,0.15)'; ctx.fill();
