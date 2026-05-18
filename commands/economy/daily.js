@@ -38,7 +38,7 @@ function getTimeUntilNextMidnightKSA() {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('daily')
-        .setDescription('احصل على راتبك اليومي (يتجدد الساعة 12 ص بتوقيت السعودية).'),
+        .setDescription('احصل على راتبك اليومي (يتجدد الساعة 12 ص بتوقيـت السعودية).'),
 
     name: 'daily',
     aliases: ['راتب', 'يومي', 'd', 'جائزة', 'جائزه'],
