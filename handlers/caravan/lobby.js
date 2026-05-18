@@ -231,7 +231,7 @@ async function sendAmbushNotification(client, db, caravan) {
 
     let attackMsg;
     try {
-        attackMsg = await channel.send({ content: `🚨 <@${userId}> **القافلة تتعرض لكمين! لديك 30 دقيقة للرد!**`, files: [attachment], embeds: [], components: [initialRow] });
+        attackMsg = await channel.send({ content: `🚨 <@${userId}> **القافلة تتعرض لكمين! لديك 15 دقيقة للرد!**`, files: [attachment], embeds: [], components: [initialRow] });
     } catch { return; }
 
     await safeExecute(db, `UPDATE user_caravans SET "guardMessageId"=$1,"attackChannelId"=$2 WHERE "id"=$3`, [attackMsg.id, casinoId, caravanId]);
@@ -247,9 +247,11 @@ async function sendAmbushNotification(client, db, caravan) {
             try {
                 const { stagingLootItems } = require('./market/market-db');
                 const looted = await stagingLootItems(db, userId, guildId, caravanConfig.attack.market_loot_bribe || 0.50);
-                const lootNotice = looted.length ? `\n💀 نُهبت ${looted.length} بضاعة من سلتك!` : '';
                 const remaining = Math.ceil((Number(caravan.endtime || caravan.endTime || 0) - Date.now()) / 60000);
-                await attackMsg.edit({ content: `💰 <@${userId}> دفعت الرشوة! قطاع الطرق أخذوا حصتهم من بضائعك.${lootNotice}\n✅ تستمر رحلتك إلى **${dest?.name || 'الوجهة'}** وستصل بعد ${Math.max(1, remaining)} دقيقة.`, embeds: [], files: [], components: [] }).catch(() => {});
+                const { generateBribeSuccessImage } = require('../../generators/caravan/lobby-generator');
+                const bribeImg = await generateBribeSuccessImage(dest, looted, remaining);
+                const bribeAttach = bribeImg ? [new AttachmentBuilder(bribeImg, { name: 'bribe.png' })] : [];
+                await attackMsg.edit({ content: `<@${userId}>`, files: bribeAttach, embeds: [], components: [] }).catch(() => {});
             } catch (e) { console.error('[BribeError]', e); }
             await safeExecute(db, `UPDATE user_caravans SET "attackResolved"=1 WHERE "id"=$1`, [caravanId]);
             collector.stop('bribed');

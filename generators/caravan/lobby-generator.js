@@ -373,4 +373,57 @@ async function generateAmbushResultImage(dest, type) {
     return toBuf(canvas);
 }
 
-module.exports = { generateAmbushAlertImage, generateLobbyImage, generateDestChoiceImage, generateAmbushResultImage };
+// ============================================================================
+// 5. مولد صورة دفع الرشوة
+// ============================================================================
+async function generateBribeSuccessImage(dest, looted, remainingMin) {
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext('2d');
+
+    try {
+        await drawBg(ctx, 'banditattack');
+    } catch {
+        ctx.fillStyle = '#05050A'; ctx.fillRect(0, 0, W, H);
+    }
+
+    await drawHeader(ctx, '💰 تم دفع الرشوة', `قطاع الطرق أخذوا حصتهم`);
+    drawCornerAccents(ctx);
+
+    const PX = 80, PY = 180, PW = W - 160, PH = H - 280;
+    drawPanel(ctx, PX, PY, PW, PH, C.gold, { radius: 32 });
+    rr(ctx, PX, PY, PW, PH, 32);
+    ctx.fillStyle = 'rgba(241,196,15,0.08)'; ctx.fill();
+
+    ctx.font = `90px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('💰', W / 2, PY + 70);
+
+    M(ctx, 'قطاع الطرق قبلوا الرشوة وتركون القافلة', W / 2, PY + 160, 38, C.gold);
+    M(ctx, `تستمر رحلتك إلى ${dest.emoji} ${dest.name}`, W / 2, PY + 210, 30, C.text);
+
+    divLine(ctx, PX + 60, PY + 255, PW - 120, C.gold + '44');
+
+    let currentY = PY + 300;
+
+    if (looted && looted.length > 0) {
+        M(ctx, '💀 البضائع التي نُهبت:', W / 2, currentY, 28, C.red);
+        currentY += 45;
+        for (const item of looted) {
+            const raw = String(item.itemId || 'عنصر');
+            const displayName = raw.replace(/_/g, ' ');
+            const itemQty = item.quantity || 1;
+            M(ctx, `✗ ${itemQty}x ${displayName}`, W / 2, currentY, 24, C.textD);
+            currentY += 35;
+        }
+    } else {
+        M(ctx, 'لم يتم نهب أي بضائع — لا توجد بضائع معروضة', W / 2, currentY, 26, C.textD);
+    }
+
+    const eta = Math.max(1, remainingMin);
+    currentY = Math.max(currentY + 40, PY + PH - 80);
+    divLine(ctx, PX + 60, currentY - 10, PW - 120, C.gold + '44');
+    M(ctx, `✅ القافلة ستصل بعد ${eta} دقيقة`, W / 2, currentY + 35, 28, C.green);
+
+    return toBuf(canvas);
+}
+
+module.exports = { generateAmbushAlertImage, generateLobbyImage, generateDestChoiceImage, generateAmbushResultImage, generateBribeSuccessImage };
