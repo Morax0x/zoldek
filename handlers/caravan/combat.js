@@ -1170,7 +1170,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                 caravan.pendingLootDrop = false;
 
                 const lootMsg = await thread.send({
-                    content: '📦 **بضاعة تساقطت من القافلة!** أول من يضغط ينقذها (15 ثانية).',
+                    content: '📦 **بضاعة تساقطت من القافلة!** أول من يضغط ينقذها (5 ثواني).',
                     components: [new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('cvb_loot').setLabel('التقاط البضاعة').setEmoji('📦').setStyle(ButtonStyle.Success)
                     )],
@@ -1182,7 +1182,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                             const p = players.find(pl => pl.id === i.user.id);
                             return p && !p.isDead && party.includes(i.user.id);
                         },
-                        time: 15000,
+                        time: 5000,
                     });
                     await new Promise(res => {
                         lootCollector.on('collect', async li => {
