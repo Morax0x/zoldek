@@ -27,13 +27,13 @@ async function createMarketThread(client, db, caravan, channelId) {
         const caravanId = caravan.id;
 
         const dest = caravanConfig.destinations.find(d => d.id === destId);
-        if (!dest) return null;
+        if (!dest) { console.error('[CreateThread] Invalid destination:', destId); return null; }
 
         let guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
-        if (!guild) return null;
+        if (!guild) { console.error('[CreateThread] Guild not found:', guildId); return null; }
 
         let channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
-        if (!channel) return null;
+        if (!channel) { console.error('[CreateThread] Channel not found:', channelId); return null; }
 
         let ownerName = ownerId;
         try {
@@ -41,6 +41,16 @@ async function createMarketThread(client, db, caravan, channelId) {
             ownerName = member?.displayName || member?.user?.globalName || member?.user?.username || ownerId;
         } catch {}
 
+        // Step 1: Create the market session in DB FIRST (before creating Discord thread)
+        let durationMs = Number(caravan.endtime || caravan.endTime) - Number(caravan.starttime || caravan.startTime);
+        if (isNaN(durationMs) || durationMs <= 0) durationMs = 30 * 60 * 1000;
+        const marketDurationMs = Math.max(15 * 60 * 1000, Math.min(durationMs, 24 * 60 * 60 * 1000));
+
+        // Get listings BEFORE creating thread to verify we have items
+        const existingListings = await getListingsByCaravanForCaravan(db, caravanId);
+        console.log(`[createMarketThread] caravanId=${caravanId} pre-check listings=${existingListings.length}`);
+
+        // Step 2: Now create the Discord thread
         const thread = await channel.threads.create({
             name: `🏪 قافلة #${ownerName}`,
             autoArchiveDuration: 1440,
@@ -53,23 +63,25 @@ async function createMarketThread(client, db, caravan, channelId) {
 
         if (!thread) return null;
 
-        // قفل الكتابة للجميع — البوت يقدر يرسل والمستخدمين يقدرون يتفاعلون مع الأزرار
+        // Set permissions
         await thread.members.add(ownerId).catch(() => {});
         await thread.permissionOverwrites.set([
             { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.SendMessages] },
         ]).catch(() => {});
 
-        let durationMs = Number(caravan.endtime || caravan.endTime) - Number(caravan.starttime || caravan.startTime);
-        if (isNaN(durationMs) || durationMs <= 0) durationMs = 30 * 60 * 1000; 
-        
-        const marketDurationMs = Math.max(15 * 60 * 1000, Math.min(durationMs, 24 * 60 * 60 * 1000));
-
-        await createMarketSession(db, caravanId, ownerId, guildId, destId, thread.id, channel.id, marketDurationMs);
+        // Step 3: Create market session (with thread.id now available)
+        try {
+            await createMarketSession(db, caravanId, ownerId, guildId, destId, thread.id, channel.id, marketDurationMs);
+        } catch (sessionErr) {
+            console.error('[CreateThread] Session creation failed, deleting thread:', sessionErr?.message || sessionErr);
+            await thread.delete().catch(() => {});
+            return null;
+        }
 
         const listings = await getListingsBySession(db, thread.id);
+        console.log(`[createMarketThread] post-session listings=${listings.length}`);
 
         const endTimestamp = Math.floor((Date.now() + marketDurationMs) / 1000);
-
         let serverIconUrl = guild.iconURL({ extension: 'png', size: 128 }) || null;
 
         const embed = new EmbedBuilder()
@@ -83,19 +95,29 @@ async function createMarketThread(client, db, caravan, channelId) {
             )
             .setFooter({ text: '™ Empire | الامبراطورية', iconURL: serverIconUrl });
 
-        console.log(`[createMarketThread] caravanId=${caravanId} thread=${thread.id} listings=${listings.length}`);
-
         const announcement = await thread.send({
             content: `✶ <@${ownerId}>`,
             embeds: [embed],
-        }).catch(() => null);
+        }).catch(err => {
+            console.error('[CreateThread] Announcement send failed:', err?.message);
+            return null;
+        });
 
-        if (announcement) {
-            console.log(`[createMarketThread] announcement sent, calling updateMarketMessage...`);
-            await updateMarketMessage(thread, listings, dest);
-            console.log(`[createMarketThread] updateMarketMessage done`);
+        // Step 4: Send market image/buttons — with guaranteed fallback
+        if (listings.length > 0) {
+            try {
+                console.log(`[createMarketThread] calling updateMarketMessage with ${listings.length} listings...`);
+                await updateMarketMessage(thread, listings, dest);
+                console.log(`[createMarketThread] updateMarketMessage done`);
+            } catch (mktErr) {
+                console.error('[createMarketThread] updateMarketMessage threw:', mktErr?.message || mktErr);
+                // Fallback: send a simple text message so the market isn't empty
+                try {
+                    await thread.send({ content: `🛒 **سوق القافلة** — ${listings.length} عنصر معروض. استخدم الأزرار أدناه للشراء.` });
+                } catch {}
+            }
         } else {
-            console.error(`[createMarketThread] announcement send failed`);
+            console.log(`[createMarketThread] No listings to display for caravan ${caravanId}`);
         }
 
         scheduleNpcSpawn(client, db, thread, dest, ownerId, guildId, marketDurationMs);
@@ -105,6 +127,12 @@ async function createMarketThread(client, db, caravan, channelId) {
         console.error('[createMarketThread Fatal]', err);
         return null;
     }
+}
+
+// Helper: get listings by caravanId WITHOUT requiring a session (for pre-check)
+async function getListingsByCaravanForCaravan(db, caravanId) {
+    const { getListingsByCaravan } = require('./market-db');
+    return getListingsByCaravan(db, caravanId);
 }
 
 async function closeMarketThread(client, db, threadId, guildId, journeyRewards = null, skipReport = false) {

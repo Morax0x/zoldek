@@ -84,7 +84,9 @@ async function updateMarketMessage(channel, listings, dest, interaction = null) 
         const page     = marketPages.get(threadId) || 0;
 
         // Try canvas image; fallback embed if it fails
-        let buffer, components = [], canvasOk = false;
+        let buffer = null;
+        let components = [];
+        let canvasOk = false;
         try {
             buffer = await buildMarketImage(listings, dest, page);
             if (buffer) {
@@ -94,7 +96,7 @@ async function updateMarketMessage(channel, listings, dest, interaction = null) 
         } catch (e) { console.error('[MarketCanvas Error]', e); }
 
         let payload;
-        if (canvasOk) {
+        if (canvasOk && buffer) {
             const attachment = new AttachmentBuilder(buffer, { name: 'market.png' });
             payload = { files: [attachment] };
             if (components.length) payload.components = components;
@@ -114,7 +116,13 @@ async function updateMarketMessage(channel, listings, dest, interaction = null) 
 
         const msgs = await channel.messages.fetch({ limit: 20 }).catch(() => null);
         if (!msgs) {
-            await channel.send(payload).catch(e => console.error('[Market Send1]', e));
+            await channel.send(payload).catch(e => {
+                console.error('[Market Send1]', e?.message);
+                // Ultimate fallback if even the normal send fails
+                try {
+                    channel.send({ content: `🛒 سوق القافلة — ${listings.length} عنصر معروض` }).catch(() => {});
+                } catch {}
+            });
             return;
         }
 
@@ -134,10 +142,18 @@ async function updateMarketMessage(channel, listings, dest, interaction = null) 
             await channel.send(payload).catch(e => {
                 console.error('[Market Send2]', e?.message);
                 if (e?.rawError) console.error('[Market Send2 rawError]', JSON.stringify(e.rawError, null, 2));
+                // Ultimate fallback
+                try {
+                    channel.send({ content: `🛒 سوق القافلة — ${listings.length} عنصر معروض` }).catch(() => {});
+                } catch {}
             });
         }
     } catch (e) {
         console.error('[Update Market Error]', e);
+        // Last resort: try to send at least something
+        try {
+            channel.send({ content: `🛒 سوق القافلة — ${listings.length} عنصر معروض` }).catch(() => {});
+        } catch {}
     }
 }
 

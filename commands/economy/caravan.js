@@ -512,7 +512,8 @@ module.exports = {
 
                     console.log(`[DirectSend] caravanId=${result.caravanId} listings=${listings.length}`);
 
-                    await showHub(hubMsg);
+                    // Update hub first, but don't let it block market thread creation
+                    try { await showHub(hubMsg); } catch (e) { console.error('[DirectSend] showHub error:', e?.message); }
 
                     if (listings.length > 0 && result.caravanId) {
                         const dispatchNow = Date.now();
