@@ -88,10 +88,11 @@ async function getFilteredInventoryCategories(db, userId, guildId) {
 // ============================================================================
 async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDeduct) {
     const targetId = String(itemId).toLowerCase().trim();
+    const pgClient = await db.connect();
     try {
-        await db.query('BEGIN');
-        const lockRes = await db.query(`SELECT "id","itemID","quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 FOR UPDATE`, [userId, guildId]);
-        if (!lockRes?.rows?.length) { await db.query('ROLLBACK'); return false; }
+        await pgClient.query('BEGIN');
+        const lockRes = await pgClient.query(`SELECT "id","itemID","quantity" FROM user_inventory WHERE "userID"=$1 AND "guildID"=$2 FOR UPDATE`, [userId, guildId]);
+        if (!lockRes?.rows?.length) { await pgClient.query('ROLLBACK'); return false; }
 
         let itemRows = [];
         for (const r of lockRes.rows) {
@@ -99,7 +100,7 @@ async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDe
             if (idStr === targetId) itemRows.push(r);
         }
         let totalAvailable = itemRows.reduce((s, r) => s + Number(r.quantity ?? 0), 0);
-        if (totalAvailable < quantityToDeduct) { await db.query('ROLLBACK'); return false; }
+        if (totalAvailable < quantityToDeduct) { await pgClient.query('ROLLBACK'); return false; }
 
         let remaining = quantityToDeduct;
         for (const r of itemRows) {
@@ -107,41 +108,49 @@ async function safeDeductFromInventory(db, userId, guildId, itemId, quantityToDe
             const q = Number(r.quantity ?? 0);
             if (q <= 0) continue;
             const deduct = Math.min(q, remaining);
-            await db.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [deduct, r.id]);
+            await pgClient.query(`UPDATE user_inventory SET "quantity" = "quantity" - $1 WHERE "id" = $2`, [deduct, r.id]);
             remaining -= deduct;
         }
-        await db.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
-        await db.query('COMMIT');
+        await pgClient.query(`DELETE FROM user_inventory WHERE "quantity" <= 0 AND "userID" = $1 AND "guildID" = $2`, [userId, guildId]);
+        await pgClient.query('COMMIT');
         return remaining === 0;
     } catch(e) {
-        await db.query('ROLLBACK').catch(() => {});
+        await pgClient.query('ROLLBACK').catch(() => {});
         const fallback = await tryFallbackDeduct(db, userId, guildId, itemId, targetId, quantityToDeduct);
         return fallback;
+    } finally {
+        pgClient.release();
     }
 }
 
 // Fallback for legacy DB with lowercase/case-sensitive columns
 async function tryFallbackDeduct(db, userId, guildId, itemId, targetId, quantityToDeduct) {
+    const pgClient = await db.connect();
     try {
-        const lockRes = await db.query(`SELECT id,itemid,quantity FROM user_inventory WHERE userid=$1 AND guildid=$2 FOR UPDATE`, [userId, guildId]);
-        if (!lockRes?.rows?.length) return false;
+        await pgClient.query('BEGIN');
+        const lockRes = await pgClient.query(`SELECT id,itemid,quantity FROM user_inventory WHERE userid=$1 AND guildid=$2 FOR UPDATE`, [userId, guildId]);
+        if (!lockRes?.rows?.length) { await pgClient.query('ROLLBACK'); return false; }
         let itemRows = lockRes.rows.filter(r => String(r.itemid ?? '').toLowerCase().trim() === targetId);
         let totalAvailable = itemRows.reduce((s, r) => s + Number(r.quantity ?? 0), 0);
-        if (totalAvailable < quantityToDeduct) return false;
+        if (totalAvailable < quantityToDeduct) { await pgClient.query('ROLLBACK'); return false; }
         let remaining = quantityToDeduct;
         for (const r of itemRows) {
             if (remaining <= 0) break;
             const q = Number(r.quantity ?? 0);
             if (q <= 0) continue;
             const deduct = Math.min(q, remaining);
-            await db.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [deduct, r.id]);
+            await pgClient.query(`UPDATE user_inventory SET quantity = quantity - $1 WHERE id = $2`, [deduct, r.id]);
             remaining -= deduct;
         }
-        await db.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1 AND guildid = $2`, [userId, guildId]);
+        await pgClient.query(`DELETE FROM user_inventory WHERE quantity <= 0 AND userid = $1 AND guildid = $2`, [userId, guildId]);
+        await pgClient.query('COMMIT');
         return remaining === 0;
     } catch(e) {
+        await pgClient.query('ROLLBACK').catch(() => {});
         console.error('[safeDeductFromInventory] fallback failed:', e?.message);
         return false;
+    } finally {
+        pgClient.release();
     }
 }
 
@@ -176,26 +185,18 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
     const stagedCount = stagedCountResult?.rows?.[0]?.cnt ?? 0;
     const alreadyStaged = existingStaged?.rows?.[0]?.qty ?? 0;
 
-    console.log(`[stagingAddItemSafe] userId=${userId}, itemId=${itemId}, qty=${quantity}`);
-    console.log(`[stagingAddItemSafe] limits: general=${limits.general}, sameType=${limits.sameType}`);
-    console.log(`[stagingAddItemSafe] stagedCount=${stagedCount}, alreadyStaged=${alreadyStaged}`);
-
     if (alreadyStaged > 0) {
         if (alreadyStaged + quantity > limits.sameType) {
-            console.log(`[stagingAddItemSafe] BLOCKED by sameType: ${alreadyStaged} + ${quantity} > ${limits.sameType}`);
             return { ok: false, error: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !` };
         }
     } else {
         if (stagedCount >= limits.general) {
-            console.log(`[stagingAddItemSafe] BLOCKED by general: ${stagedCount} >= ${limits.general}`);
             return { ok: false, error: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${Math.max(0, limits.general - stagedCount)}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !` };
         }
         if (quantity > limits.sameType) {
-            console.log(`[stagingAddItemSafe] BLOCKED by sameType (new item): ${quantity} > ${limits.sameType}`);
             return { ok: false, error: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !` };
         }
     }
-    console.log(`[stagingAddItemSafe] PASSED limit check`);
 
     const deducted = await safeDeductFromInventory(db, userId, guildId, itemId, quantity);
     if (!deducted) return { ok: false, error: 'الكمية غير كافية في مخزونك.' };
@@ -206,8 +207,8 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
             `UPDATE caravan_staging_market SET "quantity" = "quantity" + $1, "pricePerUnit" = $5
              WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4 RETURNING *`,
             [quantity, userId, guildId, itemId, price]);
-        if (upd1 && upd1.rowCount > 0) { updated = true; console.log(`[stagingAddItemSafe] UPDATE quoted succeeded, rowCount=${upd1.rowCount}`); }
-    } catch(e) { console.log(`[stagingAddItemSafe] UPDATE quoted failed: ${e?.message || e}`); }
+        if (upd1 && upd1.rowCount > 0) updated = true;
+    } catch(e) {}
 
     if (!updated) {
         try {
@@ -215,8 +216,8 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
                 `UPDATE caravan_staging_market SET quantity = quantity + $1, priceperunit = $5
                  WHERE userid=$2 AND guildid=$3 AND itemid=$4 RETURNING *`,
                 [quantity, userId, guildId, itemId, price]);
-            if (upd2 && upd2.rowCount > 0) { updated = true; console.log(`[stagingAddItemSafe] UPDATE lowercase succeeded, rowCount=${upd2.rowCount}`); }
-        } catch(e) { console.log(`[stagingAddItemSafe] UPDATE lowercase failed: ${e?.message || e}`); }
+            if (upd2 && upd2.rowCount > 0) updated = true;
+        } catch(e) {}
     }
 
     if (updated) return { ok: true };
@@ -228,9 +229,7 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
             `INSERT INTO caravan_staging_market ("userID","guildID","itemID","quantity","pricePerUnit") VALUES ($1,$2,$3,$4,$5) ON CONFLICT ("userID","guildID","itemID") DO UPDATE SET "quantity" = caravan_staging_market."quantity" + EXCLUDED."quantity" RETURNING "quantity"`,
             [userId, guildId, itemId, quantity, price]);
         if (ins1 && ins1.rowCount > 0) inserted = true;
-    } catch(e) {
-        console.log(`[stagingAddItemSafe] INSERT quoted failed: ${e?.message || e}`);
-    }
+    } catch(e) {}
 
     if (!inserted) {
         try {
@@ -238,9 +237,7 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
                 `INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (userid, guildid, itemid) DO UPDATE SET quantity = caravan_staging_market.quantity + EXCLUDED.quantity RETURNING quantity`,
                 [userId, guildId, itemId, quantity, price]);
             if (ins2 && ins2.rowCount > 0) inserted = true;
-        } catch(e) {
-            console.log(`[stagingAddItemSafe] INSERT lowercase failed: ${e?.message || e}`);
-        }
+        } catch(e) {}
     }
 
     if (!inserted) {
@@ -250,9 +247,7 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
                 `INSERT INTO caravan_staging_market ("userID","guildID","itemID","quantity","pricePerUnit") VALUES ($1,$2,$3,$4,$5) RETURNING "quantity"`,
                 [userId, guildId, itemId, quantity, price]);
             if (ins3 && ins3.rowCount > 0) inserted = true;
-        } catch(e) {
-            console.log(`[stagingAddItemSafe] INSERT plain quoted failed: ${e?.message || e}`);
-        }
+        } catch(e) {}
     }
 
     if (!inserted) {
@@ -261,12 +256,8 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
                 `INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1,$2,$3,$4,$5) RETURNING quantity`,
                 [userId, guildId, itemId, quantity, price]);
             if (ins4 && ins4.rowCount > 0) inserted = true;
-        } catch(e) {
-            console.log(`[stagingAddItemSafe] INSERT plain lowercase failed: ${e?.message || e}`);
-        }
+        } catch(e) {}
     }
-
-    console.log(`[stagingAddItemSafe] insert result: ${inserted ? 'SUCCESS' : 'FAILED'}`);
     if (!inserted) return { ok: false, error: 'فشل إضافة البضاعة إلى السلة.' };
     return { ok: true };
 }
@@ -380,7 +371,6 @@ async function getMarketSlotLimits(db, userId, guildId, member) {
     if (level >= 80) { general += 3; sameType += 3; }
     if (level >= 99) { general += 5; sameType += 5; }
 
-    console.log(`[getMarketSlotLimits] userId=${userId}, repPts=${repPts}, level=${level}, general=${general}, sameType=${sameType}`);
     return { general, sameType };
 }
 
@@ -388,50 +378,47 @@ async function finalizeListings(client, db, caravanId, userId, guildId) {
     const listings = getMarketListingsCache(client, userId, guildId);
     if (!listings || listings.length === 0) return { ok: true, listings: [] };
 
+    const pgClient = await db.connect();
     try {
-        await db.query('BEGIN');
-        const exist = await db.query(`SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1 FOR UPDATE`, [caravanId]);
+        await pgClient.query('BEGIN');
+        const exist = await pgClient.query(`SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1 FOR UPDATE`, [caravanId]);
         if (exist.rows.length > 0) {
-            console.log(`[finalizeListings] caravanId=${caravanId} already has listings — skipped`);
             clearMarketListingsCache(client, userId, guildId);
-            await db.query('COMMIT');
+            await pgClient.query('COMMIT');
             return { ok: true, listings: [], skipped: true };
         }
         const dbListings = [];
         for (const listing of listings) {
-            const listingId = await createListing(db, caravanId, userId, guildId, listing);
+            const listingId = await createListing(pgClient, caravanId, userId, guildId, listing);
             if (listingId) dbListings.push({ ...listing, listingId });
         }
-        await db.query('COMMIT');
+        await pgClient.query('COMMIT');
         if (dbListings.length > 0) await lockItemsFromInventory(db, guildId, userId, dbListings);
         clearMarketListingsCache(client, userId, guildId);
         return { ok: true, listings: dbListings };
     } catch(e) {
-        await db.query('ROLLBACK').catch(() => {});
+        await pgClient.query('ROLLBACK').catch(() => {});
         clearMarketListingsCache(client, userId, guildId);
         console.error('[finalizeListings] transaction failed:', e?.message);
         return { ok: false, listings: [] };
+    } finally {
+        pgClient.release();
     }
 }
 
 async function finalizeStagedItems(db, caravanId, userId, guildId, member = null) {
-    if (!caravanId) {
-        console.warn('[finalizeStagedItems] caravanId is null/undefined — skipping');
-        return { ok: false, moved: 0 };
-    }
+    if (!caravanId) return { ok: false, moved: 0 };
 
-    // Transaction with lock to prevent concurrent finalization
+    const pgClient = await db.connect();
     try {
-        await db.query('BEGIN');
-        const exist = await db.query(`SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1 FOR UPDATE`, [caravanId]);
+        await pgClient.query('BEGIN');
+        const exist = await pgClient.query(`SELECT 1 FROM caravan_market_listings WHERE "caravanId"=$1 AND "status"='active' LIMIT 1 FOR UPDATE`, [caravanId]);
         if (exist.rows.length > 0) {
-            console.log(`[finalizeStagedItems] caravanId=${caravanId} already has listings — skipped`);
-            await db.query('COMMIT');
+            await pgClient.query('COMMIT');
             return { ok: true, moved: 0, skipped: true };
         }
 
         const staged = await getStagedItemsSafe(db, userId, guildId);
-        console.log(`[finalizeStagedItems] caravanId=${caravanId} userId=${userId} staged items: ${staged.length}`);
 
         let moved = 0;
         for (const st of staged) {
@@ -448,24 +435,24 @@ async function finalizeStagedItems(db, caravanId, userId, guildId, member = null
             const itemInfo = resolveItemInfo(itemId);
             const now = Date.now();
 
-            try {
-                await db.query(`INSERT INTO caravan_market_listings
+            await pgClient.query(`INSERT INTO caravan_market_listings
                     ("caravanId","ownerID","guildID","itemID","itemName","itemEmoji",
                      "quantity","pricePerUnit","quantitySold","status","createdAt")
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,'active',$9)`,
                 [caravanId, userId, guildId, itemId, itemInfo.name || itemId, itemInfo.emoji || '📦', qty, price, now]);
-                moved++;
-            } catch(e) {
-                console.error(`[finalizeStagedItems] INSERT failed for itemId=${itemId}:`, e?.message);
-            }
+            moved++;
         }
 
-        await db.query('COMMIT');
+        await pgClient.query('COMMIT');
+        // Clear staging records now that listings are committed
+        await safeExecute(db, `DELETE FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]);
         return { ok: true, moved };
     } catch(e) {
-        await db.query('ROLLBACK').catch(() => {});
+        await pgClient.query('ROLLBACK').catch(() => {});
         console.error('[finalizeStagedItems] transaction failed:', e?.message);
         return { ok: false, moved: 0 };
+    } finally {
+        pgClient.release();
     }
 }
 
@@ -732,13 +719,8 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         const stagedCount = stagedCountResult?.rows?.[0]?.cnt ?? 0;
         const alreadyStaged = existingStaged?.rows?.[0]?.qty ?? 0;
 
-        console.log(`[handleStageModalSubmit] userId=${user.id}, itemId=${itemId}, qty=${qty}`);
-        console.log(`[handleStageModalSubmit] limits: general=${limits.general}, sameType=${limits.sameType}`);
-        console.log(`[handleStageModalSubmit] stagedCount=${stagedCount}, alreadyStaged=${alreadyStaged}`);
-
         if (alreadyStaged > 0) {
             if (alreadyStaged + qty > limits.sameType) {
-                console.log(`[handleStageModalSubmit] BLOCKED by sameType: ${alreadyStaged} + ${qty} > ${limits.sameType}`);
                 const free = Math.max(0, limits.sameType - alreadyStaged);
                 return modalSubmit.reply({
                     content: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${free}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.sameType}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !`,
@@ -747,7 +729,6 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
             }
         } else {
             if (stagedCount >= limits.general) {
-                console.log(`[handleStageModalSubmit] BLOCKED by general: ${stagedCount} >= ${limits.general}`);
                 const free = Math.max(0, limits.general - stagedCount);
                 return modalSubmit.reply({
                     content: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${free}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !`,
@@ -755,14 +736,12 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
                 });
             }
             if (qty > limits.sameType) {
-                console.log(`[handleStageModalSubmit] BLOCKED by sameType (new item): ${qty} > ${limits.sameType}`);
                 return modalSubmit.reply({
                     content: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !`,
                     flags: [MessageFlags.Ephemeral],
                 });
             }
         }
-        console.log(`[handleStageModalSubmit] PASSED limit check`);
 
         await modalSubmit.deferUpdate().catch(() => {});
         const result = await stagingAddItemSafe(db, user.id, guild.id, itemId, qty, price, modalSubmit.member);

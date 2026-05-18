@@ -313,7 +313,7 @@ async function processNpcTurn(conv, userMessage, interaction, client, db) {
 
             await thread.send({ content: `✅ <@${conv.ownerId}> أتممت صفقة بـ **${earned}** مورا مع ${conv.name}!` }).catch(() => {});
         } else {
-            updatedEmbed.setFooter({ text: `❌ فشلت الصفقة: ${purchaseResult.error}` });
+            updatedEmbed.setFooter({ text: `❌ فشلت الصفقة.` });
             await conv.message.edit({ embeds: [updatedEmbed], components: [] }).catch(() => {});
         }
         conv.active = false;
@@ -430,7 +430,7 @@ async function spawnNpc(client, db, thread, destId, ownerId, guildId) {
 
                     await thread.send({ content: `✅ <@${conv.ownerId}> أتممت صفقة بـ **${earned}** مورا مع المشتري ${conv.name}!` }).catch(() => {});
                 } else {
-                    updatedEmbed.setFooter({ text: `❌ فشلت الصفقة: ${purchaseResult.error}` });
+                    updatedEmbed.setFooter({ text: `❌ فشلت الصفقة.` });
                     await conv.message.edit({ embeds: [updatedEmbed], components: [] }).catch(() => {});
                 }
                 conv.active = false;
