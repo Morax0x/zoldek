@@ -346,32 +346,28 @@ async function buyItem(db, listingId, buyerId, sellerId, guildId, itemId, quanti
 
         if (buyerMora < totalPrice) return { error: 'رصيدك من المورا غير كافٍ لإتمام الشراء.' };
 
-        const newBuyerBalance = buyerMora - totalPrice;
-        const buyerDeducted = await safeExecute(db, `UPDATE levels SET "mora"=$1 WHERE "user"=$2 AND "guild"=$3`, [newBuyerBalance, buyerId, guildId]);
-        if (!buyerDeducted) return { error: 'فشل خصم المورا.' };
-
-        if (client && typeof client.getLevel === 'function') {
-            try {
-                let u = await client.getLevel(buyerId, guildId);
-                if (u) { u.mora = String(newBuyerBalance); await client.setLevel(u); }
-            } catch(e) {}
+        // خصم ذري للمشتري مع التحديث الفوري للكاش
+        let buyerDeductRes = null;
+        try {
+            buyerDeductRes = await db.query(`UPDATE levels SET "mora"="mora"-$1 WHERE "user"=$2 AND "guild"=$3 AND "mora">=$1 RETURNING "mora"`, [totalPrice, buyerId, guildId]);
+        } catch(e) {
+            buyerDeductRes = await db.query(`UPDATE levels SET mora=mora-$1 WHERE userid=$2 AND guildid=$3 AND mora>=$1 RETURNING mora`, [totalPrice, buyerId, guildId]).catch(() => null);
+        }
+        if (!buyerDeductRes?.rows?.length) return { error: 'فشل خصم المورا.' };
+        if (client?.updateLevelField) {
+            client.updateLevelField(buyerId, guildId, { mora: Number(buyerDeductRes.rows[0].mora) });
         }
     }
 
-    let sDbUpdated = false;
+    // إضافة ذرية للبائع مع التحديث الفوري للكاش
+    let sellerAddRes = null;
     try {
-        let r = await db.query(`UPDATE levels SET "mora" = CAST(COALESCE("mora",'0') AS BIGINT) + $1 WHERE "user"=$2 AND "guild"=$3 RETURNING *`, [totalPrice, sellerId, guildId]);
-        if (r.rowCount > 0) sDbUpdated = true;
-    } catch(e) {}
-    if (!sDbUpdated) {
-        await db.query(`UPDATE levels SET mora = CAST(COALESCE(mora,'0') AS BIGINT) + $1 WHERE userid=$2 AND guildid=$3`, [totalPrice, sellerId, guildId]).catch(()=>{});
+        sellerAddRes = await db.query(`UPDATE levels SET "mora"="mora"+$1 WHERE "user"=$2 AND "guild"=$3 RETURNING "mora"`, [totalPrice, sellerId, guildId]);
+    } catch(e) {
+        sellerAddRes = await db.query(`UPDATE levels SET mora=mora+$1 WHERE userid=$2 AND guildid=$3 RETURNING mora`, [totalPrice, sellerId, guildId]).catch(() => null);
     }
-
-    if (client && typeof client.getLevel === 'function') {
-        try {
-            let s = await client.getLevel(sellerId, guildId);
-            if (s) { s.mora = String(Number(s.mora || 0) + totalPrice); await client.setLevel(s); }
-        } catch(e) {}
+    if (sellerAddRes?.rows?.[0] && client?.updateLevelField) {
+        client.updateLevelField(sellerId, guildId, { mora: Number(sellerAddRes.rows[0].mora) });
     }
 
     await safeExecute(db, `UPDATE caravan_market_listings SET "quantitySold" = COALESCE("quantitySold", 0) + $1 WHERE "id"=$2`, [quantity, listingId]);
