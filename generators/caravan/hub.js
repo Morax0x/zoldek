@@ -451,17 +451,17 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         
         ctx.restore();
 
+        ctx.shadowBlur = 0;
         ctx.strokeStyle = C.gold + '44'; 
         ctx.lineWidth = 3;
         rr(ctx, MX, MY, MW, MH, 28); 
         ctx.stroke();
-
-        ctx.shadowColor = C.gold + 'BB'; ctx.shadowBlur = 20;
         
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         rr(ctx, MX + MW / 2 - 180, MY + MH - 135, 360, 100, 16);
         ctx.fill();
         
+        ctx.shadowColor = '#000000'; ctx.shadowBlur = 8;
         M(ctx, 'القوافل مستعدة للانطلاق', MX + MW / 2, MY + MH - 100, 32, C.gold);
         ctx.shadowBlur = 0;
         
