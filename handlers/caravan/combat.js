@@ -1311,37 +1311,37 @@ async function handleEscortReady(data) {
         // Everyone in the party (owner + guards) gets cumulative rewards
         const rewardRes = await distributePartyRewards(db, party, guild.id, wavesCleared, lootPenalty);
 
-        // Deduct cost and dispatch caravan
-        const mora = await getMora(db, hostId, guild.id);
-        if (mora < dest.cost) {
-            for (const uid of party) {
-                if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-            }
-            await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة!\n🎟️ تم إرجاع التذاكر للحراس.`).catch(() => {});
-        } else {
+        // خصم ذري لرسوم الرحلة وإرسال القافلة
+        {
             const { sendCaravan } = require('./journey');
-            const currentMora = await getMora(db, hostId, guild.id);
-            if (currentMora < dest.cost) {
-                for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-                await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة! (تحتاج ${dest.cost.toLocaleString()} مورا)`).catch(() => {});
-                return;
-            }
-            const newBalance = currentMora - dest.cost;
             let deductRes = null;
             try {
-                deductRes = await db.query(`UPDATE levels SET "mora"=$1 WHERE "user"=$2 AND "guild"=$3 RETURNING "mora"`, [newBalance, hostId, guild.id]);
+                deductRes = await db.query(
+                    `UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3 AND "mora" >= $1 RETURNING "mora"`,
+                    [dest.cost, hostId, guild.id]
+                );
             } catch(e) {
-                deductRes = await db.query(`UPDATE levels SET mora=$1 WHERE userid=$2 AND guildid=$3 RETURNING mora`, [newBalance, hostId, guild.id]).catch(() => null);
+                deductRes = await db.query(
+                    `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3 AND mora >= $1 RETURNING mora`,
+                    [dest.cost, hostId, guild.id]
+                ).catch(() => null);
             }
-            const confirmedBalance = Number(deductRes?.rows?.[0]?.mora ?? -1);
-            if (confirmedBalance !== newBalance) {
-                console.error(`[Escort] Mora deduction FAILED for ${hostId}: expected ${newBalance} got ${confirmedBalance}`);
+            if (!deductRes?.rows?.[0]) {
                 for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-                await thread.send(`❌ <@${hostId}> فشل خصم رسوم الرحلة! (تحتاج ${dest.cost.toLocaleString()} مورا)`).catch(() => {});
-                return;
-            }
-            // Pass channel.id so the arrival checker knows where to open the market thread
-            cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
+                await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة! (تحتاج ${dest.cost.toLocaleString()} مورا)\n🎟️ تم إرجاع التذاكر للحراس.`).catch(() => {});
+            } else {
+                console.log(`[Escort] mora deducted for ${hostId}, new balance=${deductRes.rows[0].mora}`);
+                // Pass channel.id so the arrival checker knows where to open the market thread
+                cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
+                if (cvResult?.error) {
+                    // استرداد الرصيد لأن القافلة لم تنطلق
+                    await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [dest.cost, hostId, guild.id]).catch(() =>
+                        db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [dest.cost, hostId, guild.id]).catch(() => {})
+                    );
+                    for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
+                    await thread.send(`❌ <@${hostId}> فشل إنشاء القافلة — تم استرداد رصيدك.`).catch(() => {});
+                    return;
+                }
             // Mark route as permanently secured — no ambush will fire
             if (cvResult?.caravanId) {
                 await safeExecute(db,
@@ -1374,7 +1374,8 @@ async function handleEscortReady(data) {
                     { name: '🎁 المكافآت', value: rewardRes.summary.map(s => `✶ ${s}`).join('\n') || '—', inline: false }
                 );
             await thread.send({ embeds: [escortEmbed] }).catch(() => {});
-        }
+            }  // else: deductRes success
+        }  // block: deduct + dispatch
     } else {
         // Apply 1-hour cooldown to owner on any loss
         await setCaravanCooldown(db, hostId, guild.id).catch(() => {});
