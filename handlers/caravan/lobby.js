@@ -265,7 +265,13 @@ async function sendAmbushNotification(client, db, caravan) {
             await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "caravanId"=$1 AND "status"='active'`, [caravanId]).catch(() => {});
             await safeExecute(db, `UPDATE caravan_market_sessions SET "status"='closed' WHERE "caravanId"=$1 AND "status"='open'`, [caravanId]).catch(() => {});
             await setCaravanCooldown(db, userId, guildId).catch(() => {});
-            await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** لم يُنظَّم دفاع في الوقت المحدد.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`).catch(() => {});
+            let resultImg;
+            try {
+                const { generateAmbushResultImage } = require('../../generators/caravan/lobby-generator');
+                resultImg = await generateAmbushResultImage(dest, 'looted');
+            } catch {}
+            const attach = resultImg ? [new AttachmentBuilder(resultImg, { name: 'ambush_looted.png' })] : [];
+            await channel.send({ content: `<@${userId}>`, files: attach }).catch(() => {});
             collector.stop('user');
             return;
         }
@@ -286,7 +292,13 @@ async function sendAmbushNotification(client, db, caravan) {
         await safeExecute(db, `UPDATE caravan_market_listings SET "status"='returned' WHERE "caravanId"=$1 AND "status"='active'`, [caravanId]).catch(() => {});
         await safeExecute(db, `UPDATE caravan_market_sessions SET "status"='closed' WHERE "caravanId"=$1 AND "status"='open'`, [caravanId]).catch(() => {});
         await setCaravanCooldown(db, userId, guildId).catch(() => {});
-        await attackMsg.edit({ content: `💀 <@${userId}> انتهت المهلة! قطاع الطرق نهبوا قافلتك.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`, embeds: [], files: [], components: [] }).catch(() => {});
+        let resultImg;
+        try {
+            const { generateAmbushResultImage } = require('../../generators/caravan/lobby-generator');
+            resultImg = await generateAmbushResultImage(dest, 'timeout');
+        } catch {}
+        const attach = resultImg ? [new AttachmentBuilder(resultImg, { name: 'ambush_timeout.png' })] : [];
+        await attackMsg.edit({ content: `<@${userId}>`, files: attach, embeds: [], components: [] }).catch(() => {});
     });
 }
 

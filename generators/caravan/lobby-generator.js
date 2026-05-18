@@ -295,4 +295,53 @@ async function generateDestChoiceImage(dest, mora) {
     return toBuf(canvas);
 }
 
-module.exports = { generateAmbushAlertImage, generateLobbyImage, generateDestChoiceImage };
+// ============================================================================
+// 4. مولد نتيجة الكمين (الموت المهلة / النهب)
+// ============================================================================
+async function generateAmbushResultImage(dest, type) {
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext('2d');
+
+    try {
+        await drawBg(ctx, 'banditattack');
+    } catch {
+        ctx.fillStyle = '#05050A'; ctx.fillRect(0, 0, W, H);
+    }
+
+    const isTimeout = type === 'timeout';
+    const title = isTimeout ? 'انتهت المهلة!' : 'فشل الدفاع';
+    const subtitle = isTimeout
+        ? 'لم يستجب أحد لنداء الاستغاثة'
+        : 'لم يتم تنظيم الدفاع في الوقت المحدد';
+    await drawHeader(ctx, title, subtitle);
+    drawCornerAccents(ctx);
+
+    const PX = 150, PY = 180, PW = W - 300, PH = H - 280;
+    drawPanel(ctx, PX, PY, PW, PH, C.red, { radius: 32 });
+    rr(ctx, PX, PY, PW, PH, 32);
+    ctx.fillStyle = 'rgba(231,76,60,0.12)'; ctx.fill();
+
+    ctx.font = `140px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('💀', W / 2, PY + 100);
+
+    M(ctx, `نُهبت قافلة ${dest.name}!`, W / 2, PY + 230, 50, C.red);
+    M(ctx, 'قطاع الطرق استولوا على البضائع', W / 2, PY + 290, 36, C.textD);
+
+    divLine(ctx, PX + 100, PY + 340, PW - 200, C.red + '44');
+
+    const details = isTimeout
+        ? 'انتهت مهلة الـ 30 دقيقة دون رد من مالك القافلة'
+        : 'فشل تجميع الحراس للدفاع عن القافلة';
+    M(ctx, `❌ ${details}`, W / 2, PY + 410, 32, '#FF6666');
+
+    M(ctx, '⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة', W / 2, PY + 470, 30, C.textD);
+
+    const iconY = PY + 560;
+    ctx.font = `70px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🏚️', W / 2 - 80, iconY);
+    ctx.fillText('💸', W / 2 + 80, iconY);
+
+    return toBuf(canvas);
+}
+
+module.exports = { generateAmbushAlertImage, generateLobbyImage, generateDestChoiceImage, generateAmbushResultImage };
