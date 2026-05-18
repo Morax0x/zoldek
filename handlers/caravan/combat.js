@@ -567,7 +567,7 @@ async function doRestPhase(thread, players, caravan, waveNum, hostId, db, guild,
                                 }
                                 if (!deductRest?.rows?.length) {
                                     await buySel.followUp({ content: `❌ **لا تملك مورا كافية!**`, ephemeral: true });
-                                    continue;
+                                    return;
                                 }
                                 if (buySel.client?.updateLevelField && deductRest.rows[0]) buySel.client.updateLevelField(i.user.id, guild.id, { mora: Number(deductRest.rows[0].mora) });
                                 try {
