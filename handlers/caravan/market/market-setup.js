@@ -182,6 +182,10 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
             console.log(`[stagingAddItemSafe] BLOCKED by general: ${stagedCount} >= ${limits.general}`);
             return { ok: false, error: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${Math.max(0, limits.general - stagedCount)}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !` };
         }
+        if (quantity > limits.sameType) {
+            console.log(`[stagingAddItemSafe] BLOCKED by sameType (new item): ${quantity} > ${limits.sameType}`);
+            return { ok: false, error: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !` };
+        }
     }
     console.log(`[stagingAddItemSafe] PASSED limit check`);
 
@@ -714,6 +718,13 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
                 const free = Math.max(0, limits.general - stagedCount);
                 return modalSubmit.reply({
                     content: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${free}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !`,
+                    flags: [MessageFlags.Ephemeral],
+                });
+            }
+            if (qty > limits.sameType) {
+                console.log(`[handleStageModalSubmit] BLOCKED by sameType (new item): ${qty} > ${limits.sameType}`);
+                return modalSubmit.reply({
+                    content: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !`,
                     flags: [MessageFlags.Ephemeral],
                 });
             }

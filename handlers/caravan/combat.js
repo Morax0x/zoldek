@@ -1327,13 +1327,17 @@ async function handleEscortReady(data) {
                 return;
             }
             const newBalance = currentMora - dest.cost;
-            await safeExecute(db, `UPDATE levels SET "mora"=$1 WHERE "user"=$2 AND "guild"=$3`, [newBalance, hostId, guild.id]);
-            // تأكيد الخصم
-            const confirmMora = await getMora(db, hostId, guild.id);
-            if (confirmMora > newBalance) {
-                console.error(`[Escort] Mora deduction FAILED for ${hostId}: expected ${newBalance} got ${confirmMora}`);
+            let deductRes = null;
+            try {
+                deductRes = await db.query(`UPDATE levels SET "mora"=$1 WHERE "user"=$2 AND "guild"=$3 RETURNING "mora"`, [newBalance, hostId, guild.id]);
+            } catch(e) {
+                deductRes = await db.query(`UPDATE levels SET mora=$1 WHERE userid=$2 AND guildid=$3 RETURNING mora`, [newBalance, hostId, guild.id]).catch(() => null);
+            }
+            const confirmedBalance = Number(deductRes?.rows?.[0]?.mora ?? -1);
+            if (confirmedBalance !== newBalance) {
+                console.error(`[Escort] Mora deduction FAILED for ${hostId}: expected ${newBalance} got ${confirmedBalance}`);
                 for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
-                await thread.send(`❌ <@${hostId}> فشل تأكيد خصم الرصيد!`).catch(() => {});
+                await thread.send(`❌ <@${hostId}> فشل خصم رسوم الرحلة! (تحتاج ${dest.cost.toLocaleString()} مورا)`).catch(() => {});
                 return;
             }
             // Pass channel.id so the arrival checker knows where to open the market thread
