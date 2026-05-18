@@ -766,6 +766,7 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
         } catch (_) {}
     }
 
+    let roundCount = 0;
     for (let w = 0; w < WAVE_ENEMIES.length; w++) {
         const def     = WAVE_ENEMIES[w];
         const waveNum = w + 1;
@@ -1208,11 +1209,21 @@ async function runCaravanBattle(thread, party, partyClasses, db, guild, hostId, 
                 }
             }
 
-            // Refresh board with buttons re-enabled for next round
-            await battleMsg.edit({
-                ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild, destId)),
-                components: makeBattleRows(),
-            }).catch(() => {});
+            roundCount++;
+
+            if (roundCount % 3 === 0) {
+                await battleMsg.delete().catch(() => {});
+                battleMsg = await thread.send({
+                    ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild, destId)),
+                    components: makeBattleRows(),
+                }).catch(() => null);
+                if (!battleMsg) return { result: 'error', wavesCleared };
+            } else {
+                await battleMsg.edit({
+                    ...(await buildBattlePayload(players, enemy, caravan, waveNum, log, [], hostId, guild, destId)),
+                    components: makeBattleRows(),
+                }).catch(() => {});
+            }
 
             // Post-enemy loss checks
             if (caravan.hp <= 0) {
@@ -1352,7 +1363,7 @@ async function handleEscortReady(data) {
         await thread.send({ embeds: [failEmbed] }).catch(() => {});
     }
 
-    setTimeout(() => thread.delete().catch(() => {}), 30000);
+    setTimeout(() => thread.delete().catch(() => {}), 5000);
 
     if (typeof showHub === 'function') await showHub(hubMsg).catch(() => {});
 
@@ -1439,7 +1450,7 @@ async function handleAmbushReady(data) {
         await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم إلغاء الرحلة.`).catch(() => {});
     }
 
-    setTimeout(() => thread.delete().catch(() => {}), 30000);
+    setTimeout(() => thread.delete().catch(() => {}), 5000);
 }
 
 // ─── Register Listeners (call once on bot ready) ──────────────────────────────
