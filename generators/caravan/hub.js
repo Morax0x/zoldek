@@ -122,7 +122,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         { label: 'الرحلات الناجحة', val: String(success)  },
         { label: 'الرحلات المتتالية', val: `🔥 ${tripStreak}`, col: '#FF6B35' },
         { label: 'الكمائن المحبطة',  val: String(ambushes), col: '#E74C3C' },
-        { label: 'الوجهة المفضلة',  val: truncate(favDestName, 12), col: '#00C3FF' },
+        { label: 'الوجهة المفضلة',  val: truncate(favDestName, 22), col: '#00C3FF' },
     ];
     let sy = LY + 325;
     for (const s of statItems) {
@@ -383,7 +383,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         const rmC  = rm >= 1 ? C.green : rm >= 0.6 ? C.gold : C.red;
 
         const infoRows = [
-            { label: 'الوجهة',          val: truncate(dest?.name || '', 14), vc: acc },
+            { label: 'الوجهة',          val: truncate(dest?.name || '', 22), vc: acc },
             { label: 'الحالة',          val: st2.t,                            vc: st2.c },
             { label: 'الوقت المتبقي',   val: formatArabicTime(tleft),          vc: tleft <= 0 ? C.green : C.text },
             { label: 'المكافات',        val: `× ${rm.toFixed(2)}`,             vc: rmC },
