@@ -10,7 +10,7 @@ const {
 const { safeExecute, safeQuery } = require('./db');
 const { caravanConfig, EMOJI_MORA } = require('./config');
 const potionItems = require(path.join(process.cwd(), 'json', 'potions.json'));
-
+const { setCaravanCooldown } = require('./tables');
 const { setupPlayers }       = require('../dungeon/core/setup.js');
 const { buildHpBar, applyDamageToPlayer } = require('../dungeon/utils.js');
 const { handleSkillUsage }   = require('../dungeon/skills.js');
@@ -1348,6 +1348,8 @@ async function handleEscortReady(data) {
             await thread.send({ embeds: [escortEmbed] }).catch(() => {});
         }
     } else {
+        // Apply 1-hour cooldown to owner on any loss
+        await setCaravanCooldown(db, hostId, guild.id).catch(() => {});
         const reason = result === 'lose_caravan' ? '🐪 دُمِّرت القافلة!'
                      : result === 'lose_timeout' ? '⏰ انتهى وقت الاستراحة!'
                      : '☠️ سقط كل الحراس!';
@@ -1426,7 +1428,8 @@ async function handleAmbushReady(data) {
 
         await channel.send(`✅ <@${userId}> **نجح الدفاع عن قافلتك!** تكمل رحلتها بسلام.`).catch(() => {});
     } else {
-
+        // Battle lost → apply 1-hour cooldown to owner
+        await setCaravanCooldown(db, userId, guildId).catch(() => {});
         await safeExecute(db,
             `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1 WHERE "userID"=$1 AND "guildID"=$2`,
             [userId, guildId]);
