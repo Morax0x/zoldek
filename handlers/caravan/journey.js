@@ -201,8 +201,8 @@ async function distributeRewards(client, db, caravan) {
 
     const now = Date.now();
     const lastTrip = Number(stats.last_trip_time || 0);
-    const within24h = (now - lastTrip) < 86400000;
-    const newStreak = within24h ? Number(stats.trip_streak || 0) + 1 : 1;
+    const within48h = (now - lastTrip) < 172800000;
+    const newStreak = within48h ? Number(stats.trip_streak || 0) + 1 : 1;
 
     await safeExecute(db,
         `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1, "successful_trips"="successful_trips"+1,
