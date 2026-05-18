@@ -156,26 +156,25 @@ async function getStagedItemsSafe(db, userId, guildId) {
 }
 
 async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, member = null) {
-    const [limits, currentStaged] = await Promise.all([
+    if (quantity < 1 || !itemId) return { ok: false, error: 'بيانات غير صالحة.' };
+
+    // جلب الحدود وعدد العناصر في السلة مباشرة من قاعدة البيانات
+    const [limits, stagedCountResult, existingStaged] = await Promise.all([
         getMarketSlotLimits(db, userId, guildId, member),
-        getStagedItemsSafe(db, userId, guildId),
+        safeQuery(db, `SELECT COUNT(*)::int AS cnt FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [userId, guildId]),
+        safeQuery(db, `SELECT "quantity"::int AS qty FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [userId, guildId, itemId]),
     ]);
 
-    const normalizedId = String(itemId).toLowerCase().trim();
-    const existingRow = currentStaged.find(s => {
-        const idKey = Object.keys(s).find(k => k.toLowerCase() === 'itemid');
-        return idKey && String(s[idKey]).toLowerCase().trim() === normalizedId;
-    });
+    const stagedCount = stagedCountResult?.rows?.[0]?.cnt ?? 0;
+    const alreadyStaged = existingStaged?.rows?.[0]?.qty ?? 0;
 
-    if (existingRow) {
-        const qtyKey = Object.keys(existingRow).find(k => k.toLowerCase() === 'quantity');
-        const alreadyStaged = Number(existingRow[qtyKey] || 0);
+    if (alreadyStaged > 0) {
         if (alreadyStaged + quantity > limits.sameType) {
             return { ok: false, error: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !` };
         }
     } else {
-        if (currentStaged.length >= limits.general) {
-            return { ok: false, error: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${Math.max(0, limits.general - currentStaged.length)}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !` };
+        if (stagedCount >= limits.general) {
+            return { ok: false, error: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${Math.max(0, limits.general - stagedCount)}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !` };
         }
     }
 
@@ -186,7 +185,7 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
     try {
         const upd1 = await db.query(
             `UPDATE caravan_staging_market SET "quantity" = "quantity" + $1, "pricePerUnit" = $5
-             WHERE "userID"=$2 AND "guildID"=$3 AND ("itemID"=$4 OR itemid=$4) RETURNING *`,
+             WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4 RETURNING *`,
             [quantity, userId, guildId, itemId, price]);
         if (upd1 && upd1.rowCount > 0) updated = true;
     } catch(e) {}
@@ -195,7 +194,7 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
         try {
             const upd2 = await db.query(
                 `UPDATE caravan_staging_market SET quantity = quantity + $1, priceperunit = $5
-                 WHERE userid=$2 AND guildid=$3 AND (itemid=$4 OR "itemID"=$4) RETURNING *`,
+                 WHERE userid=$2 AND guildid=$3 AND itemid=$4 RETURNING *`,
                 [quantity, userId, guildId, itemId, price]);
             if (upd2 && upd2.rowCount > 0) updated = true;
         } catch(e) {}
@@ -204,9 +203,9 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
     if (updated) return { ok: true };
 
     try {
-        await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userID","guildID","itemID") DO UPDATE SET "quantity" = EXCLUDED."quantity"`, [userId, guildId, itemId, quantity, price]);
+        await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userID","guildID","itemID") DO UPDATE SET "quantity" = caravan_staging_market."quantity" + EXCLUDED."quantity"`, [userId, guildId, itemId, quantity, price]);
     } catch(e) {
-        await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (userid, guildid, itemid) DO UPDATE SET quantity = EXCLUDED.quantity`, [userId, guildId, itemId, quantity, price]).catch(()=>{});
+        await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (userid, guildid, itemid) DO UPDATE SET quantity = caravan_staging_market.quantity + EXCLUDED.quantity`, [userId, guildId, itemId, quantity, price]).catch(()=>{});
     }
     return { ok: true };
 }
@@ -637,20 +636,16 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         if (isNaN(qty) || qty < 1) return modalSubmit.reply({ content: '❌ كمية غير صالحة.', flags: [MessageFlags.Ephemeral] });
         if (isNaN(price) || price < 1 || price > 999999999) return modalSubmit.reply({ content: '❌ سعر غير صالح.', flags: [MessageFlags.Ephemeral] });
 
-        const [limits, currentStaged] = await Promise.all([
+        const [limits, stagedCountResult, existingStaged] = await Promise.all([
             getMarketSlotLimits(db, user.id, guild.id, modalSubmit.member),
-            getStagedItemsSafe(db, user.id, guild.id),
+            safeQuery(db, `SELECT COUNT(*)::int AS cnt FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]),
+            safeQuery(db, `SELECT "quantity"::int AS qty FROM caravan_staging_market WHERE "userID"=$1 AND "guildID"=$2 AND "itemID"=$3`, [user.id, guild.id, itemId]),
         ]);
 
-        const normalizedId = String(itemId).toLowerCase().trim();
-        const existingRow = currentStaged.find(s => {
-            const idKey = Object.keys(s).find(k => k.toLowerCase() === 'itemid');
-            return idKey && String(s[idKey]).toLowerCase().trim() === normalizedId;
-        });
+        const stagedCount = stagedCountResult?.rows?.[0]?.cnt ?? 0;
+        const alreadyStaged = existingStaged?.rows?.[0]?.qty ?? 0;
 
-        if (existingRow) {
-            const qtyKey = Object.keys(existingRow).find(k => k.toLowerCase() === 'quantity');
-            const alreadyStaged = Number(existingRow[qtyKey] || 0);
+        if (alreadyStaged > 0) {
             if (alreadyStaged + qty > limits.sameType) {
                 const free = Math.max(0, limits.sameType - alreadyStaged);
                 return modalSubmit.reply({
@@ -659,8 +654,8 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
                 });
             }
         } else {
-            if (currentStaged.length >= limits.general) {
-                const free = Math.max(0, limits.general - currentStaged.length);
+            if (stagedCount >= limits.general) {
+                const free = Math.max(0, limits.general - stagedCount);
                 return modalSubmit.reply({
                     content: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${free}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !`,
                     flags: [MessageFlags.Ephemeral],
