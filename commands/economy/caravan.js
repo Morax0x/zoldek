@@ -537,6 +537,7 @@ module.exports = {
                             } catch(e) { activeProcesses.delete(user.id); }
                             
                         } else {
+                            console.log(`[caravan stg_ok] selectedItem.id=${selectedItem.id}, selectedItem.name=${selectedItem.name}`);
                             const modalId = `stg_add_modal_${selectedItem.id}_${Date.now()}`;
                             const modal = new ModalBuilder().setCustomId(modalId).setTitle(`تسعير: ${selectedItem.name}`.substring(0, 45));
                             modal.addComponents(
@@ -552,8 +553,9 @@ module.exports = {
                             try {
                                 const mSubmit = await i.awaitModalSubmit({ filter: m => m.customId === modalId && m.user.id === user.id, time: 60000 });
                                 mSubmit.customId = `stg_add_modal_${selectedItem.id}`;
+                                console.log(`[caravan stg_ok] modal submitted, calling handleStageModalSubmit with itemId=${selectedItem.id}`);
                                 await marketSetup.handleStageModalSubmit(mSubmit, db, user, guild);
-                            } catch(e) { activeProcesses.delete(user.id); }
+                            } catch(e) { console.error(`[caravan stg_ok] awaitModalSubmit error:`, e?.message || e); activeProcesses.delete(user.id); }
                         }
                     } else {
                         await marketSetup.handleStagingInteraction(i, db, user, guild);

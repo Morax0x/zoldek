@@ -168,15 +168,22 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
     const stagedCount = stagedCountResult?.rows?.[0]?.cnt ?? 0;
     const alreadyStaged = existingStaged?.rows?.[0]?.qty ?? 0;
 
+    console.log(`[stagingAddItemSafe] userId=${userId}, itemId=${itemId}, qty=${quantity}`);
+    console.log(`[stagingAddItemSafe] limits: general=${limits.general}, sameType=${limits.sameType}`);
+    console.log(`[stagingAddItemSafe] stagedCount=${stagedCount}, alreadyStaged=${alreadyStaged}`);
+
     if (alreadyStaged > 0) {
         if (alreadyStaged + quantity > limits.sameType) {
+            console.log(`[stagingAddItemSafe] BLOCKED by sameType: ${alreadyStaged} + ${quantity} > ${limits.sameType}`);
             return { ok: false, error: `✶ تـجـاوزت حد الكميـة من نفس النوع الحد الاقصى **${limits.sameType}**\n- جرب تجهيـز عنـصـر آخر في قافلتـك !` };
         }
     } else {
         if (stagedCount >= limits.general) {
+            console.log(`[stagingAddItemSafe] BLOCKED by general: ${stagedCount} >= ${limits.general}`);
             return { ok: false, error: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${Math.max(0, limits.general - stagedCount)}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !` };
         }
     }
+    console.log(`[stagingAddItemSafe] PASSED limit check`);
 
     const deducted = await safeDeductFromInventory(db, userId, guildId, itemId, quantity);
     if (!deducted) return { ok: false, error: 'الكمية غير كافية في مخزونك.' };
@@ -319,6 +326,7 @@ async function getMarketSlotLimits(db, userId, guildId, member) {
     if (level >= 80) { general += 3; sameType += 3; }
     if (level >= 99) { general += 5; sameType += 5; }
 
+    console.log(`[getMarketSlotLimits] userId=${userId}, repPts=${repPts}, level=${level}, general=${general}, sameType=${sameType}`);
     return { general, sameType };
 }
 
@@ -645,8 +653,13 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
         const stagedCount = stagedCountResult?.rows?.[0]?.cnt ?? 0;
         const alreadyStaged = existingStaged?.rows?.[0]?.qty ?? 0;
 
+        console.log(`[handleStageModalSubmit] userId=${user.id}, itemId=${itemId}, qty=${qty}`);
+        console.log(`[handleStageModalSubmit] limits: general=${limits.general}, sameType=${limits.sameType}`);
+        console.log(`[handleStageModalSubmit] stagedCount=${stagedCount}, alreadyStaged=${alreadyStaged}`);
+
         if (alreadyStaged > 0) {
             if (alreadyStaged + qty > limits.sameType) {
+                console.log(`[handleStageModalSubmit] BLOCKED by sameType: ${alreadyStaged} + ${qty} > ${limits.sameType}`);
                 const free = Math.max(0, limits.sameType - alreadyStaged);
                 return modalSubmit.reply({
                     content: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${free}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.sameType}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !`,
@@ -655,6 +668,7 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
             }
         } else {
             if (stagedCount >= limits.general) {
+                console.log(`[handleStageModalSubmit] BLOCKED by general: ${stagedCount} >= ${limits.general}`);
                 const free = Math.max(0, limits.general - stagedCount);
                 return modalSubmit.reply({
                     content: `✥ لا تـمـلك مساحـة كافيـة في قافلتـك\n✶ لـديـك **${free}** مساحـة فارغـة\n✶ اجمـالـي المساحـة: **${limits.general}**\n- زد سمعـتـك لترقيـة مساحـة القافلـة او كن من معززين الامبراطوريـة !`,
@@ -662,6 +676,7 @@ async function handleStageModalSubmit(modalSubmit, db, user, guild) {
                 });
             }
         }
+        console.log(`[handleStageModalSubmit] PASSED limit check`);
 
         await modalSubmit.deferUpdate().catch(() => {});
         const result = await stagingAddItemSafe(db, user.id, guild.id, itemId, qty, price, modalSubmit.member);
