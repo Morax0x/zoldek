@@ -368,7 +368,7 @@ async function generateAmbushResultImage(dest, type) {
     const summaryY = ey2 + 50 + enemies.length * 40 + 20;
     divLine(ctx, PX + 60, summaryY, PW - 120, C.red + '44');
     M(ctx, details, W / 2, summaryY + 45, 28, '#FF6666');
-    M(ctx, '⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة', W / 2, summaryY + 95, 26, C.textD);
+    M(ctx, '⏳ قافلتك قيد الصيانة — لا يمكنك إرسال رحلة الآن', W / 2, summaryY + 95, 26, C.textD);
 
     return toBuf(canvas);
 }

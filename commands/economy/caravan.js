@@ -426,7 +426,7 @@ module.exports = {
                     if (user.id !== EMPEROR_ID && cd?.onCooldown) {
                             const ts = Math.floor(cd.expiresAt / 1000);
                             await i.followUp({
-                                content: `⏳ قافلتك دُمِّرت مؤخراً!\nيمكنك إرسال قافلة جديدة <t:${ts}:R>.`,
+                                content: `⏳ قافلتك قيد الصيانة — لا يمكنك إرسال رحلة الآن. حاول مرة أخرى <t:${ts}:R>.`,
                                 flags: [MessageFlags.Ephemeral],
                             });
                             activeProcesses.delete(user.id);

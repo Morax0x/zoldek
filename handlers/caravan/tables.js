@@ -78,7 +78,7 @@ async function checkCaravanCooldown(db, userId, guildId) {
 }
 
 async function setCaravanCooldown(db, userId, guildId) {
-    const until = Date.now() + 60 * 60 * 1000;
+    const until = Date.now() + 30 * 60 * 1000;
     await safeExecute(db, `
         INSERT INTO user_caravan_stats ("userID","guildID","cooldown_until")
         VALUES ($1,$2,$3)

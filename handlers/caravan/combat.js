@@ -1358,7 +1358,7 @@ async function handleEscortReady(data) {
         const failEmbed = new EmbedBuilder()
             .setColor(dest.color || '#FF4444')
             .setTitle('💀 فشل التأمين!')
-            .setDescription(`${reason}\nتم إنهاء الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`)
+            .setDescription(`${reason}\nتم إنهاء الرحلة.`)
             .setImage(destImgUrl);
         await thread.send({ embeds: [failEmbed] }).catch(() => {});
     }
@@ -1444,7 +1444,7 @@ async function handleAmbushReady(data) {
         const loseEmbed = new EmbedBuilder()
             .setColor(ambDest.color || '#FF4444')
             .setTitle('💀 فشلت الحراسة — القافلة نُهبت!')
-            .setDescription(`${reason}\nضاعت جميع البضائع. انتهت الرحلة.\n⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة.`)
+            .setDescription(`${reason}\nضاعت جميع البضائع. انتهت الرحلة.`)
             .setImage(ambDestImgUrl);
         await thread.send({ embeds: [loseEmbed] }).catch(() => {});
         await channel.send(`💔 <@${userId}> **نُهبت قافلتك!** تم إلغاء الرحلة.`).catch(() => {});
