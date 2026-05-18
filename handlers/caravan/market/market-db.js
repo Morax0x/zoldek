@@ -74,6 +74,16 @@ async function initMarketTables(db) {
         CREATE INDEX IF NOT EXISTS idx_market_sessions_thread
         ON caravan_market_sessions("threadId")
     `);
+
+    // ضمان وجود قيد فريد لـ ON CONFLICT حتى لو الجدول قديم بدون PK
+    await safeExecute(db, `
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_staging_market_unique
+        ON caravan_staging_market("userID","guildID","itemID")
+    `);
+    await safeExecute(db, `
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_staging_market_unique_lower
+        ON caravan_staging_market(userid, guildid, itemid)
+    `).catch(()=>{});
 }
 
 async function createListing(db, caravanId, ownerId, guildId, item) {

@@ -194,8 +194,8 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
             `UPDATE caravan_staging_market SET "quantity" = "quantity" + $1, "pricePerUnit" = $5
              WHERE "userID"=$2 AND "guildID"=$3 AND "itemID"=$4 RETURNING *`,
             [quantity, userId, guildId, itemId, price]);
-        if (upd1 && upd1.rowCount > 0) updated = true;
-    } catch(e) {}
+        if (upd1 && upd1.rowCount > 0) { updated = true; console.log(`[stagingAddItemSafe] UPDATE quoted succeeded, rowCount=${upd1.rowCount}`); }
+    } catch(e) { console.log(`[stagingAddItemSafe] UPDATE quoted failed: ${e?.message || e}`); }
 
     if (!updated) {
         try {
@@ -203,17 +203,59 @@ async function stagingAddItemSafe(db, userId, guildId, itemId, quantity, price, 
                 `UPDATE caravan_staging_market SET quantity = quantity + $1, priceperunit = $5
                  WHERE userid=$2 AND guildid=$3 AND itemid=$4 RETURNING *`,
                 [quantity, userId, guildId, itemId, price]);
-            if (upd2 && upd2.rowCount > 0) updated = true;
-        } catch(e) {}
+            if (upd2 && upd2.rowCount > 0) { updated = true; console.log(`[stagingAddItemSafe] UPDATE lowercase succeeded, rowCount=${upd2.rowCount}`); }
+        } catch(e) { console.log(`[stagingAddItemSafe] UPDATE lowercase failed: ${e?.message || e}`); }
     }
 
     if (updated) return { ok: true };
 
+    // محاولة INSERT مع ON CONFLICT
+    let inserted = false;
     try {
-        await db.query(`INSERT INTO caravan_staging_market ("userID", "guildID", "itemID", "quantity", "pricePerUnit") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userID","guildID","itemID") DO UPDATE SET "quantity" = caravan_staging_market."quantity" + EXCLUDED."quantity"`, [userId, guildId, itemId, quantity, price]);
+        const ins1 = await db.query(
+            `INSERT INTO caravan_staging_market ("userID","guildID","itemID","quantity","pricePerUnit") VALUES ($1,$2,$3,$4,$5) ON CONFLICT ("userID","guildID","itemID") DO UPDATE SET "quantity" = caravan_staging_market."quantity" + EXCLUDED."quantity" RETURNING "quantity"`,
+            [userId, guildId, itemId, quantity, price]);
+        if (ins1 && ins1.rowCount > 0) inserted = true;
     } catch(e) {
-        await db.query(`INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (userid, guildid, itemid) DO UPDATE SET quantity = caravan_staging_market.quantity + EXCLUDED.quantity`, [userId, guildId, itemId, quantity, price]).catch(()=>{});
+        console.log(`[stagingAddItemSafe] INSERT quoted failed: ${e?.message || e}`);
     }
+
+    if (!inserted) {
+        try {
+            const ins2 = await db.query(
+                `INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (userid, guildid, itemid) DO UPDATE SET quantity = caravan_staging_market.quantity + EXCLUDED.quantity RETURNING quantity`,
+                [userId, guildId, itemId, quantity, price]);
+            if (ins2 && ins2.rowCount > 0) inserted = true;
+        } catch(e) {
+            console.log(`[stagingAddItemSafe] INSERT lowercase failed: ${e?.message || e}`);
+        }
+    }
+
+    if (!inserted) {
+        // آخر محاولة: INSERT عادي بدون ON CONFLICT (في حالة ما يكون القيد غير موجود)
+        try {
+            const ins3 = await db.query(
+                `INSERT INTO caravan_staging_market ("userID","guildID","itemID","quantity","pricePerUnit") VALUES ($1,$2,$3,$4,$5) RETURNING "quantity"`,
+                [userId, guildId, itemId, quantity, price]);
+            if (ins3 && ins3.rowCount > 0) inserted = true;
+        } catch(e) {
+            console.log(`[stagingAddItemSafe] INSERT plain quoted failed: ${e?.message || e}`);
+        }
+    }
+
+    if (!inserted) {
+        try {
+            const ins4 = await db.query(
+                `INSERT INTO caravan_staging_market (userid, guildid, itemid, quantity, priceperunit) VALUES ($1,$2,$3,$4,$5) RETURNING quantity`,
+                [userId, guildId, itemId, quantity, price]);
+            if (ins4 && ins4.rowCount > 0) inserted = true;
+        } catch(e) {
+            console.log(`[stagingAddItemSafe] INSERT plain lowercase failed: ${e?.message || e}`);
+        }
+    }
+
+    console.log(`[stagingAddItemSafe] insert result: ${inserted ? 'SUCCESS' : 'FAILED'}`);
+    if (!inserted) return { ok: false, error: 'فشل إضافة البضاعة إلى السلة.' };
     return { ok: true };
 }
 
