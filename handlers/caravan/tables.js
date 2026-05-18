@@ -48,6 +48,10 @@ async function initCaravanTables(db) {
         `ALTER TABLE user_caravan_stats ADD COLUMN IF NOT EXISTS "last_dest" TEXT DEFAULT NULL`, []);
     await safeExecute(db,
         `ALTER TABLE user_caravan_stats ADD COLUMN IF NOT EXISTS "best_loot_label" TEXT DEFAULT NULL`, []);
+    await safeExecute(db,
+        `ALTER TABLE user_caravan_stats ADD COLUMN IF NOT EXISTS "trip_streak" BIGINT DEFAULT 0`, []);
+    await safeExecute(db,
+        `ALTER TABLE user_caravan_stats ADD COLUMN IF NOT EXISTS "last_trip_time" BIGINT DEFAULT 0`, []);
 
     await safeExecute(db,
         `ALTER TABLE user_caravans ADD COLUMN IF NOT EXISTS "marketChannelId" TEXT DEFAULT NULL`, []);

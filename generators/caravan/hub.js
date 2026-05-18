@@ -37,8 +37,7 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const repPts  = Number(profExtra.repPoints || 0);
     const repRank = getRepRankInfo(repPts);
     
-    const bestLootVal = Number(profExtra.best_loot || 0);
-    const bestLoot = bestLootVal > 0 ? `${bestLootVal.toLocaleString()} ${profExtra.best_loot_label || 'مورا'}` : null;
+    const tripStreak = Number(profExtra.trip_streak || 0);
     const ambushes = Number(stats.ambush_survived || 0);
     const favDestId = profExtra.favorite_dest || '';
     const favDestName = cfg.destinations.find(d => d.id === favDestId)?.name || 'غير محدد';
@@ -121,8 +120,8 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     const statItems = [
         { label: 'اجمالي الرحلات',  val: String(trips)   },
         { label: 'الرحلات الناجحة', val: String(success)  },
-        { label: 'أكبر غنيمة',      val: bestLoot || '—', col: C.gold },
-        { label: 'الغارات الناجية',  val: String(ambushes), col: '#E74C3C' },
+        { label: 'الرحلات المتتالية', val: `🔥 ${tripStreak}`, col: '#FF6B35' },
+        { label: 'الكمائن المحبطة',  val: String(ambushes), col: '#E74C3C' },
         { label: 'الوجهة المفضلة',  val: truncate(favDestName, 12), col: '#00C3FF' },
     ];
     let sy = LY + 325;

@@ -13,7 +13,8 @@ async function getUserCaravanStats(db, userId, guildId) {
     return { userid: userId, guildid: guildId,
              capacity_rank: 1, speed_rank: 1, defense_rank: 1, luck_rank: 1,
              total_trips: 0, successful_trips: 0,
-             best_loot: 0, ambush_survived: 0, last_dest: null, best_loot_label: null };
+             best_loot: 0, ambush_survived: 0, last_dest: null, best_loot_label: null,
+             trip_streak: 0, last_trip_time: 0 };
 }
 
 async function getActiveCaravan(db, userId, guildId) {

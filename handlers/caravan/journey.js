@@ -199,12 +199,18 @@ async function distributeRewards(client, db, caravan) {
         console.error('[distributeRewards]', e);
     }
 
+    const now = Date.now();
+    const lastTrip = Number(stats.last_trip_time || 0);
+    const within24h = (now - lastTrip) < 86400000;
+    const newStreak = within24h ? Number(stats.trip_streak || 0) + 1 : 1;
+
     await safeExecute(db,
         `UPDATE user_caravan_stats SET "total_trips"="total_trips"+1, "successful_trips"="successful_trips"+1,
          "last_dest"=$3, "best_loot"=GREATEST("best_loot",$4),
-         "best_loot_label"=CASE WHEN $5::BIGINT > "best_loot" THEN $6 ELSE "best_loot_label" END
+         "best_loot_label"=CASE WHEN $5::BIGINT > "best_loot" THEN $6 ELSE "best_loot_label" END,
+         "trip_streak"=$7, "last_trip_time"=$8
          WHERE "userID"=$1 AND "guildID"=$2`,
-        [userId, guildId, destId, bestThisTrip.score, bestThisTrip.score, bestThisTrip.label]);
+        [userId, guildId, destId, bestThisTrip.score, bestThisTrip.score, bestThisTrip.label, newStreak, now]);
 
     await safeExecute(db,
         `UPDATE user_caravans SET "status"='completed' WHERE "id"=$1`,
