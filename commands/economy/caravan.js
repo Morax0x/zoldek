@@ -227,6 +227,14 @@ module.exports = {
 
         const db = client.sql;
 
+        const repCheck = await safeQuery(db, `SELECT "rep_points" FROM user_reputation WHERE "userID"=$1 AND "guildID"=$2`, [user.id, guild.id]);
+        const repPoints = Number(repCheck?.rows?.[0]?.rep_points || repCheck?.rows?.[0]?.REP_POINTS || 0);
+        if (repPoints < 50) {
+            const msg = `✥ **يـتـطـلـب هـذا الأمـر سـمـعـة لا تـقـل عـن 50 نـقـطـة**\n✶ سـمـعـتـك الـحـالـيـة: **${repPoints}** نـقـطـة\n- ابـنِ سـمـعـتـك فـي الـخـادم لـتـتـمـكـن مـن اسـتـخـدام الـقـوافـل!`;
+            if (isSlash) return interaction.editReply({ content: msg }).catch(() => {});
+            return message.channel.send({ content: msg }).catch(() => {});
+        }
+
         if (!client.caravanSystemsInitialized) {
             setupCaravanChecker(client, db);
             registerCombatListeners(client);
