@@ -620,6 +620,7 @@ module.exports = {
     returnUnsoldItems,
     incrementNpcSpawn,
     getNpcSpawnCount,
+    getActiveSessions,
     getExpiredSessions,
     updateListingPrice,
     getListingById,

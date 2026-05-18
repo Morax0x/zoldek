@@ -18,6 +18,7 @@ const { generateMarketSummaryCanvas } = require('../../../generators/caravan/mar
 const { resolveItemInfo } = require('./market-setup');
 
 const activeTimers = new Map(); // kept for backwards compat
+const activeMarketOwners = new Map(); // threadId -> ownerId (for auto-clean)
 
 async function createMarketThread(client, db, caravan, channelId) {
     try {
@@ -91,6 +92,8 @@ async function createMarketThread(client, db, caravan, channelId) {
             await thread.delete().catch(() => {});
             return null;
         }
+
+        activeMarketOwners.set(thread.id, ownerId);
 
         const listings = await getListingsBySession(db, thread.id);
         console.log(`[createMarketThread] post-session listings=${listings.length}`);
@@ -263,6 +266,8 @@ async function closeMarketThread(client, db, threadId, guildId, journeyRewards =
             await parentChannel.send(payload).catch(() => {});
         }
 
+        activeMarketOwners.delete(threadId);
+
         // Delete the thread
         await thread.delete('انتهت جلسة السوق').catch(() => {});
     } catch (err) {
@@ -284,8 +289,33 @@ async function checkExpiredMarketSessions(client, db) {
     }
 }
 
+function registerMarketCleaner(client, db) {
+    client.on('messageCreate', async msg => {
+        if (!msg.inThread || msg.author.bot) return;
+        const ownerId = activeMarketOwners.get(msg.channelId);
+        if (!ownerId || msg.author.id === ownerId) return;
+        try {
+            await msg.delete();
+        } catch {}
+    });
+}
+
+async function populateActiveMarkets(db) {
+    try {
+        const { getActiveSessions } = require('./market-db');
+        const sessions = await getActiveSessions(db);
+        for (const s of sessions) {
+            const tid = s.threadid || s.threadId;
+            const oid = s.ownerid || s.ownerID;
+            if (tid && oid) activeMarketOwners.set(tid, oid);
+        }
+    } catch {}
+}
+
 function setupMarketChecker(client, db) {
     setInterval(() => checkExpiredMarketSessions(client, db), 60 * 1000);
+    registerMarketCleaner(client, db);
+    populateActiveMarkets(db);
 }
 
 function clearTimer(threadId) {
@@ -303,5 +333,6 @@ module.exports = {
     setupMarketChecker,
     clearTimer,
     activeTimers,
+    activeMarketOwners,
     getSessionByCaravan,
 };
