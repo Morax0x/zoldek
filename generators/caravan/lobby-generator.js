@@ -4,6 +4,9 @@ const {
     fetchImageSafe, toBuf, R, M, L, rr, divLine
 } = require('./shared');
 
+const { DESTINATION_ENEMIES, DEFAULT_ENEMIES } = require('../../handlers/caravan/combat');
+const { BANDIT_SKILLS } = require('../../handlers/caravan/bandit-skills');
+
 const _absImgCache = new Map();
 async function fetchAbsoluteImage(url) {
     if (!url) return null;
@@ -22,7 +25,7 @@ async function fetchAbsoluteImage(url) {
 // 1. مولد صورة إشعار الكمين 
 // ============================================================================
 async function generateAmbushAlertImage(dest) {
-    const canvas = createCanvas(W, H); // 1600x900
+    const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
     
     try { 
@@ -34,30 +37,66 @@ async function generateAmbushAlertImage(dest) {
     await drawHeader(ctx, 'تحذير أمني عاجل', `القافلة المتجهة إلى ${dest.name} تتعرض لهجوم`);
     drawCornerAccents(ctx);
 
-    const PX = 150, PY = 180, PW = W - 300, PH = H - 280;
+    const PX = 80, PY = 180, PW = W - 160, PH = H - 280;
     drawPanel(ctx, PX, PY, PW, PH, C.red, { radius: 32 });
     
-    // تظليل أحمر مرعب للكمين
     rr(ctx, PX, PY, PW, PH, 32);
-    ctx.fillStyle = 'rgba(231,76,60,0.1)'; ctx.fill();
+    ctx.fillStyle = 'rgba(231,76,60,0.08)'; ctx.fill();
 
-    ctx.font = `120px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('⚔️', W / 2, PY + 120);
+    ctx.font = `80px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('⚔️', W / 2, PY + 70);
 
-    M(ctx, 'قطاع الطرق يحاصرون القافلة!', W / 2, PY + 250, 55, C.red);
-    M(ctx, 'لديك وقت محدود لإرسال الفزعة أو دفع الرشوة والانسحاب.', W / 2, PY + 320, 36, C.textD);
-    
-    const bx1 = PX + 80, bx2 = PX + PW / 2 + 30, bw = PW / 2 - 110, bh = 100, by = PY + 420;
-    
-    // صندوق حماية القافلة
-    rr(ctx, bx1, by, bw, bh, 20); ctx.fillStyle = 'rgba(46,204,113,0.15)'; ctx.fill();
-    ctx.strokeStyle = C.green; ctx.lineWidth = 3; rr(ctx, bx1, by, bw, bh, 20); ctx.stroke();
-    M(ctx, '🛡️ حماية القافلة', bx1 + bw / 2, by + 50, 38, C.green);
+    M(ctx, 'قطاع الطرق يحاصرون القافلة!', W / 2, PY + 160, 45, C.red);
+    M(ctx, 'لديك وقت محدود لإرسال الفزعة أو دفع الرشوة.', W / 2, PY + 215, 30, C.textD);
 
-    // صندوق الرشوة
-    rr(ctx, bx2, by, bw, bh, 20); ctx.fillStyle = 'rgba(231,76,60,0.15)'; ctx.fill();
-    ctx.strokeStyle = C.red; ctx.lineWidth = 3; rr(ctx, bx2, by, bw, bh, 20); ctx.stroke();
-    M(ctx, '💰 دفع رشوة', bx2 + bw / 2, by + 50, 38, C.red);
+    divLine(ctx, PX + 60, PY + 255, PW - 120, C.red + '44');
+
+    // Enemy list
+    const enemies = (dest.id && DESTINATION_ENEMIES[dest.id]) ? DESTINATION_ENEMIES[dest.id] : DEFAULT_ENEMIES;
+    const enemyStartY = PY + 290;
+    const enemyBoxH = 50;
+    const enemyGap = 8;
+
+    for (let i = 0; i < enemies.length; i++) {
+        const enemy = enemies[i];
+        const ey = enemyStartY + i * (enemyBoxH + enemyGap);
+        const skill = BANDIT_SKILLS[enemy.name];
+        const skillStr = skill ? `${skill.emoji} ${skill.name}` : '';
+        const isBoss = enemy.isBoss;
+
+        rr(ctx, PX + 30, ey, PW - 60, enemyBoxH, 10);
+        ctx.fillStyle = isBoss ? 'rgba(231,76,60,0.25)' : 'rgba(0,0,0,0.5)';
+        ctx.fill();
+        ctx.strokeStyle = isBoss ? C.red + '66' : 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1;
+        rr(ctx, PX + 30, ey, PW - 60, enemyBoxH, 10);
+        ctx.stroke();
+
+        ctx.font = isBoss ? `bold 22px ${FA}` : `18px ${FA}`;
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.direction = 'rtl';
+        ctx.fillStyle = isBoss ? C.red : C.text;
+        ctx.fillText(isBoss ? `👑 الموجة ${i + 1}: ${enemy.name}` : `الموجة ${i + 1}: ${enemy.name}`, PX + PW - 45, ey + enemyBoxH / 2);
+
+        if (skillStr) {
+            ctx.font = `16px ${FA}`;
+            ctx.textAlign = 'left';
+            ctx.direction = 'ltr';
+            ctx.fillStyle = C.textD;
+            ctx.fillText(skillStr, PX + 45, ey + enemyBoxH / 2);
+        }
+    }
+
+    const by = PY + PH - 120;
+    const bx1 = PX + 50, bx2 = PX + PW / 2 + 10, bw = PW / 2 - 60, bh = 80;
+
+    rr(ctx, bx1, by, bw, bh, 16); ctx.fillStyle = 'rgba(46,204,113,0.15)'; ctx.fill();
+    ctx.strokeStyle = C.green; ctx.lineWidth = 2.5; rr(ctx, bx1, by, bw, bh, 16); ctx.stroke();
+    M(ctx, '🛡️ حماية القافلة', bx1 + bw / 2, by + 40, 32, C.green);
+
+    rr(ctx, bx2, by, bw, bh, 16); ctx.fillStyle = 'rgba(231,76,60,0.15)'; ctx.fill();
+    ctx.strokeStyle = C.red; ctx.lineWidth = 2.5; rr(ctx, bx2, by, bw, bh, 16); ctx.stroke();
+    M(ctx, '💰 دفع رشوة', bx2 + bw / 2, by + 40, 32, C.red);
     
     return toBuf(canvas);
 }
@@ -316,30 +355,53 @@ async function generateAmbushResultImage(dest, type) {
     await drawHeader(ctx, title, subtitle);
     drawCornerAccents(ctx);
 
-    const PX = 150, PY = 180, PW = W - 300, PH = H - 280;
+    const PX = 80, PY = 180, PW = W - 160, PH = H - 280;
     drawPanel(ctx, PX, PY, PW, PH, C.red, { radius: 32 });
     rr(ctx, PX, PY, PW, PH, 32);
     ctx.fillStyle = 'rgba(231,76,60,0.12)'; ctx.fill();
 
-    ctx.font = `140px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('💀', W / 2, PY + 100);
+    ctx.font = `100px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('💀', W / 2, PY + 80);
 
-    M(ctx, `نُهبت قافلة ${dest.name}!`, W / 2, PY + 230, 50, C.red);
-    M(ctx, 'قطاع الطرق استولوا على البضائع', W / 2, PY + 290, 36, C.textD);
+    M(ctx, `نُهبت قافلة ${dest.name}!`, W / 2, PY + 170, 45, C.red);
+    M(ctx, 'قطاع الطرق استولوا على البضائع', W / 2, PY + 220, 30, C.textD);
 
-    divLine(ctx, PX + 100, PY + 340, PW - 200, C.red + '44');
+    divLine(ctx, PX + 60, PY + 255, PW - 120, C.red + '44');
+
+    const enemies = (dest.id && DESTINATION_ENEMIES[dest.id]) ? DESTINATION_ENEMIES[dest.id] : DEFAULT_ENEMIES;
+    const ey2 = PY + 285;
+    M(ctx, 'قطاع الطرق الذين هاجموا القافلة:', W / 2, ey2, 26, C.textD);
+
+    for (let i = 0; i < enemies.length; i++) {
+        const enemy = enemies[i];
+        const ey = ey2 + 50 + i * 40;
+        const skill = BANDIT_SKILLS[enemy.name];
+        const skillStr = skill ? `${skill.emoji} ${skill.name}` : '';
+        const isBoss = enemy.isBoss;
+
+        ctx.font = isBoss ? `bold 20px ${FA}` : `17px ${FA}`;
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.direction = 'rtl';
+        ctx.fillStyle = isBoss ? C.red : C.text;
+        ctx.fillText(isBoss ? `👑 ${enemy.name}` : `◈ ${enemy.name}`, PX + PW - 40, ey);
+
+        if (skillStr) {
+            ctx.font = `15px ${FA}`;
+            ctx.textAlign = 'left';
+            ctx.direction = 'ltr';
+            ctx.fillStyle = C.textD;
+            ctx.fillText(skillStr, PX + 40, ey);
+        }
+    }
 
     const details = isTimeout
-        ? 'انتهت مهلة الـ 30 دقيقة دون رد من مالك القافلة'
-        : 'فشل تجميع الحراس للدفاع عن القافلة';
-    M(ctx, `❌ ${details}`, W / 2, PY + 410, 32, '#FF6666');
+        ? '❌ انتهت مهلة الـ 30 دقيقة دون رد من مالك القافلة'
+        : '❌ فشل تجميع الحراس للدفاع عن القافلة';
 
-    M(ctx, '⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة', W / 2, PY + 470, 30, C.textD);
-
-    const iconY = PY + 560;
-    ctx.font = `70px ${FE}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('🏚️', W / 2 - 80, iconY);
-    ctx.fillText('💸', W / 2 + 80, iconY);
+    const summaryY = ey2 + 50 + enemies.length * 40 + 20;
+    divLine(ctx, PX + 60, summaryY, PW - 120, C.red + '44');
+    M(ctx, details, W / 2, summaryY + 45, 28, '#FF6666');
+    M(ctx, '⏳ كولداون ساعة واحدة قبل إرسال قافلة جديدة', W / 2, summaryY + 95, 26, C.textD);
 
     return toBuf(canvas);
 }
