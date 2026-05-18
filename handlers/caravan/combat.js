@@ -1311,26 +1311,20 @@ async function handleEscortReady(data) {
         // Everyone in the party (owner + guards) gets cumulative rewards
         const rewardRes = await distributePartyRewards(db, party, guild.id, wavesCleared, lootPenalty);
 
-        // خصم ذري لرسوم الرحلة وإرسال القافلة
+        // خصم رسوم الرحلة وإرسال القافلة
         {
             const { sendCaravan } = require('./journey');
-            let deductRes = null;
-            try {
-                deductRes = await db.query(
-                    `UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3 AND "mora" >= $1 RETURNING "mora"`,
-                    [dest.cost, hostId, guild.id]
-                );
-            } catch(e) {
-                deductRes = await db.query(
-                    `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3 AND mora >= $1 RETURNING mora`,
-                    [dest.cost, hostId, guild.id]
-                ).catch(() => null);
-            }
-            if (!deductRes?.rows?.[0]) {
+            const hostMora = await getMora(db, hostId, guild.id);
+            if (hostMora < dest.cost) {
                 for (const uid of party) if (uid !== hostId) await refundGuardTickets(db, uid, guild.id, null).catch(() => {});
                 await thread.send(`❌ <@${hostId}> رصيدك غير كافٍ لإرسال القافلة! (تحتاج ${dest.cost.toLocaleString()} مورا)\n🎟️ تم إرجاع التذاكر للحراس.`).catch(() => {});
             } else {
-                console.log(`[Escort] mora deducted for ${hostId}, new balance=${deductRes.rows[0].mora}`);
+                try {
+                    await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [dest.cost, hostId, guild.id]);
+                } catch(e) {
+                    await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [dest.cost, hostId, guild.id]).catch(() => {});
+                }
+                console.log(`[Escort] mora deducted ${dest.cost} for ${hostId}`);
                 // Pass channel.id so the arrival checker knows where to open the market thread
                 cvResult = await sendCaravan(db, hostId, guild.id, destId, savedArts, channel?.id || null);
                 if (cvResult?.error) {

@@ -576,34 +576,26 @@ module.exports = {
                     const savedArts  = client.caravanEquip?.get(sessionKey) || [];
                     const channelId = i.message ? i.message.channelId : i.channelId;
 
-                    // خصم ذري: يخصم فقط إذا كان الرصيد كافياً في نفس الاستعلام
-                    let deductRes = null;
-                    try {
-                        deductRes = await db.query(
-                            `UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3 AND "mora" >= $1 RETURNING "mora"`,
-                            [dest.cost, user.id, guild.id]
-                        );
-                    } catch(e) {
-                        deductRes = await db.query(
-                            `UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3 AND mora >= $1 RETURNING mora`,
-                            [dest.cost, user.id, guild.id]
-                        ).catch(() => null);
-                    }
-                    if (!deductRes?.rows?.[0]) {
-                        const mora = await getMora(db, user.id, guild.id);
-                        await i.followUp({ content: `❌ رصيدك غير كافٍ! تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA} (رصيدك: **${mora.toLocaleString()}**)`, flags: [MessageFlags.Ephemeral] });
+                    // التحقق من الرصيد ثم الخصم
+                    const currentMora = await getMora(db, user.id, guild.id);
+                    if (currentMora < dest.cost) {
+                        await i.followUp({ content: `❌ رصيدك غير كافٍ! تحتاج **${dest.cost.toLocaleString()}** ${EMOJI_MORA} (رصيدك: **${currentMora.toLocaleString()}**)`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
                     }
-                    console.log(`[DirectSend] mora deducted for ${user.id}, new balance=${deductRes.rows[0].mora}`);
+                    try {
+                        await db.query(`UPDATE levels SET "mora" = "mora" - $1 WHERE "user" = $2 AND "guild" = $3`, [dest.cost, user.id, guild.id]);
+                    } catch(e) {
+                        await db.query(`UPDATE levels SET mora = mora - $1 WHERE userid = $2 AND guildid = $3`, [dest.cost, user.id, guild.id]).catch(() => {});
+                    }
+                    console.log(`[DirectSend] mora deducted ${dest.cost} for ${user.id}`);
 
                     const result = await sendCaravan(db, user.id, guild.id, destId, savedArts, channelId);
 
                     if (result.error) {
                         // استرداد الرصيد لأن القافلة لم تنطلق
-                        await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [dest.cost, user.id, guild.id]).catch(() =>
-                            db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [dest.cost, user.id, guild.id]).catch(() => {})
-                        );
+                        try { await db.query(`UPDATE levels SET "mora" = "mora" + $1 WHERE "user" = $2 AND "guild" = $3`, [dest.cost, user.id, guild.id]); }
+                        catch(e) { await db.query(`UPDATE levels SET mora = mora + $1 WHERE userid = $2 AND guildid = $3`, [dest.cost, user.id, guild.id]).catch(() => {}); }
                         await i.followUp({ content: `❌ ${result.error}`, flags: [MessageFlags.Ephemeral] });
                         activeProcesses.delete(user.id);
                         return;
