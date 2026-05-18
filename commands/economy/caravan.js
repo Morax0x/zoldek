@@ -133,6 +133,10 @@ function adminRow(disabled = false) {
 function secondaryRow(hasActiveCaravan = false, disabled = false, userId = null) {
     const row = new ActionRowBuilder();
 
+    row.addComponents(
+        new ButtonBuilder().setCustomId('cv_active').setLabel('قوافل نشطة').setEmoji('🐪').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
+    );
+
     if (!hasActiveCaravan) {
         row.addComponents(
             new ButtonBuilder().setCustomId('cv_market_staging').setLabel('تجهـيز البضاعـة').setEmoji('🏪').setStyle(ButtonStyle.Primary).setDisabled(disabled),
@@ -142,9 +146,7 @@ function secondaryRow(hasActiveCaravan = false, disabled = false, userId = null)
         );
     } else {
         row.addComponents(
-            new ButtonBuilder().setCustomId('cv_upgrade').setLabel('الترقـيـات').setStyle(ButtonStyle.Danger).setEmoji('🚀').setDisabled(disabled)
-        );
-        row.addComponents(
+            new ButtonBuilder().setCustomId('cv_upgrade').setLabel('الترقـيـات').setStyle(ButtonStyle.Danger).setEmoji('🚀').setDisabled(disabled),
             new ButtonBuilder().setCustomId('cv_back').setEmoji('↩️').setLabel('رجوع').setStyle(ButtonStyle.Secondary).setDisabled(disabled)
         );
     }
@@ -296,7 +298,7 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            const fastButtons = new Set(['cv_admin_toggle', 'cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2']);
+            const fastButtons = new Set(['cv_admin_toggle', 'cv_market_staging', 'cv_back', 'cv_status_toggle', 'cv_status', 'cv_eq_slot_0', 'cv_eq_slot_1', 'cv_eq_slot_2', 'cv_active']);
 
             if (!fastButtons.has(i.customId) && !i.customId.startsWith('stg_')) {
                 if (activeProcesses.has(user.id)) {
@@ -941,6 +943,43 @@ module.exports = {
                             } catch (e) {}
                         }
                     } catch (e) {}
+                }
+
+                else if (id === 'cv_active') {
+                    const caravansRes = await safeQuery(db,
+                        `SELECT * FROM user_caravans WHERE "guildID"=$1 AND "status"!='completed' ORDER BY "startTime" DESC`,
+                        [guild.id]);
+                    const rows = caravansRes?.rows || [];
+                    if (rows.length === 0) {
+                        await i.followUp({ content: '📭 لا توجد قوافل نشطة حالياً.', flags: [MessageFlags.Ephemeral] });
+                        return;
+                    }
+                    const fields = await Promise.all(rows.map(async r => {
+                        const dest = caravanConfig.destinations.find(d => d.id === (r.destinationid || r.destinationId));
+                        const remaining = Math.max(0, r.endTime - Date.now());
+                        const total = r.endTime - r.startTime;
+                        const pct = total > 0 ? ((1 - remaining / total) * 100).toFixed(0) : 0;
+                        const eta = `<t:${Math.floor(r.endTime / 1000)}:R>`;
+                        const underAttack = Number(r.attackResolved ?? 0) === 0
+                            && r.attackScheduledAt
+                            && Number(r.attackScheduledAt) > 0
+                            && r.attackScheduledAt <= Date.now();
+                        const status = underAttack ? '⚔️ تحت الهجوم' : `✅ ${pct}%`;
+                        return {
+                            name: `${dest?.emoji || '🐪'} ${dest?.name || 'غير معروفة'}`,
+                            value: `<@${r.userID}> — ${status} — ${eta}`,
+                            inline: false,
+                        };
+                    }));
+                    await i.followUp({
+                        embeds: [new EmbedBuilder()
+                            .setColor('#F5C518')
+                            .setTitle(`🐪 القوافل النشطة — ${rows.length}`)
+                            .addFields(fields)
+                            .setFooter({ text: '™ Empire' })
+                            .setTimestamp()],
+                        flags: [MessageFlags.Ephemeral],
+                    });
                 }
 
                 else if (id === 'cv_back') {
