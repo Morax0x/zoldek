@@ -128,9 +128,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     for (const s of statItems) {
         rr(ctx, LX + 18, sy - 15, LW - 36, 36, 10);
         ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fill();
-        R(ctx, s.label, LX + LW - 28, sy + 3, 16, C.textD);
-        L(ctx, s.val,   LX + 28,      sy + 3, 18, s.col || C.text);
-        sy += 42;
+        R(ctx, s.label, LX + LW - 28, sy + 3, 18, C.textD);
+        L(ctx, s.val,   LX + 28,      sy + 3, 20, s.col || C.text);
+        sy += 46;
     }
 
     divLine(ctx, LX + 25, sy + 5, LW - 50, rank.color + '33');
@@ -147,11 +147,11 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
     ctx.strokeStyle = arcCol; ctx.lineWidth = 8; ctx.lineCap = 'round';
     ctx.shadowColor = arcCol; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
     
-    ctx.font = `bold 18px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#FFFFFF'; ctx.fillText(`${(successRate * 100).toFixed(1)}%`, arcX1, arcY1 - 8);
+    ctx.font = `bold 20px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#FFFFFF'; ctx.fillText(`${(successRate * 100).toFixed(1)}%`, arcX1, arcY1 - 10);
     
-    ctx.font = `11px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
-    ctx.fillText('معدل النجاح', arcX1, arcY1 + 14);
+    ctx.font = `14px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
+    ctx.fillText('معدل النجاح', arcX1, arcY1 + 18);
 
     const MX = 480, MY = 150, MW = 630, MH = 710;
     const RX = 1130, RY = 150, RW = 440, RH = 710;
@@ -389,12 +389,12 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
             { label: 'المكافات',        val: `× ${rm.toFixed(2)}`,             vc: rmC },
         ];
         for (const row of infoRows) {
-            rr(ctx, RX + 18, rpy - 22, RW - 36, 52, 12);
+            rr(ctx, RX + 18, rpy - 24, RW - 36, 56, 12);
             ctx.fillStyle = 'rgba(0,0,0,0.65)';
             ctx.fill();
-            R(ctx, row.label, RX + RW - 26, rpy + 4, 20, C.textD);
-            L(ctx, row.val,   RX + 26,      rpy + 4, 22, row.vc);
-            rpy += 68;
+            R(ctx, row.label, RX + RW - 26, rpy + 4, 22, C.textD);
+            L(ctx, row.val,   RX + 26,      rpy + 4, 24, row.vc);
+            rpy += 76;
         }
 
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -408,11 +408,11 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         ctx.strokeStyle = acc; ctx.lineWidth = 8; ctx.lineCap = 'round';
         ctx.shadowColor = acc; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
         
-        ctx.font = `bold 18px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#FFFFFF'; ctx.fillText(`${(prog * 100).toFixed(1)}%`, arcX2, arcY2 - 8);
+        ctx.font = `bold 20px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#FFFFFF'; ctx.fillText(`${(prog * 100).toFixed(1)}%`, arcX2, arcY2 - 10);
         
-        ctx.font = `11px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
-        ctx.fillText('نسبة التقدم', arcX2, arcY2 + 14);
+        ctx.font = `14px "Bein", "Arial", sans-serif`; ctx.fillStyle = C.textD;
+        ctx.fillText('نسبة التقدم', arcX2, arcY2 + 18);
 
     } else {
         ctx.save();
@@ -493,9 +493,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
 
             ctx.font = `28px ${FE}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
             ctx.fillText(u.emoji, RX + 26, rpy + 30);
-            L(ctx, u.name, RX + 68, rpy + 16, 18, C.text);
-            drawBar(ctx, RX + 68, rpy + 44, RW - 106, 14, lvl2 / maxLvl, u.col, false);
-            L(ctx, `${lvl2}/${maxLvl}`, RX + 68, rpy + 66, 13, u.col);
+            L(ctx, u.name, RX + 68, rpy + 16, 20, C.text);
+            drawBar(ctx, RX + 68, rpy + 46, RW - 106, 14, lvl2 / maxLvl, u.col, false);
+            L(ctx, `${lvl2}/${maxLvl}`, RX + 68, rpy + 68, 15, u.col);
             rpy += 90;
         }
         divLine(ctx, RX + 26, rpy + 4, RW - 52, C.gold + '33'); rpy += 24;
@@ -505,9 +505,9 @@ async function generateCaravanHub(user, stats, active, mora, profExtra = {}) {
         rr(ctx, RX + 16, rpy, RW - 32, 76, 12);
         ctx.fill();
         
-        M(ctx, `${success} رحلة ناجحة من ${trips}`, RX + RW / 2, rpy + 20, 17, C.text);
-        drawBar(ctx, RX + 36, rpy + 34, RW - 72, 20, pct, C.gold, false);
-        M(ctx, `معدل النجاح ${(pct * 100).toFixed(0)}%`, RX + RW / 2, rpy + 66, 14, C.textD);
+        M(ctx, `${success} رحلة ناجحة من ${trips}`, RX + RW / 2, rpy + 20, 19, C.text);
+        drawBar(ctx, RX + 36, rpy + 36, RW - 72, 20, pct, C.gold, false);
+        M(ctx, `معدل النجاح ${(pct * 100).toFixed(0)}%`, RX + RW / 2, rpy + 68, 16, C.textD);
         rpy += 86;
     }
 
